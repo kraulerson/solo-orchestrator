@@ -9005,8 +9005,25 @@ permissive tier on absent data
 **Severity:** **Real, not cosmetic.** This is a fail-OPEN on the surface that
 decides whether a project is *allowed to weaken its own enforcement*. Every other
 tier reader in the framework fails closed on absent data; this one does not.
-**Status:** Open — BOTH candidate fixes implemented on branch
-`fix/bl221-tier-keys-and-probe`; close on merge with the PR number.
+**Status:** **Closed** — both fixes shipped in **PR #356**
+(`fix/bl221-tier-keys-and-probe`, merge `d243f77`).
+
+Five adversarial review rounds on that branch attacked this entry directly and
+**every BL-221 claim survived**: the reviewer built an adopted-shape
+organizational project and ran the real downgrade through
+`reconfigure-project.sh` — on base the tier gate raised zero objections and
+wrote the downgrade, on head it refuses before any mutation. The jq `//`
+behaviour across six input shapes, the `# BL-084-TIER-KEY` sync-sibling
+question and the adoption-parity variables all held.
+
+**One defect WAS found, and it was in the test, not the fix.** `W1` took three
+narrowings to stop being vacuous: it first passed because the fix's own
+explanatory COMMENT names all three keys in prose; then because
+`$ADOPT_DEPLOYMENT` and `$ADOPT_POC_MODE` occur as shell variables on executed
+lines; then because `adopt_write_phase_state` legitimately writes the same three
+keys to a DIFFERENT file. It is now scoped to `adopt_write_manifest`'s body,
+comments stripped, matching the key-ASSIGNMENT form — and `M2` requires all
+three to go missing at once. Suite 11 → 12 cases.
 
 ### Both, because neither subsumes the other
 
@@ -11085,8 +11102,44 @@ the behaviour), `## BL-221:` (missing key ⇒ permissive default).
 different surface, deliberately left unfixed there so the fix is not smuggled in
 under an unrelated diff)
 **Category:** Silent-success — declaration read as capability
-**Status:** Open — implemented on branch `fix/bl221-tier-keys-and-probe`; close
-on merge with the PR number.
+**Status:** **Closed** — shipped in **PR #356**
+(`fix/bl221-tier-keys-and-probe`, merge `d243f77`). CI tallies read rather than
+the tick: 176 unit files across five shards, 0 failed.
+
+**THREE RESIDUALS ARE DELIBERATELY NOT DONE, and none of them is "nothing left
+to do":**
+
+1. **The bound stops the WAIT, not the PIPELINE.** Orphaned pipeline members
+   outlive their `bash -c` parent and run to their own completion. They hold
+   only the capture temp file and `/dev/null` — never the consumer's pipe, which
+   is why the consumer returns at the bound. Measured on 12 rows × a 20s
+   pipeline at a 1s bound: returned in 12s, temp-file delta 0, process count
+   back to baseline once the orphans expired. A bounded-lifetime leak, not
+   handle exhaustion.
+2. **The resolver's half of the three-state contract.** `check-versions.sh` now
+   renders `rc=2` distinctly (`# BL-235-THIRD-STATE`), which is need #3 for the
+   human-facing surface. A distinct BUCKET in `scripts/resolve-tools.sh`'s JSON
+   is a schema change with many consumers and was not attempted.
+3. **`templates/tool-matrix/*.json` is in no sync set** — see below. Recorded,
+   not fixed; the ordering is safe and the entry says why.
+
+**What the five review rounds were actually evidence of.** The verdicts ran
+`block` → `block` → `minor_concerns` → `block` → `block` → `approve`, and **four
+of the five rounds found a defect in the TEST rather than the product**: an
+assertion of `-ne 0` where the truth was exactly 2; a `C6` that passed when the
+value it guarded vanished entirely; an `M13` message naming a range its mutant
+did not use; a `C5` grepping the wrong fixture row name. Worse, `_mutate`
+escaped `&` but not backslash-DIGIT — and `\0`…`\9` are BACKREFERENCES in a sed
+replacement — so **three mutation proofs silently proved nothing** while
+reporting `sites=1 parses=1`. Twelve `_mutate` cases now assert `changed >= 2`;
+`M2` uses `_mutate_json`, where jq's whole-file re-emit satisfies that guard
+even on a filter matching nothing, and that exception is noted in place rather
+than papered over.
+
+The product fixes held up under attack. The verification of them did not,
+repeatedly, and only an adversary reading the ASSERTIONS rather than the results
+caught it. That is the transferable finding of this entry, more than any single
+probe.
 
 ### The prerequisite the entry did not know it had
 
