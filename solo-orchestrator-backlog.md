@@ -10029,7 +10029,64 @@ true
 claim-by-claim against the tree. That is exactly why this is worth filing —
 **the accuracy has no way of surviving.** It went six weeks and ~40 PRs out of
 date last time, and the only thing that caught it was a human asking.
-**Status:** Open
+**Status:** Open — **three arms shipped**; two residuals below, one of them
+split out as `## BL-240:`.
+
+### What shipped (`# BL-230-WORKFLOW-ARM`, `# BL-230-PROSE-HTML`) <!-- lint-bl-markers: allow BL-230-PROSE-HTML lives inside lint-bl-markers.sh, which excludes ITSELF from the code surface (# BL-196-SELF-EXCLUDE-BEGIN) so it cannot self-certify; a marker defined there is unresolvable from prose by construction -->
+
+Re-derived first, and the entry's own counts needed correcting: the page carries
+**13 real marker citations, not 18**. Two of the 18 are extraction artefacts a
+naive lint would have red-ed on immediately — `BL-219` is a bare backlog ENTRY
+id (`<code>## BL-219:</code>`, no suffix) and `DELTA-NNN` is a placeholder inside
+a shell command. The page is **accurate today**: 13 markers, 3 entry refs, 7
+links and 2 in-page anchors all resolve.
+
+- **`lint-doc-anchors.sh`** gained a `workflow.html` arm: relative doc links and
+  in-page anchors must resolve. **BLOCKING**, unlike the BL-090 cross-file arm
+  beside it, whose warn-tier is a measured-rollout decision about the whole docs
+  corpus and does not apply to one file whose 7 links all resolve today.
+- **`lint-bl-markers.sh`** gained the page via a **NORMALISER, not a second
+  extractor** — `<code>`→backtick, `&nbsp;`→space, entity-decode — so the one
+  existing citation reader handles it and there is no HTML-shaped copy of "what
+  counts as a citation" to drift.
+- **`<!--` joins `#` as a comment prefix.** One real citation,
+  `BL-170-APPEND-DESIGN`, is written `<code>&lt;!-- MARKER --&gt;</code>` because
+  the file it marks is a `.tmpl` with no `#` syntax. A `#`-only reader checks 12
+  of 13 and reports clean — the exact vacuity this entry warned the arm could
+  take. `M4` in the suite deletes that alternative from a copy of the lint and
+  watches the corruption go undetected, so the branch is proven load-bearing.
+- **Vacuity floors on both arms** (`# BL-230-WORKFLOW-FLOOR`,
+  `# BL-230-PROSE-FLOOR`), exiting **2** — cannot tell — never 0. Both default <!-- lint-bl-markers: allow same self-exclusion as above: the marker is defined inside lint-bl-markers.sh, which is not part of its own code surface -->
+  to 0 under the fixture flags (`--docs-dir`, `--root`), matching the existing
+  floor convention, because a floor that fires on every fixture makes an arm
+  untestable and that is how an arm ends up asserted rather than measured.
+- **Proof:** `tests/test-bl230-workflow-html-lint-surface.sh`, 8 cases. The two
+  mutations adversarial review used to file this entry — break a link, corrupt a
+  cited marker — now red, and `F1` requires a CORRECT page to stay green with
+  the entry id and the placeholder present, so the fix cannot cry wolf.
+
+### RESIDUAL 1 — the marker arm covers 6 of the 13 citations
+
+`lint-bl-markers.sh` resolves markers against `## BL-NNN:` **entries**, so its
+extractors are `BL-[0-9]+-…`-shaped throughout. Only 6 of the page's 13
+citations are that shape:
+
+| checked | not checked |
+|---|---|
+| `BL-070-GATE-CHECK`, `BL-071-WRITE`, `BL-073-ESCALATE`, `BL-104-MANIFEST-ARM`, `BL-115-DATE-CELL`, `BL-170-APPEND-DESIGN` | `BF-ADOPT-BOUND`, `BF-ADOPT-GATE-ISSUES`, `CADENCE-DEFAULT-DEEP`, `CADENCE-DEFAULT-ROUTINE`, `CADENCE-POLICY-READ`, `CUTREL-TAG-FORMAT`, `DELTA-OPEN-ERA-GUARD` |
+
+The seven have no backlog entry to resolve to, so covering them means widening
+the DEFINITION extractor's vocabulary across the entire code surface — a change
+to a **required status check**, with real false-positive risk on any `# FOO-BAR`
+comment. That is a separate decision and is deliberately not smuggled in; the
+floor is set to what the arm ACTUALLY covers rather than to the number it would
+be flattering to claim.
+
+### RESIDUAL 2 — the footer stamp
+
+Split out as **`## BL-240:`**, because a staleness check reds from time passing
+rather than from a defect, and that deserves its own design argument rather than
+being bolted onto a lint that currently only reds when something is wrong.
 
 **Measured on the refresh branch.** The page cites **18 distinct code markers**
 (`BL-070-GATE-CHECK`, `BL-071-WRITE`, `BL-073-ESCALATE`, `BL-104-MANIFEST-ARM`,
@@ -11882,3 +11939,54 @@ something attributable to a known arm. Not built.
 shape, one layer down), `## BL-096:` (the entry that added this installer),
 `## BL-237:` (a mode bit turning enforcement into a silent skip),
 `## BL-234:` / `## BL-235:` (registered ≠ working, the family this belongs to).
+
+---
+
+## BL-240: `workflow.html`'s "Verified against the tree on YYYY-MM-DD" stamp has no mechanism — and a staleness check is a lint that can red without a defect
+
+**Logged:** 2026-08-17 (split out of `## BL-230:` deliberately, at Karl's
+direction, rather than built into the lint that entry produced)
+**Category:** Unguarded surface — but the guard has a cost the sibling arms do
+not, and that is the whole question
+**Status:** Open — **design decision first, not a build task**
+
+### What the marker and link arms structurally cannot catch
+
+`## BL-230:` shipped three checks over `workflow.html`: relative links resolve,
+in-page anchors resolve, and cited `BL-NNN-…` markers still exist. All three ask
+*"does the thing this page points at exist?"*
+
+**None of them can see a sentence that has become false while the marker it cites
+still exists.** That is the actual rot mode: `scripts/resume.sh` grew a fourth
+branch while `CLAUDE.md` and the script's own header still said three — every
+marker in that prose resolved perfectly the whole time. The page carries a
+footer stamp for exactly this reason, and nothing reads it.
+
+### Why this was NOT built alongside the other three
+
+A staleness check **fails from time passing, not from a defect**. Every other
+lint in this repo reds because something is wrong; this one would red because a
+calendar advanced while the page was still, possibly, entirely correct. That is
+cry-wolf by construction, and this repo has a standing position on checks that
+report something other than what they measure (`## BL-104:`'s `[WARN]` label over
+a blocking increment; `## BL-112:`'s "did not run" ≠ "found nothing").
+
+### The design question, which is the actual work
+
+**If it is built, WARN or BLOCK?** The argument for WARN is that the check
+cannot distinguish "stale" from "still true, just old", so blocking on it
+punishes the honest state. The argument against WARN is `## BL-090:`'s arm in
+`lint-doc-anchors.sh`, which has been warn-tier since 2026-07-21 with a standing
+"escalate once the population stays at zero" — a warn that nobody escalates is a
+lint nobody reads.
+
+**A better mechanism may exist.** Comparing the stamp against the page's own
+last-modified commit is one option (`git log -1 --format=%cI -- workflow.html`)
+— that at least measures *"the page changed after it was last verified"*, which
+IS a defect rather than a date. It reds only when someone edits the page without
+re-verifying, which is the behaviour worth enforcing. That framing may make the
+whole cry-wolf objection go away, and it is worth designing before coding.
+
+**Related:** `## BL-230:` (the three arms that DO exist, and why this one was
+held back), `## BL-090:` (a warn-tier arm still waiting to be escalated),
+`## BL-112:` (a status that means something other than what the caller reads).

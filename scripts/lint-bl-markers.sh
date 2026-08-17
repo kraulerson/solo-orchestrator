@@ -423,11 +423,19 @@ cat > "$EXTRACT_CITES" <<'AWK'
   if (probe ~ /lint-bl-markers:[ \t]*allow[ \t]+[^ \t]/) ann = "allow"
   else if (probe ~ /lint-bl-markers:[ \t]*allow/)        ann = "allow-empty"
   line = $0
-  while (match(line, /`[[:space:]]*#?[[:space:]]*BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_*-]*`|#[[:space:]]*BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_*-]*/)) {
+  # BL-230: `<!--` joins `#` as a COMMENT PREFIX. A marker in an HTML or
+  # markdown template is written `<!-- BL-170-APPEND-DESIGN -->`, because that
+  # file has no `#` comment syntax — and workflow.html cites it in exactly that
+  # form. It is a THIRD alternative rather than a tweak to the backticked one:
+  # the backticked branch requires a CLOSING backtick, and the real citation is
+  # `<!-- MARKER -->` with ` -->` between the token and that backtick, so the
+  # token would never reach it. The match still ends at the marker pattern, so
+  # the trailing ` -->` is simply never consumed.
+  while (match(line, /`[[:space:]]*#?[[:space:]]*BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_*-]*`|#[[:space:]]*BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_*-]*|<!--[[:space:]]*BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_*-]*/)) {
     tok = substr(line, RSTART, RLENGTH)
     line = substr(line, RSTART + RLENGTH)
     gsub(/`/, "", tok)
-    sub(/^[[:space:]]*#?[[:space:]]*/, "", tok)
+    sub(/^[[:space:]]*(#|<!--)?[[:space:]]*/, "", tok)
     sub(/[-*]+$/, "", tok)
     print FILENAME "\t" FNR "\t" tok "\t" ann
   }
@@ -439,6 +447,51 @@ PROSE_FILES="$TMPD/prose-files"
 for prose_entry in CLAUDE.md README.md CONTRIBUTING.md solo-orchestrator-backlog.md; do
   [ -f "$ROOT/$prose_entry" ] && printf '%s\n' "$prose_entry" >> "$PROSE_FILES"
 done
+
+# ── BL-230: workflow.html joins the prose surface, via a NORMALISER ──────
+# The page cites 13 real markers and sat outside this lint entirely: the prose
+# surface was CLAUDE.md, README.md, CONTRIBUTING.md, the backlog and docs/**,
+# and a root-level .html is in none of them. Adversarial review corrupted a
+# cited marker there and this lint returned rc 0.
+#
+# IT IS NORMALISED, NOT PARSED BY A SECOND EXTRACTOR. `EXTRACT_CITES` above is
+# the one owner of "what counts as a citation", and a second HTML-shaped copy
+# of that rule would be the sync-sibling trap in the one place this repo has
+# paid for it repeatedly. So the HTML is rewritten into the shape the existing
+# extractor already reads, and then read by it:
+#
+#   <code> and </code>   ->  `        (HTML's "marked as code" IS the backtick)
+#   &nbsp; / &#160;      ->  space    (`#&nbsp;BL-…` is the page's normal form)
+#   &lt; &gt; &amp;      ->  < > &    (so `&lt;!-- BL-… --&gt;` becomes a comment)
+#
+# WHY THE ENTITY DECODE MATTERS, measured: of the page's 13 real marker
+# citations, 12 are `<code>#&nbsp;MARKER</code>` and ONE —
+# `BL-170-APPEND-DESIGN` — is `<code>&lt;!-- MARKER --&gt;</code>`, because the
+# file it marks is a `.tmpl` where the comment syntax is `<!-- -->` and not `#`.
+# A `#`-only reader silently checks 12 of 13 and reports a clean pass, which is
+# the vacuity `## BL-230:` explicitly warns this arm could take.
+#
+# WHAT IT DELIBERATELY DOES NOT MATCH, because the page contains both and
+# neither is a marker citation:
+#   <code>## BL-219:</code>                 an ENTRY id (`##`, trailing colon)
+#   <code>… --retro DELTA-NNN …</code>      a placeholder inside a command
+# Both are excluded by the same rule CLAUDE.md already states — a citation
+# counts only when prose marks it as CODE with a comment prefix — so this arm
+# inherits that predicate instead of inventing a looser one.
+WORKFLOW_HTML="$ROOT/workflow.html"                                    # BL-230-PROSE-HTML
+WF_NORMALISED=""
+if [ -f "$WORKFLOW_HTML" ]; then
+  WF_NORMALISED="$TMPD/workflow.html.normalised.md"
+  sed -e 's|</\{0,1\}code>|`|g' \
+      -e 's/&nbsp;/ /g' -e 's/&#160;/ /g' \
+      -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g' \
+      "$WORKFLOW_HTML" > "$WF_NORMALISED"
+  # ABSOLUTE path: the extractor runs under `cd "$ROOT"` and the normalised
+  # copy lives in TMPD, outside the tree. The temp path is rewritten back to
+  # `workflow.html` in the CITES output below, so no operator ever sees a
+  # /tmp path in a diagnostic about their page.
+  printf '%s\n' "$WF_NORMALISED" >> "$PROSE_FILES"
+fi
 if [ -d "$ROOT/docs" ]; then
   while IFS= read -r found; do
     [ -n "$found" ] || continue
@@ -454,6 +507,45 @@ CITES="$TMPD/cites"
 if [ -s "$PROSE_FILES" ]; then
   ( cd "$ROOT" && tr '\n' '\0' < "$PROSE_FILES" \
       | xargs -0 awk -f "$EXTRACT_CITES" 2>/dev/null ) > "$CITES"
+fi
+
+# BL-230: report the page by its real name, never the temp path it was
+# normalised into, and enforce a VACUITY FLOOR on it.
+if [ -n "$WF_NORMALISED" ] && [ -s "$CITES" ]; then
+  WF_CITES=$(grep -cF "$WF_NORMALISED" "$CITES" 2>/dev/null) || WF_CITES=0
+  case "$WF_CITES" in ''|*[!0-9]*) WF_CITES=0 ;; esac
+  # "The scan found nothing" is not "the page is clean". If the page is
+  # rewritten with different markup, the normaliser silently yields zero
+  # citations and this arm reports a clean pass over an unexamined file —
+  # which is the defect `## BL-230:` names as the risk of adding it.
+  #
+  # THE FLOOR IS 4 BECAUSE THIS ARM SEES 6, NOT 13, AND THAT IS NOT A BUG —
+  # it is this lint's vocabulary, and it is worth stating rather than rounding
+  # up. The page carries 13 real marker citations. This lint resolves markers
+  # against `## BL-NNN:` ENTRIES, so its extractors are `BL-[0-9]+-…`-shaped
+  # throughout, and only 6 of the 13 are that shape:
+  #     checked   BL-070-GATE-CHECK BL-071-WRITE BL-073-ESCALATE
+  #               BL-104-MANIFEST-ARM BL-115-DATE-CELL BL-170-APPEND-DESIGN
+  #     NOT       BF-ADOPT-BOUND BF-ADOPT-GATE-ISSUES CADENCE-DEFAULT-DEEP
+  #               CADENCE-DEFAULT-ROUTINE CADENCE-POLICY-READ
+  #               CUTREL-TAG-FORMAT DELTA-OPEN-ERA-GUARD
+  # Those seven have no backlog entry to resolve to, so covering them means
+  # widening the DEFINITION extractor's vocabulary across the whole code
+  # surface — a change to a required status check, with real false-positive
+  # risk on any `# FOO-BAR` comment. That is a separate decision, recorded on
+  # `## BL-230:` rather than smuggled in here. Set the floor for what this arm
+  # ACTUALLY covers; a floor of 8 would be enforcing a coverage it does not have.
+  # Under --root the floor defaults to 0, exactly as MIN_MARKERS/MIN_CITES/
+  # MIN_ENTRIES do above: a fixture tree is SUPPOSED to be small, and a floor
+  # that fires on every fixture would make this arm untestable — which is how
+  # an arm ends up with no mutation proof at all.
+  if [ -n "$ROOT_OVERRIDE" ]; then WF_FLOOR="${MIN_WORKFLOW_CITES:-0}"; else WF_FLOOR="${MIN_WORKFLOW_CITES:-4}"; fi
+  if [ "$WF_CITES" -lt "$WF_FLOOR" ]; then                             # BL-230-PROSE-FLOOR
+    echo "lint-bl-markers: workflow.html yielded $WF_CITES marker citation(s) — below the floor ($WF_FLOOR)." >&2
+    echo "  That is 'the extraction broke', not 'the page cites nothing'. The normaliser or the page's markup has changed. Refusing to report a verdict." >&2
+    exit 2
+  fi
+  sed -i.bak "s|$WF_NORMALISED|workflow.html|g" "$CITES" 2>/dev/null && rm -f "$CITES.bak"
 fi
 
 PROSE_CITES=$(grep -c . "$CITES" 2>/dev/null) || PROSE_CITES=0

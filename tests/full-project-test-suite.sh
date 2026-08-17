@@ -2058,6 +2058,8 @@ run_child_suite "tests/test-bl235-tool-matrix-probes.sh" \
   "tests/test-bl235-tool-matrix-probes.sh"
 run_child_suite "tests/test-bl239-contributor-hooks.sh" \
   "tests/test-bl239-contributor-hooks.sh"
+run_child_suite "tests/test-bl230-workflow-html-lint-surface.sh" \
+  "tests/test-bl230-workflow-html-lint-surface.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 
 # BL-214 — the gate stalled its own next run. create_gate_snapshot writes into

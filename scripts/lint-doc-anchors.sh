@@ -267,6 +267,92 @@ while IFS= read -r -d '' f; do
   process_file "$f"
 done < <(find "$DOCS_DIR" -type f -name '*.md' -print0 | sort -z)
 
+# ── BL-230: the workflow.html arm ────────────────────────────────────
+# `workflow.html` cites 7 relative doc paths and 2 in-page anchors and sits
+# OUTSIDE every lint surface: this script walks `find "$DOCS_DIR" -name '*.md'`,
+# and the file is neither `*.md` nor under `docs/`. Adversarial review proved
+# it by MUTATION — it broke a relative link and corrupted a cited marker, ran
+# both lints, and got rc 0 from each. The page's entire value is that an
+# operator can trust it; it went six weeks and ~40 PRs out of date once, and a
+# human asking was the only thing that caught it.
+#
+# SCOPED TO THIS ONE FILE, NOT `*.html`. `templates/uat/**` ships HTML fixtures
+# that carry placeholder paths ON PURPOSE and would red immediately.
+#
+# BLOCKING, unlike the BL-090 cross-file arm above, which is WARN-tier by a
+# measured-rollout decision about the whole docs corpus. This is one file whose
+# 7 links all resolve today, so the check starts green and only reds on a real
+# break — the rollout caution that justifies WARN there does not apply here.
+# The page is located BESIDE the docs dir, so `--docs-dir FIXTURE/docs` finds
+# `FIXTURE/workflow.html`. Without that this arm could only ever be exercised
+# against the real tree, and a check that cannot be pointed at a fixture cannot
+# have a mutation proof — which is how an arm ends up asserted rather than
+# measured.
+WF_ROOT="$REPO_ROOT"
+[ -n "$DOCS_DIR_OVERRIDE" ] && WF_ROOT="$(cd "$(dirname "$DOCS_DIR")" && pwd)"
+WF="$WF_ROOT/workflow.html"                                            # BL-230-WORKFLOW-ARM
+if [ -f "$WF" ]; then
+  wf_links=0; wf_anchors=0; wf_bad=0
+
+  # Relative doc references: href="…" that is not an in-page anchor, not
+  # absolute, and not external.
+  while IFS= read -r target; do
+    [ -n "$target" ] || continue
+    wf_links=$((wf_links + 1))
+    if [ ! -e "$WF_ROOT/$target" ]; then
+      echo "lint-doc-anchors: workflow.html -> '$target' does not exist" >&2
+      wf_bad=$((wf_bad + 1))
+      LIST_ROWS="${LIST_ROWS}FAIL\tworkflow.html\t${target}\n"
+    else
+      LIST_ROWS="${LIST_ROWS}PASS\tworkflow.html\t${target}\n"
+    fi
+  done < <(grep -oE 'href="[^"#:]+"' "$WF" 2>/dev/null \
+             | sed -e 's/^href="//' -e 's/"$//' \
+             | grep -vE '^(https?|mailto|/)' | sort -u)
+
+  # In-page anchors: href="#id" must have a matching id="id" in the same file.
+  wf_ids="$(grep -oE 'id="[^"]+"' "$WF" 2>/dev/null | sed -e 's/^id="//' -e 's/"$//' | sort -u)"
+  while IFS= read -r a; do
+    [ -n "$a" ] || continue
+    wf_anchors=$((wf_anchors + 1))
+    if ! printf '%s\n' "$wf_ids" | grep -qxF "$a"; then
+      echo "lint-doc-anchors: workflow.html -> #$a has no matching id=" >&2
+      wf_bad=$((wf_bad + 1))
+      LIST_ROWS="${LIST_ROWS}FAIL\tworkflow.html\t#${a}\n"
+    else
+      LIST_ROWS="${LIST_ROWS}PASS\tworkflow.html\t#${a}\n"
+    fi
+  done < <(grep -oE 'href="#[^"]+"' "$WF" 2>/dev/null | sed -e 's/^href="#//' -e 's/"$//' | sort -u)
+
+  # ── VACUITY FLOOR ─────────────────────────────────────────────────
+  # "Found nothing to check" is NOT "everything checks out". If the page is
+  # rewritten with a different link syntax, the greps above quietly select zero
+  # rows and this arm reports a clean pass over an unexamined file — the exact
+  # shape `## BL-112:` is about, and the one BL-230 explicitly warns this arm
+  # could take. The floors are set BELOW today's counts (7 links, 2 anchors) so
+  # ordinary edits do not trip them, and any collapse toward zero does.
+  # Under --docs-dir the floors default to 0, exactly as lint-bl-markers.sh's
+  # do under --root: a fixture tree is SUPPOSED to be small, and a floor that
+  # fires on every fixture makes the arm untestable — which is how an arm ends
+  # up asserted instead of measured. The real-tree defaults (5/1) sit below
+  # today's 7/2.
+  if [ -n "$DOCS_DIR_OVERRIDE" ]; then
+    wf_min_links="${MIN_WORKFLOW_LINKS:-0}"; wf_min_anchors="${MIN_WORKFLOW_ANCHORS:-0}"
+  else
+    wf_min_links="${MIN_WORKFLOW_LINKS:-5}"; wf_min_anchors="${MIN_WORKFLOW_ANCHORS:-1}"
+  fi
+  if [ "$wf_links" -lt "$wf_min_links" ] || [ "$wf_anchors" -lt "$wf_min_anchors" ]; then   # BL-230-WORKFLOW-FLOOR
+    echo "lint-doc-anchors: workflow.html yielded $wf_links relative link(s) and $wf_anchors anchor(s) — below the floor ($wf_min_links/$wf_min_anchors)." >&2
+    echo "  That is 'the scan found nothing', not 'the page is clean'. The extraction has broken, or the page changed shape. Refusing to report a verdict." >&2
+    exit 2
+  fi
+
+  if [ "$wf_bad" -gt 0 ]; then
+    VIOLATIONS=$((VIOLATIONS + wf_bad))
+  fi
+  FILES_SCANNED=$((FILES_SCANNED + 1))
+fi
+
 if [ "$LIST_MODE" -eq 1 ]; then
   printf 'STATUS\tFILE:LINE\tANCHOR\n'
   printf '%b' "$LIST_ROWS"
@@ -286,5 +372,12 @@ if [ "$REF_WARNINGS" -gt 0 ]; then
   fi
 fi
 
-echo "OK: no broken in-document anchors across $FILES_SCANNED markdown file(s) under ${DOCS_DIR#"$REPO_ROOT"/}."
+# The verdict names BOTH surfaces. It used to say "N markdown file(s) under
+# docs/" while N had just been incremented for a root-level .html file — a
+# small false statement in the one line an operator reads as the answer.
+if [ -f "$WF" ]; then
+  echo "OK: no broken in-document anchors across $FILES_SCANNED file(s) — $(( FILES_SCANNED - 1 )) markdown under ${DOCS_DIR#"$REPO_ROOT"/}, plus workflow.html ($wf_links relative link(s), $wf_anchors anchor(s))."
+else
+  echo "OK: no broken in-document anchors across $FILES_SCANNED markdown file(s) under ${DOCS_DIR#"$REPO_ROOT"/}."
+fi
 exit 0
