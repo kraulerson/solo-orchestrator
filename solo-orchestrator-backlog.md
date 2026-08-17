@@ -11140,6 +11140,35 @@ it needs" below, for the human-facing consumer; the resolver half (a distinct
 bucket in `resolve-tools.sh`'s JSON) is a schema change with many consumers and
 is NOT done.
 
+**And surfacing the note handed a tool's stderr a way to FORGE REPORT LINES.**
+`print_warn` renders through `echo -e`, which interprets backslash escapes — so
+a note containing the two characters `\` and `n` becomes a real line break and
+whatever follows starts a new line of the report. Measured, from a stderr of
+`note-one\nFORGED  [OK] Totally Installed: 9.9.9`:
+
+```
+[WARN] P: configured, but working could not be confirmed — note-one
+FORGED  [OK] Totally Installed: 9.9.9
+```
+
+A fabricated `[OK]` row, in the script whose whole purpose is honest reporting.
+The rows ship with the framework, but the probe's notes interpolate
+`$(qdrant_mcp_url)` read out of `~/.claude.json`, so the text is not wholly
+ours. `# BL-235-NOTE-SAFE` doubles the backslashes; `C4` asserts the note still
+arrives while no line begins with the forged text, and `M11` removes the
+doubling and watches the fake row return. **This was a cost created by the fix
+above** — surfacing a diagnostic is not free, and it is recorded as the fix's
+own consequence rather than as a separate discovery.
+
+**One residual, stated rather than implied:** the bound stops the *wait*, not
+the *pipeline*. Orphaned pipeline members survive their `bash -c` parent and run
+to their own completion, holding only the capture temp file and `/dev/null` —
+never the consumer's pipe, which is why the consumer now returns at the bound.
+Measured on a worst case of 12 rows × a 20s pipeline at a 1s bound: the script
+returned in 12s, the temp-file delta was 0, and the process count returned to
+baseline once the orphans expired. That is a real leak with a bounded lifetime,
+not a handle exhaustion.
+
 **And a non-numeric bound meant zero.** `$(( now + abc ))` is `now`, so
 `CHECKVER_EVAL_TIMEOUT=abc` put every deadline in the past and reported a whole
 healthy matrix as "not installed" — silently, from one environment variable.

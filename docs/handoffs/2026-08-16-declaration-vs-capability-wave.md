@@ -239,6 +239,25 @@ verdicts above, and the thing the previous round was missing.
   — there is no RC-5 anywhere in the repo. Five bullets, six labels. Left as-is
   because every citation in flight uses these numbers.
 
+**Round three — the re-review returned `minor_concerns`, and its one correctness
+finding was a cost the round-two fix created.** Surfacing the probe's note (F-2)
+handed a tool's stderr to `print_warn`, which renders through `echo -e` and
+therefore INTERPRETS backslash escapes: a note containing `\` and `n` becomes a
+real line break, and the text after it starts a new report line. Reproduced —
+a check whose stderr was `note-one\nFORGED  [OK] Totally Installed: 9.9.9`
+printed a fabricated `[OK]` row into the report. `# BL-235-NOTE-SAFE` doubles
+the backslashes; `C4` asserts the note still arrives while nothing forges a
+line, `M11` removes the doubling and watches the fake row return. Two tidy-ups
+rode along: `CV_NOTE` was captured and never rendered — a second note binned one
+layer before the operator, the defect this entry is named for wearing the
+costume of its own fix — so it is deleted rather than plumbed; and `M1`'s
+messages still quoted `12s`/`>=10` after the fixture dropped to 6s.
+
+The re-review also settled the one thing I could not check on myself: the file I
+had corrupted with a `perl` one-liner and rebuilt was **complete** — every
+round-one case and all eleven helpers present exactly once, five cases added,
+nothing lost.
+
 **Two things I broke in round two and caught before they shipped**, both worth
 more than the fixes: `grep -v` exits 1 when it selects no lines, so reading a
 note out of an EMPTY stderr file killed `check-versions.sh` mid-row under
