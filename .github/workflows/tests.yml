@@ -522,6 +522,7 @@ jobs:
             tests/test-bl229-host-pipeline-paths.sh
             tests/test-bl221-tier-fail-closed.sh
             tests/test-bl235-tool-matrix-probes.sh
+            tests/test-bl239-contributor-hooks.sh
             tests/host-drivers/error-translate.test.sh
           )
 
@@ -574,6 +575,26 @@ jobs:
             #    567s -> 701s -> 700s over those same commits for ~2s of added
             #    test, so the pressure is the leg's, not the suite's.
             tests/test-bl234-currency-and-availability.sh  # 66.0s in CI (51 cases; ~62s local)
+            # ── Re-pinned 2026-08-17. `slow-misc` had become the leg closest to
+            #    the cap at 566s/720s (79%) — a fact that only surfaced because
+            #    PR #356's pin comment carried an ESTIMATE with an explicit
+            #    instruction to re-measure, and re-measuring moved the answer:
+            #    the leg everyone had been watching (`rest`) was down to 61%.
+            #    Derived from run 32048687734's slow-misc log, per-suite from
+            #    the group timestamps rather than a local stopwatch:
+            #      test-delta-wp5-hotfix-retro       185s   <- moved, the pole
+            #      test-pre-commit-gate-lints        123s
+            #      the other six                   21-54s each
+            #    Moving the single pole balances BOTH legs rather than trading
+            #    one hot leg for another: slow-misc 566 -> 381s (53%),
+            #    lint-sweep 201 -> 386s (54%). Moving two would have taken
+            #    slow-misc to 36% and changed nothing else, because the binding
+            #    constraint after this move is `sast`.
+            #    WATCH `sast` NEXT: 519s (72%) and untouched here. It is now the
+            #    highest leg, and its own pin note says bl132 is deliberately
+            #    pinned at its worst case (213s), so the next re-pin has to come
+            #    from somewhere other than moving bl132 around.
+            tests/test-delta-wp5-hotfix-retro.sh   # 185s measured (run 32048687734) — the pole; opens and closes deltas dozens of times, and each open also renders a brief and seeds a ledger row, so it grew with the feature rather than with the test
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
@@ -649,7 +670,9 @@ jobs:
             #    complement leg CANCELED at 736s). Nothing failed on that run —
             #    the cap fired. Per the doctrine above, that is the RE-PIN
             #    signal, not a reason to raise the cap.
-            tests/test-delta-wp5-hotfix-retro.sh       # 181s — THE long pole of the whole wave, and 3x the next one. It opens and closes deltas dozens of times, and each open now also renders a brief and seeds a ledger row, so it got slower as the feature landed rather than as the test grew
+            # ── MOVED OUT 2026-08-17 to pin_lint_sweep. It is still the pole
+            #    described below (185s measured, 1.5x the next member) — it just
+            #    is not this leg's problem any more. See the note there.
             tests/test-brownfield-wp1-scout.sh         #  55s — the second pole. Moved WITH the first deliberately: the first alone left the complement leg at ~77% of the cap, which is the same "approaching" state the sast note below was written about, and the complement has taken a new suite in nearly every work package this wave
             # ── Re-pinned 2026-08-10. Not a long pole in itself — it is the
             #    GROWTH that moved it. Measured locally: 87s at 125 rows before

@@ -114,11 +114,24 @@ The framework lives in two repositories — both must be cloned for the test sui
    bash tests/host-drivers/run-all.sh
    ```
    Alternatively, run `bash init.sh` from a throwaway directory to exercise the full installer flow.
-4. Install the pre-commit gate locally (`init.sh` does this for user projects; contributors working on the framework itself install it with one command — BL-096):
+4. Install the local git hooks (`init.sh` does this for user projects; contributors working on the framework itself install them with one command — BL-096):
    ```bash
    bash scripts/install-contributor-hooks.sh
    ```
-   (Equivalent to `cp scripts/pre-commit-gate.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`; re-run any time to refresh the hook to the current gate script.)
+   Installs **two** hooks, generated from the same `scripts/lib/hook-templates.sh`
+   emitters `init.sh` uses, so contributor and generated-project hooks cannot
+   drift: `.git/hooks/pre-commit` (gitleaks, SAST, test co-location,
+   blocked-commit ledger) and `.git/hooks/commit-msg` (BL-072 TDD ordering +
+   BL-006 Build-Loop message check). Re-run any time to refresh both.
+
+   > **Do NOT `cp scripts/pre-commit-gate.sh .git/hooks/pre-commit`.** This line
+   > used to say that was equivalent. It is not, and the difference is silent:
+   > `pre-commit-gate.sh` is a **PreToolUse** hook that reads tool-input JSON on
+   > stdin, where *no output* means ALLOW. Git runs a pre-commit hook with **no
+   > arguments and no such JSON**, so the copy took the allow path and exited 0
+   > on every commit. Measured on one fixture commit: the copy produced **zero**
+   > lines of gate output, the generated hook produced three (its gitleaks and
+   > semgrep arms actually ran). See `## BL-239:`.
 
 For deeper setup — MCP servers, profiles, CLAUDE.md authoring, host CLI installation — see `docs/cli-setup-addendum.md` and `docs/user-guide.md`.
 
