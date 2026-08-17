@@ -9005,8 +9005,25 @@ permissive tier on absent data
 **Severity:** **Real, not cosmetic.** This is a fail-OPEN on the surface that
 decides whether a project is *allowed to weaken its own enforcement*. Every other
 tier reader in the framework fails closed on absent data; this one does not.
-**Status:** Open — BOTH candidate fixes implemented on branch
-`fix/bl221-tier-keys-and-probe`; close on merge with the PR number.
+**Status:** **Closed** — both fixes shipped in **PR #356**
+(`fix/bl221-tier-keys-and-probe`, merge `d243f77`).
+
+Five adversarial review rounds on that branch attacked this entry directly and
+**every BL-221 claim survived**: the reviewer built an adopted-shape
+organizational project and ran the real downgrade through
+`reconfigure-project.sh` — on base the tier gate raised zero objections and
+wrote the downgrade, on head it refuses before any mutation. The jq `//`
+behaviour across six input shapes, the `# BL-084-TIER-KEY` sync-sibling
+question and the adoption-parity variables all held.
+
+**One defect WAS found, and it was in the test, not the fix.** `W1` took three
+narrowings to stop being vacuous: it first passed because the fix's own
+explanatory COMMENT names all three keys in prose; then because
+`$ADOPT_DEPLOYMENT` and `$ADOPT_POC_MODE` occur as shell variables on executed
+lines; then because `adopt_write_phase_state` legitimately writes the same three
+keys to a DIFFERENT file. It is now scoped to `adopt_write_manifest`'s body,
+comments stripped, matching the key-ASSIGNMENT form — and `M2` requires all
+three to go missing at once. Suite 11 → 12 cases.
 
 ### Both, because neither subsumes the other
 
@@ -11085,8 +11102,44 @@ the behaviour), `## BL-221:` (missing key ⇒ permissive default).
 different surface, deliberately left unfixed there so the fix is not smuggled in
 under an unrelated diff)
 **Category:** Silent-success — declaration read as capability
-**Status:** Open — implemented on branch `fix/bl221-tier-keys-and-probe`; close
-on merge with the PR number.
+**Status:** **Closed** — shipped in **PR #356**
+(`fix/bl221-tier-keys-and-probe`, merge `d243f77`). CI tallies read rather than
+the tick: 176 unit files across five shards, 0 failed.
+
+**THREE RESIDUALS ARE DELIBERATELY NOT DONE, and none of them is "nothing left
+to do":**
+
+1. **The bound stops the WAIT, not the PIPELINE.** Orphaned pipeline members
+   outlive their `bash -c` parent and run to their own completion. They hold
+   only the capture temp file and `/dev/null` — never the consumer's pipe, which
+   is why the consumer returns at the bound. Measured on 12 rows × a 20s
+   pipeline at a 1s bound: returned in 12s, temp-file delta 0, process count
+   back to baseline once the orphans expired. A bounded-lifetime leak, not
+   handle exhaustion.
+2. **The resolver's half of the three-state contract.** `check-versions.sh` now
+   renders `rc=2` distinctly (`# BL-235-THIRD-STATE`), which is need #3 for the
+   human-facing surface. A distinct BUCKET in `scripts/resolve-tools.sh`'s JSON
+   is a schema change with many consumers and was not attempted.
+3. **`templates/tool-matrix/*.json` is in no sync set** — see below. Recorded,
+   not fixed; the ordering is safe and the entry says why.
+
+**What the five review rounds were actually evidence of.** The verdicts ran
+`block` → `block` → `minor_concerns` → `block` → `block` → `approve`, and **four
+of the five rounds found a defect in the TEST rather than the product**: an
+assertion of `-ne 0` where the truth was exactly 2; a `C6` that passed when the
+value it guarded vanished entirely; an `M13` message naming a range its mutant
+did not use; a `C5` grepping the wrong fixture row name. Worse, `_mutate`
+escaped `&` but not backslash-DIGIT — and `\0`…`\9` are BACKREFERENCES in a sed
+replacement — so **three mutation proofs silently proved nothing** while
+reporting `sites=1 parses=1`. Twelve `_mutate` cases now assert `changed >= 2`;
+`M2` uses `_mutate_json`, where jq's whole-file re-emit satisfies that guard
+even on a filter matching nothing, and that exception is noted in place rather
+than papered over.
+
+The product fixes held up under attack. The verification of them did not,
+repeatedly, and only an adversary reading the ASSERTIONS rather than the results
+caught it. That is the transferable finding of this entry, more than any single
+probe.
 
 ### The prerequisite the entry did not know it had
 
@@ -11633,3 +11686,84 @@ was more careful than the hand.
 **Related:** `## BL-235:` (where it happened), `## BL-112:` ("did not run" is
 not "found nothing"), `## BL-104:` (a `[WARN]` label over a blocking outcome —
 the same text/behaviour mismatch, in the other direction).
+
+---
+
+## BL-238: `set -o pipefail` + `printf … | grep -q` returns 141 ON A MATCH — a latent CI flake in ~150 files, and the diagnosis of one that was already recorded as unexplained
+
+**Logged:** 2026-08-17 (diagnosed while `tests/test-lint-bl-markers.sh` failed
+the `rest` shard on PR #357, a DOCS-ONLY change — which is what made it
+obviously not the change under test)
+**Category:** Silent-success — a passing predicate reported as a failure by the
+death of its own writer
+**Status:** Open — the one site that was actually failing is fixed
+(`# BL-238-NO-SIGPIPE-RACE`); the repo-wide sweep is not done.
+
+### The mechanism, reproduced in one line
+
+```
+$ bash -c 'set -o pipefail; b=$(seq 1 200000); printf "%s\n" "$b" | grep -qF 1; echo $?'
+141
+$ bash -c '                b=$(seq 1 200000); printf "%s\n" "$b" | grep -qF 1; echo $?'
+0
+```
+
+`grep -q` exits the instant it matches. The writer then takes **SIGPIPE**, and
+`pipefail` promotes that death (141) over grep's success (0). **The pipeline
+reports failure precisely BECAUSE the match succeeded**, and the louder the
+match — the earlier in the stream — the more reliably it breaks.
+
+It is a **race on output size and scheduling**: the writer must still be writing
+when grep exits. Small inputs finish first and never fail; large ones fail
+often. That is why it reproduces on CI and not on the dev host.
+
+### What it actually did
+
+`unaccounted_allowlist_tokens` in `tests/test-lint-bl-markers.sh` asked, per
+allowlisted token, "does `--list` render a row for this?" — through
+`printf '%s\n' "$out" | grep -qF …`, where `$out` is the whole `--list` output.
+On CI two correctly-allowlisted tokens (`BL-186-PARSE-COVERAGE`,
+`BL-186-EMPTY-TARGETS`) were reported **unaccounted**, with
+`printf: write error: Broken pipe` printed beside each one. Locally: 20/0. On
+CI run `32046301634`: 18/2.
+
+**This is the flake the 2026-08-16 handoff recorded as "failed once on CI and
+passed unchanged on re-run. Not diagnosed, not dismissed."** Second sighting,
+now with a mechanism. A re-run would have gone green and taught nobody anything.
+
+### The fix, and its scope
+
+The one failing site takes a **herestring**: `grep -qF PATTERN <<<"$out"`. No
+second process, so there is no writer to kill and the status is grep's alone.
+
+**The class is NOT fixed and the count is large.** Derive it, do not trust this
+number:
+
+```
+for f in tests/*.sh scripts/*.sh scripts/lib/*.sh; do
+  grep -q 'set -o pipefail' "$f" || continue
+  n=$(grep -cE '(printf|echo)[^|]*\| *grep -[a-zA-Z]*q' "$f"); [ "$n" -gt 0 ] && echo "$f $n"
+done
+```
+
+At the time of writing that is ~150 files and >1000 sites. **Most are harmless**
+— they pipe a short string, the writer finishes first, and SIGPIPE never
+arrives. A blanket rewrite of a thousand call sites would be a far larger risk
+than the defect. What is needed is a predicate that finds the sites where the
+piped value can be LARGE, which is where the race lives.
+
+**`tests/test-bl168-tm-table-sigpipe.sh` already exists**, so this repo has met
+SIGPIPE before on a different surface. Whatever lint comes out of this should
+account for that entry rather than duplicate it.
+
+### The trap this entry set for itself, recorded because it cost a CI cycle
+
+Adding `# BL-238-NO-SIGPIPE-RACE` to a file under `tests/` **minted a marker
+naming an entry that did not yet exist**, and `scripts/lint-bl-markers.sh` reds
+on exactly that. The suite's own header warns about it in as many words: files
+under `tests/` ARE the lint's code surface. **File the entry before the marker**,
+not after.
+
+**Related:** `## BL-196:` (the marker lint whose own suite this was found in),
+`## BL-112:` ("did not run" is not "found nothing" — same shape: a status that
+means something other than what the caller reads it as).
