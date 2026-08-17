@@ -11767,3 +11767,118 @@ not after.
 **Related:** `## BL-196:` (the marker lint whose own suite this was found in),
 `## BL-112:` ("did not run" is not "found nothing" — same shape: a status that
 means something other than what the caller reads it as).
+
+---
+
+## BL-239: `install-contributor-hooks.sh` installed a NO-OP and printed "Local commits now face the same gates CI runs"
+
+**Logged:** 2026-08-17 (found while acting on "the installed hook is a stale
+snapshot" — it was not stale, it was the WRONG FILE, and had never enforced
+anything)
+**Category:** Silent-success — an enforcement installer reporting a capability
+it does not deliver
+**Severity:** **Real.** Every framework contributor who followed CONTRIBUTING.md
+has had **zero** local commit gating, while being told the opposite by the
+script that installed it. That includes every commit made during the BL-235
+wave.
+**Status:** Open — installer and CONTRIBUTING.md fixed
+(`# BL-239-CONTRIB-PRECOMMIT`, `# BL-239-CONTRIB-COMMITMSG`); see the residual.
+
+### The mechanism
+
+`scripts/pre-commit-gate.sh` is a **PreToolUse** hook. Its own header says so:
+*"Input: Claude Code passes tool input JSON on stdin / No output = allow."*
+Git invokes `.git/hooks/pre-commit` with **no arguments and no stdin JSON**, so
+the copied gate took its allow path and exited **0 silently, on every commit**.
+
+The installer's own words were `[OK] pre-commit gate installed …  Local commits
+now face the same gates CI runs.`
+
+### Measured, hermetically, both directions on the same fixture commit
+
+| install method | commit | gate-arm output |
+|---|---|---|
+| `cp scripts/pre-commit-gate.sh .git/hooks/pre-commit` (documented) | rc=0 | **0 lines** |
+| `soif_write_precommit_hook` (what `init.sh` generates, 122 KB) | rc=0 | **3 lines** — gitleaks and semgrep arms ran; semgrep reported `SAST NOT ENFORCED` per `# BL-112-SAST-NOTRUN` |
+
+The second is not "more output". It is the difference between a hook that runs
+its arms and one that runs nothing.
+
+### And the commit-msg half was never installed at all
+
+`init.sh` installs **two** hooks for generated projects: the pre-commit fallback
+AND a `commit-msg` hook delegating to
+`pre-commit-gate.sh --terminal-mode --tdd-only`, which is where the BL-072 TDD
+ordering gate and the BL-006 Build-Loop message check live (`## BL-010:`). The
+contributor path installed only the first — so for framework contributors those
+two gates have never run locally either.
+
+### The fix
+
+The installer now emits both hooks from `scripts/lib/hook-templates.sh`, the
+**same emitters `init.sh` uses**, so the contributor hook and the
+generated-project hook cannot drift — the sync-sibling rule applied to the one
+surface where drift means "no enforcement at all". It then **verifies what it
+installed** (present, non-empty, executable) instead of reporting on what it
+intended, which is how the original survived.
+
+### What the FIXED hook actually enforces here — measured, because the whole point of this entry is not to overstate a gate
+
+The emitted hooks are shaped for a **generated project**. In the framework
+checkout some arms have nothing to run against. Observed on the first real
+commit through the fixed hook:
+
+| arm | state here | evidence |
+|---|---|---|
+| gitleaks | **LIVE** | `gitleaks 8.30.1` present; the arm runs |
+| SAST (semgrep) | **INERT** | `[WARN] semgrep could not complete (exit 7) … SAST NOT ENFORCED … unable to find a config; path .semgrep/soif-dom-sinks.yml does not exist`. `.semgrep/` is written by `init.sh` for generated projects (grep `soif-dom-sinks` in init.sh); it does not exist in the framework repo |
+| BL-006 Build-Loop message | **N/A by design** | `[note] framework repo detected (not a scaffolded project) — Build-Loop message enforcement not applicable here` |
+| BL-125 test co-location | **did not fire** | `[OK] BL-125: no source files staged` on a commit staging five `.sh`/`.md`/`.yml` files. **Why it did not count them is NOT established here** — recorded as observed rather than explained |
+
+**So in the framework repo this is mainly a secret-detection gate.** That is
+worth having, and it is strictly more than the previous install did — which was
+nothing — but it is **not** "the same gates CI runs". CI remains the authority.
+The installer now prints this arm-by-arm at install time instead of listing the
+arms the hook contains, because listing them is exactly what the old message
+did: true about the file, false about the behaviour.
+
+### A GREEN TEST WAS PINNING THE DEFECT
+
+`tests/test-bl096-cold-start.sh::T-contributor-hook-installs` asserted
+
+```
+cmp -s scripts/pre-commit-gate.sh .git/hooks/pre-commit
+```
+
+— that the installed hook is a **byte copy of the gate** — and its failure
+message called that *"the REAL gate installed"*. So the no-op was not merely
+undetected: it was **required**, by a passing test, in the suite named for the
+feature that introduced it. Any correct fix had to red that test first, which is
+exactly what happened on PR #358.
+
+The assertion is **inverted, not deleted**: the installed hook must NOT be that
+file. Deleting it would leave nothing standing between here and a future
+"simplification" back to `cp`. The behavioural half lives in
+`tests/test-bl239-contributor-hooks.sh`, whose `A1` control reproduces the
+no-op and requires zero gate output.
+
+**Process note, because the miss was mine.** I ran the new suite and the lints
+locally and did not run the suites that reference the thing I changed. The
+derivation is one line and would have caught it before CI:
+`grep -rln 'install-contributor-hooks' tests/`.
+
+### Residual — the thing this entry does NOT fix
+
+**Nothing detects a pre-commit hook that is present but inert.** A hook that
+exists, is executable, and exits 0 without running anything is indistinguishable
+from a healthy one by every check the repo has — which is exactly why this
+lasted. `scripts/verify-install.sh` inspects hook PRESENCE
+(`hooks: {commit-msg: present, pre-commit: present}` in the currency manifest),
+not hook BEHAVIOUR. The honest detector is the two-sided one used to find this:
+run a throwaway commit through the installed hook and require it to EMIT
+something attributable to a known arm. Not built.
+
+**Related:** `## BL-112:` ("the scanner did not run" ≠ "found nothing" — same
+shape, one layer down), `## BL-096:` (the entry that added this installer),
+`## BL-237:` (a mode bit turning enforcement into a silent skip),
+`## BL-234:` / `## BL-235:` (registered ≠ working, the family this belongs to).
