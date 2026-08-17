@@ -146,6 +146,44 @@ someone does, R-7's severity is open, and R-8's fix (adopt
 `run_cmd_with_timeout`'s wall-clock deadline instead of the `sleep 1` counter)
 is the cheap way to make the question moot.
 
+## 2.3 Resolution — what the § 2.1 round actually cost (2026-08-17)
+
+Every blocking and major item is fixed, plus four of the five minors and all
+five refuted claims. The suite went **7 cases → 29**, `tests/test-bl221-tier-fail-closed.sh`
+**11 → 12**, lints 15/15. Two decisions were the owner's and are recorded as
+his: the shared wall-clock runner, and fixing all eight other-matrix rows.
+
+| item | resolution |
+|---|---|
+| R-1 | `# BL-235-SCRIPTS-DIR` — rows name `"${SOLO_SCRIPTS_DIR:-scripts}"`; both evaluators export their own location. `C1` measures it through `check-versions.sh` from a non-root CWD; `M2` proves the row, not the export, carries the fix. |
+| R-2 | `D3`/`D4`/`D5` assert `-eq 2` / `-eq 1` / `-eq 0`; `D6`-`D14` cover the rest of the contract. |
+| R-3 | `--version` reports the **mcp-server-qdrant** package from uv's cache, never the database's number. `D10` requires `1.2.3` against a stub serving `9.9.9`; `D11` requires SILENCE when the package cannot be established. Verified live: `[OK] Qdrant MCP: 0.8.1`, not `1.17.1`. |
+| R-4 | The probe owns **no curl at all** now. `qdrant_probe_root` in `helpers-full.sh` is the one owner, so BL-234's entry-atomic URL/key pairing, declared-host rule and never-in-argv delivery are inherited. `D8` (keyed → 0), `D9` (unkeyed → 2 **and the note names HTTP 403**). |
+| R-5 | `# BL-235-PROBE-PLUGIN-SELECT` selects by whether `installPath` exists. `D13` stale-first → 0 and `6.3.0`; `D14` none-on-disk → still 2. |
+| R-6 | `# BL-235-NO-CONSTANT` — one owner read by all four render sites. `C2` asserts on **output**; `M6` restores the fallback and watches the word return. |
+| R-7 | **Measured worse than reported: 5-6s → 50-51s** (the review said 7.5 → 48.5). Fixed, owner's call: `run_with_deadline` in `helpers-core.sh`, wall-clock, 0.1s poll, rc 124. **Now 10-12s.** `T4` pins the cost. |
+| R-8 | Resolved by the same change — `resolve-tools.sh`'s private copy is deleted; `run_with_timeout` (11 sites, 6 files) is deliberately untouched. |
+| R-9 | Not separately addressed. `run_with_deadline` uses `kill -9` on the process, which does not reap a pipeline's other members either. Recorded here rather than claimed. |
+| R-10 | W1 took **three narrowings** to stop being vacuous — the fix's own comment satisfied it, then the shell variables `$ADOPT_DEPLOYMENT`/`$ADOPT_POC_MODE`, then `adopt_write_phase_state` writing the same keys to a different file. Now scoped to `adopt_write_manifest`'s body, comments stripped, key-assignment form. `M2` requires **all three** keys to go missing. |
+| R-11 | All four matrices rebuilt from `main` with only the semantic edits: **9 insertions, 15 deletions** across the four (was 359/100 on `common.json` alone). |
+| R-12 | Verified and recorded on `## BL-235:`. `probe-tool.sh` IS in the derived sync set; `templates/tool-matrix/*.json` is not. Ordering is safe and the entry says why. |
+| RC-1 | `title` **and** a STRING `version` required — Qdrant's own `VersionInfo`. `D6` (no title) and `D7` (`.version` an object) both → 2; `M3` reverts it. |
+| RC-2 | Owner chose the full fix. All four matrices swept; **11 rows / 10 tools** on the pre-fix tree (derived — the review said seven). `Android Studio`'s CHECK was the same defect and now requires a real executable. Five rows with no version OMIT `version_command`. `D1b` is the new arm; Android/dart/ZAP are reasoned, not executed. |
+| RC-3 | `probe_context7` reads the transport its entry declares. `D12` passes with npx absent from PATH entirely. |
+| RC-4 | Corrected in both live prose sites. `docker --version` is client-only — 26ms here; `colima version` carries the hazard alone. |
+| RC-6 | Re-derived from `tests.yml`: `rest ~561s (78%)`, `slow-misc ~584s (81%)`. § 4 was already right. |
+
+**And the fix wave produced one defect of its own, which is filed rather than
+buried: `## BL-237:`.** An edit written as `sed … > tmp && mv tmp file` replaced
+`scripts/resolve-tools.sh`'s mode **755 → 644**. Every direct caller then got
+`rc=126`, and `init.sh` printed one `[WARN] Tool resolver failed`, **exited 0,
+and scaffolded a project anyway** — with `installed: {}` and three context values
+that had acquired a leading space, surfacing four layers later as
+`tests/test-verify-install-fix-functions.sh::T2` complaining about *substituted
+identity fields*. The content assertion beside that edit passed, because the
+content was right. **"The edit applied" and "nothing else changed" are two
+assertions**; `X1`/`M7` now pin the bit, and BL-237 carries the general rule.
+
 ## 3. The one thing worth carrying forward
 
 Every defect this session was the same substitution: **a check asked whether

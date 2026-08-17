@@ -11098,12 +11098,33 @@ right, and the wrong half changed the design:
 | `scripts/resolve-tools.sh` | `run_cmd_with_timeout` — **bounded, 10s** |
 | `scripts/check-versions.sh` | `eval "$CHECK_CMD"` — **unbounded** |
 
-The unbounded one was **already a hazard**: the matrix ships `colima version`
-and `docker --version`, and `resolve-tools.sh`'s own header records that those
-"can hang indefinitely when the daemon is unreachable" — which is why IT bounds
-them. Fixed first and separately (`# BL-235-BOUND-CHECK`,
+The unbounded one was **already a hazard**: the matrix ships `colima version` as
+a version command, and `resolve-tools.sh`'s own header records that daemon-backed
+commands "can hang indefinitely when the daemon is unreachable" — which is why IT
+bounds them. Fixed first and separately (`# BL-235-BOUND-CHECK`,
 `# BL-235-BOUND-VERSION`) with WALL-CLOCK assertions: a 12s command at a 2s
 bound returns in 3s; the mutation puts it back to 12s.
+
+**One correction to that paragraph, kept rather than quietly edited.** It also
+named `docker --version` as a hang risk. It is not one: it prints a compiled-in
+string and never opens a socket — 26ms on this host with a live daemon. The one
+that contacts the daemon is `docker version`, without the dashes, and the matrix
+does not ship it. The hazard is real and `colima version` carries it; the second
+example was wrong and citing two made the claim feel twice as established.
+
+**And the bound had a PRICE that shipping it did not measure.** The first
+implementation used `run_with_timeout`, which polls a `sleep 1` counter, so every
+bounded call costs ~1s regardless of the command. This loop makes two per row;
+on the 21-row shipped matrix `check-versions.sh` went from **5-6s to 50-51s** —
+inside the SessionStart hook. `# BL-235-DEADLINE` adds `run_with_deadline` to
+`helpers-core.sh` (wall-clock deadline, 0.1s poll, rc 124 for a timeout instead
+of 1), both matrix consumers use it, and `resolve-tools.sh`'s private copy of the
+same idea is deleted — two helpers answering one question became one. Measured
+after: **10-12s**, the remainder being the three probes actually talking to
+things. `run_with_timeout` itself is untouched: eleven call sites across six
+product files, several in enforcement paths, and that is a separate decision.
+`T4` pins the cost so "a bound exists" cannot ship again without "the bound is
+affordable".
 
 ### The rows
 
@@ -11129,8 +11150,86 @@ and `installed_plugins.json` carries `installPath` and `version`
 `probe-tool.sh` ships downstream (`# BL-235-SHIP-PROBE`); without it the rows
 fail closed in every generated project.
 
-**Proof:** `tests/test-bl235-tool-matrix-probes.sh`, 7 cases, ~21s. `D1`/`D2`
-are derived sweeps over the shipped matrix, not lists in the test.
+**Proof:** `tests/test-bl235-tool-matrix-probes.sh`, 27 cases, ~32s. `D1`, `D1b`
+and `D2` are derived sweeps over **every** shipped matrix file, not lists in the
+test; `D3`-`D14` assert the three-state contract by **equality** against a
+loopback stub; `C1`/`C2` measure it where a consumer reads the answer; `M1`-`M6`
+are mutation proofs.
+
+### What the adversarial review turned up, and what it cost
+
+The first implementation of this entry passed its own suite, cleared the lints,
+and **the review blocked it.** Everything below is that round.
+
+- **The three rows became CWD-RELATIVE** (`bash scripts/probe-tool.sh …`). A
+  relative path inside a JSON data file resolves against whatever directory the
+  CONSUMER stands in, and `init.sh --project-dir ~/work/foo` runs the resolver
+  before any `cd`: measured, all three genuinely-installed tools flipped to
+  `manual_install`, because `rc=127` reads as "not installed". Fixed with
+  `# BL-235-SCRIPTS-DIR` — the rows name `"${SOLO_SCRIPTS_DIR:-scripts}"` and the
+  two evaluators export their own location.
+- **The test that should have caught it asserted `-ne 0` where the truth is
+  exactly `2`** — an assertion that passes on `rc=127`, i.e. on the probe never
+  having run. The three-state contract the probe's header spends ten lines
+  defending had zero coverage. **Assert the state you mean, never its
+  complement**; every state now has an equality case, and `C1` measures the row
+  through `check-versions.sh` from a non-root directory.
+- **A 200 from something that is not Qdrant was accepted as Qdrant.** The probe
+  tested `.version` alone; a stub named `totally-not-qdrant` scored WORKING, as
+  did an Elasticsearch-shaped payload whose `.version` is an OBJECT. `title` and
+  a STRING `version` are both **required** in Qdrant's own `VersionInfo` schema
+  (api.qdrant.tech, `GET /`) — `# BL-235-PROBE-IDENTITY`.
+- **An api-key-protected database was reported as not running** — and this file
+  had *just* re-made `## BL-234:`'s finding one file over: its own `curl -fsS`
+  sent no key and could not tell a 403 from a dead port. The probe now owns no
+  curl at all; `qdrant_probe_root` in `helpers-full.sh` is the one owner of every
+  Qdrant read, so the entry-atomic URL/key pairing, the declared-host rule and
+  the never-in-argv delivery are inherited rather than re-derived.
+- **`probe_superpowers` selected the registry entry by POSITION** (`[0]`). With
+  a stale entry first and the live one second a healthy install scored 2; with
+  two versions it printed the wrong one. `# BL-235-PROBE-PLUGIN-SELECT` selects
+  by whether the recorded `installPath` exists.
+- **`context7` was judged by `command -v npx` regardless of transport.** Its
+  documented HTTP form carries a `url` and no `command` at all. The probe now
+  reads the transport the entry declares.
+- **The word `configured` survived by MOVING FILE.** Deleting
+  `version_command: echo 'configured'` from the matrix left
+  `${INSTALLED:-configured}` inside `check-versions.sh` rendering the identical
+  word for exactly those rows — and the test could not see it, because it
+  asserted on matrix JSON rather than on output. `# BL-235-NO-CONSTANT` is one
+  owner read by all four render sites, and `C2` asserts on the rendered line.
+- **The sweep this entry asked for had scanned one matrix of four.** Across all
+  four, the pre-fix tree carried **11 rows / 10 distinct tools** with an
+  `echo`-constant version. All are fixed: `dart_license_checker` (twice) now
+  parses `dart pub global list`; `Android Studio` — whose CHECK was the same
+  defect, `[ -d … ] || [ -n "$ANDROID_HOME" ]`, true of an empty directory and a
+  stale export — now requires a real `sdkmanager`/`adb` executable; and the five
+  rows with genuinely no version (both Apple Developer Program rows, the EV
+  certificate, the Android keystore, the ZAP image) **omit `version_command`**
+  rather than inventing one, which is what `check-versions.sh`'s own
+  "presence-only tools" comment already assumed. The Android, dart and ZAP arms
+  are reasoned, not executed — this host has none of those toolchains.
+- **The diff was 20x its own meaning.** `common.json` came back 531→790 lines
+  from a `jq` re-emit around six changed fields. All four matrices are now
+  rebuilt from `main` with only the semantic edits: **9 insertions, 15
+  deletions** across the four.
+
+### Two facts the next reader needs
+
+- **`templates/tool-matrix/*.json` is in NO sync set.** `_bl099_sync_scripts`
+  derives its list from `init.sh`'s `cp` lines *under `scripts/`*, so
+  `--sync-framework` ships `probe-tool.sh` (verified present in the derived set)
+  and never the rows that call it. **The ordering is safe and that is worth
+  stating**: a synced project gets the probe alongside its OLD rows, which do not
+  reference it and keep behaving exactly as before; the reverse — rows without a
+  probe — cannot occur, because the rows only ever arrive via `init.sh`, which
+  copies both. The consequence is that an existing project keeps the old
+  declaration behaviour until it is re-initialised, not that it breaks.
+- **Seeding `enforcement_level: "strict"` at adoption makes
+  `upgrade-project.sh`'s BL-030 backfill SKIP adopted manifests.** That is
+  correct — the backfill exists to fill an absent key, and the key is no longer
+  absent — but it was undocumented, and a reader looking for why the backfill
+  reports nothing to do on an adopted project would otherwise find no answer.
 
 `templates/tool-matrix/common.json`'s `Qdrant MCP` entry has:
 
@@ -11334,3 +11433,77 @@ constraint — this line ships through the same two writers and is subject to th
 same lockstep rule), `## BL-030:` and `## BL-161:` (the two siblings),
 `## BL-233:` (what made this file load-bearing), `## BL-234:` (the work that
 found it).
+
+---
+
+## BL-237: a script's EXECUTE BIT is part of its contract, and losing it degrades init.sh to a warning that still exits 0
+
+**Logged:** 2026-08-17 (found while fixing `## BL-235:` — by causing it, not by
+auditing for it)
+**Category:** Silent-success — a capability lost to a file mode, reported as a
+recoverable warning
+**Status:** Open
+
+### What happened, measured
+
+An ad-hoc edit written as `sed … > /tmp/new && mv /tmp/new scripts/resolve-tools.sh`
+replaced mode **755 with 644**. `mv` from a fresh temp file does not carry the
+destination's mode, and nothing in the edit reported it: the content assertion
+that accompanied the edit passed, because the content was right.
+
+`scripts/resolve-tools.sh` is invoked **directly** — no `bash` prefix — by
+`init.sh`, `scripts/verify-install.sh`, `scripts/check-phase-gate.sh` and
+`scripts/intake-wizard.sh`. A non-executable file makes the shell return
+**126**, and init.sh's call site reads:
+
+```
+resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" … 2>/dev/null) || {
+  print_warn "Tool resolver failed. Falling back to basic tool checks."
+  return 0
+}
+```
+
+So init.sh **printed one `[WARN]` line, exited 0, and scaffolded a project
+anyway** — one whose `.claude/tool-preferences.json` came from the fallback
+writer rather than from resolver output (`installed: {}`, and three context
+values that had silently acquired a leading space, which then propagated into a
+regenerated `CLAUDE.md` as `- **Platform:**  web`). The only test that caught it
+was `tests/test-verify-install-fix-functions.sh::T2`, four layers downstream,
+and it reported "missing substituted identity fields" — a symptom whose stated
+cause is nowhere near the mode.
+
+### What is already done
+
+`X1`/`M7` in `tests/test-bl235-tool-matrix-probes.sh` pin the bit on
+`resolve-tools.sh` specifically, with a mutation proof that a byte-identical copy
+at 644 returns 126. That closes the one file this incident touched.
+
+### What is NOT done — the general rule
+
+**There is no check that a directly-invoked script is executable.** The
+invariant is derivable rather than list-based: for each `scripts/*.sh`, find the
+product lines that name it at the START of a command (as opposed to `bash …`,
+`source …`, `cp …`), and require mode 755 for exactly those. Three top-level
+scripts are legitimately 644 today — `ci-verify-sha256.sh`,
+`lint-evalprompts-portability.sh`, `lint-module-dependencies.sh` — and a
+derived predicate should EXPLAIN them (nothing invokes them directly) rather
+than allowlist them, which is the `# BL-181-UNIT-LANE-PREDICATE` shape.
+
+**Two things the fix must not repeat.** A blanket "every `scripts/*.sh` is 755"
+rule is false today and would go red on those three. And `scripts/lib/*.sh` are
+SOURCED, so 644 is correct there; a rule that cannot tell sourcing from
+executing would demand the wrong mode for a whole directory.
+
+### The transferable lesson, which is wider than modes
+
+**"The edit applied" and "the file is unchanged in every other respect" are two
+assertions.** CLAUDE.md already requires the first — assert a changed-line
+count, because "sed ran" is not "sed edited". This entry adds the second: an
+edit that rewrites a file through a temp file must preserve MODE, and the proof
+is a mode comparison, not a diff. `_mutate` in the test suites has done this
+correctly for months (`_mode_of` + `chmod` around every mutation) — the harness
+was more careful than the hand.
+
+**Related:** `## BL-235:` (where it happened), `## BL-112:` ("did not run" is
+not "found nothing"), `## BL-104:` (a `[WARN]` label over a blocking outcome —
+the same text/behaviour mismatch, in the other direction).
