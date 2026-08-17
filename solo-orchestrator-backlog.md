@@ -11842,6 +11842,31 @@ The installer now prints this arm-by-arm at install time instead of listing the
 arms the hook contains, because listing them is exactly what the old message
 did: true about the file, false about the behaviour.
 
+### A GREEN TEST WAS PINNING THE DEFECT
+
+`tests/test-bl096-cold-start.sh::T-contributor-hook-installs` asserted
+
+```
+cmp -s scripts/pre-commit-gate.sh .git/hooks/pre-commit
+```
+
+— that the installed hook is a **byte copy of the gate** — and its failure
+message called that *"the REAL gate installed"*. So the no-op was not merely
+undetected: it was **required**, by a passing test, in the suite named for the
+feature that introduced it. Any correct fix had to red that test first, which is
+exactly what happened on PR #358.
+
+The assertion is **inverted, not deleted**: the installed hook must NOT be that
+file. Deleting it would leave nothing standing between here and a future
+"simplification" back to `cp`. The behavioural half lives in
+`tests/test-bl239-contributor-hooks.sh`, whose `A1` control reproduces the
+no-op and requires zero gate output.
+
+**Process note, because the miss was mine.** I ran the new suite and the lints
+locally and did not run the suites that reference the thing I changed. The
+derivation is one line and would have caught it before CI:
+`grep -rln 'install-contributor-hooks' tests/`.
+
 ### Residual — the thing this entry does NOT fix
 
 **Nothing detects a pre-commit hook that is present but inert.** A hook that

@@ -160,20 +160,43 @@ echo "=== T-contributor-hook-installs ==="
 if [ ! -f "$INSTALLER" ]; then
   fail_ "T-contributor-hook-installs" "scripts/install-contributor-hooks.sh does not exist (F10: CONTRIBUTING's manual cp must be a one-liner script)"
 else
-  C="$TOPTMP/checkout"; mkdir -p "$C/scripts"
+  # BL-239: THIS CASE USED TO PIN THE DEFECT. It asserted
+  #   cmp -s scripts/pre-commit-gate.sh .git/hooks/pre-commit
+  # — i.e. that the installed hook is a BYTE COPY of the gate — and called that
+  # "the REAL gate installed". It is the opposite: `pre-commit-gate.sh` is a
+  # PreToolUse hook whose contract is "no output = ALLOW", and git runs a
+  # pre-commit hook with no arguments and no stdin JSON, so that copy exited 0
+  # silently on every commit. A green test asserted the no-op was correct.
+  #
+  # The identity assertion is therefore INVERTED, not deleted: the installed
+  # hook must NOT be that file. Deleting it would leave nothing standing between
+  # here and a future "simplification" back to `cp`. The behavioural half — that
+  # the installed hook actually RUNS its arms on a real commit — lives in
+  # tests/test-bl239-contributor-hooks.sh, whose A1 control reproduces this
+  # exact no-op and requires zero gate output.
+  C="$TOPTMP/checkout"; mkdir -p "$C/scripts/lib"
   ( cd "$C" && git init -q && git config user.email t@t.invalid && git config user.name t ) || true
   cp "$REPO_ROOT/scripts/pre-commit-gate.sh" "$C/scripts/"
+  # A real checkout has the emitters; the installer needs them to write the
+  # hooks init.sh writes, and refuses without them rather than falling back to
+  # something that does nothing.
+  cp "$REPO_ROOT/scripts/lib/hook-templates.sh" "$C/scripts/lib/"
   cp "$INSTALLER" "$C/scripts/"
   out=$( cd "$C" && bash scripts/install-contributor-hooks.sh 2>&1 ); rc=$?
-  if [ "$rc" -eq 0 ] && [ -x "$C/.git/hooks/pre-commit" ] && cmp -s "$C/scripts/pre-commit-gate.sh" "$C/.git/hooks/pre-commit"; then
+  hook_is_the_gate=no
+  cmp -s "$C/scripts/pre-commit-gate.sh" "$C/.git/hooks/pre-commit" && hook_is_the_gate=yes
+  if [ "$rc" -eq 0 ] && [ -x "$C/.git/hooks/pre-commit" ] && [ -x "$C/.git/hooks/commit-msg" ] \
+     && [ "$hook_is_the_gate" = "no" ]; then
     out2=$( cd "$C" && bash scripts/install-contributor-hooks.sh 2>&1 ); rc2=$?
-    if [ "$rc2" -eq 0 ] && cmp -s "$C/scripts/pre-commit-gate.sh" "$C/.git/hooks/pre-commit"; then
-      pass "T-contributor-hook-installs (idempotent)"
+    tdd_blocks=$(grep -cF 'SOIF BL-072 TDD gate (commit-msg)' "$C/.git/hooks/commit-msg" 2>/dev/null)
+    case "$tdd_blocks" in ''|*[!0-9]*) tdd_blocks=0 ;; esac
+    if [ "$rc2" -eq 0 ] && [ "$tdd_blocks" -eq 1 ]; then
+      pass "T-contributor-hook-installs: both hooks land executable, the pre-commit hook is NOT a copy of pre-commit-gate.sh (that copy is the no-op this case used to require), and a second run leaves exactly one TDD block"
     else
-      fail_ "T-contributor-hook-installs" "re-run rc=$rc2 — the installer must be idempotent: $(printf '%s' "$out2" | tail -1)"
+      fail_ "T-contributor-hook-installs" "re-run rc=$rc2 tdd_blocks=$tdd_blocks (want 1) — the installer must be idempotent: $(printf '%s' "$out2" | tail -1)"
     fi
   else
-    fail_ "T-contributor-hook-installs" "rc=$rc hook-exec=$([ -x "$C/.git/hooks/pre-commit" ] && echo yes || echo no) — expected the REAL gate installed executable at .git/hooks/pre-commit: $(printf '%s' "$out" | tail -1)"
+    fail_ "T-contributor-hook-installs" "rc=$rc pre-commit-exec=$([ -x "$C/.git/hooks/pre-commit" ] && echo yes || echo no) commit-msg-exec=$([ -x "$C/.git/hooks/commit-msg" ] && echo yes || echo no) hook_is_a_copy_of_the_gate=$hook_is_the_gate (want no) — expected BOTH hooks installed executable, generated from hook-templates.sh: $(printf '%s' "$out" | tail -1)"
   fi
 fi
 
