@@ -590,10 +590,29 @@ jobs:
             #    lint-sweep 201 -> 386s (54%). Moving two would have taken
             #    slow-misc to 36% and changed nothing else, because the binding
             #    constraint after this move is `sast`.
-            #    WATCH `sast` NEXT: 519s (72%) and untouched here. It is now the
-            #    highest leg, and its own pin note says bl132 is deliberately
-            #    pinned at its worst case (213s), so the next re-pin has to come
-            #    from somewhere other than moving bl132 around.
+            #    DO NOT READ A "NEXT LEG TO WATCH" OUT OF ONE RUN. A first draft
+            #    of this note named `sast` at 519s (72%) as the new highest. The
+            #    very next run refuted it — and the two samples disagree by more
+            #    than the move being made here:
+            #
+            #      leg          run 32048687734   run 32050... (this PR)
+            #      slow-misc         566s              372s     <- the move, held
+            #      lint-sweep        201s              400s     <- the move, held
+            #      lint-scan         245s              240s
+            #      rest              438s              547s     <- +109s
+            #      sast              519s              477s     <- -42s
+            #
+            #    `rest` gained only 6s of new test here (measured: the bl239
+            #    suite), so ~100s of that swing is run-to-run noise. Which leg is
+            #    "highest" is therefore NOT stable from a single sample; take two
+            #    before re-pinning anything on it.
+            #
+            #    AND `rest` HAS NO POLE TO MOVE. Its 526s is 158 suites whose
+            #    largest is 40s — flat, ~3.3s mean. If the complement ever binds,
+            #    re-pinning cannot fix it: there is nothing to pin. That would
+            #    need a different mechanism (more shards, or splitting the
+            #    complement), and it is worth knowing BEFORE someone spends an
+            #    afternoon hunting for a long pole that does not exist.
             tests/test-delta-wp5-hotfix-retro.sh   # 185s measured (run 32048687734) — the pole; opens and closes deltas dozens of times, and each open also renders a brief and seeds a ledger row, so it grew with the feature rather than with the test
           )
           pin_lint_scan=(
