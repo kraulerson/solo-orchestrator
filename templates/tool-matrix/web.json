@@ -36,7 +36,6 @@
       "platforms": ["web"],
       "languages": ["all"],
       "check_command": "command -v docker && docker image inspect ghcr.io/zaproxy/zaproxy:stable &>/dev/null 2>&1",
-      "version_command": "echo 'docker image present'",
       "min_version": null,
       "latest_check": null,
       "install": {

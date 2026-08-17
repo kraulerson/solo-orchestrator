@@ -89,6 +89,88 @@ run_with_timeout() {
   wait "$_rto_pid" 2>/dev/null
 }
 
+# run_with_deadline <seconds> <command...> — the same job as run_with_timeout,
+# with the two properties its counter cannot have.                # BL-235-DEADLINE
+#
+#   rc 124 on timeout, and the command's own status otherwise. run_with_timeout
+#   returns 1 for a timeout, which is indistinguishable from "it ran and
+#   failed" — so a caller can never report "this took too long" as itself.
+#
+#   A POLL FLOOR OF 0.1s, NOT 1s. run_with_timeout sleeps a whole second before
+#   its first re-check, so every bounded call costs ~1s even when the command is
+#   instant. That is invisible at one call site and arithmetic at forty:
+#   check-versions.sh bounds a check_command AND a version_command per row, and
+#   on the 21-row shipped matrix it measured 5-6s before the bound and 50-51s
+#   after — inside the SessionStart hook. The bound was right; its price was
+#   never measured. `sleep 0.1` is not POSIX, so a shell that rejects it falls
+#   back to whole seconds rather than spinning: correctness first, speed if the
+#   platform allows it.
+#
+#   The deadline is WALL CLOCK, not an increment count, so a SIGCHLD from some
+#   other killed child — which cuts `sleep` short — cannot inflate the counter
+#   and kill a command early. That bug is why scripts/resolve-tools.sh grew a
+#   private copy of this in the first place; the copy is now deleted and this is
+#   the one owner.
+#
+# run_with_timeout is deliberately UNTOUCHED — its body is byte-identical to
+# main's. Changing a shared gate primitive is a separate decision from fixing a
+# regression at two new call sites.
+#
+# Derive its reach, do not read it here. An earlier draft of this comment said
+# "eleven call sites across six product files", which was true of `main` and
+# false of the tree the comment shipped in: this branch's own Qdrant work added
+# three more, so HEAD is 14 across 7. A count stated on the page that falsifies
+# it is the failure this whole entry is named for.
+#
+#   for f in $(grep -rl run_with_timeout --include='*.sh' scripts/ init.sh \
+#             | grep -v helpers-core.sh); do
+#     sed 's/[[:space:]]*#.*$//' "$f" | grep -E 'run_with_timeout[[:space:]]' \
+#       | grep -vc 'command -v run_with_timeout'
+#   done
+# THE BOUND IS ON THE PROCESS, NOT ON THE PIPELINE, AND A CALLER CAN DEFEAT IT.
+# `kill -9` reaps the `bash -c` child; a pipeline's OTHER members survive it and
+# keep the write end of any pipe open. So a caller that consumes the output
+# through a COMMAND SUBSTITUTION — `v=$(run_with_deadline 2 bash -c 'sleep 12 |
+# cat')` — blocks for the full 12s while this function returns in 2, because the
+# substitution reads until the last writer closes, not until the child dies.
+# Measured: plain `sleep 12` returns at the bound; `sleep 12 | cat`, `(sleep 12)`
+# and the shipped Colima row's `… | head -1 | awk …` all ran to completion.
+# 21 of the 41 checkable matrix rows are that shape.
+#
+# Callers must therefore redirect to a FILE and read it afterwards, which is
+# what `_cv_version_bounded` (check-versions.sh) and `run_bounded_capture`
+# (resolve-tools.sh) do. Both are measured at the bound for every shape.
+# `set -m` + `kill -- -$pid` was tried first and does NOT work here: a command
+# substitution runs in a subshell with job control disabled, so the child never
+# gets its own process group.
+run_with_deadline() {
+  local _rwd_secs="$1"; shift
+  # A NON-NUMERIC BOUND MUST NOT MEAN "ZERO". `$(( now + abc ))` is `now`, so an
+  # unparseable CHECKVER_EVAL_TIMEOUT made the deadline already-past and EVERY
+  # row timed out instantly and reported "not installed" — a whole matrix turned
+  # to "missing" by one malformed environment variable, silently. Same guard
+  # `qdrant_probe_root` already carries.
+  case "$_rwd_secs" in ''|*[!0-9]*|0) _rwd_secs=10 ;; esac                      # BL-235-DEADLINE-SANE
+  # Probe fractional sleep ONCE per process, not once per call: the probe is
+  # itself a sleep, and paying it 42 times would re-import a fraction of the
+  # cost this function exists to remove.
+  if [ -z "${_SOIF_FRACTIONAL_SLEEP:-}" ]; then
+    if sleep 0.05 2>/dev/null; then _SOIF_FRACTIONAL_SLEEP=1; else _SOIF_FRACTIONAL_SLEEP=0; fi
+  fi
+  "$@" &
+  local _rwd_pid=$!
+  local _rwd_deadline=$(( $(date +%s) + _rwd_secs ))
+  while kill -0 "$_rwd_pid" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "$_rwd_deadline" ]; then
+      kill -9 "$_rwd_pid" 2>/dev/null || true
+      wait "$_rwd_pid" 2>/dev/null || true
+      return 124
+    fi
+    if [ "$_SOIF_FRACTIONAL_SLEEP" = "1" ]; then sleep 0.1; else sleep 1; fi
+  done
+  wait "$_rwd_pid" 2>/dev/null
+}
+
 # --- Prompt helpers ---
 
 # Prompt for text input with optional default value.

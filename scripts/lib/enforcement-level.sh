@@ -49,8 +49,33 @@ assert_choosable() {
     return 1
   fi
   local deployment poc_mode
-  deployment=$(jq -r '.deployment // "personal"' "$manifest" 2>/dev/null)
+  # BL-221: `// "personal"` made an ABSENT key resolve to the CHOOSABLE tier —
+  # a fail-OPEN on the one surface that decides whether a project may weaken
+  # its own enforcement. jq's `//` coerces null, false AND empty to its
+  # right-hand side, so an absent key and an explicit `null` were both read as
+  # `personal`. Deleting one key from an organizational manifest flipped it
+  # from refusing the downgrade to allowing it.
+  #
+  # `read_enforcement_level` above has always failed CLOSED on the same inputs
+  # (missing file, unreadable, unknown value -> strict). Two readers in one
+  # library disagreeing about the same manifest was half the finding; they now
+  # agree.
+  deployment=$(jq -r '.deployment // ""' "$manifest" 2>/dev/null)                # BL-221-TIER-FAIL-CLOSED
   poc_mode=$(jq -r '.poc_mode // ""' "$manifest" 2>/dev/null)
+  case "$deployment" in
+    ''|null)
+      # A blocking predicate that will not say WHY is its own defect: name the
+      # key and how to supply it.
+      echo "[FAIL] enforcement-level: $manifest has no 'deployment' key, so the tier cannot be determined — refusing to treat an unknown tier as choosable." >&2
+      # Deliberately does NOT name the adoption driver: this is a CORE file and
+      # the brownfield driver is a SEVERABLE MODULE (M3 — core may never
+      # reference a module). lint-module-dependencies.sh caught the first
+      # draft of this line doing exactly that. Say what the operator must set;
+      # whichever tool created the project is not core's business.
+      echo "       Set '.deployment' to \"personal\" or \"organizational\" in that manifest, then retry." >&2
+      return 1
+      ;;
+  esac
   if [ "$deployment" = "personal" ]; then
     return 0
   fi

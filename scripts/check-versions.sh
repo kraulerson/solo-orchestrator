@@ -301,6 +301,162 @@ check_for_update() {
 }
 
 # --- Load tool matrix ---
+# BL-235: `check_command` and `version_command` are ARBITRARY SHELL read out of
+# a JSON data file, and this consumer ran both through a bare `eval` with no
+# bound — while its sibling scripts/resolve-tools.sh has wrapped the identical
+# strings in a 10s timeout since 2026-06-26. Two readers of one data file,
+# asymmetric bounding.
+#
+# That was already a live hazard, not a hypothetical: the shipped matrix carries
+# `colima version` as a version command, and resolve-tools.sh's own header
+# records that daemon-backed commands "can hang indefinitely when the daemon is
+# unreachable" — which is why it bounds them. This script could hang on an
+# unreachable daemon before any of BL-235's probes existed.
+#
+# `docker --version` is NOT one of them, and an earlier draft of this comment
+# named it. It is client-only — it prints a compiled-in string and never opens a
+# socket, measured at 26ms here. `docker version`, without the dashes, is the
+# one that contacts the daemon. The hazard is real; that example was not.
+#
+# The `command -v` guard is the same one BL-234 established lower down:
+# helpers-core.sh may be absent, and the fallback path above does not define its
+# helpers, so an unguarded call would exit 127 and read as "not installed".
+#
+# THE RUNNER IS `run_with_deadline`, NOT `run_with_timeout`, AND THAT IS A
+# MEASUREMENT. `run_with_timeout` polls on a `sleep 1` counter, so every bounded
+# call costs about a second whether the command takes 3ms or 3s. This loop makes
+# TWO bounded calls per row; on the 21-row shipped matrix that is ~42 of them,
+# and this script went from 5-6s to 50-51s the day the bound landed — inside the
+# SessionStart hook, which is the one place where seconds are the operator's.
+# `run_with_deadline` is the same bound on a wall-clock deadline with a 0.1s
+# poll, and it returns 124 for a timeout instead of 1, so "this took too long"
+# stops being spelled the same as "this ran and failed".
+CHECKVER_EVAL_TIMEOUT="${CHECKVER_EVAL_TIMEOUT:-10}"
+_cv_bounded_eval() {
+  local _cmd="$1"
+  if command -v run_with_deadline >/dev/null 2>&1; then
+    run_with_deadline "$CHECKVER_EVAL_TIMEOUT" bash -c "$_cmd"
+  else
+    bash -c "$_cmd"
+  fi
+}
+
+# _cv_render_safe <text> — make TOOL-SUPPLIED text safe to render.
+#
+# It is `_render_` and not `_note_` because the note was one of TWO surfaces and
+# fixing only it was the sync-sibling trap in miniature. `INSTALLED` comes from
+# a version_command's STDOUT and reaches the same `echo -e` at nine places —
+# six direct (`$INSTALLED` / `$INSTALLED_DISPLAY`) and three via `UPDATES[]` —
+# and it was not escaped. Measured: a version_command emitting
+# `1.0\n\x20\x20[OK]\x20Totally\x20Installed:\x209.9.9` produced
+#
+#     [OK] P: 1.0
+#     [OK] Totally Installed: 9.9.9 — up to date
+#
+# a fabricated row byte-identical to a genuine one. `tr -d '[:space:]'` does not
+# stop it, because `\x20` is not whitespace until `echo -e` expands it. That
+# path has the same external-input vector as the notes: `probe_superpowers` and
+# `probe_context7` print a `version` field straight out of
+# `~/.claude/plugins/installed_plugins.json`.
+#
+# So this is applied at the SOURCE of each value — once where the note is read
+# and once where the version is captured — rather than at the render sites,
+# because there are nine of the latter and the next one added would be unguarded.
+#
+# `print_warn` renders through `echo -e`, which INTERPRETS backslash escapes in
+# whatever it is given. The note comes from a `check_command`'s stderr, so a
+# note containing the two characters `\` and `n` becomes a real line break —
+# and the line after it is attacker-chosen text at the start of a line, in the
+# one script whose entire job is reporting honestly. Measured, with a stderr of
+# `note-one\nFORGED  [OK] Totally Installed: 9.9.9`:
+#
+#     [WARN] P: configured, but working could not be confirmed — note-one
+#     FORGED  [OK] Totally Installed: 9.9.9        <- a fabricated report row
+#
+# Doubling the backslashes makes `echo -e` emit them literally. The rows ship
+# with the framework today, but the probe notes interpolate `$(qdrant_mcp_url)`
+# read out of `~/.claude.json`, so the text is not wholly ours. C4 pins it.
+# RAW CONTROL BYTES ARE STRIPPED AS WELL AS BACKSLASHES DOUBLED, and the range
+# is `\000-\037\177` — everything below space, plus DEL. A carriage return is
+# not a backslash, so doubling alone leaves it, and on a terminal it returns the
+# cursor to column 0 so the following text OVERWRITES the `[WARN]` prefix and
+# renders a complete fake row. The narrower range `\000-\010\013\014\016-\037`
+# was proposed for this and does NOT strip CR — `\015` falls in the gap between
+# `\014` and `\016`. Measured before adopting it: `printf 'a\rb' | tr -d
+# '\000-\010\013\014\016-\037\177'` still emits `a \r b`. Take the whole range;
+# a tab or newline inside a version string or a one-line note is worth nothing.
+# Two lines, not one, so a mutation proof can target the RANGE independently of
+# the doubling — a single line can only be mutated as a whole, and then a test
+# cannot tell "the tr is gone" from "the tr is too narrow".
+#
+# `LC_ALL=C` IS NOT DECORATION — WITHOUT IT THIS FUNCTION CAN END THE RUN.
+# BSD `tr` and `cut` reject an invalid multibyte sequence in a UTF-8 locale and
+# exit 1, and every caller here is under `set -euo pipefail`. Measured, a
+# check_command whose stderr carries one stray byte (`printf 'bad\xe9note' >&2`):
+#
+#     LC_ALL=C            exit=0   3 of 3 rows rendered
+#     LC_ALL=C.UTF-8      exit=1   1 of 3       <- ubuntu-latest's usual default
+#     LC_ALL=en_US.UTF-8  exit=1   1 of 3
+#
+# — the report simply stops, which is the "rows silently vanish" pathology this
+# branch already hit once through `grep -v`. `LC_ALL=C` makes both operators
+# byte-oriented, which is what a sanitiser wants anyway. NOT `|| :`: that would
+# swallow the error and silently truncate the note at the bad byte.
+# The `cut` on the note pipeline below carries the same guard for the same
+# reason; it has been failing this way since it was added, and on `main` too.
+_cv_render_safe() {
+  local _s="${1//\\/\\\\}"
+  printf '%s' "$_s" | LC_ALL=C tr -d '\000-\037\177'                            # BL-235-NOTE-SAFE
+}
+
+# _cv_version_bounded <cmd> — run a version_command under the bound and put its
+# output in INSTALLED.
+#
+# It does NOT keep the version command's stderr. An earlier version captured it
+# into CV_NOTE, which nothing ever rendered — a second note binned one layer
+# before the operator, which is the defect this entry is named for wearing the
+# costume of its own fix. A version_command that fails already renders honestly
+# as "installed, version not reported", so the row is not lying; adding a second
+# unrendered value only added a `mktemp`, a `grep` and a `cut` per row and a
+# second forgery surface. Dropped rather than plumbed.
+#
+# THE FILE IS THE POINT. `INSTALLED=$(_cv_bounded_eval "$VERSION_CMD")` looks
+# equivalent and is not: a command substitution reads until the last WRITER
+# closes the pipe, and the bound only kills the `bash -c` child. Every pipeline
+# member survives it holding that pipe open, so the substitution waited out the
+# full command while the runner reported it had stopped. Measured on the
+# verbatim shipped Colima row (`colima version … | head -1 | awk …`): 12s
+# against a 2s bound. 21 of the 41 checkable rows are pipeline- or
+# subshell-shaped, so the bound was doing nothing for half the matrix — in the
+# one script that runs from a SessionStart hook, and for exactly the daemon-
+# backed rows it was added to protect. Redirecting to a file makes the reader
+# independent of who still holds the write end. T2b pins it.
+_cv_version_bounded() {
+  local _cmd="$1" _out                                                          # BL-235-VERSION-CAPTURE
+  INSTALLED=""
+  _out="$(mktemp)" || return 0
+  _cv_bounded_eval "$_cmd" >"$_out" 2>/dev/null || true
+  # `|| :` IS LOAD-BEARING UNDER `set -euo pipefail`: a command that exits
+  # non-zero inside a command substitution propagates, and `set -e` then kills
+  # the script mid-row. Measured with the sibling `grep -v` this line used to
+  # carry — on an EMPTY stderr file it exits 1, which is the NORMAL case, and
+  # every healthy row vanished from the report after the first category header.
+  # Sanitised HERE, at the single point of capture, so all nine downstream
+  # render sites are covered and a tenth added later cannot be forgotten.
+  # `version_gte` strips to digits before comparing, so this cannot change a
+  # version verdict.
+  INSTALLED="$(_cv_render_safe "$(tr -d '[:space:]' < "$_out" 2>/dev/null || :)")"   # BL-235-VERSION-SAFE
+  rm -f "$_out"
+}
+
+# THE MATRIX ROWS MUST NOT DEPEND ON THIS PROCESS'S `pwd`. Three rows invoke
+# scripts/probe-tool.sh; a relative path inside a JSON data file resolves
+# against whatever directory the consumer is standing in, and `rc=127` —
+# command-not-found — is read two lines below as "not installed". The probe
+# ships next to this script both here and in every generated project, so this
+# script's own location is the answer.
+export SOLO_SCRIPTS_DIR="${SOLO_SCRIPTS_DIR:-$SCRIPT_DIR}"                      # BL-235-SCRIPTS-DIR
+
 MATRIX_DIR="templates/tool-matrix"
 if [ ! -d "$MATRIX_DIR" ]; then
   # Try from orchestrator source
@@ -424,19 +580,65 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   # Check if installed
   # Disable set -u: check_commands may reference env vars (e.g., $ANDROID_HOME)
   # that are legitimately unset on this system.
+  # THE PROBE WORKS OUT WHY, AND THIS LINE USED TO BIN IT. `>/dev/null 2>&1`
+  # discarded the check's stderr AND its exit code, so all three states of the
+  # contract probe-tool.sh spends ten lines defending arrived here as one word:
+  # "not installed". Measured before this fix — a database that is UP and
+  # answering 403 because it wants the api-key the operator has not configured
+  # rendered IDENTICALLY to one that was never set up:
+  #
+  #     [WARN] Qdrant MCP: not installed
+  #
+  # while the probe's own stderr, which the test suite was happily asserting on
+  # one layer upstream, said "answered HTTP 403 — the database is up and refused
+  # this probe. Add QDRANT_API_KEY to the same mcpServers entry…". That is this
+  # entry's defect exactly, committed by its own fix: rigour applied at the
+  # probe, consumed at a caller that could not hear it. C3 asserts the guidance
+  # in THIS script's output, not in the probe's.
+  #
+  # rc 2 is the shared three-state convention (0 working / 1 not configured /
+  # 2 cannot confirm). A row that does not implement it simply never returns 2.
   set +u
-  if ! eval "$CHECK_CMD" &>/dev/null 2>&1; then
-    set -u
-    print_warn "$NAME: not installed"
+  CHECK_ERR="$(mktemp)"
+  CHECK_RC=0
+  _cv_bounded_eval "$CHECK_CMD" >/dev/null 2>"$CHECK_ERR" || CHECK_RC=$?         # BL-235-BOUND-CHECK
+  set -u
+  # `|| :` for the same reason as in _cv_version_bounded: an empty stderr file
+  # makes `grep -v` exit 1, and under `set -euo pipefail` that ends the run.
+  # LC_ALL=C on the `cut` for the same reason as in _cv_render_safe: in a UTF-8
+  # locale it exits 1 on an invalid multibyte sequence, and under `set -e` that
+  # ends the whole report. This one has been failing that way since it was
+  # added — and on `main` too, so it is not a regression, but these are the
+  # lines this entry owns.
+  CHECK_NOTE="$( { grep -v '^[[:space:]]*$' "$CHECK_ERR" 2>/dev/null || :; } | tail -1 | LC_ALL=C cut -c1-200)"
+  CHECK_NOTE="$(_cv_render_safe "$CHECK_NOTE")"
+  rm -f "$CHECK_ERR"
+  if [ "$CHECK_RC" -ne 0 ]; then
+    if [ "$CHECK_RC" -eq 2 ]; then                                              # BL-235-THIRD-STATE
+      print_warn "$NAME: configured, but working could not be confirmed${CHECK_NOTE:+ — $CHECK_NOTE}"
+    else
+      print_warn "$NAME: not installed${CHECK_NOTE:+ — $CHECK_NOTE}"
+    fi
     continue
   fi
-  set -u
 
   # Get installed version
   INSTALLED=""
   if [ -n "$VERSION_CMD" ]; then
-    INSTALLED=$(eval "$VERSION_CMD" 2>/dev/null | tr -d '[:space:]' || echo "")
+    _cv_version_bounded "$VERSION_CMD"                                          # BL-235-BOUND-VERSION
   fi
+
+  # THE WORD `configured` WAS THE WHOLE DEFECT AND IT NEARLY SURVIVED BY MOVING
+  # FILE. BL-235 deleted `version_command: echo 'configured'` from the matrix —
+  # and this script then rendered the identical word from its own
+  # `${INSTALLED:-configured}` fallback, at four sites, for exactly the rows
+  # that had just stopped declaring it. A JSON-level assertion cannot see that;
+  # only one that reads the OUTPUT can, which is why the suite now has one.
+  #
+  # What is true here is that the check PASSED and the version command produced
+  # nothing. The replacement says that and nothing more: it does not upgrade
+  # silence into a configuration claim. ONE owner, read by all four sites.
+  INSTALLED_DISPLAY="${INSTALLED:-installed, version not reported}"             # BL-235-NO-CONSTANT
 
   # Check minimum version
   MIN_MET=true
@@ -461,15 +663,15 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       UPDATE_CMDS+=("${UPDATE_CHECK_CMD:-}")
       UPDATE_NAMES+=("$NAME")
     elif [ "$UPDATE_CHECK_STATUS" = "behind" ]; then
-      print_warn "$NAME: ${INSTALLED:-configured} — $UPDATE_CHECK_MSG"
+      print_warn "$NAME: $INSTALLED_DISPLAY — $UPDATE_CHECK_MSG"
       UPDATES+=("$NAME — $UPDATE_CHECK_MSG")
       UPDATE_CMDS+=("${UPDATE_CHECK_CMD:-}")
       UPDATE_NAMES+=("$NAME")
     elif [ "$UPDATE_CHECK_STATUS" = "self_updating" ]; then
-      print_ok "$NAME: ${INSTALLED:-configured} — $UPDATE_CHECK_MSG"
+      print_ok "$NAME: $INSTALLED_DISPLAY — $UPDATE_CHECK_MSG"
       PASS_COUNT=$((PASS_COUNT + 1))
     else
-      print_ok "$NAME: ${INSTALLED:-configured} — ${UPDATE_CHECK_MSG:-up to date}"
+      print_ok "$NAME: $INSTALLED_DISPLAY — ${UPDATE_CHECK_MSG:-up to date}"
       PASS_COUNT=$((PASS_COUNT + 1))
     fi
   else
@@ -523,7 +725,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       UPDATE_NAMES+=("$NAME")
       PASS_COUNT=$((PASS_COUNT + 1))
     else
-      print_ok "$NAME: ${INSTALLED:-configured}$MIN_DISPLAY$LATEST_DISPLAY"
+      print_ok "$NAME: $INSTALLED_DISPLAY$MIN_DISPLAY$LATEST_DISPLAY"
       PASS_COUNT=$((PASS_COUNT + 1))
     fi
   fi

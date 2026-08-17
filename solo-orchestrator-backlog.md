@@ -9005,7 +9005,37 @@ permissive tier on absent data
 **Severity:** **Real, not cosmetic.** This is a fail-OPEN on the surface that
 decides whether a project is *allowed to weaken its own enforcement*. Every other
 tier reader in the framework fails closed on absent data; this one does not.
-**Status:** Open
+**Status:** Open — BOTH candidate fixes implemented on branch
+`fix/bl221-tier-keys-and-probe`; close on merge with the PR number.
+
+### Both, because neither subsumes the other
+
+- **`# BL-221-TIER-FAIL-CLOSED`** — `.deployment // "personal"` became `// ""`
+  with an explicit refusal. jq's `//` coerces `null`, `false` AND empty to its
+  right-hand side, so an absent key and an explicit `null` both resolved to the
+  CHOOSABLE tier; one guard now catches both. The refusal names the key.
+- **`# BL-221-ADOPT-TIER-KEYS`** — `adopt_write_manifest` writes `deployment`,
+  `poc_mode` and `enforcement_level` from the SAME variables
+  `adopt_write_phase_state` uses, so manifest and phase record cannot disagree.
+
+Option 1 alone left every other cause open (a hand-edited manifest, the
+regenerate path). Option 2 alone left the birth paths producing different
+shapes — the divergence that produced this.
+
+**Proof:** `tests/test-bl221-tier-fail-closed.sh`, 11 cases. `A3` is the entry's
+case C. `B1`–`B3` pin that the fix refuses absent data, not every project. `C2`
+pins that `assert_choosable` and `read_enforcement_level` now agree. `W2`
+**executes** the shipped jq filter rather than grepping for key names.
+
+**Two failures caught by the repo's own guards, both from one line of mine:** the
+refusal message named `scripts/adopt-project.sh` from a CORE file, which M3
+forbids. `lint-module-dependencies.sh` caught it and
+`test-brownfield-wp5b-test-debt.sh`'s F1 caught it independently.
+
+**Already worked around downstream, which is the tell:** `_td_tier_trusted` in
+`adopt-test-debt.sh` had added its own presence check before trusting
+`assert_choosable`. A caller defending itself against a shared predicate is the
+predicate's bug.
 
 **The predicate.** `assert_choosable` in `scripts/lib/enforcement-level.sh`:
 
@@ -11055,7 +11085,273 @@ the behaviour), `## BL-221:` (missing key ⇒ permissive default).
 different surface, deliberately left unfixed there so the fix is not smuggled in
 under an unrelated diff)
 **Category:** Silent-success — declaration read as capability
-**Status:** Open
+**Status:** Open — implemented on branch `fix/bl221-tier-keys-and-probe`; close
+on merge with the PR number.
+
+### The prerequisite the entry did not know it had
+
+The entry says a probe is unsafe because the schema expresses no bound. Half
+right, and the wrong half changed the design:
+
+| consumer | how it evaluates `check_command` |
+|---|---|
+| `scripts/resolve-tools.sh` | `run_cmd_with_timeout` — **bounded, 10s** |
+| `scripts/check-versions.sh` | `eval "$CHECK_CMD"` — **unbounded** |
+
+The unbounded one was **already a hazard**: the matrix ships `colima version` as
+a version command, and `resolve-tools.sh`'s own header records that daemon-backed
+commands "can hang indefinitely when the daemon is unreachable" — which is why IT
+bounds them. Fixed first and separately (`# BL-235-BOUND-CHECK`,
+`# BL-235-BOUND-VERSION`) with WALL-CLOCK assertions: a 12s command at a 2s
+bound returns in 3s; the mutation puts it back to 12s.
+
+**One correction to that paragraph, kept rather than quietly edited.** It also
+named `docker --version` as a hang risk. It is not one: it prints a compiled-in
+string and never opens a socket — 26ms on this host with a live daemon. The one
+that contacts the daemon is `docker version`, without the dashes, and the matrix
+does not ship it. The hazard is real and `colima version` carries it; the second
+example was wrong and citing two made the claim feel twice as established.
+
+**AND THE BOUND WAS DECORATIVE FOR HALF THE MATRIX, which the first fix
+certified as working.** `T1`/`T2` proved it with `sleep 12` — the one shape it
+handles. `kill -9` reaps the `bash -c` child; a pipeline's OTHER members survive
+it holding the pipe open, and a caller reading through a command substitution
+then waits for them. Measured: `sleep 12 | cat` at a 2s bound took **12s**, as
+did `(sleep 12)` and the verbatim shipped `Colima` version command. Derived
+across all four matrices, **21 of the 41 checkable rows** are pipeline- or
+subshell-shaped — including Colima, the row this entry names as the reason a
+bound was needed. Fixed at both consumers by taking the output through a FILE
+(`# BL-235-VERSION-CAPTURE`, `# BL-235-RESOLVE-CAPTURE`) so the reader does not
+depend on who still holds the write end; `set -m` plus a process-group kill was
+tried first and does not work, because a command substitution runs with job
+control disabled. `T2b` pins the pipeline shape and `M8` restores the
+substitution and watches it hang again.
+
+**And the three-state contract was discarded one layer before the operator.**
+`check-versions.sh` ran the check as `>/dev/null 2>&1`, throwing away both the
+exit code and the probe's note — so a database that is UP and answering **403**
+because it wants an api-key rendered as `[WARN] Qdrant MCP: not installed`,
+identical to one never installed, while the probe's own stderr said exactly what
+to change. `D9` asserted that note ON THE PROBE, one layer short of where it is
+consumed — the same mistake `D3` made, in a different place. `# BL-235-THIRD-STATE`
+now renders rc 2 as *"configured, but working could not be confirmed"* with the
+note, and **`C3` asserts it in this script's OUTPUT**. This is need #3 of "What
+it needs" below, for the human-facing consumer; the resolver half (a distinct
+bucket in `resolve-tools.sh`'s JSON) is a schema change with many consumers and
+is NOT done.
+
+**And surfacing the note handed a tool's stderr a way to FORGE REPORT LINES.**
+`print_warn` renders through `echo -e`, which interprets backslash escapes — so
+a note containing the two characters `\` and `n` becomes a real line break and
+whatever follows starts a new line of the report. Measured, from a stderr of
+`note-one\nFORGED  [OK] Totally Installed: 9.9.9`:
+
+```
+[WARN] P: configured, but working could not be confirmed — note-one
+FORGED  [OK] Totally Installed: 9.9.9
+```
+
+A fabricated `[OK]` row, in the script whose whole purpose is honest reporting.
+The rows ship with the framework, but the probe's notes interpolate
+`$(qdrant_mcp_url)` read out of `~/.claude.json`, so the text is not wholly
+ours. **This was a cost created by the fix above** — surfacing a diagnostic is
+not free, and it is recorded as the fix's own consequence rather than as a
+separate discovery.
+
+**And fixing it on ONE of the two render paths was the sync-sibling trap in
+miniature.** The first attempt guarded the note and not the version. `INSTALLED`
+comes from a `version_command`'s stdout and reaches the same `echo -e` at
+**nine** places — six direct and three through `UPDATES[]`. Measured: a
+version_command emitting `1.0\n\x20\x20[OK]\x20Totally\x20Installed:\x209.9.9`
+produced
+
+```
+[OK] P: 1.0
+[OK] Totally Installed: 9.9.9 — up to date
+```
+
+byte-identical to a genuine row, and `tr -d '[:space:]'` does not stop it
+because `\x20` is not whitespace until `echo -e` expands it. Same external-input
+vector as the notes: `probe_superpowers` and `probe_context7` print a `version`
+straight out of `~/.claude/plugins/installed_plugins.json`.
+`# BL-235-VERSION-SAFE` sanitises at the single point of CAPTURE rather than at
+the render sites, because there are nine of the latter and the tenth added later
+would be unguarded.
+
+**And a raw carriage return is not a backslash.** Doubling alone left it, and on
+a terminal CR returns the cursor to column 0 so the following text overwrites
+the `[WARN]` prefix and renders a complete fake row. `# BL-235-NOTE-SAFE` strips
+`\000-\037\177` as well as doubling. **The narrower range proposed for this —
+`\000-\010\013\014\016-\037\177` — does NOT strip CR**: `\015` sits in the gap
+between `\014` and `\016`, and `printf 'a\rb'` through it still emits the CR.
+That range was measured before being rejected, not assumed wrong. `C4`/`C5`/`C6`
+assert the three shapes and `M11`/`M12`/`M13` restore each hole in turn —
+`M13` narrows the range specifically, so `C6` measures the RANGE rather than
+the presence of a `tr`.
+
+**And ONE STRAY BYTE FROM ONE TOOL COULD END THE WHOLE REPORT.** `tr` and `cut`
+reject an invalid multibyte sequence in a UTF-8 locale and exit 1, and every
+caller here runs under `set -euo pipefail`. Measured with a `check_command`
+whose stderr carries one non-UTF-8 byte:
+
+| locale | exit | rows rendered |
+|---|---|---|
+| `C` | 0 | 3 of 3 |
+| `C.UTF-8` | 1 | 1 of 3 |
+| `en_US.UTF-8` | 1 | 1 of 3 |
+
+`C.UTF-8` is ubuntu-latest's usual default. The symptom is the "rows silently
+vanish" pathology this branch has now produced three times — once through
+`grep -v` exiting on empty input, once here through `cut`, once here through
+`tr`. **The `cut` half is not this branch's**: it fails identically on `main`,
+and is fixed here only because these are the lines this entry owns. `LC_ALL=C`
+on both makes them byte-oriented, which is what a sanitiser wants anyway.
+`C7` asserts all three rows survive; `M14` removes the guard and watches the
+report truncate to zero.
+
+**One residual, stated rather than implied:** the bound stops the *wait*, not
+the *pipeline*. Orphaned pipeline members survive their `bash -c` parent and run
+to their own completion, holding only the capture temp file and `/dev/null` —
+never the consumer's pipe, which is why the consumer now returns at the bound.
+Measured on a worst case of 12 rows × a 20s pipeline at a 1s bound: the script
+returned in 12s, the temp-file delta was 0, and the process count returned to
+baseline once the orphans expired. That is a real leak with a bounded lifetime,
+not a handle exhaustion.
+
+**And a non-numeric bound meant zero.** `$(( now + abc ))` is `now`, so
+`CHECKVER_EVAL_TIMEOUT=abc` put every deadline in the past and reported a whole
+healthy matrix as "not installed" — silently, from one environment variable.
+`# BL-235-DEADLINE-SANE` clamps to the default; `M10` proves it in both
+directions.
+
+**The bound had a PRICE that shipping it did not measure.** The first
+implementation used `run_with_timeout`, which polls a `sleep 1` counter, so every
+bounded call costs ~1s regardless of the command. This loop makes two per row;
+on the 21-row shipped matrix `check-versions.sh` went from **5-6s to 50-51s** —
+inside the SessionStart hook. `# BL-235-DEADLINE` adds `run_with_deadline` to
+`helpers-core.sh` (wall-clock deadline, 0.1s poll, rc 124 for a timeout instead
+of 1), both matrix consumers use it, and `resolve-tools.sh`'s private copy of the
+same idea is deleted — two helpers answering one question became one. Measured
+after: **10-12s**, the remainder being the three probes actually talking to
+things. `run_with_timeout` itself is untouched: eleven call sites across six
+product files, several in enforcement paths, and that is a separate decision.
+`T4` pins the cost so "a bound exists" cannot ship again without "the bound is
+affordable".
+
+### The rows
+
+All three declaration rows — Qdrant MCP, Context7 MCP, Superpowers — call
+**`scripts/probe-tool.sh`**, one owner. Exit contract is three-state:
+**0 working / 1 not configured / 2 cannot confirm**, and 2 is not a softened 1.
+
+**The three are NOT symmetric, and averaging them would have repeated the
+defect.** Only Qdrant has a reachable daemon; Context7 is a stdio server with no
+daemon; Superpowers is not a service. Each reports the strongest evidence its
+tool admits of.
+
+**Versions are falsifiable or absent, never constant.** Measured: qdrant
+`1.17.1` from the database's own payload, superpowers `6.3.0` from the
+installer's registry, context7 empty — honest.
+
+**A false alarm in the probe itself, recorded rather than quietly fixed.**
+`probe_superpowers` first GUESSED a path and returned CANNOT CONFIRM against a
+healthy install; the real layout is `plugins/cache/<marketplace>/<plugin>/<version>`
+and `installed_plugins.json` carries `installPath` and `version`
+(`# BL-235-PROBE-PLUGIN-REGISTRY`).
+
+`probe-tool.sh` ships downstream (`# BL-235-SHIP-PROBE`); without it the rows
+fail closed in every generated project.
+
+**Proof:** `tests/test-bl235-tool-matrix-probes.sh`, 27 cases, ~32s. `D1`, `D1b`
+and `D2` are derived sweeps over **every** shipped matrix file, not lists in the
+test; `D3`-`D14` assert the three-state contract by **equality** against a
+loopback stub; `C1`/`C2` measure it where a consumer reads the answer; `M1`-`M6`
+are mutation proofs.
+
+### What the adversarial review turned up, and what it cost
+
+The first implementation of this entry passed its own suite, cleared the lints,
+and **the review blocked it.** Everything below is that round.
+
+- **The three rows became CWD-RELATIVE** (`bash scripts/probe-tool.sh …`). A
+  relative path inside a JSON data file resolves against whatever directory the
+  CONSUMER stands in, and `init.sh --project-dir ~/work/foo` runs the resolver
+  before any `cd`: measured, all three genuinely-installed tools flipped to
+  `manual_install`, because `rc=127` reads as "not installed". Fixed with
+  `# BL-235-SCRIPTS-DIR` — the rows name `"${SOLO_SCRIPTS_DIR:-scripts}"` and the
+  two evaluators export their own location.
+- **The test that should have caught it asserted `-ne 0` where the truth is
+  exactly `2`** — an assertion that passes on `rc=127`, i.e. on the probe never
+  having run. The three-state contract the probe's header spends ten lines
+  defending had zero coverage. **Assert the state you mean, never its
+  complement**; every state now has an equality case, and `C1` measures the row
+  through `check-versions.sh` from a non-root directory.
+- **A 200 from something that is not Qdrant was accepted as Qdrant.** The probe
+  tested `.version` alone; a stub named `totally-not-qdrant` scored WORKING, as
+  did an Elasticsearch-shaped payload whose `.version` is an OBJECT. `title` and
+  a STRING `version` are both **required** in Qdrant's own `VersionInfo` schema
+  (api.qdrant.tech, `GET /`) — `# BL-235-PROBE-IDENTITY`.
+- **An api-key-protected database was reported as not running** — and this file
+  had *just* re-made `## BL-234:`'s finding one file over: its own `curl -fsS`
+  sent no key and could not tell a 403 from a dead port. The probe now owns no
+  curl at all; `qdrant_probe_root` in `helpers-full.sh` is the one owner of every
+  Qdrant read, so the entry-atomic URL/key pairing, the declared-host rule and
+  the never-in-argv delivery are inherited rather than re-derived.
+- **`probe_superpowers` selected the registry entry by POSITION** (`[0]`). With
+  a stale entry first and the live one second a healthy install scored 2; with
+  two versions it printed the wrong one. `# BL-235-PROBE-PLUGIN-SELECT` selects
+  by whether the recorded `installPath` exists.
+- **`context7` was judged by `command -v npx` regardless of transport.** Its
+  documented HTTP form carries a `url` and no `command` at all. The probe now
+  reads the transport the entry declares.
+- **The word `configured` survived by MOVING FILE.** Deleting
+  `version_command: echo 'configured'` from the matrix left
+  `${INSTALLED:-configured}` inside `check-versions.sh` rendering the identical
+  word for exactly those rows — and the test could not see it, because it
+  asserted on matrix JSON rather than on output. `# BL-235-NO-CONSTANT` is one
+  owner read by all four render sites, and `C2` asserts on the rendered line.
+- **The sweep this entry asked for had scanned one matrix of four.** Across all
+  four, the pre-fix tree carried **11 rows / 10 distinct tools** with an
+  `echo`-constant version. All are fixed: `dart_license_checker` (twice) now
+  parses `dart pub global list`; `Android Studio` — whose CHECK was the same
+  defect, `[ -d … ] || [ -n "$ANDROID_HOME" ]`, true of an empty directory and a
+  stale export — now requires a real `sdkmanager`/`adb` executable; and the five
+  rows with genuinely no version (both Apple Developer Program rows, the EV
+  certificate, the Android keystore, the ZAP image) **omit `version_command`**
+  rather than inventing one, which is what `check-versions.sh`'s own
+  "presence-only tools" comment already assumed. The Android, dart and ZAP arms
+  are reasoned, not executed — this host has none of those toolchains.
+- **The diff was 20x its own meaning.** `common.json` came back 531→790 lines
+  from a `jq` re-emit around six changed fields. All four matrices are now
+  rebuilt from `main` with only the semantic edits: **9 insertions, 15
+  deletions** across the four.
+
+### Two facts the next reader needs
+
+- **`templates/tool-matrix/*.json` is in NO sync set.** `_bl099_sync_scripts`
+  derives its list from `init.sh`'s `cp` lines *under `scripts/`*, so
+  `--sync-framework` ships `probe-tool.sh` (verified present in the derived set)
+  and never the rows that call it. **The ordering is safe and that is worth
+  stating**: a synced project gets the probe alongside its OLD rows, which do not
+  reference it and keep behaving exactly as before; the reverse — rows without a
+  probe — cannot occur, because the rows only ever arrive via `init.sh`, which
+  copies both. The consequence is that an existing project keeps the old
+  declaration behaviour until it is re-initialised, not that it breaks.
+- **Five rows now leave `check-versions.sh` entirely.** The rows with genuinely
+  no version dropped `version_command`, and `CHECKABLE_TOOLS` filters on a
+  non-empty one — so `Android Studio`, both Apple Developer Program rows, the
+  Android keystore and the ZAP image no longer appear in the version report at
+  all. That is correct (they have no version to check) and it matches the
+  filter's own "skip presence-only tools" comment, but it IS a visible change to
+  the report. `resolve-tools.sh` is unaffected: it guards on
+  `[ -n "$TOOL_VERSION_CMD" ]` and still buckets those rows. `version_command`
+  has exactly two consumers (`grep -rn VERSION_CMD scripts/ init.sh`), so there
+  is no third-party fallout.
+- **Seeding `enforcement_level: "strict"` at adoption makes
+  `upgrade-project.sh`'s BL-030 backfill SKIP adopted manifests.** That is
+  correct — the backfill exists to fill an absent key, and the key is no longer
+  absent — but it was undocumented, and a reader looking for why the backfill
+  reports nothing to do on an adopted project would otherwise find no answer.
 
 `templates/tool-matrix/common.json`'s `Qdrant MCP` entry has:
 
@@ -11259,3 +11555,81 @@ constraint — this line ships through the same two writers and is subject to th
 same lockstep rule), `## BL-030:` and `## BL-161:` (the two siblings),
 `## BL-233:` (what made this file load-bearing), `## BL-234:` (the work that
 found it).
+
+---
+
+## BL-237: a script's EXECUTE BIT is part of its contract, and losing it degrades init.sh to a warning that still exits 0
+
+**Logged:** 2026-08-17 (found while fixing `## BL-235:` — by causing it, not by
+auditing for it)
+**Category:** Silent-success — a capability lost to a file mode, reported as a
+recoverable warning
+**Status:** Open
+
+### What happened, measured
+
+An ad-hoc edit written as `sed … > /tmp/new && mv /tmp/new scripts/resolve-tools.sh`
+replaced mode **755 with 644**. `mv` from a fresh temp file does not carry the
+destination's mode, and nothing in the edit reported it: the content assertion
+that accompanied the edit passed, because the content was right.
+
+**The four callers do NOT degrade alike, and a first draft of this entry said
+they did.** That draft claimed all four invoke the resolver directly and all
+four get 126. Derived instead:
+
+| caller | how it invokes | at mode 644 |
+|---|---|---|
+| `init.sh` | `resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" …)` | **rc=126** → `[WARN] Tool resolver failed. Falling back to basic tool checks.` → `return 0` |
+| `scripts/verify-install.sh` | gated `[ ! -x … ] → register_manual "Tool check skipped …"; return`, and the call itself carries a **`bash ` prefix** | skipped; the mode never reaches `execve` |
+| `scripts/intake-wizard.sh` | gated `[ -x "scripts/resolve-tools.sh" ] && …` | **silently skipped** |
+| `scripts/check-phase-gate.sh` | gated `[ -x "$RESOLVER" ]` | **silently skipped** |
+
+So exactly **one** caller produces 126; the other three **silently skip**, which
+is the worse arm — init.sh at least prints something. That correction matters
+for the general rule below: a mode check cannot be justified by "the shell will
+tell you", because for three of the four callers it will not.
+
+init.sh **printed one `[WARN]` line, exited 0, and scaffolded a project
+anyway** — one whose `.claude/tool-preferences.json` came from the fallback
+writer rather than from resolver output (`installed: {}`, and three context
+values that had silently acquired a leading space, which then propagated into a
+regenerated `CLAUDE.md` as `- **Platform:**  web`). The only test that caught it
+was `tests/test-verify-install-fix-functions.sh::T2`, four layers downstream,
+and it reported "missing substituted identity fields" — a symptom whose stated
+cause is nowhere near the mode.
+
+### What is already done
+
+`X1`/`M7` in `tests/test-bl235-tool-matrix-probes.sh` pin the bit on
+`resolve-tools.sh` specifically, with a mutation proof that a byte-identical copy
+at 644 returns 126. That closes the one file this incident touched.
+
+### What is NOT done — the general rule
+
+**There is no check that a directly-invoked script is executable.** The
+invariant is derivable rather than list-based: for each `scripts/*.sh`, find the
+product lines that name it at the START of a command (as opposed to `bash …`,
+`source …`, `cp …`), and require mode 755 for exactly those. Three top-level
+scripts are legitimately 644 today — `ci-verify-sha256.sh`,
+`lint-evalprompts-portability.sh`, `lint-module-dependencies.sh` — and a
+derived predicate should EXPLAIN them (nothing invokes them directly) rather
+than allowlist them, which is the `# BL-181-UNIT-LANE-PREDICATE` shape.
+
+**Two things the fix must not repeat.** A blanket "every `scripts/*.sh` is 755"
+rule is false today and would go red on those three. And `scripts/lib/*.sh` are
+SOURCED, so 644 is correct there; a rule that cannot tell sourcing from
+executing would demand the wrong mode for a whole directory.
+
+### The transferable lesson, which is wider than modes
+
+**"The edit applied" and "the file is unchanged in every other respect" are two
+assertions.** CLAUDE.md already requires the first — assert a changed-line
+count, because "sed ran" is not "sed edited". This entry adds the second: an
+edit that rewrites a file through a temp file must preserve MODE, and the proof
+is a mode comparison, not a diff. `_mutate` in the test suites has done this
+correctly for months (`_mode_of` + `chmod` around every mutation) — the harness
+was more careful than the hand.
+
+**Related:** `## BL-235:` (where it happened), `## BL-112:` ("did not run" is
+not "found nothing"), `## BL-104:` (a `[WARN]` label over a blocking outcome —
+the same text/behaviour mismatch, in the other direction).

@@ -153,7 +153,7 @@
       "platforms": ["desktop"],
       "languages": ["dart"],
       "check_command": "dart pub global list 2>/dev/null | grep -q dart_license_checker",
-      "version_command": "echo 'installed via dart pub global'",
+      "version_command": "dart pub global list 2>/dev/null | awk '$1==\"dart_license_checker\"{print $2; exit}'",
       "min_version": null,
       "latest_check": null,
       "install": {
@@ -201,7 +201,6 @@
       "platforms": ["desktop"],
       "languages": ["all"],
       "check_command": "security find-identity -v -p codesigning 2>/dev/null | grep -q 'Developer ID'",
-      "version_command": "echo 'signing identity present'",
       "min_version": null,
       "latest_check": null,
       "install": {
@@ -222,7 +221,6 @@
       "platforms": ["desktop"],
       "languages": ["all"],
       "check_command": "false",
-      "version_command": "echo 'N/A'",
       "min_version": null,
       "latest_check": null,
       "install": {

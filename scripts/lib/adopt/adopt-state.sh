@@ -222,10 +222,27 @@ adopt_write_manifest() {
   case "$host" in ''|null) host="other" ;; esac
   mode="$ADOPT_DEPLOYMENT"
 
+  # BL-221-ADOPT-TIER-KEYS: write the tier keys an init.sh-scaffolded manifest
+  # carries. This function wrote only `.host` and `.mode`, so an ADOPTED
+  # manifest had no `deployment`, `poc_mode` or `enforcement_level` at all —
+  # and `assert_choosable` read an absent `deployment` as the CHOOSABLE tier.
+  # The predicate is now fail-closed too (# BL-221-TIER-FAIL-CLOSED); this half
+  # removes the SOURCE of the divergence rather than defending against it, so
+  # the two birth paths produce the same shape.
+  #
+  # Values match what the driver already writes to phase-state.json in
+  # adopt_write_phase_state — same two variables, so the manifest and the
+  # phase record cannot disagree about the tier. `enforcement_level` seeds to
+  # `strict`, which is init.sh's default and the direction this framework
+  # fails in.
+  local poc="$ADOPT_POC_MODE"
   if [ -f "$root/.claude/manifest.json" ]; then
-    adopt_jq_edit "$root" ".claude/manifest.json" '.host = $h | .mode = $m' --arg h "$host" --arg m "$mode" || return 1
+    adopt_jq_edit "$root" ".claude/manifest.json" \
+      '.host = $h | .mode = $m | .deployment = $d | .poc_mode = $p | .enforcement_level = (.enforcement_level // "strict")' \
+      --arg h "$host" --arg m "$mode" --arg d "$mode" --arg p "$poc" || return 1
   else
-    jq -n --arg h "$host" --arg m "$mode" '{host: $h, mode: $m, remote_url: ""}' \
+    jq -n --arg h "$host" --arg m "$mode" --arg p "$poc" \
+      '{host: $h, mode: $m, remote_url: "", deployment: $m, poc_mode: $p, enforcement_level: "strict"}' \
       | adopt_write_file "$root" ".claude/manifest.json" || return 1
   fi
 

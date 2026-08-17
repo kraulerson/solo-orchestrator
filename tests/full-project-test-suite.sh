@@ -2050,6 +2050,12 @@ run_child_suite "tests/test-bl222-security-clock-evidence.sh" \
 
 run_child_suite "tests/test-bl229-host-pipeline-paths.sh" \
   "tests/test-bl229-host-pipeline-paths.sh"
+
+run_child_suite "tests/test-bl221-tier-fail-closed.sh" \
+  "tests/test-bl221-tier-fail-closed.sh"
+
+run_child_suite "tests/test-bl235-tool-matrix-probes.sh" \
+  "tests/test-bl235-tool-matrix-probes.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 
 # BL-214 — the gate stalled its own next run. create_gate_snapshot writes into
