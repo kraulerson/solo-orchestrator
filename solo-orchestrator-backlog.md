@@ -10402,8 +10402,89 @@ document the two visible symptoms and should be read first for the evidence;
 neither should be fixed on its own, because a patch to either leaves the
 mechanism intact.
 **Status:** Open — **WP-A landed** on `feat/bl233-mcp-enforcement`; **WP-B (the
-storing half: warn at commit, block at the phase gate) is still open**, and so
-is item 6's underlying question of whether accumulation is enforced at all.
+storing half) landed 2026-08-17** on `feat/bl233-wpb-accumulation`, closing item
+6. Open for the three WP-A residuals below (1-3; residual 4 is now fixed) plus
+the two WP-B residuals recorded with it.
+
+**WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
+`347f619`. `tests/test-bl233-wpb-accumulation.sh` (38 assertions, 8 mutants,
+watched RED at **0 passed / 35 failed** against the base tree before a line of
+product changed). Regression on the same tree: 29/29 phase-gate suites, 38/38
+suites that reference the four changed scripts, 15/15 repo lints.
+Karl decided the posture up front: **WARN at commit, BLOCK at the phase gate**,
+because storing is not per-commit work and a gate people cannot satisfy honestly
+gets deleted (`## BL-149:`). He then decided the three things the entry left
+open, and they are recorded here because none is recoverable from the diff:
+
+- **The window is DURABLE and phase-scoped** — at least one *successful*
+  `qdrant-store` since the previous gate's date. It could NOT come from
+  `.claude/tool-usage.json`: `session-test-gate-check.sh` WIPES that file on
+  every `startup`, so a phase spanning twenty sessions would have been satisfied
+  by one junk store in whichever session happened to run the gate. The record
+  lives in `.claude/process-state.json::mcp_accumulation`, written by
+  `# BL-233-WPB-ACCUM-WRITE` in the tracker and read by the gate. A **missing**
+  object reads as zero stores — a missing key defaulting RESTRICTIVE, the exact
+  inverse of `## BL-221:`.
+- **Conditional, plus an attested escape.** It blocks only when the phase made
+  SOURCE commits and stored nothing; a docs-only or exploratory phase passes
+  clean with no ceremony (`# BL-233-WPB-SOURCEWORK`). The escape is BL-072's
+  shape — `SOLO_MCP_ACCUM_ATTESTED=1` plus a mandatory reason, recorded, and
+  **refused if it cannot be recorded** (`# BL-233-WPB-ATTEST-REFUSE`).
+- **Gates 1→2, 2→3 and 3→4.** Phase 0→1 is pre-code discovery and is exempt.
+
+**The requirement-derivation decision is the one most likely to be re-litigated,
+so here is the measurement.** The obvious source for "does this project require
+Qdrant" is the ledger's `mcp_requirements.qdrant_required`. It is the wrong
+source twice: the ledger is untracked runtime scratch, so *deleting it* would
+switch a blocking gate off — `## BL-231:`'s "tracking file absent ⇒ no
+enforcement, silently" row, reintroduced inside the very gate meant to end it;
+and measured on this tree, of the 61 suites that execute `check-phase-gate.sh`,
+**29 drive it at `current_phase >= 2`, across 74 fixture-creation sites, and not
+one writes a ledger** — so a ledger-derived requirement would have forced 74
+fixture edits to say nothing. `init.sh` instead writes
+`.claude/settings.local.json` carrying the `mcpServers.qdrant` entry, the
+generated `.gitignore` ignores only `.claude/cache/`, and the scaffolder's
+`git add -A` commits it. The declaration is therefore **committed and travels
+with the repo**, and that is what `# BL-233-WPB-SCOPE` reads, with the ledger
+kept only as an OR arm for a project that adopted Qdrant after init.
+
+**`$HOME` is deliberately NOT read** — `session-test-gate-check.sh` reads four
+settings files, two of them under `$HOME`, and copying that here would make a
+phase gate's verdict depend on whose machine ran it. **Zero of those 29 fixtures
+redirect `HOME`**, so a host-derived answer passes on a developer box with
+Qdrant configured and fails on a runner without it: `## BL-234:`'s class exactly.
+A5 and mutant M3 pin the narrow scope in both directions.
+
+**One deliberate asymmetry, called out because it looks like a bug.** The
+accumulation arm dispatches on `case "$current_phase"` with **`-eq`**, while
+every sibling check in that file uses `-ge`. The siblings are right to: their
+evidence must exist independently at each boundary. Accumulation windows NEST —
+a store satisfying "since `phase_2_to_3`" necessarily satisfies "since
+`phase_1_to_2`" — so the latest gate's window is the strictest and subsumes the
+rest. With `-ge`, one missing store would have counted as three inconsistencies
+and printed the same sentence three times.
+
+**WP-B residuals — two, both real, neither blocking.**
+1. **Plugin-provided MCP servers are still invisible**, now on a second surface.
+   WP-A residual 2 records that `session-test-gate-check.sh` classifies by NAME
+   from `.mcpServers`; the WP-B derivation reads the same key in the project
+   files, so a Qdrant reachable only through a plugin derives NOT REQUIRED and
+   the accumulation gate silently switches off. One fix serves both.
+2. **`store_success_count` is LIFETIME, not per-phase.** Only `last_store_at`
+   decides the window; the counter is observability and nothing reads it for a
+   verdict. It is recorded so nobody later mistakes it for a per-phase quota —
+   a count target is exactly the shape that invites junk stores to hit a number.
+3. **Every successful store now DIRTIES A TRACKED FILE.**
+   `.claude/process-state.json` is tracked here and in generated projects
+   (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
+   session leaves a modified file that a later `git add -A` sweeps into an
+   unrelated commit. This is consistent with what that file already is — the
+   Build-Loop step counter and the two existing gate writers
+   (`_cpg_record_gate_date`, `_cpg_record_reviewer_attestation`) all mutate it —
+   and being tracked is what makes the accumulation record auditable in history
+   and survive a clone, which an untracked file would not. The change is
+   frequency, not kind. Verified live on this tree: a real store through the
+   registered hook wrote `{"store_success_count":1,"last_store_at":"…"}`.
 
 **WP-A, 2026-08-13 — what shipped and what was decided.** Items 1-5 and 7 are
 done for the retrieval half; `tests/test-bl233-mcp-outcome-enforcement.sh` is
@@ -10474,13 +10555,19 @@ None of these blocks the WP-A work; all three are real and none is fixed:
    which falls through to **deny** with a parseable envelope and no stderr leak
    — fail-closed, as intended, though the message does not tell the operator
    their pattern is the problem.
-4. **`session-end-qdrant-reminder.sh` still counts DECLARATIONS.** It reads
-   `.calls | length` and the `*_called` flags, so its end-of-session summary
-   reports calls that FAILED as calls that happened — it now disagrees with the
-   gate. It is a Stop-hook reminder and nothing enforces on it, so this is
-   cosmetic today, but the outcome fields it needs
-   (`qdrant_find_succeeded`, `qdrant_find_failed`, `qdrant_find_interrupted`)
-   are already in the ledger. **WP-B pickup.**
+4. ~~**`session-end-qdrant-reminder.sh` still counts DECLARATIONS.**~~
+   **FIXED in WP-B (2026-08-17).** It read `.calls | length` and the `*_called`
+   flags, so a call that FAILED was reported as a call that happened, and after
+   WP-A it actively disagreed with the gate beside it. It now filters on
+   `.outcome`, reads `qdrant_store_succeeded` rather than `qdrant_store_called`
+   (`# BL-233-WPB-OUTCOME`, mutant M6), and REPORTS the failed round trips
+   instead of omitting them — an absent failure is indistinguishable from an
+   idle session, and that ambiguity is what let a dead Qdrant look healthy for
+   weeks. One subtlety worth keeping: a row written *before* WP-A carries no
+   `.outcome`, and its absence is read as **success**, because the pre-WP-A
+   tracker was registered on `PostToolUse` only and the rows it wrote are
+   exactly the calls that fired without error. Defaulting those to failure would
+   have invented failures that never happened.
 
 ### The mechanism
 
