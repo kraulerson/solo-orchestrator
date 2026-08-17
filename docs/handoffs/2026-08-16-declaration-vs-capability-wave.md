@@ -78,8 +78,8 @@ is BL-235.
 | R-11 | minor | `common.json` 531→790 lines; the semantic diff is **six lines**. Split the `jq` re-emit out. |
 | R-12 | minor | `templates/tool-matrix/*.json` is in **no sync set**, so `--sync-framework` ships the probe and never the rows. Ordering is safe; say so in the entry. |
 
-**Four claims the review refuted outright** — these are prose corrections, and
-two of them are mine in the entry text:
+**Five claims the review refuted outright** (count the bullets — an earlier
+draft of this line said four) — these are prose corrections:
 
 - **RC-1** `probe_qdrant`'s comment says "a 200 from something that is not
   Qdrant is not evidence of Qdrant" and then only tests `.version`. A stub
