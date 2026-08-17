@@ -122,10 +122,32 @@ unaccounted_allowlist_tokens() {
   else
     out=$(bash "$lint" --list 2>&1)
   fi
+  # HERESTRINGS, NOT PIPES, AND THAT IS THIS SUITE'S CI FLAKE DIAGNOSED.
+  #
+  # This file runs `set -uo pipefail`. `printf '%s\n' "$out" | grep -qF PATTERN`
+  # returns 141, NOT 0, whenever grep finds its match EARLY and exits: the
+  # reader closes the pipe, printf takes SIGPIPE, and pipefail promotes that
+  # writer's death over grep's success. So a correctly-allowlisted token took
+  # the `&& continue` on neither line and was reported UNACCOUNTED — a false
+  # failure produced by a MATCH.
+  #
+  # It is a race on how much of "$out" printf can write before grep exits, so it
+  # depends on output size and scheduling: this suite passes 20/20 locally and
+  # failed 18/2 on CI run 32046301634 with `printf: write error: Broken pipe`
+  # beside each false row. That is the "failed once on CI, passed unchanged on
+  # re-run" flake recorded as NOT DIAGNOSED in the 2026-08-16 handoff.
+  #
+  # Reproduce the mechanism in one line:
+  #   bash -c 'set -o pipefail; b=$(seq 1 200000); printf "%s\n" "$b" | grep -qF 1; echo $?'
+  #   -> 141   (and 0 without pipefail)
+  #
+  # A herestring has no second process, so there is no writer to kill and the
+  # status is grep's alone. `## BL-238:` carries the repo-wide sweep; this is
+  # the one site that was actually failing.
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    printf '%s\n' "$out" | grep -qF "$(printf '\t%s\tresolved (EXACT)' "$t")" && continue
-    printf '%s\n' "$out" | grep -qF "$(printf '\t%s\tallowlist: ' "$t")" && continue
+    grep -qF "$(printf '\t%s\tresolved (EXACT)' "$t")" <<<"$out" && continue     # BL-238-NO-SIGPIPE-RACE
+    grep -qF "$(printf '\t%s\tallowlist: ' "$t")" <<<"$out" && continue
     printf '%s\n' "$t"
   done <<EOF
 $(allowlisted_tokens "$lint")

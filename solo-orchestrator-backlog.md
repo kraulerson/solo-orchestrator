@@ -11686,3 +11686,84 @@ was more careful than the hand.
 **Related:** `## BL-235:` (where it happened), `## BL-112:` ("did not run" is
 not "found nothing"), `## BL-104:` (a `[WARN]` label over a blocking outcome —
 the same text/behaviour mismatch, in the other direction).
+
+---
+
+## BL-238: `set -o pipefail` + `printf … | grep -q` returns 141 ON A MATCH — a latent CI flake in ~150 files, and the diagnosis of one that was already recorded as unexplained
+
+**Logged:** 2026-08-17 (diagnosed while `tests/test-lint-bl-markers.sh` failed
+the `rest` shard on PR #357, a DOCS-ONLY change — which is what made it
+obviously not the change under test)
+**Category:** Silent-success — a passing predicate reported as a failure by the
+death of its own writer
+**Status:** Open — the one site that was actually failing is fixed
+(`# BL-238-NO-SIGPIPE-RACE`); the repo-wide sweep is not done.
+
+### The mechanism, reproduced in one line
+
+```
+$ bash -c 'set -o pipefail; b=$(seq 1 200000); printf "%s\n" "$b" | grep -qF 1; echo $?'
+141
+$ bash -c '                b=$(seq 1 200000); printf "%s\n" "$b" | grep -qF 1; echo $?'
+0
+```
+
+`grep -q` exits the instant it matches. The writer then takes **SIGPIPE**, and
+`pipefail` promotes that death (141) over grep's success (0). **The pipeline
+reports failure precisely BECAUSE the match succeeded**, and the louder the
+match — the earlier in the stream — the more reliably it breaks.
+
+It is a **race on output size and scheduling**: the writer must still be writing
+when grep exits. Small inputs finish first and never fail; large ones fail
+often. That is why it reproduces on CI and not on the dev host.
+
+### What it actually did
+
+`unaccounted_allowlist_tokens` in `tests/test-lint-bl-markers.sh` asked, per
+allowlisted token, "does `--list` render a row for this?" — through
+`printf '%s\n' "$out" | grep -qF …`, where `$out` is the whole `--list` output.
+On CI two correctly-allowlisted tokens (`BL-186-PARSE-COVERAGE`,
+`BL-186-EMPTY-TARGETS`) were reported **unaccounted**, with
+`printf: write error: Broken pipe` printed beside each one. Locally: 20/0. On
+CI run `32046301634`: 18/2.
+
+**This is the flake the 2026-08-16 handoff recorded as "failed once on CI and
+passed unchanged on re-run. Not diagnosed, not dismissed."** Second sighting,
+now with a mechanism. A re-run would have gone green and taught nobody anything.
+
+### The fix, and its scope
+
+The one failing site takes a **herestring**: `grep -qF PATTERN <<<"$out"`. No
+second process, so there is no writer to kill and the status is grep's alone.
+
+**The class is NOT fixed and the count is large.** Derive it, do not trust this
+number:
+
+```
+for f in tests/*.sh scripts/*.sh scripts/lib/*.sh; do
+  grep -q 'set -o pipefail' "$f" || continue
+  n=$(grep -cE '(printf|echo)[^|]*\| *grep -[a-zA-Z]*q' "$f"); [ "$n" -gt 0 ] && echo "$f $n"
+done
+```
+
+At the time of writing that is ~150 files and >1000 sites. **Most are harmless**
+— they pipe a short string, the writer finishes first, and SIGPIPE never
+arrives. A blanket rewrite of a thousand call sites would be a far larger risk
+than the defect. What is needed is a predicate that finds the sites where the
+piped value can be LARGE, which is where the race lives.
+
+**`tests/test-bl168-tm-table-sigpipe.sh` already exists**, so this repo has met
+SIGPIPE before on a different surface. Whatever lint comes out of this should
+account for that entry rather than duplicate it.
+
+### The trap this entry set for itself, recorded because it cost a CI cycle
+
+Adding `# BL-238-NO-SIGPIPE-RACE` to a file under `tests/` **minted a marker
+naming an entry that did not yet exist**, and `scripts/lint-bl-markers.sh` reds
+on exactly that. The suite's own header warns about it in as many words: files
+under `tests/` ARE the lint's code surface. **File the entry before the marker**,
+not after.
+
+**Related:** `## BL-196:` (the marker lint whose own suite this was found in),
+`## BL-112:` ("did not run" is not "found nothing" — same shape: a status that
+means something other than what the caller reads it as).
