@@ -388,9 +388,25 @@ _cv_bounded_eval() {
 # Two lines, not one, so a mutation proof can target the RANGE independently of
 # the doubling — a single line can only be mutated as a whole, and then a test
 # cannot tell "the tr is gone" from "the tr is too narrow".
+#
+# `LC_ALL=C` IS NOT DECORATION — WITHOUT IT THIS FUNCTION CAN END THE RUN.
+# BSD `tr` and `cut` reject an invalid multibyte sequence in a UTF-8 locale and
+# exit 1, and every caller here is under `set -euo pipefail`. Measured, a
+# check_command whose stderr carries one stray byte (`printf 'bad\xe9note' >&2`):
+#
+#     LC_ALL=C            exit=0   3 of 3 rows rendered
+#     LC_ALL=C.UTF-8      exit=1   1 of 3       <- ubuntu-latest's usual default
+#     LC_ALL=en_US.UTF-8  exit=1   1 of 3
+#
+# — the report simply stops, which is the "rows silently vanish" pathology this
+# branch already hit once through `grep -v`. `LC_ALL=C` makes both operators
+# byte-oriented, which is what a sanitiser wants anyway. NOT `|| :`: that would
+# swallow the error and silently truncate the note at the bad byte.
+# The `cut` on the note pipeline below carries the same guard for the same
+# reason; it has been failing this way since it was added, and on `main` too.
 _cv_render_safe() {
   local _s="${1//\\/\\\\}"
-  printf '%s' "$_s" | tr -d '\000-\037\177'                                     # BL-235-NOTE-SAFE
+  printf '%s' "$_s" | LC_ALL=C tr -d '\000-\037\177'                            # BL-235-NOTE-SAFE
 }
 
 # _cv_version_bounded <cmd> — run a version_command under the bound and put its
@@ -589,7 +605,12 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   set -u
   # `|| :` for the same reason as in _cv_version_bounded: an empty stderr file
   # makes `grep -v` exit 1, and under `set -euo pipefail` that ends the run.
-  CHECK_NOTE="$( { grep -v '^[[:space:]]*$' "$CHECK_ERR" 2>/dev/null || :; } | tail -1 | cut -c1-200)"
+  # LC_ALL=C on the `cut` for the same reason as in _cv_render_safe: in a UTF-8
+  # locale it exits 1 on an invalid multibyte sequence, and under `set -e` that
+  # ends the whole report. This one has been failing that way since it was
+  # added — and on `main` too, so it is not a regression, but these are the
+  # lines this entry owns.
+  CHECK_NOTE="$( { grep -v '^[[:space:]]*$' "$CHECK_ERR" 2>/dev/null || :; } | tail -1 | LC_ALL=C cut -c1-200)"
   CHECK_NOTE="$(_cv_render_safe "$CHECK_NOTE")"
   rm -f "$CHECK_ERR"
   if [ "$CHECK_RC" -ne 0 ]; then

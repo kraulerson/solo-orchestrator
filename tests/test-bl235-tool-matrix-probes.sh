@@ -116,10 +116,23 @@ _changed_lines() { local n; n=$(diff "$1" "$2" 2>/dev/null | grep -c '^[<>]'); _
 # character cannot occur in a shell one-liner, so the class is closed rather
 # than dodged. `&` is still escaped, because an unescaped one splices the whole
 # match back in and that mutant passes `bash -n`.
+#
+# BACKSLASH-DIGIT IS ESCAPED TOO, AND NOT ESCAPING IT COST A THIRD SILENT
+# NO-OP. In a sed REPLACEMENT `\0`…`\9` are BACKREFERENCES, so a mutant
+# containing `tr -d '\000-\037\177'` made sed abort with "\1 not defined in the
+# RE" — the file unchanged, while `sites=1 parses=1` still reported. The case
+# then read "the mutant changed nothing", which is indistinguishable from "the
+# guard is not load-bearing": a mutation proof wearing the costume of a passing
+# control. `&` has always been escaped here for the same reason.
+#
+# ONLY backslash-DIGIT, not every backslash. A blanket `s/\\/\\\\/g` also
+# rewrites the `$'\t'` and `%s\n` that other mutants in this file legitimately
+# need, changing what those mutants test. `changed` is asserted by every case
+# that uses this, which is the backstop for the next spelling nobody predicted.
 _mutate() {
   local f="$1" marker="$2" repl="$3" before sites changed parses safe mode tmp d
   d=$(printf '\001')
-  safe=$(printf '%s' "$repl" | sed 's/&/\\&/g')
+  safe=$(printf '%s' "$repl" | sed -e 's/\\\([0-9]\)/\\\\\1/g' -e 's/&/\\&/g')
   mode="$(_mode_of "$f")"
   before="$(mktemp)"; cp -p "$f" "$before"
   sites=$(_sites "$f" "$marker")
@@ -694,10 +707,58 @@ C6="$(newtmp)"
 mk_matrix_proj "$C6" 'printf "note\r  [OK] Totally Installed: 9.9.9" >&2; exit 2' 'echo 1'
 c6_out="$( cd "$C6" && "$BASH_BIN" "$CHECKVER" 2>&1 )" || true
 c6_cr=$(_num "$(printf '%s' "$c6_out" | LC_ALL=C grep -c $'\r')")
-if [ "$c6_cr" -eq 0 ]; then
-  pass "C6: a note carrying a RAW carriage return has it stripped before rendering — no byte in the report can return the cursor to column 0 and overwrite the [WARN] prefix with tool-supplied text"
+# THE PRESENCE ARM IS NOT OPTIONAL, and its absence made the first version of
+# this case VACUOUS. `no raw CR in the output` is trivially true of a report
+# that never rendered the note at all — and "rows silently vanish" is a
+# pathology this very branch has already produced twice (a `grep -v` exiting 1,
+# and a `tr` exiting 1 on a stray byte). So C6 asserted an absence while the
+# most likely regression was an absence. C4 and C5 both dual-assert; this now
+# does too.
+c6_kept=$(_num "$(printf '%s' "$c6_out" | grep -c 'note')")
+if [ "$c6_cr" -eq 0 ] && [ "$c6_kept" -ge 1 ]; then
+  pass "C6: a note carrying a RAW carriage return still reaches the operator, with the CR stripped — no byte in the report can return the cursor to column 0 and overwrite the [WARN] prefix, and the assertion cannot be satisfied by the note vanishing"
 else
-  fail_ "C6" "lines containing a raw CR=$c6_cr (want 0) — escape-doubling does not touch control bytes, and CR is the one that repaints the line"
+  fail_ "C6" "lines containing a raw CR=$c6_cr (want 0) note-present=$c6_kept (want >=1) — escape-doubling does not touch control bytes, and CR is the one that repaints the line"
+fi
+
+# ── C7: a NON-UTF-8 BYTE ON A TOOL'S STDERR MUST NOT END THE REPORT.
+#
+# `tr` and `cut` reject an invalid multibyte sequence in a UTF-8 locale and exit
+# 1, and every caller here runs under `set -euo pipefail`. Measured on this
+# tree before the guard, with a check_command emitting `printf 'bad\xe9note'`:
+#
+#     LC_ALL=C            exit=0   3 of 3 rows
+#     LC_ALL=C.UTF-8      exit=1   1 of 3      <- ubuntu-latest's usual default
+#     LC_ALL=en_US.UTF-8  exit=1   1 of 3
+#
+# The `cut` half predates this branch and fails the same way on `main`; the `tr`
+# half is this branch's. Both are lines this entry owns, and the symptom is the
+# same "rows silently vanish" the suite has already caught twice.
+c7_locale=""
+for _l in C.UTF-8 en_US.UTF-8 en_GB.UTF-8; do
+  if ! printf 'a\xe9b' | LC_ALL="$_l" tr -d '\000-\037' >/dev/null 2>&1; then c7_locale="$_l"; break; fi
+done
+if [ -z "$c7_locale" ]; then
+  skip_ "C7" "no locale on this host makes tr reject an invalid multibyte sequence — the condition cannot be created, and asserting against it would prove nothing"
+else
+  C7="$(newtmp)"
+  mkdir -p "$C7/templates/tool-matrix" "$C7/.claude"
+  jq -n '{description:"fixture", schema_version:1, scope:"common",
+          tools:{ A:{name:"A",category:"runtime",phase:2,required:false,
+                     check_command:"printf \"bad\\xe9note\" >&2; exit 2", version_command:"echo 1.0", description:"f"},
+                  B:{name:"B",category:"runtime",phase:2,required:false,
+                     check_command:"true", version_command:"echo 2.0", description:"f"},
+                  C:{name:"C",category:"runtime",phase:2,required:false,
+                     check_command:"true", version_command:"echo 3.0", description:"f"} } }' \
+    > "$C7/templates/tool-matrix/common.json"
+  c7_rc=0
+  c7_out="$( cd "$C7" && LC_ALL="$c7_locale" "$BASH_BIN" "$CHECKVER" 2>&1 )" || c7_rc=$?
+  c7_rows=$(_num "$(printf '%s' "$c7_out" | grep -cE '^ *\[(OK|WARN)\]')")
+  if [ "$c7_rc" -eq 0 ] && [ "$c7_rows" -eq 3 ]; then
+    pass "C7: under $c7_locale a check_command emitting a non-UTF-8 byte still leaves all 3 rows rendered and the script exiting 0 — the sanitisers are byte-oriented, so one stray byte from one tool cannot end the whole report"
+  else
+    fail_ "C7" "locale=$c7_locale exit=$c7_rc (want 0) rows=$c7_rows (want 3) — a byte-oriented operator failed on a multibyte error and set -e ended the run, so every tool after the offending one silently disappeared"
+  fi
 fi
 
 echo "=== X — the resolver is EXECUTED, so its mode is part of its contract ==="
@@ -747,7 +808,7 @@ M1D="$(newtmp)"; mk_matrix_proj "$M1D" 'sleep 6' "echo 1.0"
 m1_start=$(date +%s)
 ( cd "$M1D" && "$BASH_BIN" "$M1/scripts/check-versions.sh" >/dev/null 2>&1 ) || true
 m1_elapsed=$(( $(date +%s) - m1_start ))
-if [ "$m1_sites" -eq 1 ] && [ "$m1_parses" -eq 1 ] && [ "$m1_elapsed" -ge 5 ]; then
+if [ "$m1_sites" -eq 1 ] && [ "$m1_changed" -ge 2 ] && [ "$m1_parses" -eq 1 ] && [ "$m1_elapsed" -ge 5 ]; then
   pass "M1: with the bound removed, a 6s check_command holds the script for ${m1_elapsed}s again — the bound is load-bearing and measured in seconds, not asserted (sites=$m1_sites changed=$m1_changed parses=$m1_parses)"
 else
   fail_ "M1" "sites=$m1_sites (want 1) parses=$m1_parses (want 1) changed=$m1_changed elapsed=${m1_elapsed}s (want >=5)"
@@ -781,7 +842,7 @@ if [ -n "$STUB_PORT" ]; then
   M3H="$(newtmp)"; mk_qdrant_home "$M3H/home" "http://127.0.0.1:$STUB_PORT/notqdrant"
   m3_rc=0
   ( cd "$REPO_ROOT" && HOME="$M3H/home" PROBE_QUIET=1 "$BASH_BIN" "$M3/scripts/probe-tool.sh" qdrant >/dev/null 2>&1 ) || m3_rc=$?
-  if [ "$m3_sites" -ge 1 ] && [ "$m3_parses" -eq 1 ] && [ "$m3_rc" -eq 0 ]; then
+  if [ "$m3_sites" -ge 1 ] && [ "$m3_changed" -ge 2 ] && [ "$m3_parses" -eq 1 ] && [ "$m3_rc" -eq 0 ]; then
     pass "M3: with the identity check reduced to '.version // empty', a stub named totally-not-qdrant scores 0 again — D6 is discriminating, not decorative (sites=$m3_sites changed=$m3_changed)"
   else
     fail_ "M3" "sites=$m3_sites (want >=1) parses=$m3_parses (want 1) rc=$m3_rc (want 0)"
@@ -802,7 +863,7 @@ if [ -n "$STUB_PORT" ]; then
   M4H="$(newtmp)"; mk_qdrant_home "$M4H/home" "http://127.0.0.1:$STUB_PORT/authed" "s3cr3t"
   m4_rc=0
   ( cd "$REPO_ROOT" && HOME="$M4H/home" PROBE_QUIET=1 "$BASH_BIN" "$M4/scripts/probe-tool.sh" qdrant >/dev/null 2>&1 ) || m4_rc=$?
-  if [ "$m4_sites" -ge 1 ] && [ "$m4_parses" -eq 1 ] && [ "$m4_rc" -eq 2 ]; then
+  if [ "$m4_sites" -ge 1 ] && [ "$m4_changed" -ge 2 ] && [ "$m4_parses" -eq 1 ] && [ "$m4_rc" -eq 2 ]; then
     pass "M4: with the configured api-key discarded, the healthy secured database scores 2 again — D8 measures the header, not the happy path (sites=$m4_sites changed=$m4_changed)"
   else
     fail_ "M4" "sites=$m4_sites (want >=1) parses=$m4_parses (want 1) rc=$m4_rc (want 2)"
@@ -821,7 +882,7 @@ m5_meta=$(_mutate "$M5/scripts/probe-tool.sh" '# BL-235-PROBE-PLUGIN-SELECT' \
 m5_sites="${m5_meta%% *}"; m5_rest="${m5_meta#* }"; m5_changed="${m5_rest%% *}"; m5_parses="${m5_rest##* }"
 m5_rc=0
 ( cd "$REPO_ROOT" && HOME="$D13/home" PROBE_QUIET=1 "$BASH_BIN" "$M5/scripts/probe-tool.sh" superpowers >/dev/null 2>&1 ) || m5_rc=$?
-if [ "$m5_sites" -ge 1 ] && [ "$m5_parses" -eq 1 ] && [ "$m5_rc" -eq 2 ]; then
+if [ "$m5_sites" -ge 1 ] && [ "$m5_changed" -ge 2 ] && [ "$m5_parses" -eq 1 ] && [ "$m5_rc" -eq 2 ]; then
   pass "M5: with selection back at index [0], the healthy install behind a stale first entry scores 2 again — D13 pins the predicate, not the happy ordering (sites=$m5_sites changed=$m5_changed)"
 else
   fail_ "M5" "sites=$m5_sites (want >=1) parses=$m5_parses (want 1) rc=$m5_rc (want 2)"
@@ -834,7 +895,7 @@ m6_meta=$(_mutate "$M6/scripts/check-versions.sh" '# BL-235-NO-CONSTANT' \
 m6_sites="${m6_meta%% *}"; m6_rest="${m6_meta#* }"; m6_changed="${m6_rest%% *}"; m6_parses="${m6_rest##* }"
 M6D="$(newtmp)"; mk_matrix_proj "$M6D" 'true' 'true'
 m6_out="$( cd "$M6D" && "$BASH_BIN" "$M6/scripts/check-versions.sh" 2>&1 )" || true
-if [ "$m6_sites" -ge 1 ] && [ "$m6_parses" -eq 1 ] && printf '%s' "$m6_out" | grep -qi 'configured'; then
+if [ "$m6_sites" -ge 1 ] && [ "$m6_changed" -ge 2 ] && [ "$m6_parses" -eq 1 ] && printf '%s' "$m6_out" | grep -qi 'configured'; then
   pass "M6: with the fallback restored, 'configured' is rendered again for a version-less row — C2 reads the OUTPUT, which is the surface D2 could never see (sites=$m6_sites changed=$m6_changed)"
 else
   fail_ "M6" "sites=$m6_sites (want >=1) parses=$m6_parses (want 1) out='$(printf '%s' "$m6_out" | tr '\n' '|' | cut -c1-200)'"
@@ -851,7 +912,7 @@ M8D="$(newtmp)"; mk_matrix_proj "$M8D" 'true' 'sleep 6 | cat'
 m8_start=$(date +%s)
 ( cd "$M8D" && CHECKVER_EVAL_TIMEOUT=2 "$BASH_BIN" "$M8/scripts/check-versions.sh" >/dev/null 2>&1 ) || true
 m8_elapsed=$(( $(date +%s) - m8_start ))
-if [ "$m8_sites" -eq 1 ] && [ "$m8_parses" -eq 1 ] && [ "$m8_elapsed" -ge 5 ]; then
+if [ "$m8_sites" -eq 1 ] && [ "$m8_changed" -ge 2 ] && [ "$m8_parses" -eq 1 ] && [ "$m8_elapsed" -ge 5 ]; then
   pass "M8: with the version read back on a command substitution, a 6s pipeline holds the script for ${m8_elapsed}s against a 2s bound — T2b measures the CONSUMPTION, which is where the bound was being defeated (sites=$m8_sites changed=$m8_changed)"
 else
   fail_ "M8" "sites=$m8_sites (want 1) parses=$m8_parses (want 1) changed=$m8_changed elapsed=${m8_elapsed}s (want >=5)"
@@ -867,7 +928,7 @@ if [ -n "$STUB_PORT" ]; then
   M9D="$(newtmp)"; mk_shipped_row_proj "$M9D" "Qdrant MCP"
   mk_qdrant_home "$M9D/home" "http://127.0.0.1:$STUB_PORT/authed"
   m9_out="$( cd "$M9D" && HOME="$M9D/home" "$BASH_BIN" "$M9/scripts/check-versions.sh" 2>&1 )" || true
-  if [ "$m9_sites" -eq 1 ] && [ "$m9_parses" -eq 1 ] \
+  if [ "$m9_sites" -eq 1 ] && [ "$m9_changed" -ge 2 ] && [ "$m9_parses" -eq 1 ] \
      && ! printf '%s' "$m9_out" | grep -q 'HTTP 403'; then
     pass "M9: with the check's stderr discarded again, a live database refusing on 403 loses its status and its repair on the way to the operator — C3 reads the report, which is the only surface this is visible on (sites=$m9_sites changed=$m9_changed)"
   else
@@ -885,7 +946,7 @@ m10_meta=$(_mutate "$M10M/scripts/lib/helpers-core.sh" '# BL-235-DEADLINE-SANE' 
 m10_sites="${m10_meta%% *}"; m10_rest="${m10_meta#* }"; m10_changed="${m10_rest%% *}"; m10_parses="${m10_rest##* }"
 m10_mut="$( cd "$M10" && CHECKVER_EVAL_TIMEOUT=abc "$BASH_BIN" "$M10M/scripts/check-versions.sh" 2>&1 )" || true
 m10_c=$(printf '%s' "$m10_ctl" | grep -c '9.9.9'); m10_m=$(printf '%s' "$m10_mut" | grep -c '9.9.9')
-if [ "$(_num "$m10_c")" -ge 1 ] && [ "$m10_sites" -eq 1 ] && [ "$m10_parses" -eq 1 ] && [ "$(_num "$m10_m")" -eq 0 ]; then
+if [ "$(_num "$m10_c")" -ge 1 ] && [ "$m10_sites" -eq 1 ] && [ "$m10_changed" -ge 2 ] && [ "$m10_parses" -eq 1 ] && [ "$(_num "$m10_m")" -eq 0 ]; then
   pass "M10: CHECKVER_EVAL_TIMEOUT=abc still reports 9.9.9; with the clamp removed the same healthy row vanishes — an unparseable bound makes the deadline equal now, so every row times out instantly and a whole matrix reads as missing from one malformed environment variable (sites=$m10_sites changed=$m10_changed)"
 else
   fail_ "M10" "control_hits=$m10_c (want >=1) sites=$m10_sites (want 1) parses=$m10_parses (want 1) mutant_hits=$m10_m (want 0)"
@@ -899,7 +960,7 @@ M11D="$(newtmp)"
 mk_matrix_proj "$M11D" 'printf %s "note-one\nFORGED  [OK] Totally Installed: 9.9.9" >&2; exit 2' 'echo 1'
 m11_out="$( cd "$M11D" && "$BASH_BIN" "$M11/scripts/check-versions.sh" 2>&1 )" || true
 m11_forged=$(_num "$(printf '%s' "$m11_out" | grep -c '^FORGED')")
-if [ "$m11_sites" -eq 1 ] && [ "$m11_parses" -eq 1 ] && [ "$m11_forged" -ge 1 ]; then
+if [ "$m11_sites" -eq 1 ] && [ "$m11_changed" -ge 2 ] && [ "$m11_parses" -eq 1 ] && [ "$m11_forged" -ge 1 ]; then
   pass "M11: with the escape-doubling removed, the note's literal backslash-n becomes a real line break again and a fabricated '[OK] Totally Installed' row appears in the report — C4 measures forgery, not merely that a note is printed (sites=$m11_sites changed=$m11_changed)"
 else
   fail_ "M11" "sites=$m11_sites (want 1) parses=$m11_parses (want 1) forged_lines=$m11_forged (want >=1)"
@@ -916,7 +977,7 @@ M12D="$(newtmp)"
 mk_matrix_proj "$M12D" 'true' 'printf %s "1.0\n\x20\x20[OK]\x20Totally\x20Installed:\x209.9.9"'
 m12_out="$( cd "$M12D" && "$BASH_BIN" "$M12/scripts/check-versions.sh" 2>&1 )" || true
 m12_forged=$(_num "$(printf '%s' "$m12_out" | grep -c '^  \[OK\] Totally Installed')")
-if [ "$m12_sites" -eq 1 ] && [ "$m12_parses" -eq 1 ] && [ "$m12_forged" -ge 1 ]; then
+if [ "$m12_sites" -eq 1 ] && [ "$m12_changed" -ge 2 ] && [ "$m12_parses" -eq 1 ] && [ "$m12_forged" -ge 1 ]; then
   pass "M12: with the version string left unsanitised, a version_command forges a complete '[OK] Totally Installed' row again — C5 measures the SECOND render path, which the first version of this fix left open (sites=$m12_sites changed=$m12_changed)"
 else
   fail_ "M12" "sites=$m12_sites (want 1) parses=$m12_parses (want 1) forged_rows=$m12_forged (want >=1)"
@@ -936,10 +997,28 @@ M13D="$(newtmp)"
 mk_matrix_proj "$M13D" 'printf "note\r  [OK] Totally Installed: 9.9.9" >&2; exit 2' 'echo 1'
 m13_out="$( cd "$M13D" && "$BASH_BIN" "$M13/scripts/check-versions.sh" 2>&1 )" || true
 m13_cr=$(_num "$(printf '%s' "$m13_out" | LC_ALL=C grep -c $'\r')")
-if [ "$m13_sites" -eq 1 ] && [ "$m13_parses" -eq 1 ] && [ "$m13_cr" -ge 1 ]; then
-  pass "M13: with the range narrowed to \\000-\\010\\013\\014\\016-\\037, the raw CR survives into the report again — \\015 sits in the gap between \\014 and \\016, so C6 is measuring the range and not the presence of a tr (sites=$m13_sites changed=$m13_changed)"
+if [ "$m13_sites" -eq 1 ] && [ "$m13_changed" -ge 2 ] && [ "$m13_parses" -eq 1 ] && [ "$m13_cr" -ge 1 ]; then
+  pass "M13: with the range narrowed to \\013\\014, the raw CR survives into the report again — CR is \\015 and sits outside it, exactly as it sits in the gap between \\014 and \\016 in the wider range that was proposed and rejected, so C6 measures the RANGE and not the presence of a tr (sites=$m13_sites changed=$m13_changed)"
 else
-  fail_ "M13" "sites=$m13_sites (want 1) parses=$m13_parses (want 1) cr_lines=$m13_cr (want >=1)"
+  fail_ "M13" "sites=$m13_sites (want 1) changed=$m13_changed (want >=2 — 0 means the mutation never applied) parses=$m13_parses (want 1) cr_lines=$m13_cr (want >=1)"
+fi
+
+# ── M14: drop LC_ALL=C from the sanitiser and C7's report truncates again.
+if [ -n "$c7_locale" ]; then
+  M14="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M14/scripts"
+  m14_meta=$(_mutate "$M14/scripts/check-versions.sh" '# BL-235-NOTE-SAFE' \
+    "  printf '%s' \"\$_s\" | tr -d '\000-\037\177'")
+  m14_sites="${m14_meta%% *}"; m14_rest="${m14_meta#* }"; m14_changed="${m14_rest%% *}"; m14_parses="${m14_rest##* }"
+  m14_rc=0
+  m14_out="$( cd "$C7" && LC_ALL="$c7_locale" "$BASH_BIN" "$M14/scripts/check-versions.sh" 2>&1 )" || m14_rc=$?
+  m14_rows=$(_num "$(printf '%s' "$m14_out" | grep -cE '^ *\[(OK|WARN)\]')")
+  # `changed` is asserted, not merely reported. Its absence from this case's
+  # first failure message is what hid a sed that had silently applied nothing.
+  if [ "$m14_sites" -eq 1 ] && [ "$m14_changed" -ge 2 ] && [ "$m14_parses" -eq 1 ] && [ "$m14_rows" -lt 3 ]; then
+    pass "M14: with LC_ALL=C removed from the sanitiser, the same stray byte truncates the report to $m14_rows of 3 rows under $c7_locale — C7 measures the locale guard, not merely that the row renders in this host's C locale (sites=$m14_sites changed=$m14_changed)"
+  else
+    fail_ "M14" "sites=$m14_sites (want 1) changed=$m14_changed (want >=2 — 0 means the mutation never applied and this case proves nothing) parses=$m14_parses (want 1) rows=$m14_rows (want <3) exit=$m14_rc"
+  fi
 fi
 
 # ── M7: X1 must be able to fail. Strip the bit from a COPY and re-run the same

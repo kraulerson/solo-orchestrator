@@ -85,7 +85,11 @@ _changed_lines() { local n; n=$(diff "$1" "$2" 2>/dev/null | grep -c '^[<>]'); _
 _mutate() {
   local f="$1" marker="$2" repl="$3" before sites changed parses safe mode tmp d
   d=$(printf '\001')
-  safe=$(printf '%s' "$repl" | sed 's/&/\\&/g')
+  # Backslash-DIGIT is escaped as well as `&`: in a sed replacement `\0`…`\9`
+  # are backreferences, so a mutant containing one leaves the file unchanged
+  # while still reporting `sites`. Kept in step with the sibling helper in
+  # tests/test-bl235-tool-matrix-probes.sh, where that cost three silent no-ops.
+  safe=$(printf '%s' "$repl" | sed -e 's/\\\([0-9]\)/\\\\\1/g' -e 's/&/\\&/g')
   mode="$(_mode_of "$f")"
   before="$(mktemp)"; cp -p "$f" "$before"
   sites=$(_sites "$f" "$marker")
