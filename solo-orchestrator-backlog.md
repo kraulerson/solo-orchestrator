@@ -11822,6 +11822,26 @@ surface where drift means "no enforcement at all". It then **verifies what it
 installed** (present, non-empty, executable) instead of reporting on what it
 intended, which is how the original survived.
 
+### What the FIXED hook actually enforces here — measured, because the whole point of this entry is not to overstate a gate
+
+The emitted hooks are shaped for a **generated project**. In the framework
+checkout some arms have nothing to run against. Observed on the first real
+commit through the fixed hook:
+
+| arm | state here | evidence |
+|---|---|---|
+| gitleaks | **LIVE** | `gitleaks 8.30.1` present; the arm runs |
+| SAST (semgrep) | **INERT** | `[WARN] semgrep could not complete (exit 7) … SAST NOT ENFORCED … unable to find a config; path .semgrep/soif-dom-sinks.yml does not exist`. `.semgrep/` is written by `init.sh` for generated projects (grep `soif-dom-sinks` in init.sh); it does not exist in the framework repo |
+| BL-006 Build-Loop message | **N/A by design** | `[note] framework repo detected (not a scaffolded project) — Build-Loop message enforcement not applicable here` |
+| BL-125 test co-location | **did not fire** | `[OK] BL-125: no source files staged` on a commit staging five `.sh`/`.md`/`.yml` files. **Why it did not count them is NOT established here** — recorded as observed rather than explained |
+
+**So in the framework repo this is mainly a secret-detection gate.** That is
+worth having, and it is strictly more than the previous install did — which was
+nothing — but it is **not** "the same gates CI runs". CI remains the authority.
+The installer now prints this arm-by-arm at install time instead of listing the
+arms the hook contains, because listing them is exactly what the old message
+did: true about the file, false about the behaviour.
+
 ### Residual — the thing this entry does NOT fix
 
 **Nothing detects a pre-commit hook that is present but inert.** A hook that

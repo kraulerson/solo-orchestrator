@@ -97,6 +97,31 @@ done
 echo ""
 echo "[OK] Contributor hooks installed from scripts/lib/hook-templates.sh —"
 echo "     the same emitters init.sh uses for generated projects."
-echo "     pre-commit: gitleaks, SAST, test co-location, blocked-commit ledger."
-echo "     commit-msg: BL-072 TDD ordering + BL-006 Build-Loop message check."
 echo "     Re-run any time to refresh both to the current templates."
+echo ""
+
+# REPORT WHICH ARMS CAN ACTUALLY FIRE HERE, rather than listing the arms the
+# hook contains. Listing them is what the old message did — "Local commits now
+# face the same gates CI runs" was true about the FILE and false about the
+# BEHAVIOUR. These hooks are shaped for a GENERATED project, and in the
+# framework checkout some of their arms have nothing to run against.
+echo "     Arms, as they stand in THIS checkout:"
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "       gitleaks        LIVE   ($(gitleaks version 2>&1 | head -1))"
+else
+  echo "       gitleaks        INERT  (not installed — the arm WARNs, never blocks)"
+fi
+if [ -d "$ROOT/.semgrep" ]; then
+  echo "       SAST (semgrep)  LIVE"
+else
+  echo "       SAST (semgrep)  INERT  (.semgrep/ configs are written by init.sh for"
+  echo "                              GENERATED projects; absent here, so semgrep loads"
+  echo "                              no config and the arm reports SAST NOT ENFORCED)"
+fi
+echo "       BL-006 msg gate INERT  (framework repo, not a scaffolded project —"
+echo "                              the hook says so itself and allows the commit)"
+echo ""
+echo "     So in the framework repo this is mainly a SECRET-DETECTION gate."
+echo "     That is worth having and is more than the previous install did — which"
+echo "     was nothing — but it is not 'the same gates CI runs'. CI is the"
+echo "     authority; see \`## BL-239:\`."
