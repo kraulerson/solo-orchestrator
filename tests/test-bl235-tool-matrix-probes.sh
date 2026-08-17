@@ -826,6 +826,14 @@ if [ -n "$STUB_PORT" ]; then
   m2_chk="$(jq -r '.tools | to_entries[] | select(.value.name == "Qdrant MCP") | .value.check_command' "$M2D/templates/tool-matrix/common.json")"
   m2_rc=0
   ( cd "$M2D" && HOME="$M2D/home" SOLO_SCRIPTS_DIR="$REPO_ROOT/scripts" "$BASH_BIN" -c "$m2_chk" >/dev/null 2>&1 ) || m2_rc=$?
+  # M2 IS THE ONE CASE WHERE `changed >= 2` PROVES NOTHING, and saying so here
+  # is the point: `_mutate_json` rewrites through jq, whose whole-file re-emit
+  # changes ~447 lines even when the filter matches nothing at all — measured.
+  # Every OTHER mutant in this file goes through `_mutate`, where sed replaces
+  # one line with one line, so exactly 2 means "it landed" and 0 means "it did
+  # not". Do not read the uniform `changed >= 2` across this suite as uniform
+  # rigour. M2's real discriminator is `m2_rc -eq 127`, obtained by EXTRACTING
+  # the mutated check_command and executing it — a receipt, not a line count.
   if [ "$m2_changed" -ge 2 ] && [ "$m2_parses" -eq 1 ] && [ "$m2_rc" -eq 127 ]; then
     pass "M2: reverted to 'bash scripts/probe-tool.sh', the row returns rc=127 from a non-root CWD even with SOLO_SCRIPTS_DIR exported — the fix lives in the row, and its absence is visible as the command-not-found it really is (changed=$m2_changed parses=$m2_parses)"
   else
@@ -871,6 +879,15 @@ if [ -n "$STUB_PORT" ]; then
 fi
 
 # ── M5: restore [0]-by-position and D13's healthy install false-alarms again.
+#
+# THE LANDED LINE IS NOT BYTE-IDENTICAL TO THE STRING BELOW, and that is
+# expected rather than a defect — but the next person to edit it should know,
+# because there are now three interacting escaping layers (bash's, `_mutate`'s
+# backreference guard, and sed's own replacement handling). Instrumented and
+# measured: sed collapses `\\n` to `\n` and renders `$'\t'` as a literal tab, so
+# what lands is `printf "%s\n"` and `IFS=$'<TAB>'`. Both are semantically what
+# this mutant intends — a literal tab IS `$'\t'` — and it still kills with
+# rc=2. Verify what LANDS, not what you wrote, if you change this.
 # The mutant TRUNCATES the candidate list to its first row and leaves the
 # on-disk test in place — which is exactly what `.plugins[<id>][0].installPath`
 # did. A first draft replaced the FUNCTION HEADER (the marker had been parked

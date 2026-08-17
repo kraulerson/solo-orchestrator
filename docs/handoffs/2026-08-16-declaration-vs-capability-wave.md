@@ -313,6 +313,14 @@ MINE, and pulling that thread found two more things.**
   The sibling helper in `tests/test-bl221-tier-fail-closed.sh` was brought into
   step — the two copies of `_mutate` are themselves a sync-sibling pair, and
   unifying them is left as work rather than claimed as done.
+  **Correction to that sentence, because it over-claimed and the review caught
+  it:** "all 13 assert `changed >= 2`" is syntactically true and implies a
+  uniformity the suite does not have. Twelve go through `_mutate`, where sed
+  replaces one line with one and exactly 2 means "it landed". `M2` goes through
+  `_mutate_json`, and jq's whole-file re-emit changes ~447 lines **even when the
+  filter matches nothing** — measured. `M2` is still sound: its real
+  discriminator is `rc=127`, obtained by extracting the mutated `check_command`
+  and executing it. The note is now beside `M2` in the file.
 
 **What this round is really evidence of:** four of the five rounds found a
 defect in the TEST, not in the product — a vacuous assertion, a mutant that
