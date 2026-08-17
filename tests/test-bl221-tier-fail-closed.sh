@@ -197,9 +197,35 @@ echo "=== W — adoption writes the tier keys, so the divergence has no source =
 
 # ── W1: the adopted manifest carries the same tier keys a scaffolded one does.
 # Asserted on the WRITER's shipped code, not on a copy of it.
+#
+# COMMENTS ARE STRIPPED FIRST, AND THAT IS THE WHOLE POINT OF THIS BLOCK. The
+# first version of W1 grepped the file whole — and `# BL-221-ADOPT-TIER-KEYS`'s
+# own explanatory comment names all three keys, in prose, three lines above the
+# jq filter. So the check passed on a tree where the fix had been reverted and
+# only the comment survived: it was measuring that someone had once written
+# about the keys, not that the writer writes them. Reading executed lines only
+# is the same correction `# BL-181-UNIT-LANE-PREDICATE` made to the unit-lane
+# exemption, for the same reason.
+#
+# IT TOOK THREE NARROWINGS TO STOP BEING VACUOUS, and M2 measured each one.
+#   1. Whole file, bare word — satisfied by the fix's own COMMENT, which names
+#      all three keys in prose three lines above the filter.
+#   2. Comments stripped, bare word — satisfied by the SHELL VARIABLES
+#      `$ADOPT_DEPLOYMENT` and `$ADOPT_POC_MODE` on executed lines; only
+#      `enforcement_level`, which has no matching variable, could fail.
+#   3. Comments stripped, key-assignment form (`.deployment =` / `deployment:`)
+#      — satisfied by `adopt_write_phase_state`, which legitimately writes the
+#      same three keys to a DIFFERENT file.
+# So the scope is `adopt_write_manifest`'s body and the pattern is the
+# key-assignment form. M2 now requires ALL THREE to go missing, which is the
+# only version of this assertion that a reverted manifest writer cannot survive.
+W1_SRC="$(newtmp)/adopt-state.exec"
+awk '/^adopt_write_manifest\(\)/{i=1} i{print} i&&/^}/{exit}' \
+  "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" | sed -e 's/[[:space:]]*#.*$//' > "$W1_SRC"
+[ -s "$W1_SRC" ] || { fail_ "W1" "could not extract adopt_write_manifest from adopt-state.sh — the scope this case asserts in is empty, which would make it pass on anything"; }
 W1_missing=""
 for k in deployment poc_mode enforcement_level; do
-  grep -q "$k" "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" || W1_missing="$W1_missing $k"
+  grep -Eq "[.]${k}[[:space:]]*=|${k}:" "$W1_SRC" || W1_missing="$W1_missing $k"
 done
 w1_marked=$(_num "$(grep -c 'BL-221-ADOPT-TIER-KEYS' "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" 2>/dev/null)")
 if [ -z "$W1_missing" ] && [ "$w1_marked" -ge 1 ]; then
@@ -253,6 +279,46 @@ if [ "$m1_sites" -eq 1 ] && [ "$m1_parses" -eq 1 ] && [ "$m1_res" = "allowed" ];
   pass "M1: with the permissive default restored, an organizational manifest missing its deployment key is CHOOSABLE again — the one-line guard is what stands between a forced-strict project and its own downgrade (sites=$m1_sites changed=$m1_changed parses=$m1_parses)"
 else
   fail_ "M1" "sites=$m1_sites (want 1) parses=$m1_parses (want 1) changed=$m1_changed result=$m1_res (want allowed)"
+fi
+
+# ── M2: revert the WRITE half but leave its comment standing, and W1 must go
+# red. This is the mutant W1 did not have: the explanatory comment above
+# `# BL-221-ADOPT-TIER-KEYS` names all three keys in prose, so a whole-file grep
+# stayed green against a tree where the jq filter had been stripped back to
+# `.host` and `.mode`. The mutant reproduces exactly that state — comment
+# intact, behaviour gone — and the assertion below is on W1's OWN predicate, run
+# against the mutated file.
+#
+# awk, not sed: the two lines being replaced ARE the jq filter, which is
+# `|`-dense, and CLAUDE.md records three separate occasions on which a
+# `|`-delimited sed with a `|`-bearing replacement left the file unchanged while
+# reporting success. `m2_rewrites` is asserted for the same reason — "the
+# mutation ran" is not "the mutation edited".
+M2="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M2/scripts" 2>/dev/null
+M2F="$M2/scripts/lib/adopt/adopt-state.sh"
+m2_tmp="$(mktemp)"
+m2_rewrites=$(awk '
+  /\.host = \$h \| \.mode = \$m \| \.deployment/ { print "      \x27.host = $h | .mode = $m\x27 \\"; n++; next }
+  /\{host: \$h, mode: \$m, remote_url/          { print "      \x27{host: $h, mode: $m, remote_url: \"\"}\x27 \\"; n++; next }
+  { print }
+  END { print n+0 > "/dev/stderr" }
+' "$M2F" 2>&1 >"$m2_tmp" )
+mv "$m2_tmp" "$M2F"
+m2_rewrites=$(_num "$m2_rewrites")
+m2_parses=0; bash -n "$M2F" >/dev/null 2>&1 && m2_parses=1
+M2_SRC="$(newtmp)/adopt-state.exec"
+awk '/^adopt_write_manifest\(\)/{i=1} i{print} i&&/^}/{exit}' "$M2F" | sed -e 's/[[:space:]]*#.*$//' > "$M2_SRC"
+m2_missing=""
+m2_n=0
+for k in deployment poc_mode enforcement_level; do
+  grep -Eq "[.]${k}[[:space:]]*=|${k}:" "$M2_SRC" || { m2_missing="$m2_missing $k"; m2_n=$((m2_n + 1)); }
+done
+m2_whole_file_hits=$(_num "$(grep -c 'deployment' "$M2F" 2>/dev/null)")
+if [ "$m2_rewrites" -eq 2 ] && [ "$m2_parses" -eq 1 ] \
+   && [ "$m2_n" -eq 3 ] && [ "$m2_whole_file_hits" -ge 1 ]; then
+  pass "M2: with the tier keys stripped from both jq filters and only the comment left, W1's predicate reports ALL THREE missing ($m2_missing) while a whole-file grep for 'deployment' still finds $m2_whole_file_hits hits — comment prose and shell variable names, which is exactly what the original W1 was measuring (rewrites=$m2_rewrites parses=$m2_parses)"
+else
+  fail_ "M2" "rewrites=$m2_rewrites (want 2) parses=$m2_parses (want 1) missing='$m2_missing' n=$m2_n (want 3 — fewer means a reverted key is still satisfying W1 from somewhere) whole_file_hits=$m2_whole_file_hits (want >=1)"
 fi
 
 echo ""

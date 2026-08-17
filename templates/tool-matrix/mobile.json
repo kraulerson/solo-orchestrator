@@ -80,8 +80,7 @@
       "dev_os": ["darwin", "linux"],
       "platforms": ["mobile"],
       "languages": ["kotlin", "dart", "typescript"],
-      "check_command": "[ -d \"$HOME/Library/Android/sdk\" ] || [ -d \"$HOME/Android/Sdk\" ] || [ -n \"$ANDROID_HOME\" ]",
-      "version_command": "echo 'SDK present'",
+      "check_command": "command -v sdkmanager >/dev/null 2>&1 || command -v adb >/dev/null 2>&1 || [ -x \"${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb\" ] || [ -x \"$HOME/Library/Android/sdk/platform-tools/adb\" ] || [ -x \"$HOME/Android/Sdk/platform-tools/adb\" ]",
       "min_version": null,
       "latest_check": null,
       "install": {
@@ -125,7 +124,7 @@
       "platforms": ["mobile"],
       "languages": ["dart"],
       "check_command": "dart pub global list 2>/dev/null | grep -q dart_license_checker",
-      "version_command": "echo 'installed via dart pub global'",
+      "version_command": "dart pub global list 2>/dev/null | awk '$1==\"dart_license_checker\"{print $2; exit}'",
       "min_version": null,
       "latest_check": null,
       "install": {
@@ -194,7 +193,6 @@
       "platforms": ["mobile"],
       "languages": ["swift", "dart", "typescript"],
       "check_command": "security find-identity -v -p codesigning 2>/dev/null | grep -q 'Apple Development'",
-      "version_command": "echo 'signing identity present'",
       "min_version": null,
       "latest_check": null,
       "install": {
@@ -215,7 +213,6 @@
       "platforms": ["mobile"],
       "languages": ["kotlin", "dart", "typescript"],
       "check_command": "false",
-      "version_command": "echo 'N/A'",
       "min_version": null,
       "latest_check": null,
       "install": {

@@ -308,23 +308,46 @@ check_for_update() {
 # asymmetric bounding.
 #
 # That was already a live hazard, not a hypothetical: the shipped matrix carries
-# `colima version` and `docker --version`, and resolve-tools.sh's own header
-# records that those "can hang indefinitely when the daemon is unreachable" —
-# which is why it bounds them. This script could hang on an unreachable Docker
-# daemon before any of BL-235's probes existed.
+# `colima version` as a version command, and resolve-tools.sh's own header
+# records that daemon-backed commands "can hang indefinitely when the daemon is
+# unreachable" — which is why it bounds them. This script could hang on an
+# unreachable daemon before any of BL-235's probes existed.
 #
-# The `command -v run_with_timeout` guard is the same one BL-234 established
-# lower down: helpers-core.sh may be absent, and the fallback path does not
-# define it, so an unguarded call would exit 127 and read as "not installed".
+# `docker --version` is NOT one of them, and an earlier draft of this comment
+# named it. It is client-only — it prints a compiled-in string and never opens a
+# socket, measured at 26ms here. `docker version`, without the dashes, is the
+# one that contacts the daemon. The hazard is real; that example was not.
+#
+# The `command -v` guard is the same one BL-234 established lower down:
+# helpers-core.sh may be absent, and the fallback path above does not define its
+# helpers, so an unguarded call would exit 127 and read as "not installed".
+#
+# THE RUNNER IS `run_with_deadline`, NOT `run_with_timeout`, AND THAT IS A
+# MEASUREMENT. `run_with_timeout` polls on a `sleep 1` counter, so every bounded
+# call costs about a second whether the command takes 3ms or 3s. This loop makes
+# TWO bounded calls per row; on the 21-row shipped matrix that is ~42 of them,
+# and this script went from 5-6s to 50-51s the day the bound landed — inside the
+# SessionStart hook, which is the one place where seconds are the operator's.
+# `run_with_deadline` is the same bound on a wall-clock deadline with a 0.1s
+# poll, and it returns 124 for a timeout instead of 1, so "this took too long"
+# stops being spelled the same as "this ran and failed".
 CHECKVER_EVAL_TIMEOUT="${CHECKVER_EVAL_TIMEOUT:-10}"
 _cv_bounded_eval() {
   local _cmd="$1"
-  if command -v run_with_timeout >/dev/null 2>&1; then
-    run_with_timeout "$CHECKVER_EVAL_TIMEOUT" bash -c "$_cmd"
+  if command -v run_with_deadline >/dev/null 2>&1; then
+    run_with_deadline "$CHECKVER_EVAL_TIMEOUT" bash -c "$_cmd"
   else
     bash -c "$_cmd"
   fi
 }
+
+# THE MATRIX ROWS MUST NOT DEPEND ON THIS PROCESS'S `pwd`. Three rows invoke
+# scripts/probe-tool.sh; a relative path inside a JSON data file resolves
+# against whatever directory the consumer is standing in, and `rc=127` —
+# command-not-found — is read two lines below as "not installed". The probe
+# ships next to this script both here and in every generated project, so this
+# script's own location is the answer.
+export SOLO_SCRIPTS_DIR="${SOLO_SCRIPTS_DIR:-$SCRIPT_DIR}"                      # BL-235-SCRIPTS-DIR
 
 MATRIX_DIR="templates/tool-matrix"
 if [ ! -d "$MATRIX_DIR" ]; then
@@ -463,6 +486,18 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
     INSTALLED=$(_cv_bounded_eval "$VERSION_CMD" 2>/dev/null | tr -d '[:space:]' || echo "")   # BL-235-BOUND-VERSION
   fi
 
+  # THE WORD `configured` WAS THE WHOLE DEFECT AND IT NEARLY SURVIVED BY MOVING
+  # FILE. BL-235 deleted `version_command: echo 'configured'` from the matrix —
+  # and this script then rendered the identical word from its own
+  # `${INSTALLED:-configured}` fallback, at four sites, for exactly the rows
+  # that had just stopped declaring it. A JSON-level assertion cannot see that;
+  # only one that reads the OUTPUT can, which is why the suite now has one.
+  #
+  # What is true here is that the check PASSED and the version command produced
+  # nothing. The replacement says that and nothing more: it does not upgrade
+  # silence into a configuration claim. ONE owner, read by all four sites.
+  INSTALLED_DISPLAY="${INSTALLED:-installed, version not reported}"             # BL-235-NO-CONSTANT
+
   # Check minimum version
   MIN_MET=true
   MIN_DISPLAY=""
@@ -486,15 +521,15 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       UPDATE_CMDS+=("${UPDATE_CHECK_CMD:-}")
       UPDATE_NAMES+=("$NAME")
     elif [ "$UPDATE_CHECK_STATUS" = "behind" ]; then
-      print_warn "$NAME: ${INSTALLED:-configured} — $UPDATE_CHECK_MSG"
+      print_warn "$NAME: $INSTALLED_DISPLAY — $UPDATE_CHECK_MSG"
       UPDATES+=("$NAME — $UPDATE_CHECK_MSG")
       UPDATE_CMDS+=("${UPDATE_CHECK_CMD:-}")
       UPDATE_NAMES+=("$NAME")
     elif [ "$UPDATE_CHECK_STATUS" = "self_updating" ]; then
-      print_ok "$NAME: ${INSTALLED:-configured} — $UPDATE_CHECK_MSG"
+      print_ok "$NAME: $INSTALLED_DISPLAY — $UPDATE_CHECK_MSG"
       PASS_COUNT=$((PASS_COUNT + 1))
     else
-      print_ok "$NAME: ${INSTALLED:-configured} — ${UPDATE_CHECK_MSG:-up to date}"
+      print_ok "$NAME: $INSTALLED_DISPLAY — ${UPDATE_CHECK_MSG:-up to date}"
       PASS_COUNT=$((PASS_COUNT + 1))
     fi
   else
@@ -548,7 +583,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       UPDATE_NAMES+=("$NAME")
       PASS_COUNT=$((PASS_COUNT + 1))
     else
-      print_ok "$NAME: ${INSTALLED:-configured}$MIN_DISPLAY$LATEST_DISPLAY"
+      print_ok "$NAME: $INSTALLED_DISPLAY$MIN_DISPLAY$LATEST_DISPLAY"
       PASS_COUNT=$((PASS_COUNT + 1))
     fi
   fi

@@ -89,6 +89,55 @@ run_with_timeout() {
   wait "$_rto_pid" 2>/dev/null
 }
 
+# run_with_deadline <seconds> <command...> — the same job as run_with_timeout,
+# with the two properties its counter cannot have.                # BL-235-DEADLINE
+#
+#   rc 124 on timeout, and the command's own status otherwise. run_with_timeout
+#   returns 1 for a timeout, which is indistinguishable from "it ran and
+#   failed" — so a caller can never report "this took too long" as itself.
+#
+#   A POLL FLOOR OF 0.1s, NOT 1s. run_with_timeout sleeps a whole second before
+#   its first re-check, so every bounded call costs ~1s even when the command is
+#   instant. That is invisible at one call site and arithmetic at forty:
+#   check-versions.sh bounds a check_command AND a version_command per row, and
+#   on the 21-row shipped matrix it measured 5-6s before the bound and 50-51s
+#   after — inside the SessionStart hook. The bound was right; its price was
+#   never measured. `sleep 0.1` is not POSIX, so a shell that rejects it falls
+#   back to whole seconds rather than spinning: correctness first, speed if the
+#   platform allows it.
+#
+#   The deadline is WALL CLOCK, not an increment count, so a SIGCHLD from some
+#   other killed child — which cuts `sleep` short — cannot inflate the counter
+#   and kill a command early. That bug is why scripts/resolve-tools.sh grew a
+#   private copy of this in the first place; the copy is now deleted and this is
+#   the one owner.
+#
+# run_with_timeout is deliberately UNTOUCHED. It has eleven call sites across
+# six product files, several inside enforcement paths, and changing a shared
+# gate primitive is a separate decision from fixing a regression at two new
+# call sites.
+run_with_deadline() {
+  local _rwd_secs="$1"; shift
+  # Probe fractional sleep ONCE per process, not once per call: the probe is
+  # itself a sleep, and paying it 42 times would re-import a fraction of the
+  # cost this function exists to remove.
+  if [ -z "${_SOIF_FRACTIONAL_SLEEP:-}" ]; then
+    if sleep 0.05 2>/dev/null; then _SOIF_FRACTIONAL_SLEEP=1; else _SOIF_FRACTIONAL_SLEEP=0; fi
+  fi
+  "$@" &
+  local _rwd_pid=$!
+  local _rwd_deadline=$(( $(date +%s) + _rwd_secs ))
+  while kill -0 "$_rwd_pid" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "$_rwd_deadline" ]; then
+      kill -9 "$_rwd_pid" 2>/dev/null || true
+      wait "$_rwd_pid" 2>/dev/null || true
+      return 124
+    fi
+    if [ "$_SOIF_FRACTIONAL_SLEEP" = "1" ]; then sleep 0.1; else sleep 1; fi
+  done
+  wait "$_rwd_pid" 2>/dev/null
+}
+
 # --- Prompt helpers ---
 
 # Prompt for text input with optional default value.

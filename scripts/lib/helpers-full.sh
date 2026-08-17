@@ -195,17 +195,86 @@ qdrant_mcp_api_key() {
 # `"` and `\` are escaped because curl's config parser reads the quoted form,
 # and CR/LF are stripped because a header value cannot contain them: a newline
 # would end the config line and drop the header the same silent way.
+#
+# BL-235: the escaping is a FUNCTION now because a second caller needed it, and
+# a second copy of "how a credential is made safe for curl's config parser" is
+# exactly the sync-sibling trap `# BL-084-TIER-KEY` exists for. The `printf`
+# stays spelled out at each call site on purpose — `esc` must remain a live
+# local here, because M14 in tests/test-bl234-currency-and-availability.sh
+# mutates the marked line into an `-H "api-key: $esc"` form and reads the
+# stub's argv log to prove the credential travels off the command line.
+_qdrant_key_escape() {                                             # BL-234-QDRANT-KEY-ESCAPE
+  local e="$1"
+  e=${e//\\/\\\\}; e=${e//\"/\\\"}
+  e=${e//$'\n'/}; e=${e//$'\r'/}
+  printf '%s' "$e"
+}
+
 _qdrant_curl() {
   local secs="$1" key="$2" u="$3" rc=0 esc
   if [ -n "$key" ]; then
-    esc=${key//\\/\\\\}; esc=${esc//\"/\\\"}
-    esc=${esc//$'\n'/}; esc=${esc//$'\r'/}
+    esc="$(_qdrant_key_escape "$key")"
     run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null \
       -K <(printf 'header = "api-key: %s"\n' "$esc") "$u" >/dev/null 2>&1 || rc=$?   # BL-234-QDRANT-KEY-STDIN
   else
     run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null "$u" >/dev/null 2>&1 || rc=$?
   fi
   return "$rc"
+}
+
+# qdrant_probe_root <bodyfile> [url] — the ROOT endpoint's PAYLOAD, for the
+# caller that must check WHAT answered rather than merely THAT something did.
+#
+#   <bodyfile>            the response body is written here, and only on 2xx
+#   QDRANT_ROOT_STATUS    the HTTP status, or 000 when nothing answered
+#   rc 0                  the server answered (any status — 403 is an answer)
+#   rc 1                  nothing answered: refused, unresolvable, or timed out
+#   rc 2                  cannot tell — curl is absent, so no bounded socket
+#
+# THE BODY GOES TO A FILE, NOT TO STDOUT, AND THAT IS NOT A STYLE CHOICE.
+# A caller writing `payload="$(qdrant_probe_root)"` runs this function in a
+# SUBSHELL, so QDRANT_ROOT_STATUS is set in a process that exits immediately and
+# the caller reads an empty status — then reports "nothing answered" about a
+# server that answered. Returning two values through one stdout is what created
+# the hazard; the file removes it.
+#
+# WHY THIS IS NOT scripts/probe-tool.sh's OWN CURL. It was, and that copy had
+# neither of this file's two hard-won properties: it sent no api-key at all, so
+# a secured database answered 403 and `curl -fsS` reported the same failure a
+# dead port does; and it used `-f`, which collapses "answered with an error"
+# into "did not answer". Both are `## BL-234:`'s findings, re-made one file over
+# within a week. Everything credential-shaped — which file the entry is read
+# from, that the URL and the key come from the SAME entry, that the key travels
+# only to a host the registration itself declared, and that it never reaches
+# argv — is inherited from the helpers above rather than re-derived here.
+#
+# `-w %{http_code}` replaces `-f`: the status is the thing a caller needs to
+# tell "your key is missing" from "your database is down", and those are
+# different repairs.
+QDRANT_ROOT_STATUS=""
+qdrant_probe_root() {
+  local body="$1" url="${2:-}" base secs key regf declared code rc=0
+  QDRANT_ROOT_STATUS="000"
+  : > "$body" 2>/dev/null || return 2
+  command -v curl >/dev/null 2>&1 || return 2
+  regf="$(qdrant_mcp_reg_file)"
+  [ -n "$url" ] || url="$(qdrant_mcp_url "$regf")"
+  base="${url%/}"
+  secs="${SOLO_QDRANT_PROBE_TIMEOUT:-3}"
+  case "$secs" in ''|*[!0-9]*|0) secs=3 ;; esac
+  key=""; declared="$(qdrant_mcp_url_declared "$regf")"; declared="${declared%/}"
+  [ -n "$declared" ] && [ "$base" = "$declared" ] && key="$(qdrant_mcp_api_key "$regf")"   # BL-235-ROOT-KEY-HEADER
+  if [ -n "$key" ]; then
+    code="$(run_with_timeout "$secs" curl -sS -o "$body" -w '%{http_code}' --max-time "$secs" \
+      -K <(printf 'header = "api-key: %s"\n' "$(_qdrant_key_escape "$key")") "$base/" 2>/dev/null)" || rc=$?   # BL-235-ROOT-KEY-STDIN
+  else
+    code="$(run_with_timeout "$secs" curl -sS -o "$body" -w '%{http_code}' --max-time "$secs" "$base/" 2>/dev/null)" || rc=$?
+  fi
+  case "$code" in ''|*[!0-9]*) code="000" ;; esac
+  QDRANT_ROOT_STATUS="$code"
+  if [ "$rc" -ne 0 ] || [ "$code" = "000" ]; then : > "$body" 2>/dev/null; return 1; fi
+  case "$code" in 2??) : ;; *) : > "$body" 2>/dev/null ;; esac
+  return 0
 }
 
 # _qdrant_answered <secs> <key> <url> — 0 iff the server ANSWERED AT ALL.

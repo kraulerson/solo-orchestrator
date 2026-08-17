@@ -27,6 +27,8 @@ set -euo pipefail
 # Output: JSON with four buckets: auto_install, manual_install,
 #         already_installed, deferred
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Portable wall-clock timeout for evaluated shell commands. Runs the
 # given command string via `bash -c` and kills it if it exceeds
 # RESOLVE_TOOLS_EVAL_TIMEOUT seconds. Exit code 124 signals timeout;
@@ -34,25 +36,38 @@ set -euo pipefail
 # already handle non-zero ("tool not installed") so the timeout case
 # is indistinguishable from a clean "missing tool" — which is what
 # we want for an unreachable daemon.
+#
+# BL-235: this file used to carry a PRIVATE copy of that runner
+# (`run_cmd_with_timeout`), while check-versions.sh — reading the same
+# data file — used helpers-core.sh's `run_with_timeout`. Two helpers
+# answering one question, and they disagreed in both directions that
+# matter: one returns 124 on timeout and the other returns 1
+# (indistinguishable from "ran and failed"), and one polls a wall-clock
+# deadline while the other sleeps a full second per call. The copy is
+# deleted; `run_with_deadline` in helpers-core.sh is the one owner.
 RESOLVE_TOOLS_EVAL_TIMEOUT="${RESOLVE_TOOLS_EVAL_TIMEOUT:-10}"
-run_cmd_with_timeout() {
-  local _secs="$1" _cmd="$2"
-  bash -c "$_cmd" &
-  local _pid=$!
-  # Use wall-clock deadline (not a sleep-1 counter) so SIGCHLD from
-  # other killed children — which interrupts `sleep` short — doesn't
-  # inflate the iteration count and kill commands prematurely.
-  local _deadline=$(( $(date +%s) + _secs ))
-  while kill -0 "$_pid" 2>/dev/null; do
-    if [ "$(date +%s)" -ge "$_deadline" ]; then
-      kill -9 "$_pid" 2>/dev/null || true
-      wait "$_pid" 2>/dev/null || true
-      return 124
-    fi
-    sleep 1
-  done
-  wait "$_pid" 2>/dev/null
+if [ -f "$SCRIPT_DIR/lib/helpers-core.sh" ]; then
+  # shellcheck source=./lib/helpers-core.sh
+  . "$SCRIPT_DIR/lib/helpers-core.sh"
+fi
+if ! command -v run_with_deadline >/dev/null 2>&1; then
+  echo "resolve-tools.sh: scripts/lib/helpers-core.sh is missing, so evaluated tool commands cannot be bounded. Refusing to run them unbounded — the matrix ships daemon-backed commands that hang when the daemon is unreachable." >&2
+  exit 1
+fi
+
+# run_bounded <secs> <shell-command-string> — the matrix's commands are strings,
+# not argv, so they go through `bash -c`.
+run_bounded() {                                                    # BL-235-RESOLVE-BOUND
+  run_with_deadline "$1" bash -c "$2"
 }
+
+# THE MATRIX ROWS MUST NOT DEPEND ON THIS PROCESS'S `pwd`. Three rows invoke
+# scripts/probe-tool.sh, and a relative path in a JSON data file resolves
+# against whatever directory the CONSUMER happens to be standing in. init.sh
+# runs this resolver before any `cd`, so `init.sh --project-dir ~/work/foo`
+# evaluated them from the operator's shell and every one returned 127 —
+# command-not-found, which every caller here reads as "not installed".
+export SOLO_SCRIPTS_DIR="${SOLO_SCRIPTS_DIR:-$SCRIPT_DIR}"         # BL-235-SCRIPTS-DIR
 
 # --- Parse arguments ---
 DEV_OS=""
@@ -230,10 +245,10 @@ while IFS=$'\t' read -r TOOL_NAME TOOL_CATEGORY TOOL_PHASE TOOL_REQUIRED TOOL_CH
   INSTALLED=false
   VERSION=""
   set +u
-  if run_cmd_with_timeout "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_CHECK" &>/dev/null; then
+  if run_bounded "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_CHECK" &>/dev/null; then
     INSTALLED=true
     if [ -n "$TOOL_VERSION_CMD" ]; then
-      VERSION=$(run_cmd_with_timeout "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_VERSION_CMD" 2>/dev/null || echo "")
+      VERSION=$(run_bounded "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_VERSION_CMD" 2>/dev/null || echo "")
     fi
   fi
   set -u
@@ -360,7 +375,7 @@ for i in $(seq 0 $((ADDITION_COUNT - 1))); do
   ADD_DESC=$(echo "$ADD_JSON" | jq -r '.description // ""')
 
   set +u
-  if [ -n "$ADD_CHECK" ] && run_cmd_with_timeout "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$ADD_CHECK" &>/dev/null; then
+  if [ -n "$ADD_CHECK" ] && run_bounded "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$ADD_CHECK" &>/dev/null; then
     set -u
     ALREADY_INSTALLED=$(echo "$ALREADY_INSTALLED" | jq \
       --arg name "$ADD_NAME" \
