@@ -1387,6 +1387,12 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/verify-install.sh" scripts/
   cp "$SCRIPT_DIR/scripts/test-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-versions.sh" scripts/
+  # BL-235-SHIP-PROBE: check-versions.sh above and resolve-tools.sh both run the
+  # tool matrix's check_command / version_command, and three rows now call this
+  # probe instead of grepping a config file. Without it those rows fail closed
+  # in every generated project — correct, but useless — so it ships with them.
+  cp "$SCRIPT_DIR/scripts/probe-tool.sh" scripts/
+  chmod +x scripts/probe-tool.sh 2>/dev/null || true
   cp "$SCRIPT_DIR/scripts/session-version-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-freshness-check.sh" scripts/   # BL-109 S2 (Currency System, Layer 1)
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/

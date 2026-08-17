@@ -9,10 +9,21 @@
       "description": "Distributed version control system",
       "required": true,
       "phase": 0,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v git",
       "version_command": "git --version | awk '{print $3}'",
       "min_version": "2.30.0",
@@ -35,14 +46,28 @@
       "description": "Command-line JSON processor (required by Development Guardrails for Claude Code)",
       "required": true,
       "phase": 0,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v jq",
       "version_command": "jq --version 2>/dev/null",
       "min_version": "1.6",
-      "latest_check": {"method": "brew", "package": "jq"},
+      "latest_check": {
+        "method": "brew",
+        "package": "jq"
+      },
       "install": {
         "darwin_brew": "brew install jq",
         "linux_apt": "sudo apt install -y jq",
@@ -60,10 +85,21 @@
       "description": "JavaScript runtime (required for Snyk, license-checker, JS/TS projects)",
       "required": true,
       "phase": 0,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v node",
       "version_command": "node --version | sed 's/v//'",
       "min_version": "18.17.0",
@@ -85,10 +121,21 @@
       "description": "Container runtime (needed for OWASP ZAP, Qdrant MCP)",
       "required": false,
       "phase": 0,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v docker",
       "version_command": "docker --version 2>/dev/null | awk '{print $3}' | tr -d ','",
       "min_version": null,
@@ -119,14 +166,27 @@
       "description": "Lightweight Docker runtime for macOS (headless, no license required)",
       "required": false,
       "phase": 0,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v colima",
       "version_command": "colima version 2>/dev/null | head -1 | awk '{print $3}' | tr -d 'v'",
       "min_version": "0.6.0",
-      "latest_check": {"method": "github_release", "package": "abiosoft/colima"},
+      "latest_check": {
+        "method": "github_release",
+        "package": "abiosoft/colima"
+      },
       "install": {
         "darwin_brew": [
           "brew install colima",
@@ -143,10 +203,21 @@
       "description": "GNU Privacy Guard (optional — used for commit signing)",
       "required": false,
       "phase": 0,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v gpg",
       "version_command": "gpg --version 2>/dev/null | head -1 | awk '{print $3}'",
       "min_version": null,
@@ -168,14 +239,28 @@
       "description": "Static analysis security scanner (OWASP Top 10)",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v semgrep",
       "version_command": "semgrep --version 2>/dev/null | head -1",
       "min_version": "1.50.0",
-      "latest_check": {"method": "pip", "package": "semgrep"},
+      "latest_check": {
+        "method": "pip",
+        "package": "semgrep"
+      },
       "install": {
         "darwin_brew": "brew install semgrep",
         "linux_pip": "pip3 install semgrep",
@@ -191,14 +276,28 @@
       "description": "Secret detection in git repositories",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v gitleaks",
       "version_command": "gitleaks version 2>/dev/null",
       "min_version": "8.18.0",
-      "latest_check": {"method": "github_release", "package": "gitleaks/gitleaks"},
+      "latest_check": {
+        "method": "github_release",
+        "package": "gitleaks/gitleaks"
+      },
       "install": {
         "darwin_brew": "brew install gitleaks",
         "linux_apt": [
@@ -225,14 +324,28 @@
       "description": "Dependency vulnerability scanning",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v snyk",
       "version_command": "snyk --version 2>/dev/null",
       "min_version": "1.1290.0",
-      "latest_check": {"method": "npm", "package": "snyk"},
+      "latest_check": {
+        "method": "npm",
+        "package": "snyk"
+      },
       "install": {
         "npm": "npm install -g snyk",
         "manual": "https://docs.snyk.io/snyk-cli/install-or-update-the-snyk-cli"
@@ -247,14 +360,28 @@
       "description": "AI coding agent CLI",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "command -v claude",
       "version_command": "claude --version 2>/dev/null",
       "min_version": "2.0.0",
-      "latest_check": {"method": "npm", "package": "@anthropic-ai/claude-code"},
+      "latest_check": {
+        "method": "npm",
+        "package": "@anthropic-ai/claude-code"
+      },
       "install": {
         "darwin_brew": "brew install claude-code",
         "npm": "npm install -g @anthropic-ai/claude-code",
@@ -270,15 +397,29 @@
       "description": "Git hook-based guardrails for coding standards, security scanning, and documentation",
       "required": false,
       "phase": 0,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
       "check_command": "[ -d \"$HOME/.claude-dev-framework/.git\" ] && [ -f \"$HOME/.claude-dev-framework/scripts/init.sh\" ]",
       "version_command": "cd \"$HOME/.claude-dev-framework\" && git describe --tags --always 2>/dev/null || echo 'installed'",
       "min_version": null,
       "latest_check": null,
-      "update_check": {"method": "git_repo", "path": "$HOME/.claude-dev-framework"},
+      "update_check": {
+        "method": "git_repo",
+        "path": "$HOME/.claude-dev-framework"
+      },
       "install": {
         "manual": "Auto-installed by init.sh during project creation"
       },
@@ -292,15 +433,28 @@
       "description": "Agentic skills plugin for Claude Code (TDD, debugging, code review, git worktrees)",
       "required": false,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
-      "check_command": "[ -f \"$HOME/.claude/settings.json\" ] && command -v jq &>/dev/null && [ \"$(jq -r '.enabledPlugins[\"superpowers@claude-plugins-official\"] // false' \"$HOME/.claude/settings.json\" 2>/dev/null)\" = \"true\" ]",
-      "version_command": "echo 'installed'",
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
+      "check_command": "bash scripts/probe-tool.sh superpowers",
+      "version_command": "bash scripts/probe-tool.sh superpowers --version",
       "min_version": null,
       "latest_check": null,
-      "update_check": {"method": "claude_plugin"},
+      "update_check": {
+        "method": "claude_plugin"
+      },
       "install": {
         "darwin_brew": "claude plugins add superpowers",
         "linux_apt": "claude plugins add superpowers",
@@ -317,15 +471,29 @@
       "description": "Up-to-date library documentation via MCP (recommended for Phase 1 and Phase 2)",
       "required": false,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
-      "check_command": "command -v jq &>/dev/null && (( [ -f \"$HOME/.claude/settings.json\" ] && jq -e '.mcpServers.context7 // .mcpServers[\"context7-mcp\"] // empty' \"$HOME/.claude/settings.json\" >/dev/null 2>&1 ) || ( [ -f \"$HOME/.claude.json\" ] && jq -e '.mcpServers.context7 // .mcpServers[\"context7-mcp\"] // empty' \"$HOME/.claude.json\" >/dev/null 2>&1 ) || ( [ -f \"$HOME/.claude/settings.json\" ] && jq -e '.enabledPlugins | to_entries[] | select(.key | test(\"^context7\"; \"i\")) | select(.value == true)' \"$HOME/.claude/settings.json\" >/dev/null 2>&1 ))",
-      "version_command": "echo 'configured'",
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
+      "check_command": "bash scripts/probe-tool.sh context7",
+      "version_command": "bash scripts/probe-tool.sh context7 --version",
       "min_version": null,
       "latest_check": null,
-      "update_check": {"method": "ephemeral", "runner": "npx"},
+      "update_check": {
+        "method": "ephemeral",
+        "runner": "npx"
+      },
       "install": {
         "npm": "echo y | claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest",
         "manual": "Run: echo y | claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
@@ -340,15 +508,29 @@
       "description": "Persistent semantic memory across Claude Code sessions",
       "required": false,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["all"],
-      "check_command": "command -v jq &>/dev/null && (( [ -f \"$HOME/.claude/settings.json\" ] && jq -e '.mcpServers.qdrant // .mcpServers[\"mcp-server-qdrant\"] // empty' \"$HOME/.claude/settings.json\" >/dev/null 2>&1 ) || ( [ -f \"$HOME/.claude.json\" ] && jq -e '.mcpServers.qdrant // .mcpServers[\"mcp-server-qdrant\"] // empty' \"$HOME/.claude.json\" >/dev/null 2>&1 ))",
-      "version_command": "echo 'configured'",
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "all"
+      ],
+      "check_command": "bash scripts/probe-tool.sh qdrant",
+      "version_command": "bash scripts/probe-tool.sh qdrant --version",
       "min_version": null,
       "latest_check": null,
-      "update_check": {"method": "ephemeral", "runner": "uvx"},
+      "update_check": {
+        "method": "ephemeral",
+        "runner": "uvx"
+      },
       "install": {
         "manual": "Requires Docker. Setup: (1) docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest (2) claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
       },
@@ -362,10 +544,21 @@
       "description": "Python runtime",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["python"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "python"
+      ],
       "check_command": "command -v python3 || command -v python",
       "version_command": "python3 --version 2>/dev/null | awk '{print $2}' || python --version 2>/dev/null | awk '{print $2}'",
       "min_version": "3.10.0",
@@ -387,10 +580,21 @@
       "description": "Rust toolchain via rustup",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["rust"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "rust"
+      ],
       "check_command": "command -v cargo",
       "version_command": "rustc --version 2>/dev/null | awk '{print $2}'",
       "min_version": "1.70.0",
@@ -417,10 +621,21 @@
       "description": "Go programming language",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["go"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "go"
+      ],
       "check_command": "command -v go",
       "version_command": "go version 2>/dev/null | awk '{print $3}' | sed 's/go//'",
       "min_version": "1.21.0",
@@ -442,10 +657,21 @@
       "description": "C# / .NET development kit",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["csharp"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "csharp"
+      ],
       "check_command": "command -v dotnet",
       "version_command": "dotnet --version 2>/dev/null",
       "min_version": "7.0.0",
@@ -464,10 +690,22 @@
       "description": "Java Development Kit",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["kotlin", "java"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "kotlin",
+        "java"
+      ],
       "check_command": "command -v java",
       "version_command": "java --version 2>/dev/null | head -1",
       "min_version": "17.0.0",
@@ -489,10 +727,21 @@
       "description": "Flutter cross-platform framework",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin", "linux"],
-      "platforms": ["all"],
-      "languages": ["dart"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin",
+        "linux"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "dart"
+      ],
       "check_command": "command -v flutter",
       "version_command": "flutter --version 2>/dev/null | head -1 | awk '{print $2}'",
       "min_version": "3.10.0",
@@ -511,10 +760,20 @@
       "description": "Swift compiler and standard library (via Xcode). Required for iOS native development.",
       "required": true,
       "phase": 1,
-      "tracks": ["light", "standard", "full"],
-      "dev_os": ["darwin"],
-      "platforms": ["all"],
-      "languages": ["swift"],
+      "tracks": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "dev_os": [
+        "darwin"
+      ],
+      "platforms": [
+        "all"
+      ],
+      "languages": [
+        "swift"
+      ],
       "check_command": "command -v swift",
       "version_command": "swift --version 2>/dev/null | head -1 | sed 's/.*version //' | awk '{print $1}'",
       "min_version": "5.9.0",
