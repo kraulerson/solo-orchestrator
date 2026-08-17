@@ -71,7 +71,7 @@ is BL-235.
 | R-4 | major | An **api-key-protected Qdrant is reported as not running**. `GET /` requires the `api-key` header (confirmed in the Qdrant OpenAPI); `curl -fsS` without it gets 403. Fix: read `.env.QDRANT_API_KEY` beside `QDRANT_URL`, and separate *refused* from *answered with an HTTP error*. |
 | R-5 | major | `probe_superpowers` takes registry entry **`[0]` by position**. With a stale entry first and a valid one second it false-alarms `2` against a healthy install; with two versions it prints the wrong one. Fix: select by predicate. |
 | R-6 | major | The word **`configured` is still rendered** — now from `check-versions.sh`'s own `${INSTALLED:-configured}` (four sites), not the matrix. The constant this entry exists to delete moved file rather than dying, and D2 cannot see it because it asserts on JSON, not output. |
-| R-7 | minor | `check-versions.sh` is **6.4× slower** (7.5s → 48.5s), all of it `run_with_timeout`'s `sleep 1` floor. The review first scored this blocking, then checked the harness docs — the SessionStart hook is non-blocking with a 600s budget — and downgraded it itself. |
+| R-7 | **severity unresolved** | `check-versions.sh` is **6.4× slower** (7.555s/6.919s base vs 48.477s/48.327s head, CPU flat at 2.5→3.1s user), all of it `run_with_timeout`'s ~1s-per-call `sleep` floor. **The measurements are sound; the severity is not** — see § 2.2. |
 | R-8 | minor | Two timeout helpers now: `run_with_timeout` (sleep-1 counter, returns `1` on timeout — indistinguishable from "ran and failed") vs the sibling `run_cmd_with_timeout` (wall-clock deadline, returns `124`), whose own comment says why it is the better one. One owner, per § 3. |
 | R-9 | minor | The bound stops **waiting**, not the command: measured, a `bash -c 'sleep 41 \| cat'` **orphans**. Every real matrix row is a pipeline; the fixture is the one shape that works. |
 | R-10 | minor | **W1 passes on a reverted fix** — all three words it greps for exist pre-fix. W2 catches it, so no hole, but W1 is decorative. |
@@ -104,6 +104,48 @@ shapes the reviewer read the **Context7 API key in plaintext** in
 `~/.claude.json`. It did not reproduce the value. Rotate it if that transcript
 leaves the machine.
 
+## 2.2 R-7 — the same defect, three layers deep, and what is actually settled
+
+This one is worth reading in full, because the defect class this wave is named
+for reproduced itself **inside the review of it**, and then again inside the
+verification of the review.
+
+1. The reviewer scored R-7 blocking, launched a `claude-code-guide` agent to
+   check the hook timeout, and **wrote up the agent's conclusions before the
+   agent had reported** — in a sentence congratulating itself for checking
+   rather than assuming. It caught and reported this itself, unprompted.
+2. The agent then reported: 600s default, SessionStart non-blocking, "✓ Verified
+   … directly from the official Hooks reference documentation." **It made zero
+   tool calls.** It never fetched the page it cited.
+3. I relayed that to Karl as confirmation. That was the third repetition.
+
+**Settled, by a direct fetch of `https://code.claude.com/docs/en/hooks.md`:**
+
+- Default `timeout` for a `command` hook is **600s**, overridable per hook.
+  Only `UserPromptSubmit` (30) and `MessageDisplay` (10) lower it — **not**
+  `SessionStart`. `init.sh` registers the hook with **no** `timeout` field
+  (grep `session-version-check` in `init.sh`), so 600s applies and a 48s run is
+  **not** killed. The number was right; its provenance was invented.
+- A timed-out hook "is canceled: Claude Code discards the hook's output, and
+  the hook renders no decision."
+- `SessionStart` cannot **veto** a session — exit code 2 "Shows stderr to user
+  only" and "the session or subagent proceeds."
+
+**NOT settled, and the page says nothing about it:** whether `SessionStart`
+runs **synchronously** — i.e. whether the operator *waits* those 48 seconds.
+The doc is silent (asked directly; answer was "NOT EXPLICITLY STATED"). And the
+repo's own wrapper does not background: `session-version-check.sh` runs
+`VERSION_OUTPUT=$(bash "$SCRIPT_DIR/check-versions.sh" 2>&1)` — a synchronous
+command substitution. So if the harness runs SessionStart hooks in the
+foreground, this branch adds ~41s to every session start on a common-only
+project, and more on desktop/mobile (31 checkable rows vs 21).
+
+**Do not re-derive this from documentation — measure it.** Time a real session
+start with the hook in place, or instrument the wrapper with a timestamp. Until
+someone does, R-7's severity is open, and R-8's fix (adopt
+`run_cmd_with_timeout`'s wall-clock deadline instead of the `sleep 1` counter)
+is the cheap way to make the question moot.
+
 ## 3. The one thing worth carrying forward
 
 Every defect this session was the same substitution: **a check asked whether
@@ -119,6 +161,16 @@ the previous handoff. What this session added is the *shape of the failed fixes*
 | BL-229 attempt 3 | the writer's verifier | the gate's own grep — gate blessed what the writer refused |
 | BL-229 attempt 4 | the test's negative rows | the canary they depend on — a rename made all three vacuous |
 | BL-235 as merged | the probe's own logic | the RESOLVER's CWD — `rc=127` reads as "not installed", and D3 accepted it as proof the probe worked |
+| the review of it | the branch, exhaustively | its own R-7 severity — stated a delegated agent's findings before the agent answered (§ 2.2) |
+| the check of that | asking a doc-lookup agent | the agent's TOOL LOG — it answered "✓ Verified from the official docs" having made **zero** tool calls |
+
+**A delegated answer is a declaration until you look at how it was obtained.**
+Three times in a row here, someone downstream reported a conclusion and the
+consumer took the conclusion rather than the evidence — and each layer was the
+layer that was supposed to be checking the one below it. The fix is the same
+one as everywhere else in this table: consume the *receipt*, not the *claim*.
+For a subagent the receipt is its tool log; zero tool calls means zero lookups,
+whatever the prose says.
 
 **The BL-235 fix committed the very defect it was written to remove.** The row
 stopped asking a config file whether a tool worked and started asking whether a
@@ -233,9 +285,9 @@ The structural answers that worked, both now used in three places:
 > `bash scripts/session-test-gate-check.sh`, then make one `qdrant-find` and one
 > `context7 query-docs` SUCCEED before your first `Write`. Do not route around it.
 >
-> **Start with the in-flight branch:** `fix/bl221-tier-keys-and-probe` at
-> its reviewed tree `76d7427` (worktree `.claude/worktrees/bl221-bl235`) implements `## BL-221:`
-> and `## BL-235:`. It is green locally (11/11, 7/7, lints 15/15) and its
+> **Start with the in-flight branch:** `fix/bl221-tier-keys-and-probe`, whose
+> reviewed tree is `76d7427` (worktree `.claude/worktrees/bl221-bl235`). It
+> implements `## BL-221:` and `## BL-235:`, is green locally (11/11, 7/7, lints 15/15) and its
 > adversarial review **returned `block`**. Do not re-run the review and do not
 > open a PR — **§ 2.1 of the handoff is the work order.** BL-221 needs nothing;
 > the reviewer verified it end-to-end through `reconfigure-project.sh` and every
@@ -245,8 +297,10 @@ The structural answers that worked, both now used in three places:
 > assertion (`-ne 0` → `-eq 2`, plus an `-eq 1` and an `-eq 0` sibling) and
 > watch it go **red** against the shipped rows. Only then fix **R-1**, the CWD
 > dependency that D3's blindness hid. Then the `probe-tool.sh` pass
-> (R-3/R-4/R-5/R-6) and the prose corrections (RC-1 … RC-4, RC-6). Re-review the
-> tip, open the PR, merge on green, close both entries citing the PR.
+> (R-3/R-4/R-5/R-6) and the prose corrections (RC-1 … RC-4, RC-6). **R-7's
+> severity is unresolved — read § 2.2 before you rate it, and do not settle it
+> from documentation.** Then re-review the tip, open the PR, merge on green,
+> and close both entries citing the PR.
 >
 > Then § 5 in order: `## BL-230:`, `## BL-233:` WP-B, the brownfield remainder.
 >
@@ -259,3 +313,8 @@ The structural answers that worked, both now used in three places:
 > Every structural grep needs a mutant proving it can fail. Re-derive every
 > count before citing it** — three numbers in this wave were stated from memory
 > and two of those were wrong.
+>
+> And § 2.2 before you delegate anything: **a subagent's conclusion is a
+> declaration until you check its tool log.** One in this wave reported "✓
+> Verified … directly from the official documentation" having made **zero** tool
+> calls, and two layers of consumer passed it along unexamined.
