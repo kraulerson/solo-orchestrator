@@ -635,6 +635,33 @@ else
   fi
 fi
 
+# ── C4: A TOOL'S STDERR MUST NOT BE ABLE TO FORGE A REPORT LINE.
+#
+# Surfacing the note (C3) handed a tool's stderr straight to `print_warn`, which
+# renders through `echo -e` — and `echo -e` INTERPRETS backslash escapes. A note
+# containing the two characters `\` and `n` therefore becomes a real line break,
+# and whatever follows it starts a new line of the report. Measured before the
+# fix, from a check_command whose stderr was
+# `note-one\nFORGED  [OK] Totally Installed: 9.9.9`:
+#
+#     [WARN] P: configured, but working could not be confirmed — note-one
+#     FORGED  [OK] Totally Installed: 9.9.9
+#
+# — a fabricated `[OK]` row, in the one script whose whole job is reporting
+# honestly. The rows ship with the framework, but the probe notes interpolate
+# `$(qdrant_mcp_url)` read from `~/.claude.json`, so the text is not all ours.
+# This is the cost of C3's fix and it is paid here rather than left standing.
+C4="$(newtmp)"
+mk_matrix_proj "$C4" 'printf %s "note-one\nFORGED  [OK] Totally Installed: 9.9.9" >&2; exit 2' 'echo 1'
+c4_out="$( cd "$C4" && "$BASH_BIN" "$CHECKVER" 2>&1 )" || true
+c4_forged=$(_num "$(printf '%s' "$c4_out" | grep -c '^FORGED')")
+c4_kept=$(_num "$(printf '%s' "$c4_out" | grep -c 'note-one')")
+if [ "$c4_forged" -eq 0 ] && [ "$c4_kept" -ge 1 ]; then
+  pass "C4: a note carrying a literal backslash-n is rendered as text, not as a line break — the note still reaches the operator (note-one seen) but cannot start a new line, so a tool's stderr cannot forge an [OK] row"
+else
+  fail_ "C4" "lines beginning FORGED=$c4_forged (want 0) note-present=$c4_kept (want >=1) — out='$(printf '%s' "$c4_out" | tr '\n' '|' | cut -c1-300)'"
+fi
+
 echo "=== X — the resolver is EXECUTED, so its mode is part of its contract ==="
 
 # ── X1: `scripts/resolve-tools.sh` must be executable.
@@ -683,9 +710,9 @@ m1_start=$(date +%s)
 ( cd "$M1D" && "$BASH_BIN" "$M1/scripts/check-versions.sh" >/dev/null 2>&1 ) || true
 m1_elapsed=$(( $(date +%s) - m1_start ))
 if [ "$m1_sites" -eq 1 ] && [ "$m1_parses" -eq 1 ] && [ "$m1_elapsed" -ge 5 ]; then
-  pass "M1: with the bound removed, a 12s check_command holds the script for ${m1_elapsed}s again — the bound is load-bearing and measured in seconds, not asserted (sites=$m1_sites changed=$m1_changed parses=$m1_parses)"
+  pass "M1: with the bound removed, a 6s check_command holds the script for ${m1_elapsed}s again — the bound is load-bearing and measured in seconds, not asserted (sites=$m1_sites changed=$m1_changed parses=$m1_parses)"
 else
-  fail_ "M1" "sites=$m1_sites (want 1) parses=$m1_parses (want 1) changed=$m1_changed elapsed=${m1_elapsed}s (want >=10)"
+  fail_ "M1" "sites=$m1_sites (want 1) parses=$m1_parses (want 1) changed=$m1_changed elapsed=${m1_elapsed}s (want >=5)"
 fi
 
 # ── M2: put the rows back to a CWD-relative path and C1's condition must return.
@@ -824,6 +851,20 @@ if [ "$(_num "$m10_c")" -ge 1 ] && [ "$m10_sites" -eq 1 ] && [ "$m10_parses" -eq
   pass "M10: CHECKVER_EVAL_TIMEOUT=abc still reports 9.9.9; with the clamp removed the same healthy row vanishes — an unparseable bound makes the deadline equal now, so every row times out instantly and a whole matrix reads as missing from one malformed environment variable (sites=$m10_sites changed=$m10_changed)"
 else
   fail_ "M10" "control_hits=$m10_c (want >=1) sites=$m10_sites (want 1) parses=$m10_parses (want 1) mutant_hits=$m10_m (want 0)"
+fi
+
+# ── M11: remove the escape-doubling and C4's forged line must come back.
+M11="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M11/scripts"
+m11_meta=$(_mutate "$M11/scripts/check-versions.sh" '# BL-235-NOTE-SAFE' '  printf "%s" "$1"')
+m11_sites="${m11_meta%% *}"; m11_rest="${m11_meta#* }"; m11_changed="${m11_rest%% *}"; m11_parses="${m11_rest##* }"
+M11D="$(newtmp)"
+mk_matrix_proj "$M11D" 'printf %s "note-one\nFORGED  [OK] Totally Installed: 9.9.9" >&2; exit 2' 'echo 1'
+m11_out="$( cd "$M11D" && "$BASH_BIN" "$M11/scripts/check-versions.sh" 2>&1 )" || true
+m11_forged=$(_num "$(printf '%s' "$m11_out" | grep -c '^FORGED')")
+if [ "$m11_sites" -eq 1 ] && [ "$m11_parses" -eq 1 ] && [ "$m11_forged" -ge 1 ]; then
+  pass "M11: with the escape-doubling removed, the note's literal backslash-n becomes a real line break again and a fabricated '[OK] Totally Installed' row appears in the report — C4 measures forgery, not merely that a note is printed (sites=$m11_sites changed=$m11_changed)"
+else
+  fail_ "M11" "sites=$m11_sites (want 1) parses=$m11_parses (want 1) forged_lines=$m11_forged (want >=1)"
 fi
 
 # ── M7: X1 must be able to fail. Strip the bit from a COPY and re-run the same

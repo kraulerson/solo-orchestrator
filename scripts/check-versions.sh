@@ -341,8 +341,35 @@ _cv_bounded_eval() {
   fi
 }
 
+# _cv_note_safe <text> — make a tool's stderr safe to render.
+#
+# `print_warn` renders through `echo -e`, which INTERPRETS backslash escapes in
+# whatever it is given. The note comes from a `check_command`'s stderr, so a
+# note containing the two characters `\` and `n` becomes a real line break —
+# and the line after it is attacker-chosen text at the start of a line, in the
+# one script whose entire job is reporting honestly. Measured, with a stderr of
+# `note-one\nFORGED  [OK] Totally Installed: 9.9.9`:
+#
+#     [WARN] P: configured, but working could not be confirmed — note-one
+#     FORGED  [OK] Totally Installed: 9.9.9        <- a fabricated report row
+#
+# Doubling the backslashes makes `echo -e` emit them literally. The rows ship
+# with the framework today, but the probe notes interpolate `$(qdrant_mcp_url)`
+# read out of `~/.claude.json`, so the text is not wholly ours. C4 pins it.
+_cv_note_safe() {
+  printf '%s' "${1//\\/\\\\}"                                                   # BL-235-NOTE-SAFE
+}
+
 # _cv_version_bounded <cmd> — run a version_command under the bound and put its
-# output in INSTALLED. Also sets CV_NOTE to the command's last stderr line.
+# output in INSTALLED.
+#
+# It does NOT keep the version command's stderr. An earlier version captured it
+# into CV_NOTE, which nothing ever rendered — a second note binned one layer
+# before the operator, which is the defect this entry is named for wearing the
+# costume of its own fix. A version_command that fails already renders honestly
+# as "installed, version not reported", so the row is not lying; adding a second
+# unrendered value only added a `mktemp`, a `grep` and a `cut` per row and a
+# second forgery surface. Dropped rather than plumbed.
 #
 # THE FILE IS THE POINT. `INSTALLED=$(_cv_bounded_eval "$VERSION_CMD")` looks
 # equivalent and is not: a command substitution reads until the last WRITER
@@ -356,20 +383,17 @@ _cv_bounded_eval() {
 # backed rows it was added to protect. Redirecting to a file makes the reader
 # independent of who still holds the write end. T2b pins it.
 _cv_version_bounded() {
-  local _cmd="$1" _out _err                                                     # BL-235-VERSION-CAPTURE
+  local _cmd="$1" _out                                                          # BL-235-VERSION-CAPTURE
   INSTALLED=""
-  CV_NOTE=""
   _out="$(mktemp)" || return 0
-  _err="$(mktemp)" || { rm -f "$_out"; return 0; }
-  _cv_bounded_eval "$_cmd" >"$_out" 2>"$_err" || true
-  # `|| :` IS LOAD-BEARING UNDER `set -euo pipefail`. `grep -v` exits 1 when it
-  # selects no lines, which for an EMPTY stderr file is the normal case — and
-  # with pipefail that failure propagates out of the command substitution and
-  # `set -e` kills the script mid-row. Measured: every healthy row vanished from
-  # the report and the run ended after the first category header.
+  _cv_bounded_eval "$_cmd" >"$_out" 2>/dev/null || true
+  # `|| :` IS LOAD-BEARING UNDER `set -euo pipefail`: a command that exits
+  # non-zero inside a command substitution propagates, and `set -e` then kills
+  # the script mid-row. Measured with the sibling `grep -v` this line used to
+  # carry — on an EMPTY stderr file it exits 1, which is the NORMAL case, and
+  # every healthy row vanished from the report after the first category header.
   INSTALLED="$(tr -d '[:space:]' < "$_out" 2>/dev/null || :)"
-  CV_NOTE="$( { grep -v '^[[:space:]]*$' "$_err" 2>/dev/null || :; } | tail -1 | cut -c1-200)"
-  rm -f "$_out" "$_err"
+  rm -f "$_out"
 }
 
 # THE MATRIX ROWS MUST NOT DEPEND ON THIS PROCESS'S `pwd`. Three rows invoke
@@ -529,6 +553,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   # `|| :` for the same reason as in _cv_version_bounded: an empty stderr file
   # makes `grep -v` exit 1, and under `set -euo pipefail` that ends the run.
   CHECK_NOTE="$( { grep -v '^[[:space:]]*$' "$CHECK_ERR" 2>/dev/null || :; } | tail -1 | cut -c1-200)"
+  CHECK_NOTE="$(_cv_note_safe "$CHECK_NOTE")"
   rm -f "$CHECK_ERR"
   if [ "$CHECK_RC" -ne 0 ]; then
     if [ "$CHECK_RC" -eq 2 ]; then                                              # BL-235-THIRD-STATE
@@ -541,7 +566,6 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
 
   # Get installed version
   INSTALLED=""
-  CV_NOTE=""
   if [ -n "$VERSION_CMD" ]; then
     _cv_version_bounded "$VERSION_CMD"                                          # BL-235-BOUND-VERSION
   fi
