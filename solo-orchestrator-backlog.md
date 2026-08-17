@@ -9005,7 +9005,37 @@ permissive tier on absent data
 **Severity:** **Real, not cosmetic.** This is a fail-OPEN on the surface that
 decides whether a project is *allowed to weaken its own enforcement*. Every other
 tier reader in the framework fails closed on absent data; this one does not.
-**Status:** Open
+**Status:** Open — BOTH candidate fixes implemented on branch
+`fix/bl221-tier-keys-and-probe`; close on merge with the PR number.
+
+### Both, because neither subsumes the other
+
+- **`# BL-221-TIER-FAIL-CLOSED`** — `.deployment // "personal"` became `// ""`
+  with an explicit refusal. jq's `//` coerces `null`, `false` AND empty to its
+  right-hand side, so an absent key and an explicit `null` both resolved to the
+  CHOOSABLE tier; one guard now catches both. The refusal names the key.
+- **`# BL-221-ADOPT-TIER-KEYS`** — `adopt_write_manifest` writes `deployment`,
+  `poc_mode` and `enforcement_level` from the SAME variables
+  `adopt_write_phase_state` uses, so manifest and phase record cannot disagree.
+
+Option 1 alone left every other cause open (a hand-edited manifest, the
+regenerate path). Option 2 alone left the birth paths producing different
+shapes — the divergence that produced this.
+
+**Proof:** `tests/test-bl221-tier-fail-closed.sh`, 11 cases. `A3` is the entry's
+case C. `B1`–`B3` pin that the fix refuses absent data, not every project. `C2`
+pins that `assert_choosable` and `read_enforcement_level` now agree. `W2`
+**executes** the shipped jq filter rather than grepping for key names.
+
+**Two failures caught by the repo's own guards, both from one line of mine:** the
+refusal message named `scripts/adopt-project.sh` from a CORE file, which M3
+forbids. `lint-module-dependencies.sh` caught it and
+`test-brownfield-wp5b-test-debt.sh`'s F1 caught it independently.
+
+**Already worked around downstream, which is the tell:** `_td_tier_trusted` in
+`adopt-test-debt.sh` had added its own presence check before trusting
+`assert_choosable`. A caller defending itself against a shared predicate is the
+predicate's bug.
 
 **The predicate.** `assert_choosable` in `scripts/lib/enforcement-level.sh`:
 
@@ -11055,7 +11085,52 @@ the behaviour), `## BL-221:` (missing key ⇒ permissive default).
 different surface, deliberately left unfixed there so the fix is not smuggled in
 under an unrelated diff)
 **Category:** Silent-success — declaration read as capability
-**Status:** Open
+**Status:** Open — implemented on branch `fix/bl221-tier-keys-and-probe`; close
+on merge with the PR number.
+
+### The prerequisite the entry did not know it had
+
+The entry says a probe is unsafe because the schema expresses no bound. Half
+right, and the wrong half changed the design:
+
+| consumer | how it evaluates `check_command` |
+|---|---|
+| `scripts/resolve-tools.sh` | `run_cmd_with_timeout` — **bounded, 10s** |
+| `scripts/check-versions.sh` | `eval "$CHECK_CMD"` — **unbounded** |
+
+The unbounded one was **already a hazard**: the matrix ships `colima version`
+and `docker --version`, and `resolve-tools.sh`'s own header records that those
+"can hang indefinitely when the daemon is unreachable" — which is why IT bounds
+them. Fixed first and separately (`# BL-235-BOUND-CHECK`,
+`# BL-235-BOUND-VERSION`) with WALL-CLOCK assertions: a 12s command at a 2s
+bound returns in 3s; the mutation puts it back to 12s.
+
+### The rows
+
+All three declaration rows — Qdrant MCP, Context7 MCP, Superpowers — call
+**`scripts/probe-tool.sh`**, one owner. Exit contract is three-state:
+**0 working / 1 not configured / 2 cannot confirm**, and 2 is not a softened 1.
+
+**The three are NOT symmetric, and averaging them would have repeated the
+defect.** Only Qdrant has a reachable daemon; Context7 is a stdio server with no
+daemon; Superpowers is not a service. Each reports the strongest evidence its
+tool admits of.
+
+**Versions are falsifiable or absent, never constant.** Measured: qdrant
+`1.17.1` from the database's own payload, superpowers `6.3.0` from the
+installer's registry, context7 empty — honest.
+
+**A false alarm in the probe itself, recorded rather than quietly fixed.**
+`probe_superpowers` first GUESSED a path and returned CANNOT CONFIRM against a
+healthy install; the real layout is `plugins/cache/<marketplace>/<plugin>/<version>`
+and `installed_plugins.json` carries `installPath` and `version`
+(`# BL-235-PROBE-PLUGIN-REGISTRY`).
+
+`probe-tool.sh` ships downstream (`# BL-235-SHIP-PROBE`); without it the rows
+fail closed in every generated project.
+
+**Proof:** `tests/test-bl235-tool-matrix-probes.sh`, 7 cases, ~21s. `D1`/`D2`
+are derived sweeps over the shipped matrix, not lists in the test.
 
 `templates/tool-matrix/common.json`'s `Qdrant MCP` entry has:
 
