@@ -543,6 +543,272 @@ _cpg_record_reviewer_attestation() {
   return "$rc"
 }
 
+# ══ BL-233 WP-B: the ACCUMULATION gate ═════════════════════════════════════
+# WP-A made the RETRIEVAL half score outcomes instead of declarations. Nothing
+# anywhere required that anything was ever WRITTEN for a later session to
+# retrieve, and the entry names the consequence in one line: *a retrieval
+# requirement with no accumulation requirement is a ratchet with nothing behind
+# it.*
+#
+# Karl's decision (2026-08-17): WARN at commit, BLOCK here. Storing is not
+# per-commit work — a commit that produced no insight has nothing to store, and
+# a gate people cannot satisfy honestly is a gate they delete (`## BL-149:`).
+# The phase boundary is where accumulation is genuinely owed, because it is the
+# boundary the memory is supposed to carry across.
+
+# _cpg_accum_required — does THIS PROJECT require memory accumulation?
+#
+# THE SCOPE IN THE LOOP IS LOAD-BEARING AND IS DELIBERATELY NARROWER THAN
+# session-test-gate-check.sh's. That hook reads four settings files, two of them
+# under $HOME. Reading $HOME here would make a phase gate's verdict depend on
+# whose machine ran it: measured on this tree, ZERO of the 29 suites that drive
+# this script at current_phase >= 2 redirect HOME, so a host-derived answer
+# passes on a developer box with Qdrant configured and fails on a runner without
+# it. That is `## BL-234:`'s class — a silent local-vs-CI divergence — and A5/M3
+# in tests/test-bl233-wpb-accumulation.sh pin the narrow scope in both
+# directions.
+#
+# The project-scope files are the better source anyway: init.sh writes
+# .claude/settings.local.json carrying the mcpServers.qdrant entry, the
+# generated .gitignore ignores only .claude/cache/, and the scaffolder's
+# `git add -A` commits it. The declaration is therefore COMMITTED and travels
+# with the repo — unlike .claude/tool-usage.json, which is runtime scratch that
+# a `startup` wipes. Reading the ledger ALONE would have reintroduced
+# `## BL-231:`'s "tracking file absent => no enforcement, silently" row inside a
+# blocking gate, and would have forced 74 fixture edits across 29 suites to say
+# nothing.
+#
+# The ledger is still consulted as an OR arm, for the one case the project file
+# misses: a project initialised without Qdrant that adopted it later.
+# Callers MUST have established that jq is present (see the fail-closed arm in
+# _cpg_check_accumulation). There is deliberately no jq guard here: a guard that
+# returned "not required" on a missing jq would report a PROJECT FACT it never
+# checked, and an arm that cannot be reached is the `## BL-104:` shape.
+_cpg_accum_required() {
+  local _f
+  for _f in ".claude/settings.local.json" ".claude/settings.json"; do   # BL-233-WPB-SCOPE
+    [ -f "$_f" ] || continue
+    if jq -e '(.mcpServers // {}) | (has("qdrant") or has("mcp-server-qdrant"))' "$_f" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  if [ -f ".claude/tool-usage.json" ]; then
+    if [ "$(jq -r '.mcp_requirements.qdrant_required // false' ".claude/tool-usage.json" 2>/dev/null)" = "true" ]; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# _cpg_accum_last_store — ISO timestamp of the last SUCCESSFUL qdrant-store,
+# from the durable record that scripts/track-tool-usage.sh writes. A missing
+# object reads as "" (no stores): a missing key defaulting RESTRICTIVE, which is
+# the inverse of `## BL-221:`.
+_cpg_accum_last_store() {
+  local v
+  if [ ! -f ".claude/process-state.json" ] || ! command -v jq >/dev/null 2>&1; then
+    printf ''
+    return 0
+  fi
+  v=$(jq -r '.mcp_accumulation.last_store_at // ""' ".claude/process-state.json" 2>/dev/null || printf '')
+  if [ "$v" = "null" ]; then v=""; fi
+  printf '%s' "$v"
+}
+
+# _cpg_accum_after <iso_timestamp> <gate_date> — is the store inside the window?
+#
+# Compared as INTEGERS (YYYYMMDD), never as strings: `[ "$a" \> "$b" ]` is a
+# LOCALE-COLLATED comparison, and this repo has already been bitten by locale on
+# tr/cut. The date halves are sliced with bash parameter expansion rather than
+# tr/cut for the same reason.
+#
+# Same-day counts. gates.* carry a DATE with no time, so a store on the gate's
+# own date cannot be ordered against it — rejecting it would be a coin flip
+# dressed up as a rule.
+_cpg_accum_after() {
+  local ts="$1" gate="$2" a b
+  if [ -z "$ts" ]; then return 1; fi
+  if [ -z "$gate" ]; then return 0; fi
+  a="${ts:0:10}";   a="${a//-/}"
+  b="${gate:0:10}"; b="${b//-/}"
+  case "$a" in ''|*[!0-9]*) return 1 ;; esac
+  case "$b" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$a" -ge "$b" ]
+}
+
+# _cpg_accum_source_work <since_date> — did this phase produce SOURCE commits?
+#
+# Ground truth from git, NOT from a hook-maintained counter. `## BL-239:` — this
+# week — shipped a contributor hook that was a silent no-op on every commit
+# anyone ever made, and a blocking gate that trusts a skippable counter inherits
+# that failure mode wholesale.
+#
+# Returns 0 (source work happened) when it CANNOT TELL: no git, not a repo, or a
+# log that will not read. "Could not measure" must never resolve to "nothing to
+# measure" — `# BL-112-SAST-NOTRUN`'s doctrine, and here also the fail-closed
+# direction.
+#
+# The matches use HERE-STRINGS, not `printf | grep -q`. Under `set -o pipefail`
+# that pipeline returns 141 ON A MATCH once the payload is big enough: grep -q
+# exits the instant it matches, the writer takes SIGPIPE, and pipefail promotes
+# that death over grep's success (`## BL-238:`). Here a spurious 141 would read
+# as "no source work" — the fail-OPEN direction — on exactly the large-history
+# repos where the check matters most.
+_cpg_accum_source_work() {
+  local since="$1" paths
+  if ! command -v git >/dev/null 2>&1; then return 0; fi
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then return 0; fi
+  if [ -n "$since" ]; then
+    paths=$(git log --since="$since" --name-only --pretty=format: 2>/dev/null) || return 0
+  else
+    paths=$(git log --name-only --pretty=format: 2>/dev/null) || return 0
+  fi
+  if grep -qE '\.(py|ts|tsx|js|jsx|rs|go|cs|kt|java|dart|swift|c|cpp|h)$' <<< "$paths"; then
+    return 0
+  fi
+  if grep -qE '^(src|lib|app|pkg|internal|cmd)/' <<< "$paths"; then
+    return 0
+  fi
+  return 1   # BL-233-WPB-SOURCEWORK
+}
+
+# _cpg_record_accum_attestation <gate_key> <reason>
+#   0 — recorded (or idempotent no-op: already recorded with the same reason)
+#   2 — could not write (jq unavailable, lock timeout, unwritable state, jq error)
+# Same atomic-finalize shape as _cpg_record_gate_date and
+# _cpg_record_reviewer_attestation, and the same lock, because all three write
+# .claude/process-state.json and must exclude one another.
+_cpg_record_accum_attestation() {
+  local gate_key="$1" reason="$2"
+  local file=".claude/process-state.json"
+  local today actor lock_dir attempts rc cur
+
+  if ! command -v jq >/dev/null 2>&1; then return 2; fi
+
+  if [ -f "$file" ]; then
+    cur=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].reason // ""' "$file" 2>/dev/null || printf '')
+    if [ "$cur" = "$reason" ]; then return 0; fi
+  else
+    echo '{}' > "$file" 2>/dev/null || return 2
+  fi
+
+  today=$(date +%Y-%m-%d)
+  actor=$(_cpg_gate_actor)
+  lock_dir="$file.lockdir"
+  attempts=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then return 2; fi
+    sleep 0.1
+  done
+
+  rc=0
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --arg g "$gate_key" --arg reason "$reason" --arg date "$today" --arg by "$actor" \
+          '.mcp_accumulation = ((.mcp_accumulation // {})
+             | .attestations = ((.attestations // {}) + {($g): {reason: $reason, date: $date, by: $by}}))' \
+          "$file" > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$file" || exit 1
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
+  rmdir "$lock_dir" 2>/dev/null || true
+  if [ "$rc" -ne 0 ]; then return 2; fi
+  return 0
+}
+
+# _cpg_check_accumulation <gate_key> <prev_gate_date> <label>
+#   0 — satisfied, nothing owed, attested, or not applicable
+#   1 — BLOCK
+#
+# This function emits the LABEL and returns the VERDICT together, and
+# _cpg_accum_gate below is the single increment site. `## BL-104:`'s trap is
+# that the [WARN]/[FAIL] text is cosmetic while the exit predicate is
+# `if [ $issues -eq 0 ]`, so two arms printing the same word can have opposite
+# outcomes. Here the label and the increment cannot drift apart, because nothing
+# outside this pair decides either one.
+_cpg_check_accumulation() {
+  local gate_key="$1" prev="$2" label="$3"
+  local last reason recorded
+
+  # FAIL CLOSED on a missing jq, rather than reporting a project fact that was
+  # never read. This is the `degradation` row of `## BL-233:`'s own table —
+  # "absent must fail closed, not exit 0" — and it follows this file's existing
+  # precedent: the Phase 3→4 review gate already degrades to a BLOCKING warn
+  # when the manifest is present but jq is not, rather than silently passing.
+  if ! command -v jq >/dev/null 2>&1; then
+    echo -e "${RED}[FAIL]${NC} $label accumulation: CANNOT BE VERIFIED — jq is unavailable, so neither the requirement nor the durable record can be read."
+    echo "        Install jq. Passing silently here would be the substitution this gate exists to remove: \"could not check\" is not \"nothing to check\"."
+    return 1   # BL-233-WPB-JQ-FAILCLOSED
+  fi
+
+  if ! _cpg_accum_required; then
+    # [NOTE], deliberately NOT [NEXT]. In this file [NEXT] means "belongs to a
+    # later gate and is not counted against this one", and
+    # tests/test-bl166-gate-scope.sh asserts it appears ONLY as the 3→4 scoping
+    # line — a bare run or `--gate phase_3_to_4` emitting any other [NEXT] is a
+    # BL-166 regression. This line means something different: the check did not
+    # apply here.
+    echo -e "${BLUE}  [NOTE]${NC} $label accumulation: NOT CHECKED — this project declares no Qdrant MCP server (no mcpServers.qdrant in .claude/settings.local.json or .claude/settings.json, and no qdrant_required in .claude/tool-usage.json). Nothing is owed here, and nothing was verified."
+    return 0
+  fi
+
+  last=$(_cpg_accum_last_store)
+  if _cpg_accum_after "$last" "$prev"; then
+    echo -e "${GREEN}  [OK]${NC} $label accumulation: satisfied — last successful qdrant-store $last (window opens ${prev:-project start})."
+    return 0
+  fi
+
+  if ! _cpg_accum_source_work "$prev"; then
+    echo -e "${GREEN}  [OK]${NC} $label accumulation: nothing owed — no source commits since ${prev:-project start}."
+    return 0
+  fi
+
+  # Escape hatch in BL-072's shape: attested, durably recorded, and REFUSED if
+  # it cannot be recorded. An escape that leaves no trace is the advisory
+  # posture `## BL-233:` exists to replace.
+  reason=""
+  if [ -f ".claude/process-state.json" ] && command -v jq >/dev/null 2>&1; then
+    recorded=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].reason // ""' ".claude/process-state.json" 2>/dev/null || printf '')
+    if [ "$recorded" != "null" ]; then reason="$recorded"; fi
+  fi
+  if [ "${SOLO_MCP_ACCUM_ATTESTED:-}" = "1" ] && [ -n "${SOLO_MCP_ACCUM_ATTESTED_REASON:-}" ]; then
+    reason="$SOLO_MCP_ACCUM_ATTESTED_REASON"
+  fi
+  # Trim BEFORE the non-empty test so a whitespace-only reason is REJECTED —
+  # an attestation must carry a justification, not blank space (BL-070's
+  # tightener, mirrored).
+  reason=$(printf '%s' "$reason" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  if [ -n "$reason" ]; then
+    if _cpg_record_accum_attestation "$gate_key" "$reason"; then
+      echo -e "${GREEN}  [OK]${NC} $label accumulation: ATTESTED (reason: $reason) — recorded to .claude/process-state.json, not silenced."
+      return 0
+    fi
+    echo -e "${RED}[FAIL]${NC} $label accumulation: an attestation was supplied but COULD NOT BE RECORDED to .claude/process-state.json — refusing it."
+    echo "        An escape that leaves no trace is not an escape. Make the state file writable (and install jq), then re-run."
+    return 1   # BL-233-WPB-ATTEST-REFUSE
+  fi
+
+  echo -e "${RED}[FAIL]${NC} $label accumulation: BLOCKED — source commits since ${prev:-project start}, and NO successful qdrant-store in that window."
+  echo "        A retrieval requirement with no accumulation requirement is a ratchet with nothing behind it (## BL-233:)."
+  echo "        Store what this phase decided (qdrant-store), then re-run — or attest:"
+  echo "          SOLO_MCP_ACCUM_ATTESTED=1 SOLO_MCP_ACCUM_ATTESTED_REASON=\"<why nothing was worth storing>\" bash scripts/check-phase-gate.sh"
+  return 1
+}
+
+# The ONE increment site for the accumulation gate.
+_cpg_accum_gate() {
+  _cpg_check_accumulation "$1" "$2" "$3" || issues=$((issues + 1))   # BL-233-WPB-BLOCK
+}
+
 gate_0_to_1=$(get_gate_date "phase_0_to_1")
 gate_1_to_2=$(get_gate_date "phase_1_to_2")
 gate_2_to_3=$(get_gate_date "phase_2_to_3")
@@ -1574,6 +1840,25 @@ if [ "$current_phase" -ge 3 ]; then
     issues=$((issues + 1))
   fi
 fi
+
+# ── BL-233 WP-B: accumulation, checked ONCE, for the gate being crossed ────
+# `-eq`, not `-ge`, and the difference from every sibling check in this file is
+# deliberate. The gate-date and artifact checks use `-ge` because their evidence
+# must exist INDEPENDENTLY at each boundary, so all of them firing at phase 4 is
+# correct. Accumulation is not like that: the windows NEST. A store that
+# satisfies "since phase_2_to_3" necessarily satisfies "since phase_1_to_2", so
+# the latest gate's window is the strictest and subsumes the earlier ones.
+# Firing all three would count ONE missing store as THREE inconsistencies and
+# print the same sentence three times.
+#
+# phase_0_to_1 has no arm: Phase 0 is pre-code discovery, it writes no source,
+# and the conditional would never fire anyway — an arm that cannot fire is the
+# `## BL-104:` shape and is better absent than decorative.
+case "$current_phase" in
+  2) _cpg_accum_gate "phase_1_to_2" "$gate_0_to_1" "Phase 1→2" ;;
+  3) _cpg_accum_gate "phase_2_to_3" "$gate_1_to_2" "Phase 2→3" ;;
+  4) _cpg_accum_gate "phase_3_to_4" "$gate_2_to_3" "Phase 3→4" ;;
+esac
 
 # Check: if current_phase >= 4, gate 3→4 should have a date (BL-071: see
 # the Phase 0→1 block for the evidence-first auto-write rationale).

@@ -1451,6 +1451,99 @@ if [ "$IS_COMMIT" = true ] && [ -f "$TOOL_USAGE" ] && [ -f "$PHASE_STATE" ] && c
   fi
 fi
 
+# ── BL-233 WP-B: the COMMIT half of "warn at commit, block at the phase gate" ─
+# Karl's decision (2026-08-17). Storing is NOT per-commit work: a commit that
+# produced no insight has nothing to store, so a per-commit BLOCK would be a
+# gate people cannot satisfy honestly — and `## BL-149:` is the standing rule
+# that such a gate gets deleted. This arm therefore only ever WARNS, and it is
+# emitted through the same `permissionDecision: allow` envelope below.
+#
+# The window here is FORWARD-looking and differs from check-phase-gate.sh's on
+# purpose. The gate, run at current_phase N, verifies the crossing INTO N — so
+# its window opens at gate (N-1). This warning is about the gate you have not
+# hit yet: while working in phase N you are heading for the N→N+1 gate, whose
+# window opens at the gate that put you IN phase N. Same rule, different tense.
+if [ "$IS_COMMIT" = true ] && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null; then
+  ACC_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null)
+  ACC_PREV_KEY=""
+  case "$ACC_PHASE" in
+    1) ACC_PREV_KEY="phase_0_to_1" ;;
+    2) ACC_PREV_KEY="phase_1_to_2" ;;
+    3) ACC_PREV_KEY="phase_2_to_3" ;;
+  esac
+
+  if [ -n "$ACC_PREV_KEY" ]; then
+    # Same project-scope-only derivation the phase gate uses. $HOME is NOT read
+    # here either: a warning whose text depends on the developer's own MCP
+    # config would say different things to two people committing the same change.
+    ACC_REQUIRED=false
+    for _acc_f in ".claude/settings.local.json" ".claude/settings.json"; do
+      [ -f "$_acc_f" ] || continue
+      if jq -e '(.mcpServers // {}) | (has("qdrant") or has("mcp-server-qdrant"))' "$_acc_f" >/dev/null 2>&1; then
+        ACC_REQUIRED=true
+        break
+      fi
+    done
+    if [ "$ACC_REQUIRED" = false ] && [ -f "$TOOL_USAGE" ]; then
+      if [ "$(jq -r '.mcp_requirements.qdrant_required // false' "$TOOL_USAGE" 2>/dev/null)" = "true" ]; then
+        ACC_REQUIRED=true
+      fi
+    fi
+
+    if [ "$ACC_REQUIRED" = true ]; then
+      ACC_STAGED=$(git diff --cached --name-only 2>/dev/null || true)
+      ACC_HAS_SOURCE=false
+      # Here-strings, not `echo | grep -q`: under `set -o pipefail` that
+      # pipeline returns 141 on a MATCH once the payload is big enough
+      # (`## BL-238:`), and here a spurious 141 would silently drop the warning.
+      if grep -qE '\.(py|ts|tsx|js|jsx|rs|go|cs|kt|java|dart|swift|c|cpp|h)$' <<< "$ACC_STAGED"; then
+        ACC_HAS_SOURCE=true
+      elif grep -qE '^(src|lib|app|pkg|internal|cmd)/' <<< "$ACC_STAGED"; then
+        ACC_HAS_SOURCE=true
+      fi
+
+      if [ "$ACC_HAS_SOURCE" = true ]; then
+        ACC_PREV=$(jq -r --arg k "$ACC_PREV_KEY" '.gates[$k] // ""' "$PHASE_STATE" 2>/dev/null || printf '')
+        [ "$ACC_PREV" = "null" ] && ACC_PREV=""
+        ACC_LAST=""
+        if [ -f ".claude/process-state.json" ]; then
+          ACC_LAST=$(jq -r '.mcp_accumulation.last_store_at // ""' ".claude/process-state.json" 2>/dev/null || printf '')
+          [ "$ACC_LAST" = "null" ] && ACC_LAST=""
+        fi
+
+        # Integer date compare, same reasoning as the gate's _cpg_accum_after:
+        # `[ a \> b ]` is locale-collated, and same-day counts because gates.*
+        # carry a date with no time.
+        ACC_SATISFIED=false
+        if [ -n "$ACC_LAST" ]; then
+          if [ -z "$ACC_PREV" ]; then
+            ACC_SATISFIED=true
+          else
+            _acc_a="${ACC_LAST:0:10}"; _acc_a="${_acc_a//-/}"
+            _acc_b="${ACC_PREV:0:10}"; _acc_b="${_acc_b//-/}"
+            # The two unparseable cases resolve in OPPOSITE directions, and each
+            # matches _cpg_accum_after so this warning predicts the gate it is
+            # warning about. A corrupt last_store_at is NOT a store (the gate
+            # will block, so warn); a corrupt gate date means no window can be
+            # computed (the gate treats any store as satisfying, so stay quiet).
+            case "$_acc_a" in
+              ''|*[!0-9]*) : ;;
+              *) case "$_acc_b" in
+                   ''|*[!0-9]*) ACC_SATISFIED=true ;;
+                   *) [ "$_acc_a" -ge "$_acc_b" ] && ACC_SATISFIED=true ;;
+                 esac ;;
+            esac
+          fi
+        fi
+
+        if [ "$ACC_SATISFIED" = false ]; then   # BL-233-WPB-COMMIT-WARN
+          WARNINGS="${WARNINGS}Nothing has been stored to Qdrant since ${ACC_PREV:-project start}, and this is a source commit. The phase gate BLOCKS on this — a phase with source commits and no successful qdrant-store does not advance. Store what this phase decided before you reach it. "
+        fi
+      fi
+    fi
+  fi
+fi
+
 if [ -n "$WARNINGS" ]; then
   # Output warnings as additional context (not blocking)
   ESCAPED_WARNINGS=$(echo "$WARNINGS" | sed 's/"/\\"/g')
