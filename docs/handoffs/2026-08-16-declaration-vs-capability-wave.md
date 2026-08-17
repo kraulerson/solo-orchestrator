@@ -38,8 +38,10 @@ something unrelated to your change, re-run before digging.
 | #354 | `BL-229` — pipeline paths resolved from the host; the release file can actually run |
 | #355 | ledger close for both |
 
-**In flight, NOT merged:** branch `fix/bl221-tier-keys-and-probe`, tip
-**`76d7427`**, 4 commits, worktree `.claude/worktrees/bl221-bl235`.
+**In flight, NOT merged:** branch `fix/bl221-tier-keys-and-probe`, worktree
+`.claude/worktrees/bl221-bl235`. The **reviewed code tree is `76d7427`** (4
+commits); this handoff sits one docs-only commit on top of it, so the branch tip
+is later — derive it, and re-derive it again after the § 2.1 fixes land.
 `BL-221` and `BL-235` are implemented and green locally (11/11 and 7/7, lints
 15/15) — **and the adversarial review returned `block`.** No PR is open, and
 none should be opened until § 2.1 is worked. The review's own summary of why:
@@ -232,7 +234,7 @@ The structural answers that worked, both now used in three places:
 > `context7 query-docs` SUCCEED before your first `Write`. Do not route around it.
 >
 > **Start with the in-flight branch:** `fix/bl221-tier-keys-and-probe` at
-> `76d7427` (worktree `.claude/worktrees/bl221-bl235`) implements `## BL-221:`
+> its reviewed tree `76d7427` (worktree `.claude/worktrees/bl221-bl235`) implements `## BL-221:`
 > and `## BL-235:`. It is green locally (11/11, 7/7, lints 15/15) and its
 > adversarial review **returned `block`**. Do not re-run the review and do not
 > open a PR — **§ 2.1 of the handoff is the work order.** BL-221 needs nothing;
