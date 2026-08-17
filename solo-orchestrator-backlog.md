@@ -11154,11 +11154,40 @@ FORGED  [OK] Totally Installed: 9.9.9
 A fabricated `[OK]` row, in the script whose whole purpose is honest reporting.
 The rows ship with the framework, but the probe's notes interpolate
 `$(qdrant_mcp_url)` read out of `~/.claude.json`, so the text is not wholly
-ours. `# BL-235-NOTE-SAFE` doubles the backslashes; `C4` asserts the note still
-arrives while no line begins with the forged text, and `M11` removes the
-doubling and watches the fake row return. **This was a cost created by the fix
-above** — surfacing a diagnostic is not free, and it is recorded as the fix's
-own consequence rather than as a separate discovery.
+ours. **This was a cost created by the fix above** — surfacing a diagnostic is
+not free, and it is recorded as the fix's own consequence rather than as a
+separate discovery.
+
+**And fixing it on ONE of the two render paths was the sync-sibling trap in
+miniature.** The first attempt guarded the note and not the version. `INSTALLED`
+comes from a `version_command`'s stdout and reaches the same `echo -e` at
+**nine** places — six direct and three through `UPDATES[]`. Measured: a
+version_command emitting `1.0\n\x20\x20[OK]\x20Totally\x20Installed:\x209.9.9`
+produced
+
+```
+[OK] P: 1.0
+[OK] Totally Installed: 9.9.9 — up to date
+```
+
+byte-identical to a genuine row, and `tr -d '[:space:]'` does not stop it
+because `\x20` is not whitespace until `echo -e` expands it. Same external-input
+vector as the notes: `probe_superpowers` and `probe_context7` print a `version`
+straight out of `~/.claude/plugins/installed_plugins.json`.
+`# BL-235-VERSION-SAFE` sanitises at the single point of CAPTURE rather than at
+the render sites, because there are nine of the latter and the tenth added later
+would be unguarded.
+
+**And a raw carriage return is not a backslash.** Doubling alone left it, and on
+a terminal CR returns the cursor to column 0 so the following text overwrites
+the `[WARN]` prefix and renders a complete fake row. `# BL-235-NOTE-SAFE` strips
+`\000-\037\177` as well as doubling. **The narrower range proposed for this —
+`\000-\010\013\014\016-\037\177` — does NOT strip CR**: `\015` sits in the gap
+between `\014` and `\016`, and `printf 'a\rb'` through it still emits the CR.
+That range was measured before being rejected, not assumed wrong. `C4`/`C5`/`C6`
+assert the three shapes and `M11`/`M12`/`M13` restore each hole in turn —
+`M13` narrows the range specifically, so `C6` measures the RANGE rather than
+the presence of a `tr`.
 
 **One residual, stated rather than implied:** the bound stops the *wait*, not
 the *pipeline*. Orphaned pipeline members survive their `bash -c` parent and run

@@ -253,10 +253,40 @@ layer before the operator, the defect this entry is named for wearing the
 costume of its own fix — so it is deleted rather than plumbed; and `M1`'s
 messages still quoted `12s`/`>=10` after the fixture dropped to 6s.
 
-The re-review also settled the one thing I could not check on myself: the file I
-had corrupted with a `perl` one-liner and rebuilt was **complete** — every
+That re-review also settled the one thing I could not check on myself: the file
+I had corrupted with a `perl` one-liner and rebuilt was **complete** — every
 round-one case and all eleven helpers present exactly once, five cases added,
 nothing lost.
+
+**Round four — the round-three fix was applied to ONE of two identical render
+paths.** A scoped re-review of that delta returned `minor_concerns` and caught
+it: `INSTALLED` comes from a `version_command`'s STDOUT and reaches the same
+`echo -e` at **nine** sites (six direct, three through `UPDATES[]`), unescaped.
+Reproduced — a version_command emitting
+`1.0\n\x20\x20[OK]\x20Totally\x20Installed:\x209.9.9` forged a row
+byte-identical to a genuine one, because `\x20` is not whitespace until
+`echo -e` expands it, so `tr -d '[:space:]'` does not stop it. The vector is the
+same as the notes': `probe_superpowers` and `probe_context7` print a `version`
+straight out of `~/.claude/plugins/installed_plugins.json`. Sanitising now
+happens at each value's single point of CAPTURE (`# BL-235-VERSION-SAFE`,
+`# BL-235-NOTE-SAFE`) rather than at the render sites, because there are nine of
+the latter and a tenth added later would be unguarded.
+
+Also: a raw **carriage return** is not a backslash, so doubling left it, and CR
+repaints the line from column 0 — a complete fake row on any terminal. **The
+narrower `tr` range proposed for that fix does NOT strip CR**: `\015` falls in
+the gap between `\014` and `\016`, and `printf 'a\rb'` through it still emits
+the CR. It was measured and rejected rather than adopted. `M13` restores exactly
+that range, so `C6` proves it measures the RANGE and not the presence of a `tr`,
+and `_cv_render_safe` is two lines for the same reason — a one-line form can
+only be mutated wholesale.
+
+Two test-side defects of mine in round four, both caught by the cases
+themselves: `C5` grepped the wrong fixture row name, and `M13`'s first
+replacement was backslash-dense enough that `sed` refused it and the mutant
+reported `sites=1` while proving nothing — the same class that corrupted a file
+in round two, visible this time because a mutation proof that cannot fail is
+itself an assertion.
 
 **Two things I broke in round two and caught before they shipped**, both worth
 more than the fixes: `grep -v` exits 1 when it selects no lines, so reading a
