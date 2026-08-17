@@ -291,6 +291,31 @@ else
   fail_ "T2" "elapsed ${t2_elapsed}s for a 12s version_command at a 2s bound"
 fi
 
+# ── T2b: A PIPELINE, WHICH IS THE SHAPE THE MATRIX ACTUALLY SHIPS.
+#
+# T2 above passes on `sleep 12` and certified the bound using the ONE shape that
+# works. `kill -9` reaps the `bash -c` child; a pipeline's other members survive
+# it holding the pipe open, and a caller reading through a COMMAND SUBSTITUTION
+# then waits for THEM. Measured before the fix: `sleep 12 | cat` at a 2s bound
+# took 12s, as did `(sleep 12)` and the verbatim shipped Colima row
+# (`colima version … | head -1 | awk …`). 21 of the 41 checkable rows across the
+# four matrices are that shape, so the bound was decorative for half the matrix
+# — including the daemon-backed rows it exists for.
+#
+# Derive the reach rather than trusting this comment:
+#   for f in templates/tool-matrix/*.json; do
+#     jq -r '.tools[] | select((.version_command // "") | test("[|]|[(]|&")) | .name' "$f"
+#   done | wc -l
+T2B="$(newtmp)"; mk_matrix_proj "$T2B" 'true' 'sleep 12 | cat'
+t2b_start=$(date +%s)
+( cd "$T2B" && CHECKVER_EVAL_TIMEOUT=2 "$BASH_BIN" "$CHECKVER" >/dev/null 2>&1 ) || true
+t2b_elapsed=$(( $(date +%s) - t2b_start ))
+if [ "$t2b_elapsed" -lt 9 ]; then
+  pass "T2b: a 12s PIPELINE version_command is bounded too (elapsed ${t2b_elapsed}s) — the reader takes the output through a file, so an unreaped pipeline member holding the write end can no longer outlast the bound"
+else
+  fail_ "T2b" "elapsed ${t2b_elapsed}s for a 12s pipeline at a 2s bound — the bound reaps only the 'bash -c' child, and a command substitution waits for every other writer. This is the shape 21 of 41 shipped rows use, Colima included"
+fi
+
 # ── T3: the bound must not break a NORMAL row. Over-tightening would turn every
 # healthy tool into 'not installed', which is the same class of wrong answer.
 T3="$(newtmp)"; mk_matrix_proj "$T3" 'true' "echo 9.9.9"
@@ -586,22 +611,54 @@ else
   fail_ "C2" "out='$(printf '%s' "$c2_out" | tr '\n' '|' | cut -c1-300)' — the word 'configured' is still rendered, or the row vanished entirely"
 fi
 
+# ── C3: THE DIAGNOSIS MUST REACH THE OPERATOR, NOT JUST THE PROBE'S STDERR.
+#
+# D9 asserts that a secured-but-unkeyed database produces a note naming HTTP
+# 403 — and asserts it ON THE PROBE. check-versions.sh then ran the check as
+# `>/dev/null 2>&1`, so all three states arrived as one word: a database that is
+# UP and refusing for want of a key rendered identically to one that was never
+# installed. That is this entry's own defect, one layer out, and D9 could not
+# see it because D9 stops where the answer is PRODUCED rather than where it is
+# CONSUMED. This case reads the rendered report.
+if [ -z "$STUB_PORT" ]; then
+  skip_ "C3" "no stub server — the 403 path needs a database that answers and refuses"
+else
+  C3="$(newtmp)"; mk_shipped_row_proj "$C3" "Qdrant MCP"
+  mk_qdrant_home "$C3/home" "http://127.0.0.1:$STUB_PORT/authed"   # key deliberately absent
+  c3_out="$( cd "$C3" && HOME="$C3/home" "$BASH_BIN" "$CHECKVER" 2>&1 )" || true
+  if printf '%s' "$c3_out" | grep -q 'HTTP 403' \
+     && printf '%s' "$c3_out" | grep -q 'QDRANT_API_KEY' \
+     && ! printf '%s' "$c3_out" | grep -q 'Qdrant MCP: not installed'; then
+    pass "C3: a running database refusing an unkeyed probe is reported BY check-versions.sh as HTTP 403 with the QDRANT_API_KEY repair — the third state and its diagnosis survive the trip to the operator instead of being flattened to 'not installed'"
+  else
+    fail_ "C3" "out='$(printf '%s' "$c3_out" | tr '\n' '|' | cut -c1-300)' — wanted the 403 and the QDRANT_API_KEY guidance, and NOT 'not installed' for a database that is up"
+  fi
+fi
+
 echo "=== X — the resolver is EXECUTED, so its mode is part of its contract ==="
 
 # ── X1: `scripts/resolve-tools.sh` must be executable.
 #
-# THIS IS NOT HYGIENE, IT IS THIS ENTRY'S OWN DEFECT CLASS. init.sh, verify-
-# install.sh, check-phase-gate.sh and intake-wizard.sh all invoke it DIRECTLY —
-# `"$SCRIPT_DIR/scripts/resolve-tools.sh" --dev-os …`, no `bash` prefix — so a
-# lost execute bit makes the command substitution return 126 and init.sh take
-# its `|| { print_warn "Tool resolver failed. Falling back to basic tool
-# checks."; return 0; }` arm. It then **exits 0 and scaffolds a project
-# anyway**, one whose `.claude/tool-preferences.json` was written by the
-# fallback writer instead of from resolver output. Measured, because it happened
-# during this very fix: an editor of mine wrote the file through
-# `sed > tmp && mv`, which silently replaced 755 with 644, and the only visible
-# trace was a single `[WARN]` line and three context values that had acquired a
-# leading space. A green test suite, a zero exit code, and a wrong project.
+# THIS IS NOT HYGIENE, IT IS THIS ENTRY'S OWN DEFECT CLASS — and the four
+# callers do NOT behave alike, which an earlier version of this comment got
+# wrong by asserting they did. Derived, per caller:
+#
+#   init.sh                 EXECUTES it (`"$SCRIPT_DIR/scripts/resolve-tools.sh" …`)
+#                           -> rc=126 -> `|| { print_warn "Tool resolver
+#                           failed. Falling back to basic tool checks."; return 0; }`
+#   verify-install.sh       gated `[ ! -x … ] -> register_manual "Tool check
+#                           skipped …"; return`, and the call itself carries a
+#                           `bash ` prefix, so the mode never reaches execve
+#   intake-wizard.sh        gated `[ -x … ] && …` -> the block is SKIPPED
+#   check-phase-gate.sh     gated `[ -x "$RESOLVER" ]` -> the block is SKIPPED
+#
+# So exactly ONE caller produces 126 and the other three degrade by SILENT SKIP
+# — the worse arm, not the milder one: init.sh at least prints a warning. That
+# is also why "the shell will tell you" does not justify skipping this check.
+# Measured, because it happened during this very fix: an editor of mine wrote
+# the file through `sed > tmp && mv`, which silently replaced 755 with 644, and
+# the only visible trace was one `[WARN]` line and three context values that had
+# acquired a leading space. A green suite, a zero exit code, and a wrong project.
 #
 # `bash tests/foo.sh` is how tests are run, so test files are exempt by
 # construction; this asserts the mode only where something executes the file.
@@ -616,13 +673,16 @@ echo "=== M — mutation proofs ==="
 
 # ── M1: remove the bound and T1 must hang again.
 M1="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M1/scripts" 2>/dev/null
-m1_meta=$(_mutate "$M1/scripts/check-versions.sh" '# BL-235-BOUND-CHECK' '  if ! eval "$CHECK_CMD" >/dev/null 2>&1; then')
+m1_meta=$(_mutate "$M1/scripts/check-versions.sh" '# BL-235-BOUND-CHECK' '  eval "$CHECK_CMD" >/dev/null 2>"$CHECK_ERR" || CHECK_RC=$?')
 m1_sites="${m1_meta%% *}"; m1_rest="${m1_meta#* }"; m1_changed="${m1_rest%% *}"; m1_parses="${m1_rest##* }"
-M1D="$(newtmp)"; mk_matrix_proj "$M1D" 'sleep 12' "echo 1.0"
+# 6s, not 12s: the discrimination is "returns at the 2s bound" vs "runs to
+# completion", and 6 separates those as cleanly as 12 for half the wall clock.
+# This suite is pinned to a CI shard, so its own duration is a cost.
+M1D="$(newtmp)"; mk_matrix_proj "$M1D" 'sleep 6' "echo 1.0"
 m1_start=$(date +%s)
 ( cd "$M1D" && "$BASH_BIN" "$M1/scripts/check-versions.sh" >/dev/null 2>&1 ) || true
 m1_elapsed=$(( $(date +%s) - m1_start ))
-if [ "$m1_sites" -eq 1 ] && [ "$m1_parses" -eq 1 ] && [ "$m1_elapsed" -ge 10 ]; then
+if [ "$m1_sites" -eq 1 ] && [ "$m1_parses" -eq 1 ] && [ "$m1_elapsed" -ge 5 ]; then
   pass "M1: with the bound removed, a 12s check_command holds the script for ${m1_elapsed}s again — the bound is load-bearing and measured in seconds, not asserted (sites=$m1_sites changed=$m1_changed parses=$m1_parses)"
 else
   fail_ "M1" "sites=$m1_sites (want 1) parses=$m1_parses (want 1) changed=$m1_changed elapsed=${m1_elapsed}s (want >=10)"
@@ -713,6 +773,57 @@ if [ "$m6_sites" -ge 1 ] && [ "$m6_parses" -eq 1 ] && printf '%s' "$m6_out" | gr
   pass "M6: with the fallback restored, 'configured' is rendered again for a version-less row — C2 reads the OUTPUT, which is the surface D2 could never see (sites=$m6_sites changed=$m6_changed)"
 else
   fail_ "M6" "sites=$m6_sites (want >=1) parses=$m6_parses (want 1) out='$(printf '%s' "$m6_out" | tr '\n' '|' | cut -c1-200)'"
+fi
+
+# ── M8: put the version read back on a command substitution and T2b must hang
+# again. The mutant is ONE LINE and behaviour-identical for every non-pipeline
+# row, which is exactly why the original shipped through a review.
+M8="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M8/scripts"
+m8_meta=$(_mutate "$M8/scripts/check-versions.sh" '# BL-235-BOUND-VERSION' \
+  '    INSTALLED=$(_cv_bounded_eval "$VERSION_CMD" 2>/dev/null | tr -d "[:space:]" || echo ""); CV_NOTE=""')
+m8_sites="${m8_meta%% *}"; m8_rest="${m8_meta#* }"; m8_changed="${m8_rest%% *}"; m8_parses="${m8_rest##* }"
+M8D="$(newtmp)"; mk_matrix_proj "$M8D" 'true' 'sleep 6 | cat'
+m8_start=$(date +%s)
+( cd "$M8D" && CHECKVER_EVAL_TIMEOUT=2 "$BASH_BIN" "$M8/scripts/check-versions.sh" >/dev/null 2>&1 ) || true
+m8_elapsed=$(( $(date +%s) - m8_start ))
+if [ "$m8_sites" -eq 1 ] && [ "$m8_parses" -eq 1 ] && [ "$m8_elapsed" -ge 5 ]; then
+  pass "M8: with the version read back on a command substitution, a 6s pipeline holds the script for ${m8_elapsed}s against a 2s bound — T2b measures the CONSUMPTION, which is where the bound was being defeated (sites=$m8_sites changed=$m8_changed)"
+else
+  fail_ "M8" "sites=$m8_sites (want 1) parses=$m8_parses (want 1) changed=$m8_changed elapsed=${m8_elapsed}s (want >=5)"
+fi
+
+# ── M9: discard the check's stderr and exit code again, and C3 must lose both
+# the status and the repair — the exact line this branch shipped first.
+if [ -n "$STUB_PORT" ]; then
+  M9="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M9/scripts"
+  m9_meta=$(_mutate "$M9/scripts/check-versions.sh" '# BL-235-BOUND-CHECK' \
+    '  _cv_bounded_eval "$CHECK_CMD" >/dev/null 2>&1 || CHECK_RC=$?')
+  m9_sites="${m9_meta%% *}"; m9_rest="${m9_meta#* }"; m9_changed="${m9_rest%% *}"; m9_parses="${m9_rest##* }"
+  M9D="$(newtmp)"; mk_shipped_row_proj "$M9D" "Qdrant MCP"
+  mk_qdrant_home "$M9D/home" "http://127.0.0.1:$STUB_PORT/authed"
+  m9_out="$( cd "$M9D" && HOME="$M9D/home" "$BASH_BIN" "$M9/scripts/check-versions.sh" 2>&1 )" || true
+  if [ "$m9_sites" -eq 1 ] && [ "$m9_parses" -eq 1 ] \
+     && ! printf '%s' "$m9_out" | grep -q 'HTTP 403'; then
+    pass "M9: with the check's stderr discarded again, a live database refusing on 403 loses its status and its repair on the way to the operator — C3 reads the report, which is the only surface this is visible on (sites=$m9_sites changed=$m9_changed)"
+  else
+    fail_ "M9" "sites=$m9_sites (want 1) parses=$m9_parses (want 1) out='$(printf '%s' "$m9_out" | tr '\n' '|' | cut -c1-200)'"
+  fi
+fi
+
+# ── M10: a non-numeric bound must not mean ZERO. `$(( now + abc ))` is `now`,
+# so an unparseable timeout made every deadline already-past and turned a whole
+# healthy matrix into "not installed" — silently, from one environment variable.
+M10="$(newtmp)"; mk_matrix_proj "$M10" 'true' "echo 9.9.9"
+m10_ctl="$( cd "$M10" && CHECKVER_EVAL_TIMEOUT=abc "$BASH_BIN" "$CHECKVER" 2>&1 )" || true
+M10M="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M10M/scripts"
+m10_meta=$(_mutate "$M10M/scripts/lib/helpers-core.sh" '# BL-235-DEADLINE-SANE' '  :')
+m10_sites="${m10_meta%% *}"; m10_rest="${m10_meta#* }"; m10_changed="${m10_rest%% *}"; m10_parses="${m10_rest##* }"
+m10_mut="$( cd "$M10" && CHECKVER_EVAL_TIMEOUT=abc "$BASH_BIN" "$M10M/scripts/check-versions.sh" 2>&1 )" || true
+m10_c=$(printf '%s' "$m10_ctl" | grep -c '9.9.9'); m10_m=$(printf '%s' "$m10_mut" | grep -c '9.9.9')
+if [ "$(_num "$m10_c")" -ge 1 ] && [ "$m10_sites" -eq 1 ] && [ "$m10_parses" -eq 1 ] && [ "$(_num "$m10_m")" -eq 0 ]; then
+  pass "M10: CHECKVER_EVAL_TIMEOUT=abc still reports 9.9.9; with the clamp removed the same healthy row vanishes — an unparseable bound makes the deadline equal now, so every row times out instantly and a whole matrix reads as missing from one malformed environment variable (sites=$m10_sites changed=$m10_changed)"
+else
+  fail_ "M10" "control_hits=$m10_c (want >=1) sites=$m10_sites (want 1) parses=$m10_parses (want 1) mutant_hits=$m10_m (want 0)"
 fi
 
 # ── M7: X1 must be able to fail. Strip the bit from a COPY and re-run the same

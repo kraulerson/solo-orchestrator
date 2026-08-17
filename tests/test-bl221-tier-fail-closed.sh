@@ -73,14 +73,24 @@ _mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || 
 _sites() { local n; n=$(grep -c "$2\$" "$1" 2>/dev/null); _num "$n"; }
 _changed_lines() { local n; n=$(diff "$1" "$2" 2>/dev/null | grep -c '^[<>]'); _num "$n"; }
 
+#
+# THE DELIMITER IS \001. `%` was the delimiter here until its sibling suite
+# proved the class live: a mutant containing `printf %s` produced `bad flag in
+# substitute command`, the file was left untouched, and the case reported
+# `sites=0` — a mutation proof that proved nothing. `|` is worse (shell
+# replacements are `||`-dense) and `@` collides with plugin ids. A control
+# character cannot occur in a shell one-liner, so the class is closed rather
+# than dodged. Today's replacements happen to contain no `%`; this is changed
+# because the NEXT one might.
 _mutate() {
-  local f="$1" marker="$2" repl="$3" before sites changed parses safe mode tmp
+  local f="$1" marker="$2" repl="$3" before sites changed parses safe mode tmp d
+  d=$(printf '\001')
   safe=$(printf '%s' "$repl" | sed 's/&/\\&/g')
   mode="$(_mode_of "$f")"
   before="$(mktemp)"; cp -p "$f" "$before"
   sites=$(_sites "$f" "$marker")
   tmp="$(mktemp)"
-  sed "s%^.*${marker}\$%${safe}%" "$f" > "$tmp" && mv "$tmp" "$f"
+  sed "s${d}^.*${marker}\$${d}${safe}${d}" "$f" > "$tmp" && mv "$tmp" "$f"
   [ "$mode" != "?" ] && chmod "$mode" "$f" 2>/dev/null
   changed=$(_changed_lines "$before" "$f")
   parses=0; bash -n "$f" >/dev/null 2>&1 && parses=1

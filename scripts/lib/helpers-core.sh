@@ -112,12 +112,45 @@ run_with_timeout() {
 #   private copy of this in the first place; the copy is now deleted and this is
 #   the one owner.
 #
-# run_with_timeout is deliberately UNTOUCHED. It has eleven call sites across
-# six product files, several inside enforcement paths, and changing a shared
-# gate primitive is a separate decision from fixing a regression at two new
-# call sites.
+# run_with_timeout is deliberately UNTOUCHED — its body is byte-identical to
+# main's. Changing a shared gate primitive is a separate decision from fixing a
+# regression at two new call sites.
+#
+# Derive its reach, do not read it here. An earlier draft of this comment said
+# "eleven call sites across six product files", which was true of `main` and
+# false of the tree the comment shipped in: this branch's own Qdrant work added
+# three more, so HEAD is 14 across 7. A count stated on the page that falsifies
+# it is the failure this whole entry is named for.
+#
+#   for f in $(grep -rl run_with_timeout --include='*.sh' scripts/ init.sh \
+#             | grep -v helpers-core.sh); do
+#     sed 's/[[:space:]]*#.*$//' "$f" | grep -E 'run_with_timeout[[:space:]]' \
+#       | grep -vc 'command -v run_with_timeout'
+#   done
+# THE BOUND IS ON THE PROCESS, NOT ON THE PIPELINE, AND A CALLER CAN DEFEAT IT.
+# `kill -9` reaps the `bash -c` child; a pipeline's OTHER members survive it and
+# keep the write end of any pipe open. So a caller that consumes the output
+# through a COMMAND SUBSTITUTION — `v=$(run_with_deadline 2 bash -c 'sleep 12 |
+# cat')` — blocks for the full 12s while this function returns in 2, because the
+# substitution reads until the last writer closes, not until the child dies.
+# Measured: plain `sleep 12` returns at the bound; `sleep 12 | cat`, `(sleep 12)`
+# and the shipped Colima row's `… | head -1 | awk …` all ran to completion.
+# 21 of the 41 checkable matrix rows are that shape.
+#
+# Callers must therefore redirect to a FILE and read it afterwards, which is
+# what `_cv_version_bounded` (check-versions.sh) and `run_bounded_capture`
+# (resolve-tools.sh) do. Both are measured at the bound for every shape.
+# `set -m` + `kill -- -$pid` was tried first and does NOT work here: a command
+# substitution runs in a subshell with job control disabled, so the child never
+# gets its own process group.
 run_with_deadline() {
   local _rwd_secs="$1"; shift
+  # A NON-NUMERIC BOUND MUST NOT MEAN "ZERO". `$(( now + abc ))` is `now`, so an
+  # unparseable CHECKVER_EVAL_TIMEOUT made the deadline already-past and EVERY
+  # row timed out instantly and reported "not installed" — a whole matrix turned
+  # to "missing" by one malformed environment variable, silently. Same guard
+  # `qdrant_probe_root` already carries.
+  case "$_rwd_secs" in ''|*[!0-9]*|0) _rwd_secs=10 ;; esac                      # BL-235-DEADLINE-SANE
   # Probe fractional sleep ONCE per process, not once per call: the probe is
   # itself a sleep, and paying it 42 times would re-import a fraction of the
   # cost this function exists to remove.

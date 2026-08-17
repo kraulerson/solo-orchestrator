@@ -590,6 +590,34 @@ jobs:
             #    lint-scan measures 97s TOTAL — the three figures above it
             #    pre-date BL-191 and overstate it by roughly 3x.
             tests/test-brownfield-wp2-scout-sections.sh  # 108.5s in CI
+            # ── Pinned 2026-08-17 with BL-235. Landed here on the same
+            #    reasoning as the line above: this leg measured 97s TOTAL at its
+            #    last real measurement (~206s if the three stale pre-BL-191
+            #    figures above are believed), against `rest` at ~561s/720s
+            #    (78%) — a leg that was CANCELLED at the cap on PR #351 two days
+            #    before this, which per the walk006 note replaces a readable red
+            #    with nothing.
+            #    THE FIGURE BELOW IS A LOCAL MEASUREMENT, NOT CI TIME, and this
+            #    file's own doctrine says the pin is keyed to measured CI time —
+            #    so it is stated with its method rather than dressed up:
+            #      38s, 39s, 40s across three local runs, of which ~18s is
+            #      WALL-CLOCK SLEEP (T1/T2/T2b bounded at 2s; M1/M8 running a 6s
+            #      command unbounded to prove the bound is load-bearing) that
+            #      does NOT inflate on a slower runner, plus ~21s CPU-bound. At
+            #      the ~1.6x local->CI ratio recorded for wp5b/wp6 above, that
+            #      is ~18 + 34 = ~52s, which would take `rest` from 561s to
+            #      ~85% of the cap if left unpinned.
+            #    RE-MEASURE ON CI AND CORRECT THIS LINE. An estimate is enough
+            #    to justify moving a suite OUT of a leg with a cancellation
+            #    history; it is not enough to leave in the file as though it
+            #    were data, which is what the stale figures above this array
+            #    became.
+            tests/test-bl235-tool-matrix-probes.sh       # ~52s ESTIMATED CI (38-40s local, ~18s of it sleep) — re-measure
+            #    The BL-221 suite that landed alongside this one is NOT pinned
+            #    and is deliberately not named as a path here: it measures under
+            #    a second, pinning it would buy nothing, and a commented path
+            #    inside an array is the shape this file warns about two arrays
+            #    up. It stays in the computed complement.
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case

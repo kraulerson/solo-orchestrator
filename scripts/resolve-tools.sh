@@ -51,7 +51,12 @@ if [ -f "$SCRIPT_DIR/lib/helpers-core.sh" ]; then
   . "$SCRIPT_DIR/lib/helpers-core.sh"
 fi
 if ! command -v run_with_deadline >/dev/null 2>&1; then
-  echo "resolve-tools.sh: scripts/lib/helpers-core.sh is missing, so evaluated tool commands cannot be bounded. Refusing to run them unbounded — the matrix ships daemon-backed commands that hang when the daemon is unreachable." >&2
+  # SAY WHAT IS ACTUALLY WRONG. The first wording said the file was "missing",
+  # which is one of two causes and not the likelier one: a PRESENT but older
+  # helpers-core.sh — a project vendored before `run_with_deadline` existed —
+  # reaches here too, and an operator told the file is missing will go looking
+  # for a file that is sitting right there.
+  echo "resolve-tools.sh: $SCRIPT_DIR/lib/helpers-core.sh does not provide run_with_deadline (absent file, or a copy predating it), so evaluated tool commands cannot be bounded. Refusing to run them unbounded — the matrix ships daemon-backed commands that hang when the daemon is unreachable." >&2
   exit 1
 fi
 
@@ -59,6 +64,24 @@ fi
 # not argv, so they go through `bash -c`.
 run_bounded() {                                                    # BL-235-RESOLVE-BOUND
   run_with_deadline "$1" bash -c "$2"
+}
+
+# run_bounded_capture <secs> <cmd> — the same bound, for output that is KEPT.
+#
+# NOT `$(run_bounded …)`. A command substitution reads until the last writer
+# closes the pipe, and the bound only kills the `bash -c` child — every other
+# member of a pipeline survives it holding that pipe open. Measured on the
+# verbatim shipped `Colima` version_command: 12s elapsed against a 2s bound.
+# 21 of the 41 checkable matrix rows are pipeline- or subshell-shaped, so for
+# half the matrix the bound was decorative in this position. Writing to a file
+# makes the reader independent of who still holds the write end.
+run_bounded_capture() {                                            # BL-235-RESOLVE-CAPTURE
+  local _f _v
+  _f="$(mktemp)" || { printf ''; return 0; }
+  run_with_deadline "$1" bash -c "$2" >"$_f" 2>/dev/null || true
+  _v="$(cat "$_f" 2>/dev/null)"
+  rm -f "$_f"
+  printf '%s' "$_v"
 }
 
 # THE MATRIX ROWS MUST NOT DEPEND ON THIS PROCESS'S `pwd`. Three rows invoke
@@ -248,7 +271,7 @@ while IFS=$'\t' read -r TOOL_NAME TOOL_CATEGORY TOOL_PHASE TOOL_REQUIRED TOOL_CH
   if run_bounded "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_CHECK" &>/dev/null; then
     INSTALLED=true
     if [ -n "$TOOL_VERSION_CMD" ]; then
-      VERSION=$(run_bounded "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_VERSION_CMD" 2>/dev/null || echo "")
+      VERSION=$(run_bounded_capture "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_VERSION_CMD")
     fi
   fi
   set -u

@@ -341,6 +341,37 @@ _cv_bounded_eval() {
   fi
 }
 
+# _cv_version_bounded <cmd> — run a version_command under the bound and put its
+# output in INSTALLED. Also sets CV_NOTE to the command's last stderr line.
+#
+# THE FILE IS THE POINT. `INSTALLED=$(_cv_bounded_eval "$VERSION_CMD")` looks
+# equivalent and is not: a command substitution reads until the last WRITER
+# closes the pipe, and the bound only kills the `bash -c` child. Every pipeline
+# member survives it holding that pipe open, so the substitution waited out the
+# full command while the runner reported it had stopped. Measured on the
+# verbatim shipped Colima row (`colima version … | head -1 | awk …`): 12s
+# against a 2s bound. 21 of the 41 checkable rows are pipeline- or
+# subshell-shaped, so the bound was doing nothing for half the matrix — in the
+# one script that runs from a SessionStart hook, and for exactly the daemon-
+# backed rows it was added to protect. Redirecting to a file makes the reader
+# independent of who still holds the write end. T2b pins it.
+_cv_version_bounded() {
+  local _cmd="$1" _out _err                                                     # BL-235-VERSION-CAPTURE
+  INSTALLED=""
+  CV_NOTE=""
+  _out="$(mktemp)" || return 0
+  _err="$(mktemp)" || { rm -f "$_out"; return 0; }
+  _cv_bounded_eval "$_cmd" >"$_out" 2>"$_err" || true
+  # `|| :` IS LOAD-BEARING UNDER `set -euo pipefail`. `grep -v` exits 1 when it
+  # selects no lines, which for an EMPTY stderr file is the normal case — and
+  # with pipefail that failure propagates out of the command substitution and
+  # `set -e` kills the script mid-row. Measured: every healthy row vanished from
+  # the report and the run ended after the first category header.
+  INSTALLED="$(tr -d '[:space:]' < "$_out" 2>/dev/null || :)"
+  CV_NOTE="$( { grep -v '^[[:space:]]*$' "$_err" 2>/dev/null || :; } | tail -1 | cut -c1-200)"
+  rm -f "$_out" "$_err"
+}
+
 # THE MATRIX ROWS MUST NOT DEPEND ON THIS PROCESS'S `pwd`. Three rows invoke
 # scripts/probe-tool.sh; a relative path inside a JSON data file resolves
 # against whatever directory the consumer is standing in, and `rc=127` —
@@ -472,18 +503,47 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   # Check if installed
   # Disable set -u: check_commands may reference env vars (e.g., $ANDROID_HOME)
   # that are legitimately unset on this system.
+  # THE PROBE WORKS OUT WHY, AND THIS LINE USED TO BIN IT. `>/dev/null 2>&1`
+  # discarded the check's stderr AND its exit code, so all three states of the
+  # contract probe-tool.sh spends ten lines defending arrived here as one word:
+  # "not installed". Measured before this fix — a database that is UP and
+  # answering 403 because it wants the api-key the operator has not configured
+  # rendered IDENTICALLY to one that was never set up:
+  #
+  #     [WARN] Qdrant MCP: not installed
+  #
+  # while the probe's own stderr, which the test suite was happily asserting on
+  # one layer upstream, said "answered HTTP 403 — the database is up and refused
+  # this probe. Add QDRANT_API_KEY to the same mcpServers entry…". That is this
+  # entry's defect exactly, committed by its own fix: rigour applied at the
+  # probe, consumed at a caller that could not hear it. C3 asserts the guidance
+  # in THIS script's output, not in the probe's.
+  #
+  # rc 2 is the shared three-state convention (0 working / 1 not configured /
+  # 2 cannot confirm). A row that does not implement it simply never returns 2.
   set +u
-  if ! _cv_bounded_eval "$CHECK_CMD" >/dev/null 2>&1; then                      # BL-235-BOUND-CHECK
-    set -u
-    print_warn "$NAME: not installed"
+  CHECK_ERR="$(mktemp)"
+  CHECK_RC=0
+  _cv_bounded_eval "$CHECK_CMD" >/dev/null 2>"$CHECK_ERR" || CHECK_RC=$?         # BL-235-BOUND-CHECK
+  set -u
+  # `|| :` for the same reason as in _cv_version_bounded: an empty stderr file
+  # makes `grep -v` exit 1, and under `set -euo pipefail` that ends the run.
+  CHECK_NOTE="$( { grep -v '^[[:space:]]*$' "$CHECK_ERR" 2>/dev/null || :; } | tail -1 | cut -c1-200)"
+  rm -f "$CHECK_ERR"
+  if [ "$CHECK_RC" -ne 0 ]; then
+    if [ "$CHECK_RC" -eq 2 ]; then                                              # BL-235-THIRD-STATE
+      print_warn "$NAME: configured, but working could not be confirmed${CHECK_NOTE:+ — $CHECK_NOTE}"
+    else
+      print_warn "$NAME: not installed${CHECK_NOTE:+ — $CHECK_NOTE}"
+    fi
     continue
   fi
-  set -u
 
   # Get installed version
   INSTALLED=""
+  CV_NOTE=""
   if [ -n "$VERSION_CMD" ]; then
-    INSTALLED=$(_cv_bounded_eval "$VERSION_CMD" 2>/dev/null | tr -d '[:space:]' || echo "")   # BL-235-BOUND-VERSION
+    _cv_version_bounded "$VERSION_CMD"                                          # BL-235-BOUND-VERSION
   fi
 
   # THE WORD `configured` WAS THE WHOLE DEFECT AND IT NEARLY SURVIVED BY MOVING
