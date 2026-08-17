@@ -288,6 +288,38 @@ reported `sites=1` while proving nothing — the same class that corrupted a fil
 in round two, visible this time because a mutation proof that cannot fail is
 itself an assertion.
 
+**Round five — the review of round four returned `block` on a VACUOUS CASE OF
+MINE, and pulling that thread found two more things.**
+
+- **`C6` was one-sided.** It asserted only "no raw CR in the output", which is
+  trivially true of a report that never rendered the note at all — and "rows
+  silently vanish" is a pathology this branch had already produced twice. The
+  assertion could not see the most likely regression. `C4` and `C5` both
+  dual-assert; `C6` now does too.
+- **One stray byte from one tool could end the whole report.** `tr` and `cut`
+  reject an invalid multibyte sequence in a UTF-8 locale and exit 1; under
+  `set -euo pipefail` the run stops. `C.UTF-8` — ubuntu-latest's usual default —
+  is in the failing set. `LC_ALL=C` on both, `C7`/`M14` pin it. **The `cut` half
+  fails identically on `main`** and is fixed here only because these are the
+  lines this entry owns.
+- **`_mutate` escaped `&` but not backslash-DIGIT**, and in a `sed` replacement
+  `\0`…`\9` are backreferences. A mutant containing `tr -d '\000-\037\177'`
+  therefore left the file untouched while still reporting `sites=1 parses=1` —
+  **the third silent no-op from this one helper in a day.** Escaped exactly that
+  class, not every backslash: a blanket escape rewrites the `$'\t'` and `%s\n`
+  that other mutants legitimately need, changing what they test. Then **all 13
+  mutant guards in the suite now assert `changed >= 2`**, so a mutation that
+  does not mutate can no longer pass as a killed mutant anywhere in the file.
+  The sibling helper in `tests/test-bl221-tier-fail-closed.sh` was brought into
+  step — the two copies of `_mutate` are themselves a sync-sibling pair, and
+  unifying them is left as work rather than claimed as done.
+
+**What this round is really evidence of:** four of the five rounds found a
+defect in the TEST, not in the product — a vacuous assertion, a mutant that
+could not fail, a message that misstated its own fixture, a grep for the wrong
+name. The product fixes held up. The verification of them did not, repeatedly,
+and only an adversary reading the assertions rather than the results caught it.
+
 **Two things I broke in round two and caught before they shipped**, both worth
 more than the fixes: `grep -v` exits 1 when it selects no lines, so reading a
 note out of an EMPTY stderr file killed `check-versions.sh` mid-row under

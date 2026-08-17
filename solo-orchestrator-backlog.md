@@ -11189,6 +11189,26 @@ assert the three shapes and `M11`/`M12`/`M13` restore each hole in turn —
 `M13` narrows the range specifically, so `C6` measures the RANGE rather than
 the presence of a `tr`.
 
+**And ONE STRAY BYTE FROM ONE TOOL COULD END THE WHOLE REPORT.** `tr` and `cut`
+reject an invalid multibyte sequence in a UTF-8 locale and exit 1, and every
+caller here runs under `set -euo pipefail`. Measured with a `check_command`
+whose stderr carries one non-UTF-8 byte:
+
+| locale | exit | rows rendered |
+|---|---|---|
+| `C` | 0 | 3 of 3 |
+| `C.UTF-8` | 1 | 1 of 3 |
+| `en_US.UTF-8` | 1 | 1 of 3 |
+
+`C.UTF-8` is ubuntu-latest's usual default. The symptom is the "rows silently
+vanish" pathology this branch has now produced three times — once through
+`grep -v` exiting on empty input, once here through `cut`, once here through
+`tr`. **The `cut` half is not this branch's**: it fails identically on `main`,
+and is fixed here only because these are the lines this entry owns. `LC_ALL=C`
+on both makes them byte-oriented, which is what a sanitiser wants anyway.
+`C7` asserts all three rows survive; `M14` removes the guard and watches the
+report truncate to zero.
+
 **One residual, stated rather than implied:** the bound stops the *wait*, not
 the *pipeline*. Orphaned pipeline members survive their `bash -c` parent and run
 to their own completion, holding only the capture temp file and `/dev/null` —
