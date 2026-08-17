@@ -46,7 +46,8 @@ state-of-record is kept at top level rather than archived — as now — and in 
 case CLAUDE.md's "trust the non-stub" tie-break cannot resolve it: **use the
 newer date.**
 
-- **Live:** [handoffs/2026-08-15-currency-and-enforcement-wave.md](handoffs/2026-08-15-currency-and-enforcement-wave.md) — the current state-of-record (`main` at `a49ceaf`; #341–#351 shipped and merged; `## BL-234:` Closed; next is `## BL-222:` + `## BL-229:`, the Phase 3→4 release gate). Its § 10 is a paste-ready resume prompt, and its § 4.0 carries a ⚠ CORRECTION — read that before acting on the section.
+- **Live:** [handoffs/2026-08-16-declaration-vs-capability-wave.md](handoffs/2026-08-16-declaration-vs-capability-wave.md) — the current state-of-record (`main` at `86ceeb8`; #351–#355 merged; `## BL-234:`, `## BL-222:`, `## BL-229:` Closed). One branch is in flight and its adversarial review returned **block** — § 2.1 is the work order, § 8 is a paste-ready resume prompt.
+- Superseded: [handoffs/2026-08-15-currency-and-enforcement-wave.md](handoffs/2026-08-15-currency-and-enforcement-wave.md) — its § 4.0 carries a ⚠ CORRECTION; read that before acting on the section.
 - **Superseded but still full-length:** [handoffs/2026-07-31-bl201-bl200-close.md](handoffs/2026-07-31-bl201-bl200-close.md) — the previous state-of-record, kept at top level rather than archived. This is the second file the `grep -l` above returns.
 - **Archived:** [handoffs/archive/](handoffs/archive/) — finished handoffs, 2026-07-08 through 2026-07-31, each with a pointer stub left at its old top-level path. See [handoffs/archive/README.md](handoffs/archive/README.md) for the per-file status (superseded vs fully executed).
 
