@@ -10409,10 +10409,14 @@ the two WP-B residuals recorded with it.
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — 56 assertions, 13 mutants. Measured
-against the base tree `7b94e4b`: **2 passed / 47 failed**, and the 2 are named
-rather than glossed (J2/J3 assert an *exempt* verdict, which a tree with no
-accumulation gate also produces; mutant M12 is what makes them attributable).
+`tests/test-bl233-wpb-accumulation.sh` — **59 assertions, 13 mutants**, both
+derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
+than transcribed, because this entry has now carried a wrong count in three
+consecutive revisions. Measured against the base tree `7b94e4b`: **3 passed /
+59 failed**, and the three are NAMED rather than rounded to zero — A8, H2 and
+H4 assert absences (no bash error; never denies; a store inside the window
+produces no warning) which a tree with no accumulation gate also satisfies.
+They are regression guards, not discriminators.
 An earlier draft of this entry claimed "0 passed / 35 failed" — that was a
 35-assertion draft of the suite, carried forward unchanged after the suite grew,
 and re-deriving it is the whole of `## BL-230:`'s lesson.
@@ -10524,7 +10528,14 @@ and printed the same sentence three times.
    closed too and names WHICH cause (`# BL-233-WPB-STALE-FAILCLOSED`). The only
    remaining permissive arm is "no git at all", where staleness is not a
    question that can be asked.
-6. **Every successful store now DIRTIES A TRACKED FILE.**
+6. **The test suite runs the commit gate, and env must go on the RIGHT of the
+   pipe.** `HOME=... SKIP_LINT=1 printf ... | bash gate` sets both variables for
+   `printf`, not for the gate — so the fixtures read the REAL `$HOME` and the
+   two slow full-tree lints ran on every call. Measured: 505s -> 27s once
+   corrected, and it was also a host-dependence bug sitting inside the suite
+   written to pin host-dependence. It burst the `unit-shard` 12-minute cap and
+   cancelled CI before it was found.
+7. **Every successful store now DIRTIES A TRACKED FILE.**
    `.claude/process-state.json` is tracked here and in generated projects
    (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
    session leaves a modified file that a later `git add -A` sweeps into an
