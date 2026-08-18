@@ -10407,10 +10407,23 @@ storing half) landed 2026-08-17** on `feat/bl233-wpb-accumulation`, closing item
 the two WP-B residuals recorded with it.
 
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
-`347f619`. `tests/test-bl233-wpb-accumulation.sh` (38 assertions, 8 mutants,
-watched RED at **0 passed / 35 failed** against the base tree before a line of
-product changed). Regression on the same tree: 29/29 phase-gate suites, 38/38
-suites that reference the four changed scripts, 15/15 repo lints.
+`347f619`, corrected by the follow-up commit on the same branch after an
+adversarial review found the derivation defect recorded below.
+`tests/test-bl233-wpb-accumulation.sh` — 49 assertions, 12 mutants. Measured
+against the base tree `7b94e4b`: **2 passed / 47 failed**, and the 2 are named
+rather than glossed (J2/J3 assert an *exempt* verdict, which a tree with no
+accumulation gate also produces; mutant M12 is what makes them attributable).
+An earlier draft of this entry claimed "0 passed / 35 failed" — that was a
+35-assertion draft of the suite, carried forward unchanged after the suite grew,
+and re-deriving it is the whole of `## BL-230:`'s lesson.
+
+**Three counts in the first draft of this entry were wrong; they are corrected
+here rather than quietly dropped.** (1) The regression set was derived with a
+grep that OMITTED `check-phase-gate` — 41 files instead of the 91 that name any
+of the four changed scripts. (2) The "61 suites" figure is reproducible, but
+only with the derivation actually used, `grep -rl 'check-phase-gate' tests/`;
+a path-prefixed pattern yields 56. State the command, not the number. (3) The
+RED figure above.
 Karl decided the posture up front: **WARN at commit, BLOCK at the phase gate**,
 because storing is not per-commit work and a gate people cannot satisfy honestly
 gets deleted (`## BL-149:`). He then decided the three things the entry left
@@ -10441,12 +10454,24 @@ enforcement, silently" row, reintroduced inside the very gate meant to end it;
 and measured on this tree, of the 61 suites that execute `check-phase-gate.sh`,
 **29 drive it at `current_phase >= 2`, across 74 fixture-creation sites, and not
 one writes a ledger** — so a ledger-derived requirement would have forced 74
-fixture edits to say nothing. `init.sh` instead writes
-`.claude/settings.local.json` carrying the `mcpServers.qdrant` entry, the
-generated `.gitignore` ignores only `.claude/cache/`, and the scaffolder's
-`git add -A` commits it. The declaration is therefore **committed and travels
-with the repo**, and that is what `# BL-233-WPB-SCOPE` reads, with the ledger
-kept only as an OR arm for a project that adopted Qdrant after init.
+fixture edits to say nothing. The first fix for that read `.claude/settings.local.json`
+instead, reasoning that `init.sh` writes it and `git add -A` commits it. **THAT
+WAS ALSO WRONG, and worse, because it looked committed.** Claude Code adds
+`settings.local.json` to the user's GLOBAL git excludes by design (it is
+personal configuration), and `generate_gitignore` COPIES
+`templates/generated/gitignore-base.tmpl` — which already ignores
+`.claude/tool-usage.json` — before appending. Both OR arms were therefore absent
+from every fresh clone: the gate blocked on the author's machine and printed
+`NOT CHECKED` on CI. Proved by round trip (build → commit → local bare → clone →
+run), which is the test that was missing; the I-group now carries it.
+
+**The fix is not "a different file" — it is that TRACKEDNESS IS A QUESTION FOR
+GIT.** `_cpg_file_tracked` (`# BL-233-WPB-TRACKED`) asks `git ls-files`, and the
+derivation returns three states rather than a boolean: `tracked` (survives a
+clone), `untracked` (true here, invisible on CI — enforced, with a warning
+naming the remedy), `none`. `init.sh` now records the durable declaration in
+`.claude/manifest.json` (`# BL-233-WPB-MANIFEST-DECL`), which the generated
+`.gitignore` does not cover.
 
 **`$HOME` is deliberately NOT read** — `session-test-gate-check.sh` reads four
 settings files, two of them under `$HOME`, and copying that here would make a
@@ -10474,7 +10499,18 @@ and printed the same sentence three times.
    decides the window; the counter is observability and nothing reads it for a
    verdict. It is recorded so nobody later mistakes it for a per-phase quota —
    a count target is exactly the shape that invites junk stores to hit a number.
-3. **Every successful store now DIRTIES A TRACKED FILE.**
+3. **Legacy projects stay unenforced until someone adds the manifest field.**
+   A project scaffolded before `# BL-233-WPB-MANIFEST-DECL` declares Qdrant only
+   in files git does not track, so in a clone the gate reports `NOT CHECKED` and
+   names the one-line remedy. It is reported, never silent — but it IS a real
+   gap, and it is the honest residual of the fix rather than a claim that every
+   project is now covered.
+4. **`_cpg_accum_source_since` is the one PERMISSIVE arm.** It decides whether an
+   attestation already on record has gone stale, and returns "no source work"
+   when it cannot tell — because inventing staleness would re-block work the
+   operator legitimately excused. Every other cannot-tell arm in this feature
+   fails closed.
+5. **Every successful store now DIRTIES A TRACKED FILE.**
    `.claude/process-state.json` is tracked here and in generated projects
    (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
    session leaves a modified file that a later `git add -A` sweeps into an
