@@ -445,17 +445,54 @@ fi
 # exited before ANY check ran (remote, TDD, Build Loop), which is total silent
 # non-enforcement — the class `## BL-233:` exists to remove.
 A8="$(newtmp)"; mk_proj "$A8" 2
-A8SCRIPTS="$(newtmp)/scripts"
+A8ROOT="$(newtmp)/repo"
+A8SCRIPTS="$A8ROOT/scripts"
 mkdir -p "$A8SCRIPTS"
 cp -R "$REPO_ROOT/scripts/." "$A8SCRIPTS/" 2>/dev/null
 rm -f "$A8SCRIPTS/lib/accumulation.sh"
-a8_out=$( ( cd "$A8" && HOME="$A8/home" printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: x\""}}' \
-  | bash "$A8SCRIPTS/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
+# The tests/ and .github/ symlinks matter: without them lint-tests-registered.sh
+# denies, and the deny — not the guard — is what would satisfy the assertion.
+# That is the M7 poisoning this file documents; A8 had it too.
+ln -s "$REPO_ROOT/tests" "$A8ROOT/tests" 2>/dev/null
+ln -s "$REPO_ROOT/.github" "$A8ROOT/.github" 2>/dev/null
+a8_out=$( ( cd "$A8" && printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: x\""}}' \
+  | HOME="$A8/home" SKIP_LINT=1 bash "$A8SCRIPTS/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
+# The CONTROL is the same fixture with the lib PRESENT: it must warn. Then with
+# the lib absent the warning is gone AND no bash error appears AND another gate
+# in the file still reached a decision. Asserting only `permissionDecision`
+# present would pass with the whole accumulation block deleted.
+a8_ctrl=$( ( cd "$A8" && printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: x\""}}' \
+  | HOME="$A8/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
 if ! echo "$a8_out" | grep -q "No such file or directory" \
-   && echo "$a8_out" | grep -q '"permissionDecision"'; then
-  pass "A8: with the lib absent the commit gate still reaches a real decision instead of dying at its source line — the other gates in that file are not collateral"
+   && echo "$a8_out" | grep -q '"permissionDecision"' \
+   && ! echo "$a8_out" | grep -q 'Nothing has been stored to Qdrant'; then
+  pass "A8: with the lib absent the commit gate reaches a real decision instead of dying at its source line, and only the accumulation warning is missing — the other gates in that file are not collateral"
 else
-  fail_ "A8" "got: $(echo "$a8_out" | head -c 200)"
+  fail_ "A8" "lib-absent: $(echo "$a8_out" | head -c 180)"
+fi
+
+# A9 — a declaration that will not PARSE must not fold into "none". `none` says
+# "this project declares no Qdrant MCP server", a claim about CONTENT, and a
+# corrupt file has had its content read by nobody. One missing brace in
+# .claude/manifest.json silently turned the gate off while asserting it had
+# looked — the same substitution the staleness arm was just fixed for, one
+# function away.
+A9="$(newtmp)"; mk_proj "$A9" 3; source_commit "$A9"
+printf '%s' '{"mcp":{"qdrant_required":true}' > "$A9/.claude/manifest.json"   # missing brace
+_run "$A9" --gate phase_2_to_3; a9_issues=$GISSUES; a9_out="$GOUT"
+A9B="$(newtmp)"; mk_proj "$A9B" 3; source_commit "$A9B"; want_qdrant "$A9B"
+printf '%s' '{"mcpServers":{' > "$A9B/.claude/settings.json"                  # corrupt sibling
+_run "$A9B" --gate phase_2_to_3; a9b_issues=$GISSUES
+# The COUNT is asserted on the corrupt settings.json, not the corrupt manifest:
+# .claude/manifest.json is read by other arms of this gate too (the host
+# dispatcher), so corrupting it costs +2 and only one of those is this arm.
+# settings.json has no other reader here, so its delta is attributable.
+if [ "$a9b_issues" -eq $((a_ctrl_issues + 1)) ] \
+   && echo "$a9_out" | grep -q "CANNOT BE VERIFIED" \
+   && [ "$a9_issues" -gt "$a_ctrl_issues" ]; then
+  pass "A9: an unparseable declaration FAILS CLOSED and says the requirement could not be read — it does not silently become 'this project declares no Qdrant MCP server', a claim about content nothing parsed"
+else
+  fail_ "A9" "corrupt-settings issues=$a9b_issues (want $((a_ctrl_issues + 1))); corrupt-manifest issues=$a9_issues (want > $a_ctrl_issues); msg=$(echo "$a9_out" | grep -c 'CANNOT BE VERIFIED')"
 fi
 
 # ══ B. The satisfaction window is durable and phase-scoped ════════════════
@@ -811,6 +848,19 @@ fi
 # ══ H. Commit-time is a WARNING, never a block ════════════════════════════
 echo ""
 echo "H. commit-time warn (Karl: warn at commit, block at the phase gate)"
+# ENV GOES ON THE RIGHT OF THE PIPE. `HOME=... SKIP_LINT=1 printf ... | bash gate`
+# sets both variables for PRINTF, not for the gate — so SKIP_LINT never took
+# effect (the two documented slow full-tree lints ran on every call, ~75s each,
+# five times) and, worse, HOME was never pinned, so these fixtures read the
+# REAL home directory. That is the host-dependence class this suite exists to
+# pin, sitting inside the suite itself. Measured: 455s -> ~80s once corrected.
+# SKIP_LINT=1 on every commit-gate invocation below. The gate runs the repo's
+# LINT SUITE, and because these fixtures drive the framework's own
+# pre-commit-gate.sh its SCRIPT_DIR is this repository — so each call linted the
+# whole repo. Measured: the H group was 249s of a 505s suite, on a shard already
+# at 98.6% of its 12-minute cap, and it burst it. Skipping the lint stage costs
+# this group nothing (no assertion here is about lints) and REMOVES an unrelated
+# deny that could mask the arm under test — the R-360-15 failure mode.
 
 H1="$(newtmp)"; mk_proj "$H1" 2; add_origin "$H1"; want_qdrant "$H1"; ledger "$H1" true
 # phase2_init.verified satisfies an EARLIER commit-gate arm that would otherwise
@@ -832,7 +882,7 @@ echo "def test_main(): pass" > "$H1/tests/test_main.py"
 # Build Loop would be a large fixture for no extra coverage, because the arm
 # keys on STAGED SOURCE PATHS and never looks at the conventional-commit type.
 h1_payload=$(jq -nc '{tool_name:"Bash",tool_input:{command:"git commit -m \"chore: x\""}}')
-h1_out=$( ( cd "$H1" && HOME="$H1/home" printf '%s' "$h1_payload" | bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+h1_out=$( ( cd "$H1" && printf '%s' "$h1_payload" | HOME="$H1/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
 if echo "$h1_out" | grep -q 'phase gate' && echo "$h1_out" | grep -q '"permissionDecision": *"allow"'; then
   pass "H1: a source commit with nothing stored WARNS and names the phase gate that will block, while still ALLOWING the commit"
 else
@@ -864,7 +914,7 @@ echo "def test_main(): pass" > "$H3/tests/test_main.py"
 ( cd "$H3" && git add -A >/dev/null 2>&1 )
 h3_settings_absent=1
 [ -f "$H3/.claude/settings.local.json" ] && h3_settings_absent=0
-h3_out=$( ( cd "$H3" && HOME="$H3/home" printf '%s' "$h1_payload" | bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+h3_out=$( ( cd "$H3" && printf '%s' "$h1_payload" | HOME="$H3/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
 if [ "$h3_settings_absent" -eq 1 ] && echo "$h3_out" | grep -q 'Nothing has been stored to Qdrant' \
    && ! echo "$h3_out" | grep -q '"permissionDecision": *"deny"'; then
   pass "H3: with the TRACKED manifest as the only declaration — the shape a clone of a scaffolded project has — the commit-time warning still fires, so the warn half is not missing exactly where the fix applies"
@@ -890,7 +940,7 @@ mkdir -p "$H4/src" "$H4/tests"
 echo "print(1)" > "$H4/src/main.py"
 echo "def test_main(): pass" > "$H4/tests/test_main.py"
 ( cd "$H4" && git add -A >/dev/null 2>&1 )
-h4_out=$( ( cd "$H4" && HOME="$H4/home" printf '%s' "$h1_payload" | bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+h4_out=$( ( cd "$H4" && printf '%s' "$h1_payload" | HOME="$H4/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
 if ! echo "$h4_out" | grep -q 'Nothing has been stored to Qdrant' \
    && ! echo "$h4_out" | grep -q '"permissionDecision": *"deny"'; then
   pass "H4: a store INSIDE the window silences the commit-time warning — the date compare is exercised in both directions, not just the firing one"
@@ -972,6 +1022,22 @@ fi
 echo ""
 echo "J. source-work classifier covers languages, by negation"
 
+# _j_pred PATH — classify a path through the SHIPPED library predicate, with no
+# fixture and no gate run. The J-group asserts what counts as source work, and
+# that IS this predicate; driving 35 full gate invocations to ask it cost ~150s
+# of a 12-minute shard budget and contributed to a CI cancellation. The
+# end-to-end path is still proved: _j_case anchors below run the real gate, and
+# M10/M13 prove both gates consume this exact function rather than a copy.
+_j_pred() {
+  # If the library cannot be sourced, SAY SO — do not let a missing function
+  # return non-zero and read as "exempt". Against the base tree that is exactly
+  # what happened: no lib, `accum_paths_have_source` undefined, non-zero exit,
+  # and J2/J3/J4 passed vacuously on a tree with no feature in it at all.
+  ( if ! . "$REPO_ROOT/scripts/lib/accumulation.sh" 2>/dev/null; then printf 'NOLIB'; exit 0; fi
+    if ! type accum_paths_have_source >/dev/null 2>&1; then printf 'NOLIB'; exit 0; fi
+    if accum_paths_have_source "$1"; then printf 'SOURCE'; else printf 'exempt'; fi )
+}
+
 # _j_case EXT_PATH — one commit of that path onto a fresh fixture; echoes verdict.
 _j_case() {
   local path="$1" d
@@ -987,10 +1053,16 @@ _j_case() {
 }
 
 j_fail=""
-for _p in "models/user.rb" "public/index.php" "scripts/deploy.sh" "components/Button.vue" \
-          "web/router.ex" "db/q.sql" "Main.hs" "core.lua" "main.scala" "x.svelte"; do
+# Three END-TO-END through the real gate — the integration anchor.
+for _p in "models/user.rb" "public/index.php" "scripts/deploy.sh"; do
   v=$(_j_case "$_p")
-  [ "$v" = "BLOCKED" ] || j_fail="$j_fail $_p($v)"
+  [ "$v" = "BLOCKED" ] || j_fail="$j_fail $_p(e2e:$v)"
+done
+# The remaining families at predicate level.
+for _p in "components/Button.vue" "web/router.ex" "db/q.sql" "Main.hs" "core.lua" \
+          "main.scala" "x.svelte"; do
+  v=$(_j_pred "$_p")
+  [ "$v" = "SOURCE" ] || j_fail="$j_fail $_p($v)"
 done
 if [ -z "$j_fail" ]; then
   pass "J1: Ruby, PHP, shell, Vue, Elixir, SQL, Haskell, Lua, Scala and Svelte source all count as source work — the allow-list voided this gate for every one of them"
@@ -998,8 +1070,8 @@ else
   fail_ "J1" "still exempt:$j_fail"
 fi
 
-j2=$(_j_case "docs/notes.md")
-j2b=$(_j_case "package.json")
+j2=$(_j_pred "docs/notes.md")
+j2b=$(_j_pred "package.json")
 if [ "$j2" = "exempt" ] && [ "$j2b" = "exempt" ]; then
   pass "J2: documentation and project metadata are exempt — the inversion did not turn every commit into source work (## BL-149: a gate nobody can satisfy gets deleted)"
 else
@@ -1013,10 +1085,13 @@ fi
 # for, with YAML substituted for Ruby. The exemption is now by metadata
 # BASENAME, so an unrecognised .yml fails CLOSED.
 j2c_fail=""
-for _infra in "docker-compose.yml" "k8s/deployment.yaml" "helm/values.yaml" \
-              "ansible/site.yml" "openapi.yaml" ".github/workflows/ci.yml" "Dockerfile"; do
-  v=$(_j_case "$_infra")
-  [ "$v" = "BLOCKED" ] || j2c_fail="$j2c_fail $_infra($v)"
+# One end-to-end, the rest at predicate level.
+v=$(_j_case "k8s/deployment.yaml")
+[ "$v" = "BLOCKED" ] || j2c_fail="$j2c_fail k8s/deployment.yaml(e2e:$v)"
+for _infra in "docker-compose.yml" "helm/values.yaml" "ansible/site.yml" \
+              "openapi.yaml" ".github/workflows/ci.yml" "Dockerfile"; do
+  v=$(_j_pred "$_infra")
+  [ "$v" = "SOURCE" ] || j2c_fail="$j2c_fail $_infra($v)"
 done
 if [ -z "$j2c_fail" ]; then
   pass "J2c: infrastructure-as-code (compose, k8s, Helm, Ansible, OpenAPI, CI, Dockerfile) counts as SOURCE work — an unrecognised structured-data file fails closed instead of silently voiding the gate"
@@ -1035,7 +1110,7 @@ j3_fail=""
 for _dep in "Cargo.lock" "go.sum" "go.mod" "Gemfile" "Gemfile.lock" "Pipfile" "Pipfile.lock" \
             "poetry.lock" "yarn.lock" "pubspec.lock" "Package.resolved" "gradle.lockfile" \
             "requirements.txt" "requirements-dev.txt" "requirements_dev.txt"; do
-  v=$(_j_case "$_dep")
+  v=$(_j_pred "$_dep")
   [ "$v" = "exempt" ] || j3_fail="$j3_fail $_dep($v)"
 done
 if [ -z "$j3_fail" ]; then
@@ -1049,15 +1124,15 @@ fi
 # to store an insight it never had.
 j4_fail=""
 for _cfg in ".gitignore" "LICENSE" "CODEOWNERS" ".editorconfig"; do
-  v=$(_j_case "$_cfg")
+  v=$(_j_pred "$_cfg")
   [ "$v" = "exempt" ] || j4_fail="$j4_fail $_cfg($v)"
 done
 # Build logic is deliberately NOT exempt — a Makefile change is real work.
-j4_mk=$(_j_case "Makefile")
-if [ -z "$j4_fail" ] && [ "$j4_mk" = "BLOCKED" ]; then
+j4_mk=$(_j_pred "Makefile")
+if [ -z "$j4_fail" ] && [ "$j4_mk" = "SOURCE" ]; then
   pass "J4: extension-less CONFIG (.gitignore, LICENSE, CODEOWNERS, .editorconfig) is exempt while build logic (Makefile) is not — the negation is bounded deliberately, not accidentally"
 else
-  fail_ "J4" "config not exempt:$j4_fail ; Makefile=$j4_mk (want BLOCKED)"
+  fail_ "J4" "config not exempt:$j4_fail ; Makefile=$j4_mk (want SOURCE)"
 fi
 
 # ══ M. Mutation proofs — dual direction, changed>=2 asserted ══════════════
@@ -1214,8 +1289,7 @@ fi
 if _mk_mutant_repo "M7" "scripts/pre-commit-gate.sh" "# BL-233-WPB-COMMIT-WARN" \
       'if [ "$ACC_SATISFIED" = false ]; then   # BL-233-WPB-COMMIT-WARN' \
       'if [ "$ACC_SATISFIED" = "never" ]; then   # BL-233-WPB-COMMIT-WARN'; then
-  m7_out=$( ( cd "$H1" && HOME="$H1/home" printf '%s' "$h1_payload" \
-    | bash "$MUT_ROOT/scripts/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
+  m7_out=$( ( cd "$H1" && printf '%s' "$h1_payload" | HOME="$H1/home" SKIP_LINT=1 bash "$MUT_ROOT/scripts/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
   # The NOT-DENIED control is what makes this attributable. Asserting only the
   # ABSENCE of the warning lets any earlier deny in pre-commit-gate.sh satisfy
   # the mutant for free — H1 could go red while M7 stayed green. The control
@@ -1360,9 +1434,8 @@ fi
 if _mk_mutant_repo "M13" "scripts/lib/accumulation.sh" "# BL-233-WPB-SOURCE-NEGATION" \
       'grep -qvE "$_ACCUM_EXEMPT_RE" <<< "$1"   # BL-233-WPB-SOURCE-NEGATION' \
       'false   # BL-233-WPB-SOURCE-NEGATION'; then
-  m13_ctrl=$( ( cd "$H1" && HOME="$H1/home" printf '%s' "$h1_payload" | bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
-  m13_out=$( ( cd "$H1" && HOME="$H1/home" printf '%s' "$h1_payload" \
-    | bash "$MUT_ROOT/scripts/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
+  m13_ctrl=$( ( cd "$H1" && printf '%s' "$h1_payload" | HOME="$H1/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+  m13_out=$( ( cd "$H1" && printf '%s' "$h1_payload" | HOME="$H1/home" SKIP_LINT=1 bash "$MUT_ROOT/scripts/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
   if ! echo "$m13_ctrl" | grep -q 'Nothing has been stored to Qdrant'; then
     fail_ "M13 (meta)" "the UNMUTATED commit gate does not warn on H1, so the mutant proves nothing"
   elif ! echo "$m13_out" | grep -q 'Nothing has been stored to Qdrant' \

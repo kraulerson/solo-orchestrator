@@ -863,6 +863,15 @@ _cpg_check_accumulation() {
     echo "          jq '.mcp.qdrant_required = true' .claude/manifest.json"
     return 0
   fi
+  if [ "$_accum_state" = "unreadable" ]; then
+    # FAIL CLOSED. A declaration that will not parse has been read by nobody, so
+    # reporting "this project declares no Qdrant MCP server" would assert a fact
+    # about content nothing examined.
+    echo -e "${RED}[FAIL]${NC} $label accumulation: CANNOT BE VERIFIED — a declaration file exists but is not valid JSON (.claude/manifest.json or .claude/settings*.json), so the requirement could not be read."
+    echo "        Fix the JSON, then re-run. Passing silently here would report a project fact that was never parsed."
+    return 1   # BL-233-WPB-UNREADABLE-FAILCLOSED
+  fi
+
   if [ "$_accum_state" = "untracked" ]; then
     # Enforce, but say plainly that the enforcement is local-only. Blocking here
     # would fail every project that predates the manifest field; staying silent

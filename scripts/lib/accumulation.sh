@@ -22,7 +22,9 @@
 #   ^$                 blank lines — `git log --name-only` separates commits
 #                      with one, and a blank line matches no extension
 #   docs extensions    md/markdown/rst/adoc/txt/tmpl
-#   dep manifests      mirrors _is_dep_manifest entry for entry
+#   dep manifests      a SUPERSET of _is_dep_manifest: its entries plus the
+#                      ecosystems it predates (uv, mix, flake, deno, bun,
+#                      Podfile, Gopkg). A lockfile bump is not an insight
 #   project metadata   package.json, pyproject.toml, tsconfig.json, …
 #   dotfile rc files   .eslintrc, .prettierrc.yaml, …
 #   .claude/*.json     framework state (phase-state, process-state, manifest);
@@ -36,7 +38,7 @@
 # bypass answers a different question (does this commit need a Build Loop entry)
 # than this gate does (did this phase produce knowledge worth storing).
 # Unrecognised structured data therefore fails CLOSED.
-_ACCUM_EXEMPT_RE='^$|\.(md|markdown|rst|adoc|txt|tmpl)$|(^|/)(Pipfile(\.lock)?|Gemfile(\.lock)?|Cargo\.lock|go\.(mod|sum)|poetry\.lock|yarn\.lock|pnpm-lock\.yaml|pubspec\.lock|Package\.resolved|gradle\.lockfile|package-lock\.json|npm-shrinkwrap\.json|packages\.lock\.json|composer\.lock|requirements([-_][^/]*)?\.txt)$|(^|/)(package\.json|composer\.json|tsconfig([.-][^/]*)?\.json|jsconfig\.json|pyproject\.toml|Cargo\.toml|renovate\.json)$|(^|/)\.[A-Za-z0-9_-]+rc(\.(json|ya?ml|toml))?$|(^|/)\.claude/[^/]*\.json$|(^|/)(\.gitignore|\.gitattributes|\.dockerignore|\.editorconfig|\.gitkeep|LICENSE|LICENCE|NOTICE|CODEOWNERS|README|CHANGELOG|AUTHORS|CONTRIBUTING)$'   # BL-233-WPB-EXEMPT-SET
+_ACCUM_EXEMPT_RE='^$|\.(md|markdown|rst|adoc|txt|tmpl)$|(^|/)(Pipfile(\.lock)?|Gemfile(\.lock)?|Cargo\.lock|go\.(mod|sum)|poetry\.lock|yarn\.lock|pnpm-lock\.yaml|pubspec\.lock|uv\.lock|mix\.lock|flake\.lock|deno\.lock|bun\.lockb|Podfile\.lock|Gopkg\.lock|Package\.resolved|gradle\.lockfile|package-lock\.json|npm-shrinkwrap\.json|packages\.lock\.json|composer\.lock|requirements([-_][^/]*)?\.txt)$|(^|/)(package\.json|composer\.json|tsconfig([.-][^/]*)?\.json|jsconfig\.json|pyproject\.toml|Cargo\.toml|renovate\.json)$|(^|/)\.[A-Za-z0-9_-]+rc(\.(json|ya?ml|toml))?$|(^|/)\.claude/[^/]*\.json$|(^|/)(\.gitignore|\.gitattributes|\.dockerignore|\.editorconfig|\.gitkeep|LICENSE|LICENCE|NOTICE|CODEOWNERS|README|CHANGELOG|AUTHORS|CONTRIBUTING)$'   # BL-233-WPB-EXEMPT-SET
 
 # accum_paths_have_source <newline-separated-paths> — 0 if any path is source.
 # A HERE-STRING, never `printf | grep -q`: under `set -o pipefail` that pipeline
@@ -70,21 +72,32 @@ accum_file_tracked() {
 # current_phase >= 2 redirect HOME, so a host-derived verdict passes on a
 # developer box with Qdrant configured and fails on a runner without it:
 # `## BL-234:`'s class.
+# A FOURTH state, `unreadable`, exists because a corrupt declaration must not
+# fold into `none`. `none` says "this project declares no Qdrant MCP server" —
+# a claim about CONTENT — and a file that will not parse has had its content
+# read by nobody. One missing brace in .claude/manifest.json silently turned the
+# gate off while asserting a fact it never established: the same
+# could-not-measure/nothing-to-measure substitution `# BL-233-WPB-STALE-FAILCLOSED`
+# was added to remove, one function away.
 accum_requirement_state() {
-  local _f _tracked_hit=0 _untracked_hit=0
-  if ! command -v jq >/dev/null 2>&1; then
-    printf 'none'
-    return 0
-  fi
+  local _f _tracked_hit=0 _untracked_hit=0 _unreadable=0
+  # No jq guard: every caller establishes jq before calling. A guard here would
+  # return the PERMISSIVE answer for a tool-availability problem, and it could
+  # not fire anyway (`## BL-104:`).
   # .claude/manifest.json is the declaration init.sh writes for exactly this
   # purpose; the generated .gitignore does not cover it, so it survives a clone.
-  if [ -f ".claude/manifest.json" ] && \
-     [ "$(jq -r '.mcp.qdrant_required // false' ".claude/manifest.json" 2>/dev/null)" = "true" ]; then
-    if accum_file_tracked ".claude/manifest.json"; then _tracked_hit=1; else _untracked_hit=1; fi
+  if [ -f ".claude/manifest.json" ]; then
+    if ! jq -e . ".claude/manifest.json" >/dev/null 2>&1; then
+      _unreadable=1
+    elif [ "$(jq -r '.mcp.qdrant_required // false' ".claude/manifest.json" 2>/dev/null)" = "true" ]; then
+      if accum_file_tracked ".claude/manifest.json"; then _tracked_hit=1; else _untracked_hit=1; fi
+    fi
   fi
   for _f in ".claude/settings.local.json" ".claude/settings.json"; do   # BL-233-WPB-SCOPE
     [ -f "$_f" ] || continue
-    if jq -e '(.mcpServers // {}) | (has("qdrant") or has("mcp-server-qdrant"))' "$_f" >/dev/null 2>&1; then
+    if ! jq -e . "$_f" >/dev/null 2>&1; then
+      _unreadable=1
+    elif jq -e '(.mcpServers // {}) | (has("qdrant") or has("mcp-server-qdrant"))' "$_f" >/dev/null 2>&1; then
       if accum_file_tracked "$_f"; then _tracked_hit=1; else _untracked_hit=1; fi
     fi
   done
@@ -99,6 +112,9 @@ accum_requirement_state() {
   fi
   if [ "$_tracked_hit" -eq 1 ]; then printf 'tracked'; return 0; fi
   if [ "$_untracked_hit" -eq 1 ]; then printf 'untracked'; return 0; fi
+  # A real declaration outranks an unreadable one; only fall to `unreadable`
+  # when nothing legible said yes.
+  if [ "$_unreadable" -eq 1 ]; then printf 'unreadable'; return 0; fi
   printf 'none'
   return 0
 }
