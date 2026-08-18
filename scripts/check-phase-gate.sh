@@ -16,6 +16,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # BL-046: uses run_with_timeout + prompt_yes_no only — source core subset.
 source "$SCRIPT_DIR/lib/helpers-core.sh"
+# BL-233 WP-B: the accumulation predicates the commit-time warning must match.
+#
+# GUARDED, and the degradation is deliberate. Hard-failing here was the first
+# attempt and it was WRONG: a project that predates this lib — every existing
+# install, and every brownfield-adopted tree until it re-syncs — would have had
+# its ENTIRE phase gate killed by a feature it never opted into. Measured: that
+# reds test-walk-phase-lifecycle.sh, test-brownfield-wp3-adoption-arms.sh and
+# test-brownfield-wp3-regenerate-path.sh, all of which model exactly that
+# population.
+#
+# So the ACCUMULATION ARM alone goes unavailable and says so, naming the remedy;
+# every other check in this gate runs untouched. It does NOT count against the
+# gate: a project that never had this feature has not failed it. That is the
+# same shape as the `none` requirement state, for the same reason.
+SOIF_ACCUM_LIB_LOADED=0
+if [ -f "$SCRIPT_DIR/lib/accumulation.sh" ]; then
+  # shellcheck source=scripts/lib/accumulation.sh
+  . "$SCRIPT_DIR/lib/accumulation.sh"
+  SOIF_ACCUM_LIB_LOADED=1
+fi
 # Brownfield adoption WP3 — the in-core enabling arms (the `adopted` flag
 # accessor and the regenerate-path loss detector). Guarded: a checkout that
 # predates adoption simply has no such file, and the arm below no-ops.
@@ -573,64 +593,13 @@ _cpg_record_reviewer_attestation() {
 # requirement was invisible in every fresh clone and the gate blocked on the
 # author's machine while printing NOT CHECKED on CI. The lesson is not "use a
 # different file" — it is that TRACKEDNESS IS A QUESTION FOR GIT, not an
-# inference from an ignore file you happened to read. _cpg_file_tracked asks it.
+# inference from an ignore file you happened to read. accum_file_tracked asks it
+# (scripts/lib/accumulation.sh, shared with the commit-time warning).
 #
 # $HOME is still never read, for the original reason: zero of those 29 fixtures
 # redirect HOME, so a host-derived verdict passes on a developer box with Qdrant
 # configured and fails on a runner without it — `## BL-234:`'s class. A5 and
 # mutant M3 pin the project-only scope in both directions.
-
-# _cpg_file_tracked <path> — does git actually track this file? This is ASKED,
-# never assumed. The first cut of this gate reasoned "init.sh writes
-# .claude/settings.local.json, the generated .gitignore covers only
-# .claude/cache/, and `git add -A` commits it" — and all three clauses were
-# false. Claude Code adds settings.local.json to the user's GLOBAL git excludes
-# by design (it is personal configuration), and templates/generated/gitignore-base.tmpl
-# — which generate_gitignore COPIES before appending — already ignores
-# .claude/tool-usage.json. Both arms were therefore absent from every fresh
-# clone, and the gate reported NOT CHECKED on CI while blocking on the author's
-# machine: BL-231's silent-non-enforcement row, rebuilt inside the gate meant to
-# end it. Asking git is the only answer that cannot rot when an ignore rule
-# changes somewhere else.
-_cpg_file_tracked() {
-  git ls-files --error-unmatch -- "$1" >/dev/null 2>&1   # BL-233-WPB-TRACKED
-}
-
-# _cpg_accum_requirement_state — echoes one of:
-#   tracked   — a declaration git TRACKS says Qdrant is required (survives a clone)
-#   untracked — only an UNTRACKED file says so (true here, invisible on CI)
-#   none      — nothing declares it
-#
-# Three states, not a boolean, because "required" and "required everywhere" are
-# different facts and conflating them is what produced the defect above.
-# Scope stays PROJECT-only — never $HOME — for the reason given on the loop
-# below (`BL-233-WPB-SCOPE`): zero of the 29 suites driving this script at current_phase >= 2 redirect
-# HOME, so a host-derived verdict passes on a developer box and fails on a
-# runner (## BL-234:).
-_cpg_accum_requirement_state() {
-  local _f _tracked_hit=0 _untracked_hit=0
-  # .claude/manifest.json is the TRACKED declaration init.sh writes for exactly
-  # this purpose; it is not covered by the generated .gitignore.
-  if [ -f ".claude/manifest.json" ] && \
-     [ "$(jq -r '.mcp.qdrant_required // false' ".claude/manifest.json" 2>/dev/null)" = "true" ]; then
-    if _cpg_file_tracked ".claude/manifest.json"; then _tracked_hit=1; else _untracked_hit=1; fi
-  fi
-  for _f in ".claude/settings.local.json" ".claude/settings.json"; do   # BL-233-WPB-SCOPE
-    [ -f "$_f" ] || continue
-    if jq -e '(.mcpServers // {}) | (has("qdrant") or has("mcp-server-qdrant"))' "$_f" >/dev/null 2>&1; then
-      if _cpg_file_tracked "$_f"; then _tracked_hit=1; else _untracked_hit=1; fi
-    fi
-  done
-  if [ -f ".claude/tool-usage.json" ]; then
-    if [ "$(jq -r '.mcp_requirements.qdrant_required // false' ".claude/tool-usage.json" 2>/dev/null)" = "true" ]; then
-      if _cpg_file_tracked ".claude/tool-usage.json"; then _tracked_hit=1; else _untracked_hit=1; fi
-    fi
-  fi
-  if [ "$_tracked_hit" -eq 1 ]; then printf 'tracked'; return 0; fi
-  if [ "$_untracked_hit" -eq 1 ]; then printf 'untracked'; return 0; fi
-  printf 'none'
-  return 0
-}
 
 # _cpg_accum_last_store — ISO timestamp of the last SUCCESSFUL qdrant-store,
 # from the durable record that scripts/track-tool-usage.sh writes. A missing
@@ -669,16 +638,6 @@ _cpg_accum_after() {
   case "$a" in ''|*[!0-9]*) return 1 ;; esac
   [ "$a" -ge "$b" ]
 }
-
-# ONE exempt set, shared by both source-work classifiers and mirrored from this
-# repo's own docs-only rule (process-checklist.sh's
-# `\.(md|json|yml|yaml|toml|tmpl)$` plus _is_dep_manifest). Two copies would
-# drift, and a drifted classifier is how the allow-list version of this check
-# silently exempted Ruby, PHP, shell, Vue, Elixir, SQL and Scala.
-# The `^$` alternative is load-bearing: `git log --name-only --pretty=format:`
-# emits a BLANK LINE between commits, and a blank line matches no extension —
-# without excluding it every window would look like source work.
-_ACCUM_EXEMPT_RE='^$|\.(md|json|yml|yaml|toml|tmpl)$|(^|/)(Pipfile|Gemfile|Cargo\.lock|go\.(mod|sum)|poetry\.lock|yarn\.lock|Package\.resolved|gradle\.lockfile|requirements(-[^/]*)?\.txt)$'   # BL-233-WPB-EXEMPT-SET
 
 # _cpg_accum_source_work <since_date> — did this phase produce SOURCE commits?
 #
@@ -724,7 +683,7 @@ _cpg_accum_source_work() {
   # The `^$` alternative is load-bearing: `git log --name-only --pretty=format:`
   # emits a BLANK LINE between commits, and a blank line matches no extension —
   # without excluding it, every window would look like source work.
-  if grep -qvE "$_ACCUM_EXEMPT_RE" <<< "$paths"; then   # BL-233-WPB-SOURCE-NEGATION
+  if accum_paths_have_source "$paths"; then
     return 0
   fi
   return 1   # BL-233-WPB-SOURCEWORK
@@ -736,14 +695,46 @@ _cpg_accum_source_work() {
 # direction is correct ONLY here: this decides whether an attestation already on
 # record has gone stale, and inventing staleness would re-block work the
 # operator legitimately excused.
+# Returns 0 = "the attestation no longer covers the tree" (stale), 1 = still
+# covers it.
+#
+# IT FAILS CLOSED, and it says why. The first version returned 1 (still valid)
+# for an empty, malformed, tampered or garbage-collected `head` — so ANY
+# unresolvable value silently restored the permanent bypass this check was added
+# to remove, reachable by editing one JSON field OR by an ordinary
+# `git gc --prune=now`. Its twin `_cpg_accum_source_work`, written in the same
+# commit, fails CLOSED on the identical question and cites
+# `# BL-112-SAST-NOTRUN` for doing so: "could not measure" must never resolve to
+# "nothing to measure". This one now agrees with it.
+#
+# The one genuinely permissive arm is "no git at all": there is no history to
+# compare against, so staleness is not a question that can be asked.
+_ACCUM_STALE_REASON=""
 _cpg_accum_source_since() {
   local sha="$1" paths
-  if [ -z "$sha" ]; then return 1; fi
+  _ACCUM_STALE_REASON="source work has landed since the attested commit"
   if ! command -v git >/dev/null 2>&1; then return 1; fi
   if ! git rev-parse --git-dir >/dev/null 2>&1; then return 1; fi
-  if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then return 1; fi
-  paths=$(git log "${sha}..HEAD" --name-only --pretty=format: 2>/dev/null) || return 1
-  if grep -qvE "$_ACCUM_EXEMPT_RE" <<< "$paths"; then
+  # In a repo, an unresolvable commit means the record cannot be trusted.
+  # The two causes are reported SEPARATELY. An earlier rewrite merged them into
+  # one sentence and the operator could no longer tell whether the recorded
+  # commit had vanished (history rewritten, gc'd, record tampered) or whether
+  # work had simply landed after it — which are different problems with
+  # different remedies.
+  if [ -z "$sha" ]; then
+    _ACCUM_STALE_REASON="no commit was recorded with it"
+    return 0   # BL-233-WPB-STALE-FAILCLOSED
+  fi
+  if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+    _ACCUM_STALE_REASON="the commit it named ($sha) is not reachable in this repository"
+    return 0
+  fi
+  paths=$(git log "${sha}..HEAD" --name-only --pretty=format: 2>/dev/null) || {
+    _ACCUM_STALE_REASON="the history since $sha could not be read"
+    return 0
+  }
+  _ACCUM_STALE_REASON="source work has landed since $sha"
+  if accum_paths_have_source "$paths"; then
     return 0
   fi
   return 1
@@ -763,23 +754,34 @@ _cpg_accum_source_since() {
 _cpg_record_accum_attestation() {
   local gate_key="$1" reason="$2"
   local file=".claude/process-state.json"
-  local today actor lock_dir attempts rc cur _att_head
+  local today actor lock_dir attempts rc cur cur_head _att_head
 
   if ! command -v jq >/dev/null 2>&1; then return 2; fi
 
+  # The commit this attestation EXCUSES. An escape that never expires is a
+  # permanent bypass: without it one attested run would excuse every future
+  # source commit in the phase. BL-072's TDD attestation is scoped per commit
+  # and session-mcp-gate.sh's must be re-exported per session; this is the
+  # phase-gate equivalent. Computed BEFORE the idempotence check, which reads it.
+  _att_head=$(git rev-parse HEAD 2>/dev/null || printf '')
+
+  # IDEMPOTENCE IS NOW HEAD-SENSITIVE. This early return once compared the reason
+  # alone, which was safe while the record held only {reason,date,by}. Adding
+  # `head` made the record COMMIT-DEPENDENT, and the unchanged early return then
+  # made re-attesting with the same reason a NO-OP: the stale warning fired, the
+  # operator did exactly what it advised, `head` was never refreshed, and the
+  # next run blocked again. Escaping required inventing a NEW reason string —
+  # an incentive to write junk reasons, which is the shape `## BL-149:` deletes.
   if [ -f "$file" ]; then
     cur=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].reason // ""' "$file" 2>/dev/null || printf '')
-    if [ "$cur" = "$reason" ]; then return 0; fi
+    cur_head=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].head // ""' "$file" 2>/dev/null || printf '')
+    if [ "$cur" = "$reason" ] && [ -n "$cur_head" ] && [ "$cur_head" = "$_att_head" ]; then
+      return 0   # BL-233-WPB-ATTEST-IDEMPOTENT
+    fi
   fi
 
   today=$(date +%Y-%m-%d)
   actor=$(_cpg_gate_actor)
-  # The commit this attestation EXCUSED. An escape that never expires is a
-  # permanent bypass: without it, one attested run would excuse every future
-  # source commit in the phase. BL-072's TDD attestation is scoped per commit
-  # and session-mcp-gate.sh's must be re-exported per session; this is the
-  # phase-gate equivalent.
-  _att_head=$(git rev-parse HEAD 2>/dev/null || printf '')
   lock_dir="$file.lockdir"
   attempts=0
   while ! mkdir "$lock_dir" 2>/dev/null; do
@@ -836,13 +838,19 @@ _cpg_check_accumulation() {
   # "absent must fail closed, not exit 0" — and it follows this file's existing
   # precedent: the Phase 3→4 review gate already degrades to a BLOCKING warn
   # when the manifest is present but jq is not, rather than silently passing.
+  if [ "$SOIF_ACCUM_LIB_LOADED" != "1" ]; then
+    echo -e "${BLUE}  [NOTE]${NC} $label accumulation: NOT CHECKED — scripts/lib/accumulation.sh is absent, so this project predates the accumulation gate or its install is incomplete. Not counted against the gate."
+    echo "        Enable it: bash scripts/upgrade-project.sh --sync-framework"
+    return 0
+  fi
+
   if ! command -v jq >/dev/null 2>&1; then
     echo -e "${RED}[FAIL]${NC} $label accumulation: CANNOT BE VERIFIED — jq is unavailable, so neither the requirement nor the durable record can be read."
     echo "        Install jq. Passing silently here would be the substitution this gate exists to remove: \"could not check\" is not \"nothing to check\"."
     return 1   # BL-233-WPB-JQ-FAILCLOSED
   fi
 
-  _accum_state=$(_cpg_accum_requirement_state)
+  _accum_state=$(accum_requirement_state)
   if [ "$_accum_state" = "none" ]; then
     # [NOTE], deliberately NOT [NEXT]. In this file [NEXT] means "belongs to a
     # later gate and is not counted against this one", and
@@ -887,8 +895,8 @@ _cpg_check_accumulation() {
     # follows it. If source work landed after the commit it named, it is STALE:
     # the operator attests again, or stores something. Without this one attested
     # run permanently disabled the boundary for the rest of the phase.
-    if [ -n "$recorded" ] && [ -n "$recorded_head" ] && _cpg_accum_source_since "$recorded_head"; then
-      echo -e "${YELLOW}[WARN]${NC} $label accumulation: the attestation on record (\"$recorded\") named commit ${recorded_head}, and source work has landed since. It does not excuse that work."   # BL-233-WPB-ATTEST-STALE
+    if [ -n "$recorded" ] && _cpg_accum_source_since "$recorded_head"; then
+      echo -e "${YELLOW}[WARN]${NC} $label accumulation: the attestation on record (\"$recorded\") no longer covers this tree — ${_ACCUM_STALE_REASON}. Re-attest, or store what changed."   # BL-233-WPB-ATTEST-STALE
       recorded=""
     fi
     reason="$recorded"

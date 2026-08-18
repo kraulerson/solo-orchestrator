@@ -197,6 +197,27 @@ M
     git init -q -b main . >/dev/null 2>&1 || { git init -q . >/dev/null 2>&1; git checkout -q -b main >/dev/null 2>&1; }
     git config user.email "t@e.x"
     git config user.name "Test Owner"
+
+    # ── FORCE THE IGNORE CONDITION, NEVER INHERIT IT ──────────────────────
+    # This is where the suite previously diverged local-vs-CI, and it did so in
+    # the very tests written to close a `## BL-234:` defect. This Mac's
+    # ~/.config/git/ignore carries `**/.claude/settings.local.json` (Claude Code
+    # writes it there itself); an ubuntu runner has no such file. The fixture
+    # ignore rules were being written AFTER the first `git add -A`, so on the
+    # Mac the file was skipped and on CI it was committed — I2a/I2b then
+    # measured two different projects and CI went red.
+    #
+    # Both halves are now forced: core.excludesFile points at a fixture-owned
+    # (empty) file so the host's global excludes cannot reach in from either
+    # direction, and the project .gitignore below is the sole authority. It is
+    # written BEFORE any staging.
+    : > "$d/.git/fixture-excludes"
+    git config core.excludesFile "$d/.git/fixture-excludes"
+    cat > .gitignore <<'GITIG'
+.claude/settings.local.json
+.claude/tool-usage.json
+GITIG
+
     echo "readme" > README.md
     git add -A >/dev/null 2>&1
     git commit -qm "docs: initial" >/dev/null 2>&1
@@ -393,6 +414,50 @@ else
   fail_ "A6" "expected a 'CANNOT BE VERIFIED ... jq is unavailable' line; got: $(echo "$a6_out" | grep -i 'accumulation' || echo '<no accumulation line>')"
 fi
 
+# A7 — the LEGACY / BROWNFIELD-ADOPTED environment: a project whose scripts/lib
+# predates accumulation.sh. Hard-failing here was the first attempt and it
+# killed the ENTIRE phase gate for a feature the project never opted into —
+# measured as three red suites (walk-phase-lifecycle, brownfield-wp3-adoption-arms,
+# brownfield-wp3-regenerate-path), all of which model exactly that population.
+# The arm must go unavailable and SAY SO without counting, while every other
+# check in the gate keeps running.
+A7="$(newtmp)"; mk_proj "$A7" 3; want_qdrant "$A7"; source_commit "$A7"
+A7SCRIPTS="$(newtmp)/scripts"
+mkdir -p "$A7SCRIPTS"
+cp -R "$REPO_ROOT/scripts/." "$A7SCRIPTS/" 2>/dev/null
+rm -f "$A7SCRIPTS/lib/accumulation.sh"
+a7_out=$( ( cd "$A7" && HOME="$A7/home" bash "$A7SCRIPTS/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+a7_issues=$(_num "$(printf '%s\n' "$a7_out" | sed -n 's/^\([0-9][0-9]*\) inconsistency(ies) found.*/\1/p' | tail -1)")
+# The control: the SAME fixture with the lib present blocks (so the fixture is
+# one the gate would otherwise have an opinion about).
+_run "$A7" --gate phase_2_to_3; a7_with_lib=$GISSUES
+if echo "$a7_out" | grep -q "accumulation: NOT CHECKED" \
+   && echo "$a7_out" | grep -q "sync-framework" \
+   && echo "$a7_out" | grep -q "inconsistency(ies) found" \
+   && [ "$a7_issues" -eq $((a7_with_lib - 1)) ]; then
+  pass "A7: with scripts/lib/accumulation.sh absent the arm reports NOT CHECKED, names the remedy, does NOT count, and the rest of the gate still runs to a verdict ($a7_issues vs $a7_with_lib with the lib)"
+else
+  fail_ "A7" "issues=$a7_issues (want $((a7_with_lib - 1))); ran-to-verdict=$(echo "$a7_out" | grep -c 'inconsistency(ies) found'); line: $(echo "$a7_out" | grep -i 'accumulation' | head -1)"
+fi
+
+# A8 — the same environment for the COMMIT gate: the accumulation warning
+# no-ops, and every other gate in that file still runs. A bare `source` here
+# exited before ANY check ran (remote, TDD, Build Loop), which is total silent
+# non-enforcement — the class `## BL-233:` exists to remove.
+A8="$(newtmp)"; mk_proj "$A8" 2
+A8SCRIPTS="$(newtmp)/scripts"
+mkdir -p "$A8SCRIPTS"
+cp -R "$REPO_ROOT/scripts/." "$A8SCRIPTS/" 2>/dev/null
+rm -f "$A8SCRIPTS/lib/accumulation.sh"
+a8_out=$( ( cd "$A8" && HOME="$A8/home" printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: x\""}}' \
+  | bash "$A8SCRIPTS/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
+if ! echo "$a8_out" | grep -q "No such file or directory" \
+   && echo "$a8_out" | grep -q '"permissionDecision"'; then
+  pass "A8: with the lib absent the commit gate still reaches a real decision instead of dying at its source line — the other gates in that file are not collateral"
+else
+  fail_ "A8" "got: $(echo "$a8_out" | head -c 200)"
+fi
+
 # ══ B. The satisfaction window is durable and phase-scoped ════════════════
 echo ""
 echo "B. satisfaction window (durable, since the previous gate)"
@@ -518,10 +583,10 @@ else
 fi
 
 D4="$(newtmp)"; mk_proj "$D4" 3; want_qdrant "$D4"; source_commit "$D4"
-cat > "$D4/.claude/process-state.json" <<'J'
-{"mcp_accumulation":{"store_success_count":0,"last_store_at":null,
- "attestations":{"phase_2_to_3":{"reason":"prior recorded exception","date":"2026-03-02","by":"Test Owner"}}}}
-J
+d4_head=$( cd "$D4" && git rev-parse HEAD )
+jq -n --arg h "$d4_head" '{mcp_accumulation:{store_success_count:0,last_store_at:null,
+  attestations:{phase_2_to_3:{reason:"prior recorded exception",date:"2026-03-02",by:"Test Owner",head:$h}}}}' \
+  > "$D4/.claude/process-state.json"
 _run "$D4" --gate phase_2_to_3; d4_issues=$GISSUES; d4_out="$GOUT"
 if [ "$d4_issues" -eq "$c1_base" ] && echo "$d4_out" | grep -q "accumulation: ATTESTED"; then
   pass "D4: an attestation already on record clears the gate without re-supplying the env vars (idempotent across runs)"
@@ -544,10 +609,65 @@ d5_head=$(jq -r '.mcp_accumulation.attestations.phase_2_to_3.head // ""' "$D5/.c
     && git add -A >/dev/null 2>&1 && git commit -qm "feat: more source" >/dev/null 2>&1 )
 _run "$D5" --gate phase_2_to_3; d5_second=$GISSUES; d5_out="$GOUT"
 if [ "$d5_first" -eq "$c1_base" ] && [ -n "$d5_head" ] && [ "$d5_second" -eq $((c1_base + 1)) ] \
-   && echo "$d5_out" | grep -q "does not excuse that work"; then
+   && echo "$d5_out" | grep -q "no longer covers this tree"; then
   pass "D5: the attestation records the commit it excused ($d5_head) and goes STALE when source work lands after it — an escape that never expires is a permanent bypass"
 else
   fail_ "D5" "first=$d5_first (want $c1_base) head='$d5_head' second=$d5_second (want $((c1_base + 1)))"
+fi
+
+# D6 — an attestation whose `head` cannot be resolved must be treated as STALE,
+# LOUDLY. The first version of the staleness check returned "still valid" for an
+# empty, malformed, tampered or garbage-collected head, so any unresolvable
+# value silently restored the permanent bypass the check was added to remove —
+# reachable by editing one JSON field, or by an ordinary `git gc --prune=now`.
+# Its twin _cpg_accum_source_work fails CLOSED on the identical question.
+for _d6 in 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' '' 'not-a-sha'; do
+  D6="$(newtmp)"; mk_proj "$D6" 3; want_qdrant "$D6"; source_commit "$D6"
+  jq -n --arg h "$_d6" '{mcp_accumulation:{store_success_count:0,last_store_at:null,
+    attestations:{phase_2_to_3:{reason:"tampered",date:"2026-03-02",by:"T",head:$h}}}}' \
+    > "$D6/.claude/process-state.json"
+  _run "$D6" --gate phase_2_to_3
+  if [ "$GISSUES" -eq $((c1_base + 1)) ] && echo "$GOUT" | grep -q "no longer covers this tree"; then
+    :
+  else
+    fail_ "D6[head='$_d6']" "expected a BLOCK and a stale warning; issues=$GISSUES"
+    _d6_bad=1
+  fi
+done
+# A record with NO head key at all — the shape a pre-staleness attestation has.
+D6B="$(newtmp)"; mk_proj "$D6B" 3; want_qdrant "$D6B"; source_commit "$D6B"
+cat > "$D6B/.claude/process-state.json" <<'J'
+{"mcp_accumulation":{"store_success_count":0,"last_store_at":null,
+ "attestations":{"phase_2_to_3":{"reason":"legacy, no head","date":"2026-03-02","by":"T"}}}}
+J
+_run "$D6B" --gate phase_2_to_3
+if [ -z "${_d6_bad:-}" ] && [ "$GISSUES" -eq $((c1_base + 1)) ] && echo "$GOUT" | grep -q "no longer covers this tree"; then
+  pass "D6: an unresolvable, tampered, empty or absent attestation head FAILS CLOSED and says so — 'could not measure' never resolves to 'nothing to measure' (# BL-112-SAST-NOTRUN)"
+else
+  fail_ "D6" "a headless record did not fail closed: issues=$GISSUES"
+fi
+
+# D7 — re-attesting with the SAME reason must refresh the record. The staleness
+# WARN tells the operator to re-attest; before this, doing exactly that was a
+# no-op, because the idempotence early-return compared only the reason. Escaping
+# then required inventing a NEW reason string — an incentive to write junk
+# reasons, which is the shape `## BL-149:` deletes.
+D7="$(newtmp)"; mk_proj "$D7" 3; want_qdrant "$D7"; source_commit "$D7"
+_run_env "$D7" SOLO_MCP_ACCUM_ATTESTED=1 "SOLO_MCP_ACCUM_ATTESTED_REASON=same reason throughout" \
+  -- --gate phase_2_to_3
+d7_head1=$(jq -r '.mcp_accumulation.attestations.phase_2_to_3.head // ""' "$D7/.claude/process-state.json")
+( cd "$D7" && unset GITHUB_BASE_REF && mkdir -p src && echo "x" > src/more.py \
+    && git add -A >/dev/null 2>&1 && git commit -qm "feat: more" >/dev/null 2>&1 )
+# the remedy the WARN advises, verbatim: same reason, again
+_run_env "$D7" SOLO_MCP_ACCUM_ATTESTED=1 "SOLO_MCP_ACCUM_ATTESTED_REASON=same reason throughout" \
+  -- --gate phase_2_to_3
+d7_head2=$(jq -r '.mcp_accumulation.attestations.phase_2_to_3.head // ""' "$D7/.claude/process-state.json")
+# and it must now STICK on a plain re-run with no env vars
+_run "$D7" --gate phase_2_to_3; d7_third=$GISSUES
+if [ -n "$d7_head1" ] && [ "$d7_head1" != "$d7_head2" ] && [ "$d7_third" -eq "$c1_base" ]; then
+  pass "D7: re-attesting with the SAME reason refreshes the recorded commit ($d7_head1 -> $d7_head2) and the gate then stays clear — the advised remedy is not a no-op"
+else
+  fail_ "D7" "head1='$d7_head1' head2='$d7_head2' third-run issues=$d7_third (want $c1_base)"
 fi
 
 # ══ E. Gate scoping ═══════════════════════════════════════════════════════
@@ -726,6 +846,58 @@ else
 fi
 
 
+# H3 — the commit-time warning on the path the FIX creates. In a clone of a
+# project scaffolded by init.sh the manifest is the ONLY declaration, and the
+# warning's requirement loop used to read settings*.json and the ledger but not
+# the manifest — so the phase gate blocked and the warning said nothing, on
+# exactly the projects the manifest fix produces. "Warn at commit, block at the
+# phase gate" with the warn half missing is worse than no warning at all.
+H3="$(newtmp)"; mk_proj "$H3" 2; add_origin "$H3"
+cat > "$H3/.claude/process-state.json" <<'J'
+{"build_loop":{"feature":null,"step":0,"steps_completed":[],"started_at":null},
+ "phase2_init":{"steps_completed":[],"verified":true}}
+J
+jq -n '{mcp:{qdrant_required:true}}' > "$H3/.claude/manifest.json"
+mkdir -p "$H3/src" "$H3/tests"
+echo "print(1)" > "$H3/src/main.py"
+echo "def test_main(): pass" > "$H3/tests/test_main.py"
+( cd "$H3" && git add -A >/dev/null 2>&1 )
+h3_settings_absent=1
+[ -f "$H3/.claude/settings.local.json" ] && h3_settings_absent=0
+h3_out=$( ( cd "$H3" && HOME="$H3/home" printf '%s' "$h1_payload" | bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+if [ "$h3_settings_absent" -eq 1 ] && echo "$h3_out" | grep -q 'Nothing has been stored to Qdrant' \
+   && ! echo "$h3_out" | grep -q '"permissionDecision": *"deny"'; then
+  pass "H3: with the TRACKED manifest as the only declaration — the shape a clone of a scaffolded project has — the commit-time warning still fires, so the warn half is not missing exactly where the fix applies"
+else
+  fail_ "H3" "settings.local absent=$h3_settings_absent; got: $(echo "$h3_out" | head -c 200)"
+fi
+
+# H4 — the OTHER direction of the commit-time window. H1/H3 only ever assert
+# that the warning FIRES; nothing asserted it stays SILENT when a store is
+# genuinely inside the window. That half is what makes the warning trustworthy
+# rather than constant noise, and the date compare it depends on is the one
+# predicate the library did NOT unify — so it is the most likely to drift.
+H4="$(newtmp)"; mk_proj "$H4" 2; add_origin "$H4"
+cat > "$H4/.claude/process-state.json" <<'J'
+{"build_loop":{"feature":null,"step":0,"steps_completed":[],"started_at":null},
+ "phase2_init":{"steps_completed":[],"verified":true}}
+J
+jq -n '{mcp:{qdrant_required:true}}' > "$H4/.claude/manifest.json"
+# gates.phase_1_to_2 is 2026-02-01 in mk_proj; this store is after it.
+jq '.mcp_accumulation = {store_success_count: 1, last_store_at: "2026-02-15T10:00:00Z", attestations: {}}' \
+  "$H4/.claude/process-state.json" > "$H4/.claude/ps.tmp" && mv "$H4/.claude/ps.tmp" "$H4/.claude/process-state.json"
+mkdir -p "$H4/src" "$H4/tests"
+echo "print(1)" > "$H4/src/main.py"
+echo "def test_main(): pass" > "$H4/tests/test_main.py"
+( cd "$H4" && git add -A >/dev/null 2>&1 )
+h4_out=$( ( cd "$H4" && HOME="$H4/home" printf '%s' "$h1_payload" | bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+if ! echo "$h4_out" | grep -q 'Nothing has been stored to Qdrant' \
+   && ! echo "$h4_out" | grep -q '"permissionDecision": *"deny"'; then
+  pass "H4: a store INSIDE the window silences the commit-time warning — the date compare is exercised in both directions, not just the firing one"
+else
+  fail_ "H4" "warned despite a store inside the window: $(echo "$h4_out" | head -c 200)"
+fi
+
 # ══ I. The clone round trip — the test that was missing ═══════════════════
 echo ""
 echo "I. tracked-vs-untracked declaration (the fresh-clone question)"
@@ -739,10 +911,9 @@ echo "I. tracked-vs-untracked declaration (the fresh-clone question)"
 # is the ## BL-234: divergence class all over again.
 mk_clone_pair() {
   local d="$1"
-  cat > "$d/.gitignore" <<'G'
-.claude/settings.local.json
-.claude/tool-usage.json
-G
+  # The ignore rules live in mk_proj now, written before the first `git add -A`.
+  # Writing them here was one step too late: source_commit had already staged
+  # settings.local.json on any host without a matching global exclude.
   ( cd "$d" || exit 1
     unset GITHUB_BASE_REF
     git add -A >/dev/null 2>&1
@@ -828,19 +999,65 @@ else
 fi
 
 j2=$(_j_case "docs/notes.md")
-j3=$(_j_case "config/app.yml")
-if [ "$j2" = "exempt" ] && [ "$j3" = "exempt" ]; then
-  pass "J2: documentation and config are still exempt — the inversion did not turn every commit into source work (## BL-149: a gate nobody can satisfy gets deleted)"
+j2b=$(_j_case "package.json")
+if [ "$j2" = "exempt" ] && [ "$j2b" = "exempt" ]; then
+  pass "J2: documentation and project metadata are exempt — the inversion did not turn every commit into source work (## BL-149: a gate nobody can satisfy gets deleted)"
 else
-  fail_ "J2" "docs=$j2 config=$j3, expected both exempt"
+  fail_ "J2" "docs=$j2 metadata=$j2b, expected both exempt"
 fi
 
-j4=$(_j_case "Cargo.lock")
-j5=$(_j_case "go.sum")
-if [ "$j4" = "exempt" ] && [ "$j5" = "exempt" ]; then
-  pass "J3: dependency manifests are exempt — a lockfile bump is not an insight, and demanding a store for one is the shape BL-149 deletes"
+# J2c — INFRASTRUCTURE AS CODE IS SOURCE WORK. A blanket `\.(json|yml|yaml|toml)$`
+# exemption meant an entire Kubernetes, Helm, Ansible or OpenAPI phase counted
+# as "nothing owed" and the gate SAID SO — "every change was documentation,
+# config or a dependency manifest" — which is the allow-list defect J1 exists
+# for, with YAML substituted for Ruby. The exemption is now by metadata
+# BASENAME, so an unrecognised .yml fails CLOSED.
+j2c_fail=""
+for _infra in "docker-compose.yml" "k8s/deployment.yaml" "helm/values.yaml" \
+              "ansible/site.yml" "openapi.yaml" ".github/workflows/ci.yml" "Dockerfile"; do
+  v=$(_j_case "$_infra")
+  [ "$v" = "BLOCKED" ] || j2c_fail="$j2c_fail $_infra($v)"
+done
+if [ -z "$j2c_fail" ]; then
+  pass "J2c: infrastructure-as-code (compose, k8s, Helm, Ansible, OpenAPI, CI, Dockerfile) counts as SOURCE work — an unrecognised structured-data file fails closed instead of silently voiding the gate"
 else
-  fail_ "J3" "Cargo.lock=$j4 go.sum=$j5, expected both exempt"
+  fail_ "J2c" "still exempt:$j2c_fail"
+fi
+
+# The exempt set claims to mirror process-checklist.sh::_is_dep_manifest. The
+# first version listed only SOME of it and drifted on day one: Gemfile.lock,
+# Pipfile.lock, pubspec.lock and requirements_dev.txt were exempt to the
+# Build-Loop classifier and SOURCE to this one. Every entry is now driven,
+# including the four that drifted — a fixture set calibrated to the
+# implementation instead of the rule it cites proves only that the code agrees
+# with itself.
+j3_fail=""
+for _dep in "Cargo.lock" "go.sum" "go.mod" "Gemfile" "Gemfile.lock" "Pipfile" "Pipfile.lock" \
+            "poetry.lock" "yarn.lock" "pubspec.lock" "Package.resolved" "gradle.lockfile" \
+            "requirements.txt" "requirements-dev.txt" "requirements_dev.txt"; do
+  v=$(_j_case "$_dep")
+  [ "$v" = "exempt" ] || j3_fail="$j3_fail $_dep($v)"
+done
+if [ -z "$j3_fail" ]; then
+  pass "J3: every process-checklist.sh::_is_dep_manifest entry is exempt here too, including the four that had drifted — a lockfile bump is not an insight (## BL-149:)"
+else
+  fail_ "J3" "not exempt:$j3_fail"
+fi
+
+# Extension-less config: a negation-based classifier calls these source unless
+# named. A phase whose only commits touched .gitignore would otherwise be told
+# to store an insight it never had.
+j4_fail=""
+for _cfg in ".gitignore" "LICENSE" "CODEOWNERS" ".editorconfig"; do
+  v=$(_j_case "$_cfg")
+  [ "$v" = "exempt" ] || j4_fail="$j4_fail $_cfg($v)"
+done
+# Build logic is deliberately NOT exempt — a Makefile change is real work.
+j4_mk=$(_j_case "Makefile")
+if [ -z "$j4_fail" ] && [ "$j4_mk" = "BLOCKED" ]; then
+  pass "J4: extension-less CONFIG (.gitignore, LICENSE, CODEOWNERS, .editorconfig) is exempt while build logic (Makefile) is not — the negation is bounded deliberately, not accidentally"
+else
+  fail_ "J4" "config not exempt:$j4_fail ; Makefile=$j4_mk (want BLOCKED)"
 fi
 
 # ══ M. Mutation proofs — dual direction, changed>=2 asserted ══════════════
@@ -889,7 +1106,7 @@ _mk_mutant_repo() {
     return 1
   fi
   if [ "$parses" -ne 1 ]; then
-    fail_ "$label (meta)" "mutant does not parse (bash -n) — it would kill every test for the wrong reason"
+    fail_ "$label (meta)" "mutant does not parse (bash -n): $(bash -n "$file" 2>&1 | head -2)"
     return 1
   fi
   MUT_ROOT="$root"
@@ -932,7 +1149,7 @@ if _mk_mutant_repo "M2" "scripts/check-phase-gate.sh" "# BL-233-WPB-SOURCEWORK" 
 fi
 
 # M3 — widen the settings scan to $HOME: A5's host-independence must break.
-if _mk_mutant_repo "M3" "scripts/check-phase-gate.sh" "# BL-233-WPB-SCOPE" \
+if _mk_mutant_repo "M3" "scripts/lib/accumulation.sh" "# BL-233-WPB-SCOPE" \
       'for _f in ".claude/settings.local.json" ".claude/settings.json"; do   # BL-233-WPB-SCOPE' \
       'for _f in ".claude/settings.local.json" ".claude/settings.json" "$HOME/.claude.json"; do   # BL-233-WPB-SCOPE'; then
   M3F="$(newtmp)"; mk_proj "$M3F" 3; source_commit "$M3F"; want_qdrant_in_home "$M3F"
@@ -1036,12 +1253,21 @@ fi
 # declaration then looks durable, and I2a's warning disappears. This is the
 # mutant for the blocking defect the reviewer found — the gate reported a
 # requirement as project-wide when it was machine-local.
-if _mk_mutant_repo "M9" "scripts/check-phase-gate.sh" "# BL-233-WPB-TRACKED" \
+if _mk_mutant_repo "M9" "scripts/lib/accumulation.sh" "# BL-233-WPB-TRACKED" \
       'git ls-files --error-unmatch -- "$1" >/dev/null 2>&1   # BL-233-WPB-TRACKED' \
       'true   # BL-233-WPB-TRACKED'; then
   M9F="$(newtmp)"; mk_proj "$M9F" 3; want_qdrant "$M9F"; source_commit "$M9F"
+  # POSITIVE CONTROL FIRST. M9 asserts an ABSENCE, and an absence is free: on a
+  # runner the UNMUTATED gate printed no warning either (the fixture reached a
+  # different state), so M9 passed for a reason unrelated to its mutation. That
+  # is the exact defect M7 had just been fixed for, reintroduced here in the
+  # same commit. The control asserts the unmutated gate DOES warn on this very
+  # fixture before the mutant's silence is allowed to mean anything.
+  m9_ctrl=$( ( cd "$M9F" && HOME="$M9F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
   m9_out=$( ( cd "$M9F" && HOME="$M9F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
-  if ! echo "$m9_out" | grep -q "git does not track"; then
+  if ! echo "$m9_ctrl" | grep -q "git does not track"; then
+    fail_ "M9 (meta)" "the UNMUTATED gate does not warn on this fixture, so the mutant's silence proves nothing"
+  elif ! echo "$m9_out" | grep -q "git does not track"; then
     pass "M9: assuming trackedness instead of asking git silences the local-only warning — I2a proves the gate now distinguishes 'required here' from 'required everywhere'"
   else
     fail_ "M9" "mutant still warned — I2a would pass either way"
@@ -1051,9 +1277,9 @@ fi
 # M10 — restore the extension ALLOW-LIST the reviewer refuted: a Ruby commit
 # must stop being source work, which is exactly how the gate silently voided
 # itself for whole language families.
-if _mk_mutant_repo "M10" "scripts/check-phase-gate.sh" "# BL-233-WPB-SOURCE-NEGATION" \
-      'if grep -qvE "$_ACCUM_EXEMPT_RE" <<< "$paths"; then   # BL-233-WPB-SOURCE-NEGATION' \
-      'if grep -qE "\.(py|ts|js|rs|go)$" <<< "$paths"; then   # BL-233-WPB-SOURCE-NEGATION'; then
+if _mk_mutant_repo "M10" "scripts/lib/accumulation.sh" "# BL-233-WPB-SOURCE-NEGATION" \
+      'grep -qvE "$_ACCUM_EXEMPT_RE" <<< "$1"   # BL-233-WPB-SOURCE-NEGATION' \
+      'grep -qE "\.(py|ts|js|rs|go)$" <<< "$1"   # BL-233-WPB-SOURCE-NEGATION'; then
   M10F="$(newtmp)"; mk_proj "$M10F" 3; want_qdrant "$M10F"
   ( cd "$M10F" || exit 1
     unset GITHUB_BASE_REF
@@ -1061,8 +1287,15 @@ if _mk_mutant_repo "M10" "scripts/check-phase-gate.sh" "# BL-233-WPB-SOURCE-NEGA
     echo "x" > models/user.rb
     git add -A >/dev/null 2>&1
     git commit -qm "add ruby" >/dev/null 2>&1 )
+  # POSITIVE CONTROL. M10 asserts an ABSENCE on a fixture no unmutated assertion
+  # touches, which is M9's defect exactly — named in review, fixed on M9 only,
+  # and left here. The unmutated gate must BLOCK this fixture before the
+  # mutant's silence is allowed to mean anything.
+  m10_ctrl=$( ( cd "$M10F" && HOME="$M10F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
   m10_out=$( ( cd "$M10F" && HOME="$M10F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
-  if ! echo "$m10_out" | grep -q "accumulation: BLOCKED"; then
+  if ! echo "$m10_ctrl" | grep -q "accumulation: BLOCKED"; then
+    fail_ "M10 (meta)" "the UNMUTATED gate does not block this Ruby fixture, so the mutant's silence proves nothing"
+  elif ! echo "$m10_out" | grep -q "accumulation: BLOCKED"; then
     pass "M10: an extension allow-list lets a Ruby-only phase through — J1 proves the negation is what closes that hole, not the [FAIL] text"
   else
     fail_ "M10" "mutant still blocked — J1 would pass either way"
@@ -1072,8 +1305,8 @@ fi
 
 # M11 — neuter the staleness check: the attestation becomes permanent again.
 if _mk_mutant_repo "M11" "scripts/check-phase-gate.sh" "# BL-233-WPB-ATTEST-STALE" \
-      'if [ -n "$recorded" ] && [ -n "$recorded_head" ] && _cpg_accum_source_since "$recorded_head"; then' \
-      'if [ -n "$recorded" ] && [ -n "$recorded_head" ] && false; then'; then
+      'if [ -n "$recorded" ] && _cpg_accum_source_since "$recorded_head"; then' \
+      'if [ -n "$recorded" ] && false; then'; then
   M11F="$(newtmp)"; mk_proj "$M11F" 3; want_qdrant "$M11F"; source_commit "$M11F"
   cat > "$M11F/.claude/process-state.json" <<'J'
 {"mcp_accumulation":{"store_success_count":0,"last_store_at":null,
@@ -1101,9 +1334,9 @@ fi
 # BASE TREE also produces (nothing blocks there at all) — measured: they are the
 # only 2 of 48 that pass against `main`. This mutant is what makes them
 # attributable rather than free.
-if _mk_mutant_repo "M12" "scripts/check-phase-gate.sh" "# BL-233-WPB-EXEMPT-SET" \
-      "_ACCUM_EXEMPT_RE='^\$|\\.(md|json|yml|yaml|toml|tmpl)\$|(^|/)(Pipfile|Gemfile|Cargo\\.lock|go\\.(mod|sum)|poetry\\.lock|yarn\\.lock|Package\\.resolved|gradle\\.lockfile|requirements(-[^/]*)?\\.txt)\$'   # BL-233-WPB-EXEMPT-SET" \
-      "_ACCUM_EXEMPT_RE='^ZZZ_NEVER_MATCHES_ZZZ\$'   # BL-233-WPB-EXEMPT-SET"; then
+if _mk_mutant_repo "M12" "scripts/lib/accumulation.sh" "# BL-233-WPB-EXEMPT-SET" \
+      "_ACCUM_EXEMPT_RE='^\$|" \
+      "_ACCUM_EXEMPT_RE='^ZZZ_NEVER_MATCHES\$'; _ACCUM_PARKED='"; then
   M12F="$(newtmp)"; mk_proj "$M12F" 3; want_qdrant "$M12F"
   ( cd "$M12F" || exit 1
     unset GITHUB_BASE_REF
@@ -1116,6 +1349,27 @@ if _mk_mutant_repo "M12" "scripts/check-phase-gate.sh" "# BL-233-WPB-EXEMPT-SET"
     pass "M12: emptying the exempt set makes a docs-only phase BLOCK — J2/J3 are real guards on the inversion, not passes inherited from the base tree"
   else
     fail_ "M12" "mutant did not block the docs-only phase: issues=$m12_issues, want $((c1_base + 1))"
+  fi
+fi
+
+# M13 — prove pre-commit-gate.sh actually CONSUMES the shared predicate. M10 and
+# M12 mutate the library but assert only on check-phase-gate.sh, so a re-inlined
+# copy inside pre-commit-gate.sh would survive both. This mutant changes the
+# LIBRARY and asserts the COMMIT-TIME warning changes — which is the entire
+# point of the extraction, and was otherwise unpinned.
+if _mk_mutant_repo "M13" "scripts/lib/accumulation.sh" "# BL-233-WPB-SOURCE-NEGATION" \
+      'grep -qvE "$_ACCUM_EXEMPT_RE" <<< "$1"   # BL-233-WPB-SOURCE-NEGATION' \
+      'false   # BL-233-WPB-SOURCE-NEGATION'; then
+  m13_ctrl=$( ( cd "$H1" && HOME="$H1/home" printf '%s' "$h1_payload" | bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+  m13_out=$( ( cd "$H1" && HOME="$H1/home" printf '%s' "$h1_payload" \
+    | bash "$MUT_ROOT/scripts/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
+  if ! echo "$m13_ctrl" | grep -q 'Nothing has been stored to Qdrant'; then
+    fail_ "M13 (meta)" "the UNMUTATED commit gate does not warn on H1, so the mutant proves nothing"
+  elif ! echo "$m13_out" | grep -q 'Nothing has been stored to Qdrant' \
+       && ! echo "$m13_out" | grep -q '"permissionDecision": *"deny"'; then
+    pass "M13: mutating the LIBRARY silences the COMMIT-TIME warning — pre-commit-gate.sh genuinely consumes the shared predicate rather than carrying a re-inlined copy"
+  else
+    fail_ "M13" "the commit gate did not follow the library: $(echo "$m13_out" | head -c 200)"
   fi
 fi
 echo ""

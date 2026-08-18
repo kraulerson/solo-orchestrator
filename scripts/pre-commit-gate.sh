@@ -11,6 +11,25 @@ set -euo pipefail
 #   - JSON with permissionDecision: "deny" = block
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# BL-233 WP-B: the accumulation predicates, shared with check-phase-gate.sh so
+# this warning cannot drift from the gate it is warning about.
+#
+# GUARDED, in this file's own idiom (see tdd-classify.sh above), and the
+# degradation is DELIBERATE. A bare `source` here was measured taking the whole
+# commit gate down in any project installed before this lib existed: on the
+# PreToolUse path it exits non-zero before ANY check runs — remote, TDD,
+# Build Loop, all of it — and on the commit-msg path it blocks every commit with
+# a bash error whose rc is 1, so `soif_ledger_blocked` never records the block
+# either. Silently disabling every gate in the file is the exact
+# non-enforcement class `## BL-233:` exists to remove, so the accumulation
+# WARNING no-ops when the lib is absent and every other gate keeps running.
+# Safe because this arm is warn-only; the phase gate is where it blocks.
+SOIF_ACCUM_LIB_LOADED=0
+if [ -f "$SCRIPT_DIR/lib/accumulation.sh" ]; then
+  # shellcheck source=scripts/lib/accumulation.sh
+  . "$SCRIPT_DIR/lib/accumulation.sh"
+  SOIF_ACCUM_LIB_LOADED=1
+fi
 
 # BL-072 Phase C1: shared TDD file-classification core. Sourced (not
 # re-implemented) so the live gate below and the dogfood replay
@@ -1463,7 +1482,8 @@ fi
 # its window opens at gate (N-1). This warning is about the gate you have not
 # hit yet: while working in phase N you are heading for the N→N+1 gate, whose
 # window opens at the gate that put you IN phase N. Same rule, different tense.
-if [ "$IS_COMMIT" = true ] && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null; then
+if [ "$IS_COMMIT" = true ] && [ "$SOIF_ACCUM_LIB_LOADED" = "1" ] \
+   && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null; then
   ACC_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null)
   ACC_PREV_KEY=""
   case "$ACC_PHASE" in
@@ -1473,21 +1493,16 @@ if [ "$IS_COMMIT" = true ] && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null
   esac
 
   if [ -n "$ACC_PREV_KEY" ]; then
-    # Same project-scope-only derivation the phase gate uses. $HOME is NOT read
-    # here either: a warning whose text depends on the developer's own MCP
-    # config would say different things to two people committing the same change.
+    # THE SAME derivation the phase gate uses, from the SAME file
+    # (scripts/lib/accumulation.sh). It used to be a hand-copied loop that read
+    # settings*.json and the ledger but NOT .claude/manifest.json — so on a
+    # clone of a project scaffolded by init.sh, where the manifest is the only
+    # declaration, the gate blocked and this warning said nothing. The whole
+    # posture is "warn at commit, block at the phase gate"; a warning that is
+    # silent on the path the fix creates is worse than absent.
     ACC_REQUIRED=false
-    for _acc_f in ".claude/settings.local.json" ".claude/settings.json"; do
-      [ -f "$_acc_f" ] || continue
-      if jq -e '(.mcpServers // {}) | (has("qdrant") or has("mcp-server-qdrant"))' "$_acc_f" >/dev/null 2>&1; then
-        ACC_REQUIRED=true
-        break
-      fi
-    done
-    if [ "$ACC_REQUIRED" = false ] && [ -f "$TOOL_USAGE" ]; then
-      if [ "$(jq -r '.mcp_requirements.qdrant_required // false' "$TOOL_USAGE" 2>/dev/null)" = "true" ]; then
-        ACC_REQUIRED=true
-      fi
+    if [ "$(accum_requirement_state)" != "none" ]; then
+      ACC_REQUIRED=true
     fi
 
     if [ "$ACC_REQUIRED" = true ]; then
@@ -1496,13 +1511,10 @@ if [ "$IS_COMMIT" = true ] && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null
       # Here-strings, not `echo | grep -q`: under `set -o pipefail` that
       # pipeline returns 141 on a MATCH once the payload is big enough
       # (`## BL-238:`), and here a spurious 141 would silently drop the warning.
-      # Same negation the phase gate uses, so this warning predicts the gate it
-      # warns about. An extension ALLOW-LIST here would go quiet for Ruby, PHP,
-      # shell, Vue, Elixir, SQL and Scala projects — exactly the stacks whose
-      # phase gate would then block without warning. (The staged list has no
-      # blank-line separator, unlike `git log --name-only`, but the `^$` arm is
-      # kept so both predicates read identically.)
-      if grep -qvE '^$|\.(md|json|yml|yaml|toml|tmpl)$|(^|/)(Pipfile|Gemfile|Cargo\.lock|go\.(mod|sum)|poetry\.lock|yarn\.lock|Package\.resolved|gradle\.lockfile|requirements(-[^/]*)?\.txt)$' <<< "$ACC_STAGED"; then
+      # THE SAME predicate the phase gate uses, from the same library — not a
+      # copy. Two literals is what the earlier version had, and they had already
+      # drifted from process-checklist.sh's dep-manifest list.
+      if accum_paths_have_source "$ACC_STAGED"; then
         ACC_HAS_SOURCE=true
       fi
 

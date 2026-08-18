@@ -1369,6 +1369,13 @@ create_project() {
   # though --plan itself runs framework-side only.
   cp "$SCRIPT_DIR/scripts/lib/render-project-docs.sh"  scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/plan-staging.sh"         scripts/lib/
+  # BL-233 WP-B: the accumulation predicates, sourced by BOTH shipped gates
+  # (check-phase-gate.sh and pre-commit-gate.sh). Source-closure (BL-088) is not
+  # optional here — without this line the commit gate dies at its `source` line
+  # in every generated project, which either blocks every commit with a bash
+  # error or, on the PreToolUse path, makes the whole gate exit non-zero before
+  # any check runs. tests/test-scaffold-source-closure.sh enforces it.
+  cp "$SCRIPT_DIR/scripts/lib/accumulation.sh"         scripts/lib/
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
   # BL-088: check-phase-gate.sh's Phase-3→4 gate auto-runs (and points the
