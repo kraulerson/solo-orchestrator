@@ -10409,7 +10409,7 @@ the two WP-B residuals recorded with it.
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — 49 assertions, 12 mutants. Measured
+`tests/test-bl233-wpb-accumulation.sh` — 56 assertions, 13 mutants. Measured
 against the base tree `7b94e4b`: **2 passed / 47 failed**, and the 2 are named
 rather than glossed (J2/J3 assert an *exempt* verdict, which a tree with no
 accumulation gate also produces; mutant M12 is what makes them attributable).
@@ -10466,8 +10466,9 @@ from every fresh clone: the gate blocked on the author's machine and printed
 run), which is the test that was missing; the I-group now carries it.
 
 **The fix is not "a different file" — it is that TRACKEDNESS IS A QUESTION FOR
-GIT.** `_cpg_file_tracked` (`# BL-233-WPB-TRACKED`) asks `git ls-files`, and the
-derivation returns three states rather than a boolean: `tracked` (survives a
+GIT.** `accum_file_tracked` (`# BL-233-WPB-TRACKED`, now in
+`scripts/lib/accumulation.sh` and shared with the commit-time warning) asks
+`git ls-files`, and the derivation returns three states rather than a boolean: `tracked` (survives a
 clone), `untracked` (true here, invisible on CI — enforced, with a warning
 naming the remedy), `none`. `init.sh` now records the durable declaration in
 `.claude/manifest.json` (`# BL-233-WPB-MANIFEST-DECL`), which the generated
@@ -10499,18 +10500,31 @@ and printed the same sentence three times.
    decides the window; the counter is observability and nothing reads it for a
    verdict. It is recorded so nobody later mistakes it for a per-phase quota —
    a count target is exactly the shape that invites junk stores to hit a number.
-3. **Legacy projects stay unenforced until someone adds the manifest field.**
+3. **Structured data is judged by BASENAME, and that list will need tending.**
+   `json`/`yml`/`yaml`/`toml` are not blanket-exempt — a blanket exemption made
+   an entire Kubernetes / Helm / Ansible / OpenAPI phase read as "nothing owed",
+   which is the allow-list defect one layer over. Recognised metadata
+   (`package.json`, `pyproject.toml`, `.claude/*.json`, rc-files, …) is exempt
+   and everything else in those extensions is source. The list rots
+   FAIL-CLOSED — a new metadata filename produces a nuisance block the operator
+   clears by storing or attesting, never a silent pass — which is the tolerable
+   direction, but it is a list and it will need entries.
+4. **Legacy projects stay unenforced until someone adds the manifest field.**
    A project scaffolded before `# BL-233-WPB-MANIFEST-DECL` declares Qdrant only
    in files git does not track, so in a clone the gate reports `NOT CHECKED` and
    names the one-line remedy. It is reported, never silent — but it IS a real
    gap, and it is the honest residual of the fix rather than a claim that every
    project is now covered.
-4. **`_cpg_accum_source_since` is the one PERMISSIVE arm.** It decides whether an
-   attestation already on record has gone stale, and returns "no source work"
-   when it cannot tell — because inventing staleness would re-block work the
-   operator legitimately excused. Every other cannot-tell arm in this feature
-   fails closed.
-5. **Every successful store now DIRTIES A TRACKED FILE.**
+5. ~~**`_cpg_accum_source_since` is the one PERMISSIVE arm.**~~ **INVERTED after
+   review, 2026-08-18.** It was permissive, and that was wrong: an empty,
+   malformed, tampered or garbage-collected `head` silently restored the
+   permanent bypass the staleness check exists to remove — reachable by editing
+   one JSON field OR by an ordinary `git gc --prune=now`, and its twin
+   `_cpg_accum_source_work` fails CLOSED on the identical question. It now fails
+   closed too and names WHICH cause (`# BL-233-WPB-STALE-FAILCLOSED`). The only
+   remaining permissive arm is "no git at all", where staleness is not a
+   question that can be asked.
+6. **Every successful store now DIRTIES A TRACKED FILE.**
    `.claude/process-state.json` is tracked here and in generated projects
    (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
    session leaves a modified file that a later `git add -A` sweeps into an
