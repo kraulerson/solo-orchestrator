@@ -473,27 +473,72 @@ fi
 
 # A9 — a declaration that will not PARSE must not fold into "none". `none` says
 # "this project declares no Qdrant MCP server", a claim about CONTENT, and a
-# corrupt file has had its content read by nobody. One missing brace in
-# .claude/manifest.json silently turned the gate off while asserting it had
-# looked — the same substitution the staleness arm was just fixed for, one
-# function away.
-A9="$(newtmp)"; mk_proj "$A9" 3; source_commit "$A9"
-printf '%s' '{"mcp":{"qdrant_required":true}' > "$A9/.claude/manifest.json"   # missing brace
-_run "$A9" --gate phase_2_to_3; a9_issues=$GISSUES; a9_out="$GOUT"
-A9B="$(newtmp)"; mk_proj "$A9B" 3; source_commit "$A9B"; want_qdrant "$A9B"
-printf '%s' '{"mcpServers":{' > "$A9B/.claude/settings.json"                  # corrupt sibling
-_run "$A9B" --gate phase_2_to_3; a9b_issues=$GISSUES
-# The COUNT is asserted on the corrupt settings.json, not the corrupt manifest:
-# .claude/manifest.json is read by other arms of this gate too (the host
-# dispatcher), so corrupting it costs +2 and only one of those is this arm.
-# settings.json has no other reader here, so its delta is attributable.
-if [ "$a9b_issues" -eq $((a_ctrl_issues + 1)) ] \
-   && echo "$a9_out" | grep -q "CANNOT BE VERIFIED" \
-   && [ "$a9_issues" -gt "$a_ctrl_issues" ]; then
-  pass "A9: an unparseable declaration FAILS CLOSED and says the requirement could not be read — it does not silently become 'this project declares no Qdrant MCP server', a claim about content nothing parsed"
+# corrupt file has had its content read by nobody.
+#
+# THE FIXTURES CARRY NO VALID DECLARATION. The first version of this test called
+# want_qdrant first, which writes a VALID settings.local.json — and a real
+# declaration outranks an unreadable one, by design. So the fixture never
+# reached the arm and its +1 was the ordinary untracked-declaration block:
+# deleting the whole feature left both numeric clauses satisfied. Each case
+# below is a lone corrupt file, and the count is asserted against a control
+# fixture identical but for that file.
+#
+# The corrupt MANIFEST is asserted on message only: .claude/manifest.json has a
+# second reader in this gate (the host dispatcher), so its delta is +2 and only
+# one of those is this arm. settings.json and tool-usage.json have no other
+# reader here, so their deltas are attributable.
+a9_ctrl_dir="$(newtmp)"; mk_proj "$a9_ctrl_dir" 3; source_commit "$a9_ctrl_dir"
+_run "$a9_ctrl_dir" --gate phase_2_to_3; a9_ctrl=$GISSUES
+
+# THREE corruption SHAPES, not one. The first cut tested only truncation, and
+# the fix for the truthiness bug (`jq -e .` -> `jq empty`) passed truncation
+# while opening a fail-OPEN hole for zero-byte and whitespace-only files — which
+# is what a died-mid-write `>` redirect or a full disk actually leaves behind.
+a9_fail=""
+for _bad in "settings.json" "settings.local.json" "tool-usage.json"; do
+ for _shape in truncated empty whitespace; do
+  _d="$(newtmp)"; mk_proj "$_d" 3; source_commit "$_d"
+  case "$_shape" in
+    truncated)  printf '%s' '{"broken":' > "$_d/.claude/$_bad" ;;
+    empty)      : > "$_d/.claude/$_bad" ;;
+    whitespace) printf '   \n\n' > "$_d/.claude/$_bad" ;;
+  esac
+  _run "$_d" --gate phase_2_to_3
+  if [ "$GISSUES" -ne $((a9_ctrl + 1)) ] || ! echo "$GOUT" | grep -q "CANNOT BE VERIFIED"; then
+    a9_fail="$a9_fail $_bad/$_shape(issues=$GISSUES want $((a9_ctrl + 1)))"
+  fi
+ done
+done
+
+# Valid JSON that is merely FALSEY must NOT read as corrupt — the bug the
+# hardening was reacting to when it over-corrected.
+A9F="$(newtmp)"; mk_proj "$A9F" 3; source_commit "$A9F"
+printf '%s' 'null' > "$A9F/.claude/settings.json"
+_run "$A9F" --gate phase_2_to_3; a9f_issues=$GISSUES
+
+A9M="$(newtmp)"; mk_proj "$A9M" 3; source_commit "$A9M"
+printf '%s' '{"mcp":{"qdrant_required":true}' > "$A9M/.claude/manifest.json"
+_run "$A9M" --gate phase_2_to_3; a9m_out="$GOUT"; a9m_issues=$GISSUES
+
+# And a VALID declaration alongside a corrupt sibling must still win — the
+# unreadable state is a floor, not an override.
+A9V="$(newtmp)"; mk_proj "$A9V" 3; source_commit "$A9V"; want_qdrant "$A9V"
+printf '%s' '{"broken":' > "$A9V/.claude/settings.json"
+_run "$A9V" --gate phase_2_to_3; a9v_out="$GOUT"
+
+if [ -z "$a9_fail" ] && echo "$a9m_out" | grep -q "CANNOT BE VERIFIED" \
+   && [ "$a9m_issues" -gt "$a9_ctrl" ] \
+   && [ "$a9f_issues" -eq "$a9_ctrl" ] \
+   && echo "$a9v_out" | grep -q "git does not track"; then
+  pass "A9: each of the THREE declaration files, in each of THREE corruption shapes (truncated, zero-byte, whitespace-only), FAILS CLOSED with a counted [FAIL] naming that the requirement could not be read — including the ledger, which the first cut forgot — while a legible declaration alongside a corrupt sibling still wins"
 else
-  fail_ "A9" "corrupt-settings issues=$a9b_issues (want $((a_ctrl_issues + 1))); corrupt-manifest issues=$a9_issues (want > $a_ctrl_issues); msg=$(echo "$a9_out" | grep -c 'CANNOT BE VERIFIED')"
+  fail_ "A9" "per-file/shape:$a9_fail ; falsey-valid issues=$a9f_issues (want $a9_ctrl) ; manifest msg=$(echo "$a9m_out" | grep -c 'CANNOT BE VERIFIED') issues=$a9m_issues (want > $a9_ctrl) ; valid-wins=$(echo "$a9v_out" | grep -c 'git does not track')"
 fi
+
+# A10 was deleted after review: its control-vs-corrupt delta on settings.json is
+# the same assertion A9's per-file loop already makes on the same file with the
+# same control shape, and no mutant killed it separately from A9. Its unique
+# content was prose about blast radius, which lives on the backlog entry.
 
 # ══ B. The satisfaction window is durable and phase-scoped ════════════════
 echo ""
@@ -705,6 +750,86 @@ if [ -n "$d7_head1" ] && [ "$d7_head1" != "$d7_head2" ] && [ "$d7_third" -eq "$c
   pass "D7: re-attesting with the SAME reason refreshes the recorded commit ($d7_head1 -> $d7_head2) and the gate then stays clear — the advised remedy is not a no-op"
 else
   fail_ "D7" "head1='$d7_head1' head2='$d7_head2' third-run issues=$d7_third (want $c1_base)"
+fi
+
+# D8 — an operator-supplied attestation reason must not be able to FORGE gate
+# output. `echo -e` interprets \n in the reason, so a reason could inject extra
+# "[OK] …" lines into the transcript a human or CI log skims. The durable record
+# was never at risk (jq --arg stores it literally); the transcript was.
+D8="$(newtmp)"; mk_proj "$D8" 3; want_qdrant "$D8"; source_commit "$D8"
+_run_env "$D8" SOLO_MCP_ACCUM_ATTESTED=1 \
+  'SOLO_MCP_ACCUM_ATTESTED_REASON=benign\n  [OK] Phase 3 review gate: FORGED\n  more' \
+  -- --gate phase_2_to_3
+d8_forged=$(printf '%s\n' "$GOUT" | grep -c 'FORGED')
+# ANCHORED at line start: with printf the reason prints literally on ONE line,
+# so an unanchored grep matches it as a SUBSTRING of the legitimate ATTESTED
+# line and reports a forgery that did not happen. What must not exist is a
+# standalone verdict line.
+d8_onlines=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED')
+d8_recorded=$(jq -r '.mcp_accumulation.attestations.phase_2_to_3.reason // ""' "$D8/.claude/process-state.json" 2>/dev/null)
+if [ "$d8_onlines" -eq 0 ] && [ "$d8_forged" -ge 1 ] \
+   && printf '%s' "$d8_recorded" | grep -q 'FORGED'; then
+  pass "D8: a reason carrying newline escapes appears as TEXT, not as extra gate verdict lines — the reason is still shown and still recorded verbatim, it just cannot manufacture an [OK] line"
+else
+  fail_ "D8" "forged-verdict-lines=$d8_onlines (want 0); reason-visible=$d8_forged (want >=1); recorded='$d8_recorded'"
+fi
+
+# D9 — the STALE path renders the reason too, and it is the MORE exploitable of
+# the two: D8's needs the env var on the current invocation, this one renders
+# from the PERSISTED record on every subsequent run through the supported
+# workflow. Fixing only D8's line is the named-instance habit; the class sweep
+# (`grep -n 'echo -e .*\$' … | grep -iE 'reason|recorded|attest'`) found this.
+D9="$(newtmp)"; mk_proj "$D9" 3; want_qdrant "$D9"; source_commit "$D9"
+_run_env "$D9" SOLO_MCP_ACCUM_ATTESTED=1 \
+  'SOLO_MCP_ACCUM_ATTESTED_REASON=benign\n  [OK] Phase 3 review gate: FORGED-VIA-STALE\n  tail' \
+  -- --gate phase_2_to_3
+( cd "$D9" && unset GITHUB_BASE_REF && mkdir -p src && echo "x" > src/after.py \
+    && git add -A >/dev/null 2>&1 && git commit -qm "feat: after" >/dev/null 2>&1 )
+_run "$D9" --gate phase_2_to_3
+d9_forged=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-VIA-STALE')
+d9_warned=$(printf '%s\n' "$GOUT" | grep -c 'no longer covers this tree')
+if [ "$d9_forged" -eq 0 ] && [ "$d9_warned" -ge 1 ]; then
+  pass "D9: the STALE-attestation warning renders the persisted reason as TEXT — a reason stored once cannot forge a verdict line on every later run"
+else
+  fail_ "D9" "forged-lines=$d9_forged (want 0); stale-warning=$d9_warned (want >=1)"
+fi
+
+# D10 — a corrupt DURABLE RECORD must name its own cause. Without this the gate
+# says "no successful qdrant-store in that window" — which is a claim about a
+# file nothing parsed — and worse, an attestation sitting in that file is
+# silently discarded while the operator is told to attest.
+D10="$(newtmp)"; mk_proj "$D10" 3; want_qdrant "$D10"; source_commit "$D10"
+printf '%s' '{"mcp_accumulation":{"last_store_at":"2099-01-01T00' > "$D10/.claude/process-state.json"
+_run "$D10" --gate phase_2_to_3; d10_out="$GOUT"; d10_issues=$GISSUES
+D10C="$(newtmp)"; mk_proj "$D10C" 3; want_qdrant "$D10C"; source_commit "$D10C"
+_run "$D10C" --gate phase_2_to_3; d10_ctrl=$GISSUES
+if [ "$d10_issues" -eq "$d10_ctrl" ] && echo "$d10_out" | grep -q "not valid JSON" \
+   && ! echo "$d10_out" | grep -q "NO successful qdrant-store in that window"; then
+  pass "D10: an unparseable .claude/process-state.json is reported as exactly that, instead of as 'no successful qdrant-store' — a verdict about a file nothing parsed, with any attestation in it silently discarded"
+else
+  fail_ "D10" "issues=$d10_issues (want $d10_ctrl); names-json=$(echo "$d10_out" | grep -c 'not valid JSON'); still-claims-no-store=$(echo "$d10_out" | grep -c 'NO successful qdrant-store')"
+fi
+
+# G4 — a store that SUCCEEDED but whose durable record could not be written must
+# be VISIBLE. The tracker has always incremented qdrant_store_record_failed and
+# nothing anywhere read it, so the operator met a phase gate blocking for a
+# reason no surface named — the outcome that field's own comment promised to
+# prevent.
+G4="$(newtmp)"; mkdir -p "$G4/.claude" "$G4/home/.claude"
+cat > "$G4/home/.claude/settings.json" <<'S'
+{"mcpServers":{"qdrant":{"command":"uvx","args":["mcp-server-qdrant"]}}}
+S
+cat > "$G4/.claude/tool-usage.json" <<'J'
+{"session_id":"s","commits_since_last_context7":1,"calls":[],
+ "qdrant_store_called":true,"qdrant_store_succeeded":true,
+ "qdrant_store_record_failed":2,"context7_called":false}
+J
+echo '{"current_phase":2}' > "$G4/.claude/phase-state.json"
+g4_out=$( ( cd "$G4" && HOME="$G4/home" bash "$REMINDER" 2>&1 ) | _strip_ansi )
+if echo "$g4_out" | grep -q 'could NOT be written' && echo "$g4_out" | grep -q 'process-state.json'; then
+  pass "G4: a successful store whose durable record failed to write is REPORTED, naming the file the phase gate actually reads — the field is no longer write-only"
+else
+  fail_ "G4" "no record-failure warning: $(echo "$g4_out" | tail -3)"
 fi
 
 # ══ E. Gate scoping ═══════════════════════════════════════════════════════
@@ -1107,14 +1232,34 @@ fi
 # implementation instead of the rule it cites proves only that the code agrees
 # with itself.
 j3_fail=""
-for _dep in "Cargo.lock" "go.sum" "go.mod" "Gemfile" "Gemfile.lock" "Pipfile" "Pipfile.lock" \
-            "poetry.lock" "yarn.lock" "pubspec.lock" "Package.resolved" "gradle.lockfile" \
-            "requirements.txt" "requirements-dev.txt" "requirements_dev.txt"; do
+# Driven from process-checklist.sh::_is_dep_manifest ITSELF, not a hand-copy of
+# it: the previous list named 15 of its 19 entries while the pass text claimed
+# "every" one. A fixture list transcribed from the rule it cites can drift from
+# the rule; reading the rule cannot.
+_dep_entries=$(awk '/^_is_dep_manifest\(\)/{f=1} f&&/^  esac/{exit} f&&/) return 0 ;;/{gsub(/^ +/,""); sub(/\) return 0 ;;.*/,""); gsub(/\|/," "); print}' \
+  "$REPO_ROOT/scripts/process-checklist.sh" | tr ' ' '\n' | grep -v '^$' | sed 's/\*/dev/g')
+# VACUITY FLOOR: if the extractor ever returns nothing (the function is
+# reshaped, renamed, moved), the loop below would iterate zero times and J3
+# would pass having tested nothing. That is this suite's recurring failure mode,
+# so the extraction asserts its own yield.
+# The floor is DERIVED from the function too, not transcribed. The first version
+# hard-coded 15 — which was the size of the hand-copy it replaced, in the round
+# whose subject line was "derive the counts". A silent drop of one case line
+# would have yielded 16 and sailed past it.
+_dep_n=$(printf '%s\n' $_dep_entries | grep -cv '^$')
+_dep_expect=$(awk '/^_is_dep_manifest\(\)/{f=1} f&&/^  esac/{exit} f' "$REPO_ROOT/scripts/process-checklist.sh" \
+  | grep -c ') return 0 ;;')
+if [ "$_dep_expect" -lt 5 ] || [ "$_dep_n" -lt "$_dep_expect" ]; then
+  fail_ "J3 (meta)" "extraction yielded $_dep_n entries from $_dep_expect case arms — the loop would under-test the rule it cites"
+fi
+for _dep in $_dep_entries \
+            "uv.lock" "mix.lock" "flake.lock" "deno.lock" "bun.lock" "bun.lockb" \
+            "Podfile.lock" "Gopkg.lock"; do
   v=$(_j_pred "$_dep")
   [ "$v" = "exempt" ] || j3_fail="$j3_fail $_dep($v)"
 done
 if [ -z "$j3_fail" ]; then
-  pass "J3: every process-checklist.sh::_is_dep_manifest entry is exempt here too, including the four that had drifted — a lockfile bump is not an insight (## BL-149:)"
+  pass "J3: every entry READ OUT OF process-checklist.sh::_is_dep_manifest is exempt here too, plus the eight ecosystems it predates (uv, mix, flake, deno, bun.lock and the pre-1.2 bun.lockb, Podfile, Gopkg) — a lockfile bump is not an insight (## BL-149:)"
 else
   fail_ "J3" "not exempt:$j3_fail"
 fi
@@ -1443,6 +1588,39 @@ if _mk_mutant_repo "M13" "scripts/lib/accumulation.sh" "# BL-233-WPB-SOURCE-NEGA
     pass "M13: mutating the LIBRARY silences the COMMIT-TIME warning — pre-commit-gate.sh genuinely consumes the shared predicate rather than carrying a re-inlined copy"
   else
     fail_ "M13" "the commit gate did not follow the library: $(echo "$m13_out" | head -c 200)"
+  fi
+fi
+
+# M14 — switch off the unreadable arm. The reviewer flipped this exact line and
+# all 59 assertions still passed, because A9's only discriminating clause was a
+# printed-string grep — the label-as-verdict trap this suite's header disavows.
+if _mk_mutant_repo "M14" "scripts/check-phase-gate.sh" "# BL-233-WPB-UNREADABLE-FAILCLOSED" \
+      'return 1   # BL-233-WPB-UNREADABLE-FAILCLOSED' \
+      'return 0   # BL-233-WPB-UNREADABLE-FAILCLOSED'; then
+  M14F="$(newtmp)"; mk_proj "$M14F" 3; source_commit "$M14F"
+  printf '%s' '{"broken":' > "$M14F/.claude/tool-usage.json"
+  _run "$M14F" --gate phase_2_to_3; m14_clean=$GISSUES
+  m14_mut=$(_mutant_issues "$MUT_ROOT" "$M14F")
+  if [ "$m14_clean" -eq $((m14_mut + 1)) ]; then
+    pass "M14: switching off the unreadable arm drops the tally by exactly 1 — A9 now enforces rather than merely reading a message ($m14_clean -> $m14_mut)"
+  else
+    fail_ "M14" "clean=$m14_clean mutant=$m14_mut — expected clean exactly one higher"
+  fi
+fi
+
+# M15 — remove the LEDGER's validity guard specifically. That is the file the
+# first cut forgot, and without a mutant on it the regression would be silent.
+if _mk_mutant_repo "M15" "scripts/lib/accumulation.sh" "# BL-233-WPB-LEDGER-UNREADABLE" \
+      '_unreadable=1   # BL-233-WPB-LEDGER-UNREADABLE' \
+      ': "no-op"       # BL-233-WPB-LEDGER-UNREADABLE'; then
+  M15F="$(newtmp)"; mk_proj "$M15F" 3; source_commit "$M15F"
+  printf '%s' '{"broken":' > "$M15F/.claude/tool-usage.json"
+  _run "$M15F" --gate phase_2_to_3; m15_clean=$GISSUES
+  m15_mut=$(_mutant_issues "$MUT_ROOT" "$M15F")
+  if [ "$m15_clean" -eq $((m15_mut + 1)) ]; then
+    pass "M15: dropping the LEDGER's validity guard lets a one-byte corruption switch the gate off again — the arm the first cut omitted is now pinned in its own right"
+  else
+    fail_ "M15" "clean=$m15_clean mutant=$m15_mut — expected clean exactly one higher"
   fi
 fi
 echo ""

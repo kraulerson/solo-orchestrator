@@ -66,6 +66,16 @@ if [ -f "$TOOL_USAGE" ] && command -v jq &>/dev/null; then
   echo ""
   echo "TOOL USAGE THIS SESSION: Context7: $CTX7_COUNT calls | Qdrant-find: $QDRANT_FIND_COUNT calls | Qdrant-store: $QDRANT_STORE_COUNT calls"
 
+  # A store that SUCCEEDED but whose DURABLE record could not be written. The
+  # tracker increments this and, until now, nothing read it anywhere in the
+  # repo — so its own comment, promising the operator would not "face a phase
+  # gate that blocks for no visible reason", was unearned. This is that surface.
+  STORE_RECORD_FAILED=$(jq -r '.qdrant_store_record_failed // 0' "$TOOL_USAGE" 2>/dev/null || echo 0)
+  case "$STORE_RECORD_FAILED" in ''|*[!0-9]*) STORE_RECORD_FAILED=0 ;; esac
+  if [ "$STORE_RECORD_FAILED" -gt 0 ]; then
+    echo "  WARNING: $STORE_RECORD_FAILED successful qdrant-store(s) could NOT be written to .claude/process-state.json. The phase gate reads THAT record, not this session's ledger, so it will block as though nothing was stored. Make the file writable and store again."   # BL-233-WPB-RECORD-FAILED-VISIBLE
+  fi
+
   # Report the failed round trips rather than omitting them. An absent failure
   # is indistinguishable from an idle session, and that ambiguity is what let a
   # dead Qdrant look healthy for weeks (`## BL-231:`).

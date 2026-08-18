@@ -1522,7 +1522,11 @@ if [ "$IS_COMMIT" = true ] && [ "$SOIF_ACCUM_LIB_LOADED" = "1" ] \
         ACC_PREV=$(jq -r --arg k "$ACC_PREV_KEY" '.gates[$k] // ""' "$PHASE_STATE" 2>/dev/null || printf '')
         [ "$ACC_PREV" = "null" ] && ACC_PREV=""
         ACC_LAST=""
-        if [ -f ".claude/process-state.json" ]; then
+        # Guarded, same as the phase gate: an unparseable record must not read
+        # as "nothing stored". Here it stays a WARNING either way, so the
+        # consequence is only a misleading nudge — but the two surfaces must
+        # answer the same question the same way.
+        if [ -f ".claude/process-state.json" ] && accum_json_readable ".claude/process-state.json"; then
           ACC_LAST=$(jq -r '.mcp_accumulation.last_store_at // ""' ".claude/process-state.json" 2>/dev/null || printf '')
           [ "$ACC_LAST" = "null" ] && ACC_LAST=""
         fi

@@ -605,9 +605,27 @@ _cpg_record_reviewer_attestation() {
 # from the durable record that scripts/track-tool-usage.sh writes. A missing
 # object reads as "" (no stores): a missing key defaulting RESTRICTIVE, which is
 # the inverse of `## BL-221:`.
+# _cpg_accum_record_unreadable — does the durable record exist but not parse?
+#
+# A SEPARATE PREDICATE, not a flag set inside _cpg_accum_last_store. That was the
+# first attempt and it could not work: the caller reads that function through a
+# COMMAND SUBSTITUTION, which is a subshell, so any global it assigns dies with
+# it. Same subshell class that hid a meta-failure in this feature's own mutation
+# harness earlier in this work.
+_cpg_accum_record_unreadable() {
+  [ -f ".claude/process-state.json" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  if _accum_json_ok ".claude/process-state.json"; then return 1; fi
+  return 0   # BL-233-WPB-RECORD-UNREADABLE
+}
+
 _cpg_accum_last_store() {
   local v
   if [ ! -f ".claude/process-state.json" ] || ! command -v jq >/dev/null 2>&1; then
+    printf ''
+    return 0
+  fi
+  if ! _accum_json_ok ".claude/process-state.json"; then
     printf ''
     return 0
   fi
@@ -772,6 +790,14 @@ _cpg_record_accum_attestation() {
   # operator did exactly what it advised, `head` was never refreshed, and the
   # next run blocked again. Escaping required inventing a NEW reason string —
   # an incentive to write junk reasons, which is the shape `## BL-149:` deletes.
+  # An unparseable record is refused HERE, with the reason named. Reaching this
+  # function with a corrupt file already failed closed — the jq write below
+  # errors and the caller refuses — but the message then said only "could not be
+  # recorded", which does not tell the operator that the file itself is the
+  # problem. Closing the sweep's last real hit.
+  if [ -f "$file" ] && ! _accum_json_ok "$file"; then
+    return 2
+  fi
   if [ -f "$file" ]; then
     cur=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].reason // ""' "$file" 2>/dev/null || printf '')
     cur_head=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].head // ""' "$file" 2>/dev/null || printf '')
@@ -896,7 +922,8 @@ _cpg_check_accumulation() {
   # it cannot be recorded. An escape that leaves no trace is the advisory
   # posture `## BL-233:` exists to replace.
   reason=""
-  if [ -f ".claude/process-state.json" ] && command -v jq >/dev/null 2>&1; then
+  if [ -f ".claude/process-state.json" ] && command -v jq >/dev/null 2>&1 \
+     && _accum_json_ok ".claude/process-state.json"; then
     # `// ""` already collapses null, so no "null" guard follows — it could not fire.
     recorded=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].reason // ""' ".claude/process-state.json" 2>/dev/null || printf '')
     recorded_head=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].head // ""' ".claude/process-state.json" 2>/dev/null || printf '')
@@ -905,7 +932,15 @@ _cpg_check_accumulation() {
     # the operator attests again, or stores something. Without this one attested
     # run permanently disabled the boundary for the rest of the phase.
     if [ -n "$recorded" ] && _cpg_accum_source_since "$recorded_head"; then
-      echo -e "${YELLOW}[WARN]${NC} $label accumulation: the attestation on record (\"$recorded\") no longer covers this tree — ${_ACCUM_STALE_REASON}. Re-attest, or store what changed."   # BL-233-WPB-ATTEST-STALE
+      # printf for the REASON, same as the ATTESTED line below. This one is the
+      # MORE exploitable of the two: that one needs the env var on the current
+      # invocation, this renders from the PERSISTED record on every subsequent
+      # run, through the fully supported workflow. Found by sweeping the class
+      # (`grep -n 'echo -e .*\$' | grep -iE 'reason|recorded|attest'`) after
+      # fixing only the named instance — which is the recurring failure here.
+      printf '%b[WARN]%b %s accumulation: the attestation on record ("' "${YELLOW}" "${NC}" "$label"
+      printf '%s' "$recorded"
+      printf '") no longer covers this tree — %s. Re-attest, or store what changed.\n' "${_ACCUM_STALE_REASON}"   # BL-233-WPB-ATTEST-STALE
       recorded=""
     fi
     reason="$recorded"
@@ -920,7 +955,14 @@ _cpg_check_accumulation() {
 
   if [ -n "$reason" ]; then
     if _cpg_record_accum_attestation "$gate_key" "$reason"; then
-      echo -e "${GREEN}  [OK]${NC} $label accumulation: ATTESTED (reason: $reason) — recorded to .claude/process-state.json, not silenced."
+      # printf %s for the REASON, not echo -e. The reason is operator-supplied,
+      # and `echo -e` interprets \n in it — so an attestation reason could forge
+      # additional "[OK] …" lines into the gate transcript a human or a CI log
+      # skims. The durable record was never at risk (jq --arg stores it
+      # literally); the transcript was.
+      printf '%b  [OK]%b %s accumulation: ATTESTED (reason: ' "${GREEN}" "${NC}" "$label"
+      printf '%s' "$reason"
+      printf ') — recorded to .claude/process-state.json, not silenced.\n'
       return 0
     fi
     echo -e "${RED}[FAIL]${NC} $label accumulation: an attestation was supplied but COULD NOT BE RECORDED to .claude/process-state.json — refusing it."
@@ -928,6 +970,13 @@ _cpg_check_accumulation() {
     return 1   # BL-233-WPB-ATTEST-REFUSE
   fi
 
+  if _cpg_accum_record_unreadable; then
+    # Say which cause. Without this the operator is told to store or attest when
+    # the real problem is a corrupt record — and any attestation already on
+    # record has been silently discarded, so the advice names the wrong thing.
+    echo -e "${RED}[FAIL]${NC} $label accumulation: BLOCKED — .claude/process-state.json exists but is not valid JSON, so neither a store nor an attestation could be read from it. Fix that file first; re-storing or re-attesting will not help until it parses."
+    return 1
+  fi
   echo -e "${RED}[FAIL]${NC} $label accumulation: BLOCKED — source commits since ${prev:-project start}, and NO successful qdrant-store in that window."
   echo "        A retrieval requirement with no accumulation requirement is a ratchet with nothing behind it (## BL-233:)."
   echo "        Store what this phase decided (qdrant-store), then re-run — or attest:"
