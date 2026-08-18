@@ -10404,16 +10404,15 @@ mechanism intact.
 **Status:** Open — **WP-A landed** on `feat/bl233-mcp-enforcement`; **WP-B (the
 storing half) landed 2026-08-17** on `feat/bl233-wpb-accumulation`, closing item
 6. Open for the three WP-A residuals below (1-3; residual 4 is now fixed) plus
-the two WP-B residuals recorded with it.
+the WP-B residuals recorded with it.
 
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — **59 assertions, 13 mutants**, both
+`tests/test-bl233-wpb-accumulation.sh` — **65 assertions, 15 mutants**, both
 derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
 than transcribed, because this entry has now carried a wrong count in three
-consecutive revisions. Measured against the base tree `7b94e4b`: **3 passed /
-59 failed**, and the three are NAMED rather than rounded to zero — A8, H2 and
+consecutive revisions. Measured against the base tree `7b94e4b`: **3 passed / 65 failed**, and the three are NAMED rather than rounded to zero — A8, H2 and
 H4 assert absences (no bash error; never denies; a store inside the window
 produces no warning) which a tree with no accumulation gate also satisfies.
 They are regression guards, not discriminators.
@@ -10494,7 +10493,17 @@ a store satisfying "since `phase_2_to_3`" necessarily satisfies "since
 rest. With `-ge`, one missing store would have counted as three inconsistencies
 and printed the same sentence three times.
 
-**WP-B residuals — two, both real, neither blocking.**
+**WP-B residuals — 9, all real, none blocking.** (This header read "two" while
+enumerating seven: it was written at two and never updated as items were
+added, including by the commit whose own subject was "derive the counts
+instead of transcribing them". The first correction of it said 15, because the
+derivation ran past the section into the WP-A list — a derived number is only
+as good as its boundary. Both halves, checked:
+```
+awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
+  solo-orchestrator-backlog.md | grep -cE '^[0-9]+\. (\*\*|~~)'
+```
+)
 1. **Plugin-provided MCP servers are still invisible**, now on a second surface.
    WP-A residual 2 records that `session-test-gate-check.sh` classifies by NAME
    from `.mcpServers`; the WP-B derivation reads the same key in the project
@@ -10535,7 +10544,19 @@ and printed the same sentence three times.
    corrected, and it was also a host-dependence bug sitting inside the suite
    written to pin host-dependence. It burst the `unit-shard` 12-minute cap and
    cancelled CI before it was found.
-7. **Every successful store now DIRTIES A TRACKED FILE.**
+7. **The `unreadable` arm is the ONE blocking arm with no attested escape** —
+   it returns before the attestation block, so `SOLO_MCP_ACCUM_ATTESTED=1`
+   cannot clear it. Recorded as a decision rather than inherited: fixing the
+   JSON *is* an honest escape, and it is the only one that resolves the actual
+   problem, so `## BL-149:` is satisfied without an env-var bypass. If that ever
+   proves wrong the fix is to move the arm below the attestation block.
+8. **The same `echo -e` forging surface survives in BL-073's reviewer
+   attestation** (`check-phase-gate.sh` ~2656 and ~2730), which renders
+   `$cpg_attest_reason` and can forge `[OK]` verdict lines exactly as the
+   accumulation arms could before this work. Left deliberately: pre-existing,
+   out of this entry's scope, and it needs its own mutation proofs. Filed here
+   so the asymmetry is recorded rather than discovered.
+9. **Every successful store now DIRTIES A TRACKED FILE.**
    `.claude/process-state.json` is tracked here and in generated projects
    (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
    session leaves a modified file that a later `git add -A` sweeps into an
