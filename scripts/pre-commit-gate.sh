@@ -1496,9 +1496,13 @@ if [ "$IS_COMMIT" = true ] && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null
       # Here-strings, not `echo | grep -q`: under `set -o pipefail` that
       # pipeline returns 141 on a MATCH once the payload is big enough
       # (`## BL-238:`), and here a spurious 141 would silently drop the warning.
-      if grep -qE '\.(py|ts|tsx|js|jsx|rs|go|cs|kt|java|dart|swift|c|cpp|h)$' <<< "$ACC_STAGED"; then
-        ACC_HAS_SOURCE=true
-      elif grep -qE '^(src|lib|app|pkg|internal|cmd)/' <<< "$ACC_STAGED"; then
+      # Same negation the phase gate uses, so this warning predicts the gate it
+      # warns about. An extension ALLOW-LIST here would go quiet for Ruby, PHP,
+      # shell, Vue, Elixir, SQL and Scala projects — exactly the stacks whose
+      # phase gate would then block without warning. (The staged list has no
+      # blank-line separator, unlike `git log --name-only`, but the `^$` arm is
+      # kept so both predicates read identically.)
+      if grep -qvE '^$|\.(md|json|yml|yaml|toml|tmpl)$|(^|/)(Pipfile|Gemfile|Cargo\.lock|go\.(mod|sum)|poetry\.lock|yarn\.lock|Package\.resolved|gradle\.lockfile|requirements(-[^/]*)?\.txt)$' <<< "$ACC_STAGED"; then
         ACC_HAS_SOURCE=true
       fi
 

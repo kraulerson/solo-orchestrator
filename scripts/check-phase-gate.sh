@@ -556,48 +556,80 @@ _cpg_record_reviewer_attestation() {
 # The phase boundary is where accumulation is genuinely owed, because it is the
 # boundary the memory is supposed to carry across.
 
-# _cpg_accum_required — does THIS PROJECT require memory accumulation?
+# WHERE THE REQUIREMENT COMES FROM — the decision most likely to be re-litigated.
 #
-# THE SCOPE IN THE LOOP IS LOAD-BEARING AND IS DELIBERATELY NARROWER THAN
-# session-test-gate-check.sh's. That hook reads four settings files, two of them
-# under $HOME. Reading $HOME here would make a phase gate's verdict depend on
-# whose machine ran it: measured on this tree, ZERO of the 29 suites that drive
-# this script at current_phase >= 2 redirect HOME, so a host-derived answer
-# passes on a developer box with Qdrant configured and fails on a runner without
-# it. That is `## BL-234:`'s class — a silent local-vs-CI divergence — and A5/M3
-# in tests/test-bl233-wpb-accumulation.sh pin the narrow scope in both
-# directions.
+# Reading it from .claude/tool-usage.json is the obvious answer and is wrong
+# twice: the ledger is untracked runtime scratch that `startup` wipes, so
+# deleting it would switch a blocking gate off (`## BL-231:`); and of the 61
+# suites that name check-phase-gate.sh under tests/, 29 drive it at
+# current_phase >= 2 across 74 fixture-creation sites and NOT ONE writes a
+# ledger, so a ledger-derived requirement would have forced 74 fixture edits to
+# say nothing.
 #
-# The project-scope files are the better source anyway: init.sh writes
-# .claude/settings.local.json carrying the mcpServers.qdrant entry, the
-# generated .gitignore ignores only .claude/cache/, and the scaffolder's
-# `git add -A` commits it. The declaration is therefore COMMITTED and travels
-# with the repo — unlike .claude/tool-usage.json, which is runtime scratch that
-# a `startup` wipes. Reading the ledger ALONE would have reintroduced
-# `## BL-231:`'s "tracking file absent => no enforcement, silently" row inside a
-# blocking gate, and would have forced 74 fixture edits across 29 suites to say
-# nothing.
+# The first fix for that read .claude/settings.local.json instead, on the
+# reasoning that init.sh writes it and `git add -A` commits it. THAT WAS ALSO
+# WRONG, and worse, because it looked committed: Claude Code adds
+# settings.local.json to the user's GLOBAL git excludes by design, so the
+# requirement was invisible in every fresh clone and the gate blocked on the
+# author's machine while printing NOT CHECKED on CI. The lesson is not "use a
+# different file" — it is that TRACKEDNESS IS A QUESTION FOR GIT, not an
+# inference from an ignore file you happened to read. _cpg_file_tracked asks it.
 #
-# The ledger is still consulted as an OR arm, for the one case the project file
-# misses: a project initialised without Qdrant that adopted it later.
-# Callers MUST have established that jq is present (see the fail-closed arm in
-# _cpg_check_accumulation). There is deliberately no jq guard here: a guard that
-# returned "not required" on a missing jq would report a PROJECT FACT it never
-# checked, and an arm that cannot be reached is the `## BL-104:` shape.
-_cpg_accum_required() {
-  local _f
+# $HOME is still never read, for the original reason: zero of those 29 fixtures
+# redirect HOME, so a host-derived verdict passes on a developer box with Qdrant
+# configured and fails on a runner without it — `## BL-234:`'s class. A5 and
+# mutant M3 pin the project-only scope in both directions.
+
+# _cpg_file_tracked <path> — does git actually track this file? This is ASKED,
+# never assumed. The first cut of this gate reasoned "init.sh writes
+# .claude/settings.local.json, the generated .gitignore covers only
+# .claude/cache/, and `git add -A` commits it" — and all three clauses were
+# false. Claude Code adds settings.local.json to the user's GLOBAL git excludes
+# by design (it is personal configuration), and templates/generated/gitignore-base.tmpl
+# — which generate_gitignore COPIES before appending — already ignores
+# .claude/tool-usage.json. Both arms were therefore absent from every fresh
+# clone, and the gate reported NOT CHECKED on CI while blocking on the author's
+# machine: BL-231's silent-non-enforcement row, rebuilt inside the gate meant to
+# end it. Asking git is the only answer that cannot rot when an ignore rule
+# changes somewhere else.
+_cpg_file_tracked() {
+  git ls-files --error-unmatch -- "$1" >/dev/null 2>&1   # BL-233-WPB-TRACKED
+}
+
+# _cpg_accum_requirement_state — echoes one of:
+#   tracked   — a declaration git TRACKS says Qdrant is required (survives a clone)
+#   untracked — only an UNTRACKED file says so (true here, invisible on CI)
+#   none      — nothing declares it
+#
+# Three states, not a boolean, because "required" and "required everywhere" are
+# different facts and conflating them is what produced the defect above.
+# Scope stays PROJECT-only — never $HOME — for the reason given on the loop
+# below (`BL-233-WPB-SCOPE`): zero of the 29 suites driving this script at current_phase >= 2 redirect
+# HOME, so a host-derived verdict passes on a developer box and fails on a
+# runner (## BL-234:).
+_cpg_accum_requirement_state() {
+  local _f _tracked_hit=0 _untracked_hit=0
+  # .claude/manifest.json is the TRACKED declaration init.sh writes for exactly
+  # this purpose; it is not covered by the generated .gitignore.
+  if [ -f ".claude/manifest.json" ] && \
+     [ "$(jq -r '.mcp.qdrant_required // false' ".claude/manifest.json" 2>/dev/null)" = "true" ]; then
+    if _cpg_file_tracked ".claude/manifest.json"; then _tracked_hit=1; else _untracked_hit=1; fi
+  fi
   for _f in ".claude/settings.local.json" ".claude/settings.json"; do   # BL-233-WPB-SCOPE
     [ -f "$_f" ] || continue
     if jq -e '(.mcpServers // {}) | (has("qdrant") or has("mcp-server-qdrant"))' "$_f" >/dev/null 2>&1; then
-      return 0
+      if _cpg_file_tracked "$_f"; then _tracked_hit=1; else _untracked_hit=1; fi
     fi
   done
   if [ -f ".claude/tool-usage.json" ]; then
     if [ "$(jq -r '.mcp_requirements.qdrant_required // false' ".claude/tool-usage.json" 2>/dev/null)" = "true" ]; then
-      return 0
+      if _cpg_file_tracked ".claude/tool-usage.json"; then _tracked_hit=1; else _untracked_hit=1; fi
     fi
   fi
-  return 1
+  if [ "$_tracked_hit" -eq 1 ]; then printf 'tracked'; return 0; fi
+  if [ "$_untracked_hit" -eq 1 ]; then printf 'untracked'; return 0; fi
+  printf 'none'
+  return 0
 }
 
 # _cpg_accum_last_store — ISO timestamp of the last SUCCESSFUL qdrant-store,
@@ -631,10 +663,22 @@ _cpg_accum_after() {
   if [ -z "$gate" ]; then return 0; fi
   a="${ts:0:10}";   a="${a//-/}"
   b="${gate:0:10}"; b="${b//-/}"
+  # Only $a is guarded: $b is get_gate_date output, which that function already
+  # regex-validates to YYYY-MM-DD or "" — and "" returned above. A guard here
+  # could not fire, and an arm that cannot fire is the `## BL-104:` shape.
   case "$a" in ''|*[!0-9]*) return 1 ;; esac
-  case "$b" in ''|*[!0-9]*) return 0 ;; esac
   [ "$a" -ge "$b" ]
 }
+
+# ONE exempt set, shared by both source-work classifiers and mirrored from this
+# repo's own docs-only rule (process-checklist.sh's
+# `\.(md|json|yml|yaml|toml|tmpl)$` plus _is_dep_manifest). Two copies would
+# drift, and a drifted classifier is how the allow-list version of this check
+# silently exempted Ruby, PHP, shell, Vue, Elixir, SQL and Scala.
+# The `^$` alternative is load-bearing: `git log --name-only --pretty=format:`
+# emits a BLANK LINE between commits, and a blank line matches no extension —
+# without excluding it every window would look like source work.
+_ACCUM_EXEMPT_RE='^$|\.(md|json|yml|yaml|toml|tmpl)$|(^|/)(Pipfile|Gemfile|Cargo\.lock|go\.(mod|sum)|poetry\.lock|yarn\.lock|Package\.resolved|gradle\.lockfile|requirements(-[^/]*)?\.txt)$'   # BL-233-WPB-EXEMPT-SET
 
 # _cpg_accum_source_work <since_date> — did this phase produce SOURCE commits?
 #
@@ -663,37 +707,79 @@ _cpg_accum_source_work() {
   else
     paths=$(git log --name-only --pretty=format: 2>/dev/null) || return 0
   fi
-  if grep -qE '\.(py|ts|tsx|js|jsx|rs|go|cs|kt|java|dart|swift|c|cpp|h)$' <<< "$paths"; then
-    return 0
-  fi
-  if grep -qE '^(src|lib|app|pkg|internal|cmd)/' <<< "$paths"; then
+  # SOURCE IS DEFINED BY NEGATION, matching this repo's own docs-only classifier
+  # (process-checklist.sh's `\.(md|json|yml|yaml|toml|tmpl)$` plus _is_dep_manifest).
+  # The first cut used an extension ALLOW-LIST lifted from pre-commit-gate.sh's
+  # HAS_SOURCE check — ~14 extensions — and a Ruby, PHP, shell, Vue, Elixir, SQL
+  # or Scala project therefore sailed through this gate AND was told
+  # "no source commits since <date>", an affirmative claim about the project
+  # that was false. That is the same substitution the jq arm above was rewritten
+  # to avoid. In its original home the allow-list only gated a WARNING; reusing
+  # it in a BLOCKING position is what made the gap consequential.
+  #
+  # Over-eager is the correct direction here: a commit touching only .gitignore
+  # now counts as source work, which asks for a memory store that may not be
+  # owed. Under-eager silently voids the gate, which is the defect being fixed.
+  #
+  # The `^$` alternative is load-bearing: `git log --name-only --pretty=format:`
+  # emits a BLANK LINE between commits, and a blank line matches no extension —
+  # without excluding it, every window would look like source work.
+  if grep -qvE "$_ACCUM_EXEMPT_RE" <<< "$paths"; then   # BL-233-WPB-SOURCE-NEGATION
     return 0
   fi
   return 1   # BL-233-WPB-SOURCEWORK
 }
 
+# _cpg_accum_source_since <sha> — source work committed after <sha>?
+# Same classifier as _cpg_accum_source_work, over a commit RANGE instead of a
+# date. Returns 1 (no source work) when it CANNOT tell, and that permissive
+# direction is correct ONLY here: this decides whether an attestation already on
+# record has gone stale, and inventing staleness would re-block work the
+# operator legitimately excused.
+_cpg_accum_source_since() {
+  local sha="$1" paths
+  if [ -z "$sha" ]; then return 1; fi
+  if ! command -v git >/dev/null 2>&1; then return 1; fi
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then return 1; fi
+  if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then return 1; fi
+  paths=$(git log "${sha}..HEAD" --name-only --pretty=format: 2>/dev/null) || return 1
+  if grep -qvE "$_ACCUM_EXEMPT_RE" <<< "$paths"; then
+    return 0
+  fi
+  return 1
+}
+
 # _cpg_record_accum_attestation <gate_key> <reason>
 #   0 — recorded (or idempotent no-op: already recorded with the same reason)
 #   2 — could not write (jq unavailable, lock timeout, unwritable state, jq error)
-# Same atomic-finalize shape as _cpg_record_gate_date and
-# _cpg_record_reviewer_attestation, and the same lock, because all three write
-# .claude/process-state.json and must exclude one another.
+# Same atomic-finalize shape as _cpg_record_gate_date, and the same lock as
+# _cpg_record_reviewer_attestation — which is the ONE other locked writer of
+# .claude/process-state.json. (_cpg_record_gate_date writes phase-state.json
+# under its own lock; an earlier draft of this comment claimed all three shared
+# a lock, which was false.) Note that pre-commit-gate.sh's tdd_record_attestation
+# and check-gate.sh's protection repair both read-modify-write this same file
+# WITHOUT a lock, so exclusion here is partial; a lost update drops
+# last_store_at, which blocks rather than passes.
 _cpg_record_accum_attestation() {
   local gate_key="$1" reason="$2"
   local file=".claude/process-state.json"
-  local today actor lock_dir attempts rc cur
+  local today actor lock_dir attempts rc cur _att_head
 
   if ! command -v jq >/dev/null 2>&1; then return 2; fi
 
   if [ -f "$file" ]; then
     cur=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].reason // ""' "$file" 2>/dev/null || printf '')
     if [ "$cur" = "$reason" ]; then return 0; fi
-  else
-    echo '{}' > "$file" 2>/dev/null || return 2
   fi
 
   today=$(date +%Y-%m-%d)
   actor=$(_cpg_gate_actor)
+  # The commit this attestation EXCUSED. An escape that never expires is a
+  # permanent bypass: without it, one attested run would excuse every future
+  # source commit in the phase. BL-072's TDD attestation is scoped per commit
+  # and session-mcp-gate.sh's must be re-exported per session; this is the
+  # phase-gate equivalent.
+  _att_head=$(git rev-parse HEAD 2>/dev/null || printf '')
   lock_dir="$file.lockdir"
   attempts=0
   while ! mkdir "$lock_dir" 2>/dev/null; do
@@ -702,13 +788,19 @@ _cpg_record_accum_attestation() {
     sleep 0.1
   done
 
+  # Created INSIDE the lock. The tracker's writer already did this; this one
+  # created it outside, so a concurrent writer could observe a half-built file.
+  if [ ! -f "$file" ]; then
+    echo '{}' > "$file" 2>/dev/null || { rmdir "$lock_dir" 2>/dev/null; return 2; }
+  fi
+
   rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
     trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
-    if jq --arg g "$gate_key" --arg reason "$reason" --arg date "$today" --arg by "$actor" \
+    if jq --arg g "$gate_key" --arg reason "$reason" --arg date "$today" --arg by "$actor" --arg head "$_att_head" \
           '.mcp_accumulation = ((.mcp_accumulation // {})
-             | .attestations = ((.attestations // {}) + {($g): {reason: $reason, date: $date, by: $by}}))' \
+             | .attestations = ((.attestations // {}) + {($g): {reason: $reason, date: $date, by: $by, head: $head}}))' \
           "$file" > "$tmp" 2>/dev/null; then
       mv "$tmp" "$file" || exit 1
       trap - EXIT INT TERM
@@ -736,7 +828,8 @@ _cpg_record_accum_attestation() {
 # outside this pair decides either one.
 _cpg_check_accumulation() {
   local gate_key="$1" prev="$2" label="$3"
-  local last reason recorded
+  local last reason recorded recorded_head
+  local _accum_state
 
   # FAIL CLOSED on a missing jq, rather than reporting a project fact that was
   # never read. This is the `degradation` row of `## BL-233:`'s own table —
@@ -749,15 +842,26 @@ _cpg_check_accumulation() {
     return 1   # BL-233-WPB-JQ-FAILCLOSED
   fi
 
-  if ! _cpg_accum_required; then
+  _accum_state=$(_cpg_accum_requirement_state)
+  if [ "$_accum_state" = "none" ]; then
     # [NOTE], deliberately NOT [NEXT]. In this file [NEXT] means "belongs to a
     # later gate and is not counted against this one", and
     # tests/test-bl166-gate-scope.sh asserts it appears ONLY as the 3→4 scoping
     # line — a bare run or `--gate phase_3_to_4` emitting any other [NEXT] is a
     # BL-166 regression. This line means something different: the check did not
     # apply here.
-    echo -e "${BLUE}  [NOTE]${NC} $label accumulation: NOT CHECKED — this project declares no Qdrant MCP server (no mcpServers.qdrant in .claude/settings.local.json or .claude/settings.json, and no qdrant_required in .claude/tool-usage.json). Nothing is owed here, and nothing was verified."
+    echo -e "${BLUE}  [NOTE]${NC} $label accumulation: NOT CHECKED — this project declares no Qdrant MCP server that git tracks (.claude/manifest.json has no .mcp.qdrant_required, and no tracked .claude/settings*.json names mcpServers.qdrant). Nothing is owed here, and nothing was verified."
+    echo "        If this project DOES use Qdrant, record it where a clone can see it:"
+    echo "          jq '.mcp.qdrant_required = true' .claude/manifest.json"
     return 0
+  fi
+  if [ "$_accum_state" = "untracked" ]; then
+    # Enforce, but say plainly that the enforcement is local-only. Blocking here
+    # would fail every project that predates the manifest field; staying silent
+    # would repeat the defect. The operator is told exactly how to make it
+    # survive a clone.
+    echo -e "${YELLOW}[WARN]${NC} $label accumulation: the Qdrant requirement is declared ONLY in a file git does not track (.claude/settings.local.json is in Claude Code's global excludes; .claude/tool-usage.json is in the generated .gitignore). Enforcing it HERE, but a fresh clone or CI runner will not see it."
+    echo "        Make it durable: jq '.mcp.qdrant_required = true' .claude/manifest.json   (and commit it)"
   fi
 
   last=$(_cpg_accum_last_store)
@@ -767,7 +871,7 @@ _cpg_check_accumulation() {
   fi
 
   if ! _cpg_accum_source_work "$prev"; then
-    echo -e "${GREEN}  [OK]${NC} $label accumulation: nothing owed — no source commits since ${prev:-project start}."
+    echo -e "${GREEN}  [OK]${NC} $label accumulation: nothing owed — every change since ${prev:-project start} was documentation, config or a dependency manifest."
     return 0
   fi
 
@@ -776,8 +880,18 @@ _cpg_check_accumulation() {
   # posture `## BL-233:` exists to replace.
   reason=""
   if [ -f ".claude/process-state.json" ] && command -v jq >/dev/null 2>&1; then
+    # `// ""` already collapses null, so no "null" guard follows — it could not fire.
     recorded=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].reason // ""' ".claude/process-state.json" 2>/dev/null || printf '')
-    if [ "$recorded" != "null" ]; then reason="$recorded"; fi
+    recorded_head=$(jq -r --arg g "$gate_key" '.mcp_accumulation.attestations[$g].head // ""' ".claude/process-state.json" 2>/dev/null || printf '')
+    # An attestation excuses the work it was written for, NOT everything that
+    # follows it. If source work landed after the commit it named, it is STALE:
+    # the operator attests again, or stores something. Without this one attested
+    # run permanently disabled the boundary for the rest of the phase.
+    if [ -n "$recorded" ] && [ -n "$recorded_head" ] && _cpg_accum_source_since "$recorded_head"; then
+      echo -e "${YELLOW}[WARN]${NC} $label accumulation: the attestation on record (\"$recorded\") named commit ${recorded_head}, and source work has landed since. It does not excuse that work."   # BL-233-WPB-ATTEST-STALE
+      recorded=""
+    fi
+    reason="$recorded"
   fi
   if [ "${SOLO_MCP_ACCUM_ATTESTED:-}" = "1" ] && [ -n "${SOLO_MCP_ACCUM_ATTESTED_REASON:-}" ]; then
     reason="$SOLO_MCP_ACCUM_ATTESTED_REASON"
@@ -1850,6 +1964,15 @@ fi
 # the latest gate's window is the strictest and subsumes the earlier ones.
 # Firing all three would count ONE missing store as THREE inconsistencies and
 # print the same sentence three times.
+#
+# THE NESTING ARGUMENT COVERS THE STORE HALF ONLY, and the difference is a real
+# limit rather than a proof: `_cpg_accum_source_work` is evaluated over the
+# NARROW window too, so an earlier phase's unpaid debt is not re-litigated once
+# that boundary is behind you. A phase-2 project that committed source and
+# stored nothing blocks at 1→2; advance it to phase 3 and the 2→3 arm reports
+# "nothing owed" if phase 3 itself committed only docs. Running
+# `--gate phase_1_to_2` still finds it. This is deliberate — a passed gate is
+# passed — but it is a limit, not something the nesting claim establishes.
 #
 # phase_0_to_1 has no arm: Phase 0 is pre-code discovery, it writes no source,
 # and the conditional would never fire anyway — an arm that cannot fire is the

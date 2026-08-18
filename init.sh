@@ -2335,6 +2335,25 @@ TUEOF
 }
 QDEOF
       print_ok "Qdrant MCP configured with project-specific collection: $PROJECT_NAME"
+
+      # BL-233-WPB-MANIFEST-DECL: record the requirement where a CLONE can see it.
+      # settings.local.json above cannot carry this: Claude Code adds that file
+      # to the user's global git excludes by design, so it never leaves this
+      # machine. check-phase-gate.sh's accumulation gate asks git whether the
+      # declaring file is tracked, and .claude/manifest.json is the one that is.
+      # Without this line the gate is correct here and inert on CI.
+      if [ -f .claude/manifest.json ]; then
+        if jq '.mcp = ((.mcp // {}) | .qdrant_required = true)' .claude/manifest.json \
+             > .claude/manifest.json.tmp 2>/dev/null; then
+          mv .claude/manifest.json.tmp .claude/manifest.json
+          print_ok "Qdrant accumulation requirement recorded in .claude/manifest.json (survives a clone)"
+        else
+          rm -f .claude/manifest.json.tmp
+          print_warn "Could not record mcp.qdrant_required in .claude/manifest.json — the phase-gate accumulation check will not fire in a fresh clone until it is added."
+        fi
+      else
+        print_warn "No .claude/manifest.json to record mcp.qdrant_required in — the phase-gate accumulation check will not fire in a fresh clone until it is added."
+      fi
     fi
   fi
 
