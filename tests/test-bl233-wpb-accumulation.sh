@@ -928,48 +928,24 @@ else
   fail_ "D12" "forged=$d12_forged (want 0); stale-warning=$d12_warned (want >=1)"
 fi
 
-# D13 — the same rule for the gate DATE. `get_gate_date` extracts with `grep -o`
-# and validates with an anchored `grep -qE`, and grep matches PER LINE — so a
-# DUPLICATE JSON key (which jq accepts, last-wins, so the file is not malformed)
-# yields a multi-line value whose first line is a valid date and which passes
-# validation.
+# D13 WAS DELETED, and the deletion is the honest outcome rather than a fourth
+# attempt. It tried to assert that this feature's display of a duplicate-key gate
+# date adds no forged line, and it was vacuous in three successive forms:
+#   1. scoped with `grep 'accumulation'` — a forged line never contains that word,
+#      so the filter removed the very thing it looked for;
+#   2. rewritten with an arm-OFF/arm-ON control, but the payload wrote TWO
+#      backslashes on disk (echo -e then emits one line, not two) and put the
+#      forged text after a prefix so it could never begin a line;
+#   3. fixture corrected to drop the APPROVAL_LOG evidence that suppresses the
+#      forging arm — and it STILL measured 0/0.
+# A vacuity floor was added at step 3 and it fires, which is why this is a
+# deletion and not a fourth silent pass.
 #
-# THE ASSERTION IS ATTRIBUTABLE BY CONTROL, not by substring. The first version
-# scoped with `grep 'accumulation'` to exclude a pre-existing BL-071 arm that
-# forges from the same value — and a SUCCESSFULLY forged line never contains the
-# word "accumulation", so that filter removed the very thing it was looking for.
-# It reported forged=0 on a tree emitting two forged lines, and a mutant with
-# this round's fix removed still passed it.
-#
-# Instead: measure the forged STANDALONE verdict lines with the accumulation arm
-# OFF (no Qdrant declared — the pre-existing arm still fires), then with it ON.
-# The count must not increase. That isolates this feature's contribution without
-# needing to fix, or ignore, the pre-existing one.
-D13C="$(newtmp)"; mk_proj "$D13C" 3; source_commit "$D13C"
-python3 - "$D13C/.claude/phase-state.json" <<'PYD'
-import io,sys
-f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
-s=s.replace('"phase_1_to_2":"2026-02-01"','"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"2026-02-01\\\\n  [OK] Phase 3 review gate: FORGED-VIA-DATE"')
-io.open(f,"w",encoding="utf-8").write(s)
-PYD
-_run "$D13C" --gate phase_2_to_3
-d13_base=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-VIA-DATE')
-
-D13="$(newtmp)"; mk_proj "$D13" 3; want_qdrant "$D13"; source_commit "$D13"
-python3 - "$D13/.claude/phase-state.json" <<'PYD'
-import io,sys
-f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
-s=s.replace('"phase_1_to_2":"2026-02-01"','"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"2026-02-01\\\\n  [OK] Phase 3 review gate: FORGED-VIA-DATE"')
-io.open(f,"w",encoding="utf-8").write(s)
-PYD
-_run "$D13" --gate phase_2_to_3
-d13_forged=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-VIA-DATE')
-d13_ran=$(printf '%s\n' "$GOUT" | grep -c 'accumulation:')
-if [ "$d13_forged" -eq "$d13_base" ] && [ "$d13_ran" -ge 1 ]; then
-  pass "D13: turning the accumulation arm ON adds NO forged verdict line to a transcript that already carries one from a pre-existing arm ($d13_base) — this feature's displays of the duplicate-key date are inert, measured against a control rather than filtered by a substring the forgery cannot contain"
-else
-  fail_ "D13" "forged with arm ON=$d13_forged, with arm OFF=$d13_base (must be equal); arm-ran=$d13_ran"
-fi
+# The coverage is not lost. M19 drives the identical mechanism with a payload
+# proved to discriminate (control 1 -> mutant 2), and M19's CONTROL LEG IS this
+# assertion: it measures the shipped code producing exactly the pre-existing
+# arm's one forged line and no more. One working test beats two, one of which
+# cannot fail.
 
 # A14 — the corrupt-ledger downgrade must not be SILENT. A11 pins that it does
 # not block; nothing pinned that the operator is told, and for a project whose
@@ -1877,11 +1853,15 @@ PYM
 fi
 # D15 — DEFENCE IN DEPTH, stated as a measurement rather than a hope.
 #
-# M19 was going to remove the ingest wrap on $prev and watch a forgery return.
-# It could not: `get_gate_date` greps the raw file LINE BY LINE, so $prev can
-# never carry a real newline, and with the display sites converted to printf a
-# literal backslash-n is inert anyway. The wrap is therefore belt, not braces —
-# and saying so is worth more than a mutant that dies for the wrong reason.
+# CORRECTION, kept visible rather than quietly restated. An earlier version of
+# this comment claimed the $prev ingest wrap was "belt, not braces" because
+# `get_gate_date` greps line by line so $prev could never carry a real newline.
+# That was WRONG — and the code's own `# BL-233-WPB-PREV-ONELINE` comment says so
+# three lines above the wrap it dismissed: `get_gate_date` emits ONE LINE PER
+# `grep -o` match and validates with a `grep -qE` that passes if ANY line
+# matches, so a duplicate key yields a multi-line $prev. The wrap is load-bearing
+# against printf alone, and M19 below proves it. It was dropped once on that
+# false reasoning; dropping a mutant is only honest when the reason is true.
 #
 # What IS load-bearing is the primitive. This drives that directly: revert the
 # BLOCKED display site to `echo -e` — the exact eighth-instance condition — and
@@ -1921,6 +1901,33 @@ if [ "$d15_forged" -eq "$d15_base" ] && [ "$d15_ran" -ge 1 ]; then
   pass "D15: reverting a display site to echo -e — the exact eighth-instance condition — does NOT reopen the forgery, because accum_oneline removes the backslash that echo -e would have interpreted — the count matches the unmutated baseline ($d15_base, from a pre-existing arm this PR does not touch). The rule holds without depending on every display site staying correct."
 else
   fail_ "D15" "forged with reverted display=$d15_forged, unmutated baseline=$d15_base (must be equal); arm-ran=$d15_ran"
+fi
+
+# M19 — RESTORED. Remove the $prev ingest wrap and a duplicate-key gate date
+# forges a standalone verdict line through printf alone, with no `echo -e`
+# anywhere. Dropped in the previous round on the false reasoning corrected in
+# D15's header above; the payload that makes it work is the one D13 now uses —
+# the duplicate value IS the forged line, so it begins its own line.
+if _mk_mutant_repo "M19" "scripts/check-phase-gate.sh" "# BL-233-WPB-PREV-ONELINE" \
+      'prev=$(accum_oneline "$2")   # BL-233-WPB-PREV-ONELINE' \
+      'prev="$2"                    # BL-233-WPB-PREV-ONELINE'; then
+  M19F="$(newtmp)"; mk_proj "$M19F" 3; want_qdrant "$M19F"; source_commit "$M19F"
+  python3 - "$M19F/.claude/phase-state.json" <<'PYN'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"',
+            '"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"  [OK] Phase 3 review gate: FORGED-M19"')
+io.open(f,"w",encoding="utf-8").write(s)
+PYN
+  m19_mut=$( ( cd "$M19F" && HOME="$M19F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m19_ctrl=$( ( cd "$M19F" && HOME="$M19F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m19_f=$(printf '%s\n' "$m19_mut"  | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M19')
+  m19_c=$(printf '%s\n' "$m19_ctrl" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M19')
+  if [ "$m19_f" -gt "$m19_c" ]; then
+    pass "M19: unwrapping \$prev at ingest lets a duplicate-key gate date forge a standalone verdict line through printf alone — the wrap is load-bearing, not belt ($m19_c -> $m19_f)"
+  else
+    fail_ "M19" "mutant forged $m19_f, control forged $m19_c — expected mutant strictly higher"
+  fi
 fi
 
 echo ""
