@@ -12111,6 +12111,124 @@ shape, one layer down), `## BL-096:` (the entry that added this installer),
 
 ---
 
+## BL-241: a test asserted against a clock it read twice — `wp7`'s R2 was ~20% red under load, on `main`, for a reason no branch caused
+
+**Logged:** 2026-08-19. Surfaced while `## BL-233:` WP-B was in review: it FAILED
+PR #360's `unit-shard (rest)` leg (run `32197466528` — `Failed:
+tests/test-delta-wp7-cut-release.sh`, the sole red of 160 files), which reds the
+required `unit` check.
+
+**Do not confuse this with the CANCELLATION in the same PR.** An earlier run
+(`32176753395`) had that same leg CANCELLED at the shard's ~12-minute cap with
+nothing failing in it — a separate, real problem with its own cause and its own
+fix. This entry's first draft welded the two together, which would have sent a
+later reader looking for a causal link that does not exist, and could have left
+the cap issue looking solved by this change. A failing assertion cannot cancel a
+job.
+**Category:** Flaky test — an assertion that re-derives a second-resolution
+timestamp instead of reading the one the fixture persisted
+**Severity:** Medium. Nothing is wrong with the product. It fails a REQUIRED
+check (`unit`) at random, so it blocks unrelated PRs and trains people to
+re-run CI rather than read it — which is how a real failure gets waved through.
+**Status:** Open — fix shipped on `fix/bl241-wp7-r2-timestamp-race`; status
+stays Open until merge, when the Closed flip cites PR# + SHA (the convention
+the sibling entries follow).
+
+### The mechanism
+
+`tests/test-delta-wp7-cut-release.sh` R2 asserts that the open-retro refusal
+names three things: the delta id, its `due_by`, and how overdue it is. The
+fixture bakes one stamp into state at setup:
+
+```
+_s_open_retro "$P"   ->  open_retro DELTA-007 2  ->  due_by = $(stamp_ago 2)
+```
+
+and the assertion re-derived a FRESH one and glob-matched it:
+
+```
+case "$CUT_OUT" in *"$(stamp_ago 2)"*) : ;; *) r2_named=n ;; esac
+```
+
+`stamp_ago` emits `%Y-%m-%dT%H:%M:%SZ` — SECOND resolution. R2 therefore passed
+only when setup and assertion landed in the same wall-clock second, and the work
+between them (a `mk_proj`, a `tag_at`, and a full `cut-release.sh` run) is
+exactly the kind of thing that straddles a second boundary under load. R2's own
+pass message already claimed the value came "from WP5's `delta_retro_rows` and
+**not re-derived here**". It was re-derived here; the code now matches the claim.
+
+### Why it was mis-diagnosed first, which is the more useful half
+
+The initial reading was `## BL-238:`'s SIGPIPE-under-pipefail class, because the
+captured output looked TRUNCATED (`Output was: Cutting a release`). It is not
+truncated — the message is complete, `rc=4` is correct, and `id` and `2 day`
+both match; only the `due_by` substring misses by one second, and the failure
+text simply prints the head of a long line. There is no `grep -q` anywhere on
+the R2 path. **A symptom that looks like a known class is not evidence of that
+class**, and the giveaway was available without instrumentation: the assertion
+calls a clock.
+
+### Evidence it is not any branch's fault
+
+- Blob identity `main` vs PR #360's head for every file the path executes
+  (`tests/test-delta-wp7-cut-release.sh`, `cut-release.sh`, `check-maintenance.sh`,
+  `process-checklist.sh`, `lib/delta-cadence.sh`) — IDENTICAL.
+- An execution recorder prepended to every script PR #360 touches (derived with
+  `git diff --name-only`, not counted by hand) fired for NONE of them on the R2
+  path. The first draft said "six"; the derivation returns seven shell scripts.
+  The conclusion is unchanged, but `CLAUDE.md` records this exact
+  hand-transcription error from BL-234/PR #351 ("said six, named seven, derived
+  eight"), so the number is now derived or absent.
+- Red rates under 6-way parallel load with 8 CPU burners: base 12/60, head
+  12/60. Equal. ~7% unloaded.
+
+### The fix, and the proof it is not merely quieter
+
+Read `due_by` back out of `.claude/delta-state.json` instead of re-deriving it,
+and refuse if the fixture has no value to read. Proved DETERMINISTICALLY rather
+than statistically — a `sleep 1` inserted between setup and assertion forces the
+boundary the flake needs:
+
+| tree | forced boundary | result |
+|---|---|---|
+| before fix | yes | **36 passed / 1 failed** (R2 red — the CI failure, reproduced) |
+| after fix | yes | 37 passed / 0 failed |
+| after fix | no | 37 passed / 0 failed |
+| after fix | 12 runs, 4-parallel, 6 CPU burners | 12 runs, **0 red** |
+
+And it still DISCRIMINATES. Four independent product mutations of
+`cut-release.sh`'s render line each put R2 back to **36/1**: removing the due
+date, replacing it with a well-formed but WRONG one, changing the id, and
+changing the day count. The second is the one that matters — R2 catches a wrong
+due date, not merely a missing one. The `''|null` guard is load-bearing too:
+drift the jq key with the guard present and R2 goes red; delete the guard and
+the same drift makes `*""*` match anything and R2 passes asserting NOTHING.
+
+**What the readback stops pinning, recorded rather than left silent.** The old
+form implicitly pinned two things: that the product echoes the state's `due_by`,
+AND that the fixture helper `open_retro N` writes a stamp exactly N days old.
+The readback pins only the first. That is the right trade — the second is a
+FIXTURE self-property, not a product property, and it was being enforced by a
+mechanism that was 10-20% false-red — and gross drift is still bounded by the
+surviving `*"2 day"*` check. But it is a real reduction in coverage and is
+written down here so it is a decision rather than an accident.
+
+**The class is nearly swept, not swept.** A sweep of all 230 files under
+`tests/` found ZERO remaining second-resolution instances of this shape. Two
+DAY-resolution siblings survive: `P1` in this same file (`today_utc` read after
+the product has already written its own date) and three cases in
+`tests/test-check-phase-gate-date-writeback.sh` (`TODAY=$(date +%Y-%m-%d)`
+captured at file load). Both misfire only across a UTC-midnight crossing —
+order 1e-5 per run against the 0.10-0.20 fixed here — so they are deliberately
+not fixed, and are recorded so the class is on the record rather than
+rediscovered.
+
+**Related:** `## BL-238:` (the class this was wrongly attributed to),
+`## BL-222:` (a check that measures a proxy for the thing), `## BL-233:` (the
+work whose PR this was blocking).
+
+---
+
 ## BL-240: `workflow.html`'s "Verified against the tree on YYYY-MM-DD" stamp has no mechanism — and a staleness check is a lint that can red without a defect
 
 **Logged:** 2026-08-17 (split out of `## BL-230:` deliberately, at Karl's
