@@ -459,7 +459,24 @@ P="$RT/retro-msg"; mk_proj "$P"; tag_at "$P" "v1.2.0"; _s_open_retro "$P"
 run_cut "$REPO_ROOT/scripts" "$P"
 r2_named=y
 case "$CUT_OUT" in *DELTA-007*) : ;; *) r2_named=n ;; esac
-case "$CUT_OUT" in *"$(stamp_ago 2)"*) : ;; *) r2_named=n ;; esac
+# READ due_by BACK OUT OF THE FIXTURE, never re-derive it here.
+#
+# This line used to be `case "$CUT_OUT" in *"$(stamp_ago 2)"*)`. stamp_ago emits
+# SECOND resolution (%Y-%m-%dT%H:%M:%SZ), the fixture baked one stamp at setup,
+# and this re-derived a FRESH one at assert time — so R2 passed only when setup
+# and assertion landed in the same wall-clock second. Measured ~20% red under
+# parallel load, ~7% unloaded, on `main` as well as on any branch; it cancelled
+# a `unit-shard (rest)` leg on PR #360, where it is unrelated to that change.
+# The pass message below already claimed the value was "not re-derived here" —
+# it was, and this makes the code match the claim.
+#
+# This stops pinning one thing the old form pinned by accident: that
+# `open_retro N` writes a stamp exactly N days old. That is a FIXTURE
+# self-property, not a product property, and `*"2 day"*` below still bounds
+# the value to the right day — so the trade is deliberate, not an oversight.
+r2_due=$(jq -r '.hotfix_retros[0].due_by // ""' "$P/.claude/delta-state.json" 2>/dev/null)
+case "$r2_due" in ''|null) r2_named=n ;; esac
+case "$CUT_OUT" in *"$r2_due"*) : ;; *) r2_named=n ;; esac
 case "$CUT_OUT" in *"2 day"*) : ;; *) r2_named=n ;; esac
 if [ "$r2_named" = y ] && [ "$CUT_RC" -eq 4 ]; then
   pass "R2: the open-retro refusal (rc $CUT_RC) names the delta, its due_by and how overdue it is — §9.2's three things, from WP5's delta_retro_rows and not re-derived here"
