@@ -856,7 +856,7 @@ _cpg_record_accum_attestation() {
 # outside this pair decides either one.
 _cpg_check_accumulation() {
   local gate_key="$1" prev="$2" label="$3"
-  local last reason recorded recorded_head
+  local last reason recorded recorded_head _accum_bad
   local _accum_state
 
   # FAIL CLOSED on a missing jq, rather than reporting a project fact that was
@@ -893,8 +893,14 @@ _cpg_check_accumulation() {
     # FAIL CLOSED. A declaration that will not parse has been read by nobody, so
     # reporting "this project declares no Qdrant MCP server" would assert a fact
     # about content nothing examined.
-    echo -e "${RED}[FAIL]${NC} $label accumulation: CANNOT BE VERIFIED — a declaration file exists but is not valid JSON (.claude/manifest.json or .claude/settings*.json), so the requirement could not be read."
-    echo "        Fix the JSON, then re-run. Passing silently here would report a project fact that was never parsed."
+    # NAME THE FILE. The first version listed the two files it might have been,
+    # and an operator whose ledger was corrupt was sent to inspect a manifest and
+    # a settings file that were both healthy — which makes "fixing the JSON is
+    # the honest escape" untrue, since it does not say which JSON.
+    _accum_bad=$(accum_unreadable_path)
+    printf '%b[FAIL]%b %s accumulation: CANNOT BE VERIFIED — a declaration file exists but is not valid JSON: ' "${RED}" "${NC}" "$label"
+    printf '%s' "$(accum_oneline "${_accum_bad:-<unknown>}")"
+    printf '\n        Fix that file, then re-run. Passing silently here would report a project fact that was never parsed.\n'
     return 1   # BL-233-WPB-UNREADABLE-FAILCLOSED
   fi
 
@@ -909,7 +915,22 @@ _cpg_check_accumulation() {
 
   last=$(_cpg_accum_last_store)
   if _cpg_accum_after "$last" "$prev"; then
-    echo -e "${GREEN}  [OK]${NC} $label accumulation: satisfied — last successful qdrant-store $last (window opens ${prev:-project start})."
+    # printf for $last: it is a PERSISTED value (jq out of process-state.json),
+    # so `echo -e` renders \n in it as real newlines and a stored timestamp can
+    # forge "[OK] …" verdict lines on every run. Found on the SIXTH recurrence of
+    # this class, three lines from the arm fixed for it — because the sweep that
+    # was supposed to close the class grepped for the WORDS `reason|recorded|
+    # attest`, which is an instance search wearing a sweep's clothes. $last
+    # carries none of those words.
+    #
+    # THE SWEEP THAT FINDS THIS ONE IS BY PROVENANCE, NOT KEYWORD: every `echo -e`
+    # whose argument interpolates a value that came out of jq, a file, or the
+    # environment. Under that rule the feature has exactly two ($last here,
+    # ACC_PREV in pre-commit-gate.sh) and both are fixed; $label is a code
+    # constant and $prev is regex-validated by get_gate_date.
+    printf '%b  [OK]%b %s accumulation: satisfied — last successful qdrant-store ' "${GREEN}" "${NC}" "$label"
+    printf '%s' "$(accum_oneline "$last")"
+    printf ' (window opens %s).\n' "${prev:-project start}"
     return 0
   fi
 
@@ -939,7 +960,7 @@ _cpg_check_accumulation() {
       # (`grep -n 'echo -e .*\$' | grep -iE 'reason|recorded|attest'`) after
       # fixing only the named instance — which is the recurring failure here.
       printf '%b[WARN]%b %s accumulation: the attestation on record ("' "${YELLOW}" "${NC}" "$label"
-      printf '%s' "$recorded"
+      printf '%s' "$(accum_oneline "$recorded")"
       printf '") no longer covers this tree — %s. Re-attest, or store what changed.\n' "${_ACCUM_STALE_REASON}"   # BL-233-WPB-ATTEST-STALE
       recorded=""
     fi
@@ -961,7 +982,7 @@ _cpg_check_accumulation() {
       # skims. The durable record was never at risk (jq --arg stores it
       # literally); the transcript was.
       printf '%b  [OK]%b %s accumulation: ATTESTED (reason: ' "${GREEN}" "${NC}" "$label"
-      printf '%s' "$reason"
+      printf '%s' "$(accum_oneline "$reason")"
       printf ') — recorded to .claude/process-state.json, not silenced.\n'
       return 0
     fi

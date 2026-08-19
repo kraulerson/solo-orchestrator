@@ -1521,6 +1521,18 @@ if [ "$IS_COMMIT" = true ] && [ "$SOIF_ACCUM_LIB_LOADED" = "1" ] \
       if [ "$ACC_HAS_SOURCE" = true ]; then
         ACC_PREV=$(jq -r --arg k "$ACC_PREV_KEY" '.gates[$k] // ""' "$PHASE_STATE" 2>/dev/null || printf '')
         [ "$ACC_PREV" = "null" ] && ACC_PREV=""
+        # VALIDATE before it reaches the warning text. This value is spliced into
+        # WARNINGS, which is emitted through a hand-rolled `sed 's/"/\\"/g'` JSON
+        # envelope — and a backslash or control character in it makes the whole
+        # hook envelope unparseable, so the warning is silently discarded. The
+        # phase gate validates the same field (get_gate_date's YYYY-MM-DD regex);
+        # this surface did not. Same rule, same place, both sides.
+        #
+        # This repo's own tracker comment names the antipattern: hand-escaping
+        # for a LIST of characters "is a list, not the control CLASS".
+        if ! printf '%s' "$ACC_PREV" | grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'; then
+          ACC_PREV=""
+        fi
         ACC_LAST=""
         # Guarded, same as the phase gate: an unparseable record must not read
         # as "nothing stored". Here it stays a WARNING either way, so the

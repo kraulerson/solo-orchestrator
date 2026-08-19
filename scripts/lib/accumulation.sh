@@ -101,7 +101,43 @@ accum_json_readable() {
 }
 
 _accum_json_ok() {
-  jq -e 'true' "$1" >/dev/null 2>&1
+  jq -e 'true' "$1" >/dev/null 2>&1 || return 1
+  # EXACTLY ONE document. `jq -e 'true'` reports the LAST output's status, so a
+  # file written twice (`>>` instead of `>` — the same accident class as the
+  # zero-byte case) parses fine and then makes `jq -r '.mcp.qdrant_required'`
+  # emit "true\ntrue", which fails a `= "true"` compare and reads as NO
+  # declaration. That is a fail-OPEN on a file that WAS parsed and mis-read.
+  [ "$(jq -s 'length' "$1" 2>/dev/null)" = "1" ]
+}
+
+# accum_oneline <value> — render a persisted or operator-supplied value as ONE
+# line of display text.
+#
+# `printf '%s'` alone is NOT enough, and D11 is why. It defeats a value carrying
+# the two-character sequence `\n`, which is what an env var supplies — but a
+# value that reaches the record through jq carries a REAL newline, and printf
+# reproduces it faithfully, forging a verdict line just the same. The class is
+# "a stored value reaches the transcript", and the defence has to strip the
+# control characters, not merely avoid interpreting them.
+#
+# LC_ALL=C because `tr` rejects invalid multibyte sequences in a UTF-8 locale
+# and exits 1 — and this value is arbitrary bytes out of a file.
+accum_oneline() {
+  printf '%s' "$1" | LC_ALL=C tr -d '\000-\037'   # BL-233-WPB-ONELINE
+}
+
+# accum_unreadable_path — WHICH declaration file will not parse. A separate
+# derivation rather than state set inside accum_requirement_state, because that
+# function is read through a command substitution (a subshell) and any global it
+# assigned would die with it — the trap this feature already fell into once.
+accum_unreadable_path() {
+  local _f
+  command -v jq >/dev/null 2>&1 || return 0
+  for _f in ".claude/manifest.json" ".claude/settings.local.json" ".claude/settings.json"; do
+    [ -f "$_f" ] || continue
+    if ! _accum_json_ok "$_f"; then printf '%s' "$_f"; return 0; fi
+  done
+  return 0
 }
 
 accum_requirement_state() {
@@ -133,10 +169,21 @@ accum_requirement_state() {
   # project it may even be TRACKED, which would make scratch authoritative.
   # It is kept only so a project that adopted Qdrant after init is still covered,
   # and it can never upgrade the verdict to `tracked`.
-  if [ -f ".claude/tool-usage.json" ]; then
-    if ! _accum_json_ok ".claude/tool-usage.json"; then
-      _unreadable=1   # BL-233-WPB-LEDGER-UNREADABLE
-    elif [ "$(jq -r '.mcp_requirements.qdrant_required // false' ".claude/tool-usage.json" 2>/dev/null)" = "true" ]; then
+  # A CORRUPT LEDGER DOES NOT MAKE THE PROJECT `unreadable`. It cannot grant a
+  # requirement either — it simply contributes nothing.
+  #
+  # The first cut let it set `_unreadable`, which handed the weakest input in the
+  # lattice the strongest power: this file is untracked runtime scratch that
+  # `session-test-gate-check.sh` WIPES and rewrites at the next SessionStart, and
+  # one corrupt byte in it hard-blocked the phase gate of a project with NO
+  # Qdrant involvement at all — with no attested escape. The comment two arms up
+  # already says the ledger "can never upgrade the verdict to `tracked`"; it must
+  # not be able to produce the only unconditional block either.
+  #
+  # The DURABLE declarations (manifest, settings*) still fail closed when corrupt.
+  # That is where a real declaration lives, and where the operator can fix it.
+  if [ -f ".claude/tool-usage.json" ] && _accum_json_ok ".claude/tool-usage.json"; then   # BL-233-WPB-LEDGER-EPHEMERAL
+    if [ "$(jq -r '.mcp_requirements.qdrant_required // false' ".claude/tool-usage.json" 2>/dev/null)" = "true" ]; then
       _untracked_hit=1   # BL-233-WPB-LEDGER-NEVER-TRACKED
     fi
   fi
