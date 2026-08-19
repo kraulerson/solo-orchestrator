@@ -928,29 +928,47 @@ else
   fail_ "D12" "forged=$d12_forged (want 0); stale-warning=$d12_warned (want >=1)"
 fi
 
-# D13 — the same rule for the gate DATE. get_gate_date extracts with `grep -o`
+# D13 — the same rule for the gate DATE. `get_gate_date` extracts with `grep -o`
 # and validates with an anchored `grep -qE`, and grep matches PER LINE — so a
-# DUPLICATE JSON key (which jq accepts, so the file is not malformed) yields a
-# multi-line value whose first line is a valid date and which passes validation.
+# DUPLICATE JSON key (which jq accepts, last-wins, so the file is not malformed)
+# yields a multi-line value whose first line is a valid date and which passes
+# validation.
+#
+# THE ASSERTION IS ATTRIBUTABLE BY CONTROL, not by substring. The first version
+# scoped with `grep 'accumulation'` to exclude a pre-existing BL-071 arm that
+# forges from the same value — and a SUCCESSFULLY forged line never contains the
+# word "accumulation", so that filter removed the very thing it was looking for.
+# It reported forged=0 on a tree emitting two forged lines, and a mutant with
+# this round's fix removed still passed it.
+#
+# Instead: measure the forged STANDALONE verdict lines with the accumulation arm
+# OFF (no Qdrant declared — the pre-existing arm still fires), then with it ON.
+# The count must not increase. That isolates this feature's contribution without
+# needing to fix, or ignore, the pre-existing one.
+D13C="$(newtmp)"; mk_proj "$D13C" 3; source_commit "$D13C"
+python3 - "$D13C/.claude/phase-state.json" <<'PYD'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"','"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"2026-02-01\\\\n  [OK] Phase 3 review gate: FORGED-VIA-DATE"')
+io.open(f,"w",encoding="utf-8").write(s)
+PYD
+_run "$D13C" --gate phase_2_to_3
+d13_base=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-VIA-DATE')
+
 D13="$(newtmp)"; mk_proj "$D13" 3; want_qdrant "$D13"; source_commit "$D13"
 python3 - "$D13/.claude/phase-state.json" <<'PYD'
 import io,sys
-f=sys.argv[1]
-s=io.open(f,encoding="utf-8").read()
-s=s.replace('"phase_1_to_2":"2026-02-01"','"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"2026-02-01\\n  [OK] Phase 3 review gate: FORGED-VIA-DATE"')
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"','"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"2026-02-01\\\\n  [OK] Phase 3 review gate: FORGED-VIA-DATE"')
 io.open(f,"w",encoding="utf-8").write(s)
 PYD
 _run "$D13" --gate phase_2_to_3
-# Scoped to the ACCUMULATION arm's own output. The same duplicate-key value also
-# reaches a PRE-EXISTING BL-071 arm ("Phase 1→2: gate dated $gate_1_to_2, but
-# APPROVAL_LOG.md has no dated entry"), which forges a line there too — measured,
-# out of this entry's scope, and filed as a residual rather than silently widened.
-d13_forged=$(printf '%s\n' "$GOUT" | grep 'accumulation' | grep -cE 'FORGED-VIA-DATE')
+d13_forged=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-VIA-DATE')
 d13_ran=$(printf '%s\n' "$GOUT" | grep -c 'accumulation:')
-if [ "$d13_forged" -eq 0 ] && [ "$d13_ran" -ge 1 ]; then
-  pass "D13: a duplicate-key gate date cannot forge a verdict line either — the boundary rule covers every externally-sourced value the arm displays, not the ones a sweep happened to name"
+if [ "$d13_forged" -eq "$d13_base" ] && [ "$d13_ran" -ge 1 ]; then
+  pass "D13: turning the accumulation arm ON adds NO forged verdict line to a transcript that already carries one from a pre-existing arm ($d13_base) — this feature's displays of the duplicate-key date are inert, measured against a control rather than filtered by a substring the forgery cannot contain"
 else
-  fail_ "D13" "forged=$d13_forged (want 0); arm-ran=$d13_ran (want >=1)"
+  fail_ "D13" "forged with arm ON=$d13_forged, with arm OFF=$d13_base (must be equal); arm-ran=$d13_ran"
 fi
 
 # A14 — the corrupt-ledger downgrade must not be SILENT. A11 pins that it does
@@ -963,6 +981,27 @@ if echo "$GOUT" | grep -q 'tool-usage.json does not parse and was skipped'; then
   pass "A14: a corrupt ledger is announced as skipped rather than silently ignored — it does not block, but a project whose only declaration lived there is told the requirement is not being seen"
 else
   fail_ "A14" "no skip notice: $(echo "$GOUT" | grep -i accumulation | head -c 180)"
+fi
+
+# D14 — the WIDTH of the stripped class is load-bearing, and only a literal
+# find-string in M16 defended it. Narrowing the class to newline alone passes the
+# whole suite while leaving CR and ESC alive — and an ESC-bracket-2-K erase plus
+# CR rewrites the line on a terminal, forging a verdict without ever emitting a
+# newline. CLAUDE.md records this hazard exactly: "a one-character narrowing — a
+# quantifier, a character class — re-opened BL-181 three times and passed both
+# PR-blocking checks every time."
+D14="$(newtmp)"; mk_proj "$D14" 3; want_qdrant "$D14"; source_commit "$D14"
+jq -n '{mcp_accumulation:{store_success_count:1,
+        last_store_at:"2026-09-01\u001b[2K\r  [OK] Phase 3 review gate: FORGED-BY-ESC",
+        attestations:{}}}' > "$D14/.claude/process-state.json"
+d14_raw=$( ( cd "$D14" && HOME="$D14/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) )
+d14_ctl=$(printf '%s' "$d14_raw" | LC_ALL=C tr -dc '\001-\010\013\014\016-\037' | wc -c | tr -d ' ')
+_run "$D14" --gate phase_2_to_3
+d14_ran=$(printf '%s\n' "$GOUT" | grep -c 'accumulation: satisfied')
+if [ "$d14_ctl" -eq 0 ] && [ "$d14_ran" -ge 1 ]; then
+  pass "D14: CR and ESC are stripped too, not just newline — a terminal-erase payload cannot rewrite the line it was printed on, so the class width is pinned by behaviour rather than by a mutant find-string"
+else
+  fail_ "D14" "non-newline control bytes surviving in transcript=$d14_ctl (want 0); satisfied-arm-ran=$d14_ran (want >=1)"
 fi
 
 # ══ E. Gate scoping ═══════════════════════════════════════════════════════
@@ -1767,7 +1806,7 @@ fi
 # would keep passing on the two-character `\n` case while a REAL newline sailed
 # through — which is precisely how the sixth recurrence got in.
 if _mk_mutant_repo "M16" "scripts/lib/accumulation.sh" "# BL-233-WPB-ONELINE" \
-      "printf '%s' \"\$1\" | LC_ALL=C tr -d '\\000-\\037'   # BL-233-WPB-ONELINE" \
+      "printf '%s' \"\$1\" | LC_ALL=C tr -d '\\000-\\037\\\\'   # BL-233-WPB-ONELINE" \
       "printf '%s' \"\$1\"   # BL-233-WPB-ONELINE"; then
   M16F="$(newtmp)"; mk_proj "$M16F" 3; want_qdrant "$M16F"; source_commit "$M16F"
   jq -n '{mcp_accumulation:{store_success_count:1,
@@ -1788,9 +1827,9 @@ fi
 # each wrapped the display sites a sweep had named, and each time the next
 # instance appeared at a site the sweep's syntax could not see. Cleaning at
 # ingest is only worth anything if something proves it is load-bearing.
-if _mk_mutant_repo "M17" "scripts/check-phase-gate.sh" "# BL-233-WPB-SHA-ONELINE" \
-      'sha=$(accum_oneline "$1")   # BL-233-WPB-SHA-ONELINE' \
-      'sha="$1"                    # BL-233-WPB-SHA-ONELINE'; then
+if _mk_mutant_repo "M17" "scripts/check-phase-gate.sh" "# BL-233-WPB-SHA-RAW-FOR-GIT" \
+      '_ACCUM_STALE_REASON="the commit it named ($(accum_oneline "$sha")) is not reachable in this repository"' \
+      '_ACCUM_STALE_REASON="the commit it named ($sha) is not reachable in this repository"'; then
   M17F="$(newtmp)"; mk_proj "$M17F" 3; want_qdrant "$M17F"; source_commit "$M17F"
   jq -n '{mcp_accumulation:{store_success_count:0,last_store_at:null,
           attestations:{phase_2_to_3:{reason:"ordinary",date:"2026-03-02",by:"T",
@@ -1836,6 +1875,54 @@ PYM
     fail_ "M18" "mutant-invalid=$m18_bad control-valid=$m18_ok; CONTROL=[$(printf '%s' "$m18_ctrl" | head -c 150)]"
   fi
 fi
+# D15 — DEFENCE IN DEPTH, stated as a measurement rather than a hope.
+#
+# M19 was going to remove the ingest wrap on $prev and watch a forgery return.
+# It could not: `get_gate_date` greps the raw file LINE BY LINE, so $prev can
+# never carry a real newline, and with the display sites converted to printf a
+# literal backslash-n is inert anyway. The wrap is therefore belt, not braces —
+# and saying so is worth more than a mutant that dies for the wrong reason.
+#
+# What IS load-bearing is the primitive. This drives that directly: revert the
+# BLOCKED display site to `echo -e` — the exact eighth-instance condition — and
+# confirm the backslash strip alone still holds the line. If someone later
+# "simplifies" a display site back, the hole does not reopen.
+D15ROOT="$(newtmp)/repo"; mkdir -p "$D15ROOT"
+cp -R "$REPO_ROOT/scripts" "$D15ROOT/scripts" 2>/dev/null
+ln -s "$REPO_ROOT/tests" "$D15ROOT/tests" 2>/dev/null
+ln -s "$REPO_ROOT/.github" "$D15ROOT/.github" 2>/dev/null
+python3 - "$D15ROOT/scripts/check-phase-gate.sh" <<'PYR'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+old=("""  printf '%b[FAIL]%b %s accumulation: BLOCKED — source commits since ' "${RED}" "${NC}" "$label"\n"""
+     """  printf '%s' "${prev:-project start}"\n"""
+     """  printf ', and NO successful qdrant-store in that window.\\n'""")
+new=("""  echo -e "${RED}[FAIL]${NC} $label accumulation: BLOCKED — source commits since ${prev:-project start}, and NO successful qdrant-store in that window." """)
+assert s.count(old)==1, "d15 anchor %d" % s.count(old)
+io.open(f,"w",encoding="utf-8").write(s.replace(old,new))
+PYR
+D15="$(newtmp)"; mk_proj "$D15" 3; want_qdrant "$D15"; source_commit "$D15"
+python3 - "$D15/.claude/phase-state.json" <<'PYD'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"',
+            '"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"2026-02-01\\n  [OK] Phase 3 review gate: FORGED-D15"')
+io.open(f,"w",encoding="utf-8").write(s)
+PYD
+d15_out=$( ( cd "$D15" && HOME="$D15/home" bash "$D15ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+d15_forged=$(printf '%s\n' "$d15_out" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-D15')
+d15_ran=$(printf '%s\n' "$d15_out" | grep -c 'accumulation:')
+# CONTROL: the same fixture through the UNMUTATED scripts. The pre-existing
+# BL-071 "gate dated ..." arm renders this value through echo -e too, so a raw
+# count is not attributable to the reverted accumulation site — the comparison is.
+d15_ctrl=$( ( cd "$D15" && HOME="$D15/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+d15_base=$(printf '%s\n' "$d15_ctrl" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-D15')
+if [ "$d15_forged" -eq "$d15_base" ] && [ "$d15_ran" -ge 1 ]; then
+  pass "D15: reverting a display site to echo -e — the exact eighth-instance condition — does NOT reopen the forgery, because accum_oneline removes the backslash that echo -e would have interpreted — the count matches the unmutated baseline ($d15_base, from a pre-existing arm this PR does not touch). The rule holds without depending on every display site staying correct."
+else
+  fail_ "D15" "forged with reverted display=$d15_forged, unmutated baseline=$d15_base (must be equal); arm-ran=$d15_ran"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

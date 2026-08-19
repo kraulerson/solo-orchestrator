@@ -739,7 +739,13 @@ _cpg_accum_source_since() {
   # attest` keywords, then `echo -e`), and was blind to the surface the fix had
   # just created. Cleaning the value where it ENTERS makes the display sites
   # irrelevant, which is the only version of this that stays true.
-  sha=$(accum_oneline "$1")   # BL-233-WPB-SHA-ONELINE
+  # RAW for git, CLEANED only where it is displayed. Sanitising this at ingest
+  # was wrong in a way no test caught: `HE\001AD` is an INVALID ref that becomes
+  # the VALID ref `HEAD` once C0 bytes are stripped, so a tampered attestation
+  # resolved instead of failing and the arm's verdict flipped FAIL -> OK — the
+  # exact fail-closed posture this function's own header promises. A display
+  # filter must not decide whether a commit exists.
+  sha="$1"   # BL-233-WPB-SHA-RAW-FOR-GIT
   _ACCUM_STALE_REASON="source work has landed since the attested commit"
   if ! command -v git >/dev/null 2>&1; then return 1; fi
   if ! git rev-parse --git-dir >/dev/null 2>&1; then return 1; fi
@@ -754,14 +760,14 @@ _cpg_accum_source_since() {
     return 0   # BL-233-WPB-STALE-FAILCLOSED
   fi
   if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
-    _ACCUM_STALE_REASON="the commit it named ($sha) is not reachable in this repository"
+    _ACCUM_STALE_REASON="the commit it named ($(accum_oneline "$sha")) is not reachable in this repository"
     return 0
   fi
   paths=$(git log "${sha}..HEAD" --name-only --pretty=format: 2>/dev/null) || {
-    _ACCUM_STALE_REASON="the history since $sha could not be read"
+    _ACCUM_STALE_REASON="the history since $(accum_oneline "$sha") could not be read"
     return 0
   }
-  _ACCUM_STALE_REASON="source work has landed since $sha"
+  _ACCUM_STALE_REASON="source work has landed since $(accum_oneline "$sha")"
   if accum_paths_have_source "$paths"; then
     return 0
   fi
@@ -960,7 +966,9 @@ _cpg_check_accumulation() {
   fi
 
   if ! _cpg_accum_source_work "$prev"; then
-    echo -e "${GREEN}  [OK]${NC} $label accumulation: nothing owed — every change since ${prev:-project start} was documentation, config or a dependency manifest."
+    printf '%b  [OK]%b %s accumulation: nothing owed — every change since ' "${GREEN}" "${NC}" "$label"
+    printf '%s' "${prev:-project start}"
+    printf ' was documentation, config or a dependency manifest.\n'
     return 0
   fi
 
@@ -1023,7 +1031,9 @@ _cpg_check_accumulation() {
     echo -e "${RED}[FAIL]${NC} $label accumulation: BLOCKED — .claude/process-state.json exists but is not valid JSON, so neither a store nor an attestation could be read from it. Fix that file first; re-storing or re-attesting will not help until it parses."
     return 1
   fi
-  echo -e "${RED}[FAIL]${NC} $label accumulation: BLOCKED — source commits since ${prev:-project start}, and NO successful qdrant-store in that window."
+  printf '%b[FAIL]%b %s accumulation: BLOCKED — source commits since ' "${RED}" "${NC}" "$label"
+  printf '%s' "${prev:-project start}"
+  printf ', and NO successful qdrant-store in that window.\n'
   echo "        A retrieval requirement with no accumulation requirement is a ratchet with nothing behind it (## BL-233:)."
   echo "        Store what this phase decided (qdrant-store), then re-run — or attest:"
   echo "          SOLO_MCP_ACCUM_ATTESTED=1 SOLO_MCP_ACCUM_ATTESTED_REASON=\"<why nothing was worth storing>\" bash scripts/check-phase-gate.sh"

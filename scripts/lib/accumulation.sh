@@ -123,7 +123,21 @@ _accum_json_ok() {
 # LC_ALL=C because `tr` rejects invalid multibyte sequences in a UTF-8 locale
 # and exits 1 — and this value is arbitrary bytes out of a file.
 accum_oneline() {
-  printf '%s' "$1" | LC_ALL=C tr -d '\000-\037'   # BL-233-WPB-ONELINE
+  # C0 controls AND the BACKSLASH. Stripping controls alone was not enough and
+  # the eighth instance of this class proved it: `echo -e` MANUFACTURES a real
+  # newline out of the two-character sequence `\` `n`, which survives a control
+  # strip untouched — so a value cleaned at ingest was re-weaponised at display.
+  # Ingest sanitising and `printf '%s'` are COMPLEMENTS, not substitutes; round 7
+  # replaced one with the other and the hole reopened.
+  #
+  # Removing the backslash makes `echo -e` inert on these values, which is what
+  # finally makes the stated rule true: clean at the boundary and the display
+  # syntax genuinely stops mattering. The two `echo -e` sites are ALSO converted
+  # to printf, because a rule that depends on one primitive staying correct is
+  # thinner than a rule plus the belt.
+  #
+  # LC_ALL=C because tr rejects invalid multibyte sequences in a UTF-8 locale.
+  printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\\'   # BL-233-WPB-ONELINE
 }
 
 # accum_unreadable_path — WHICH declaration file will not parse. A separate
