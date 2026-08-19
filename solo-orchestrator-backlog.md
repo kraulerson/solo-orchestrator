@@ -10409,7 +10409,7 @@ the WP-B residuals recorded with it.
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — **77 assertions, 18 mutants**, both
+`tests/test-bl233-wpb-accumulation.sh` — **77 assertions, 19 mutants**, both
 derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
 than transcribed, because this entry has now carried a wrong count in three
 consecutive revisions. Measured against the CURRENT merge-base `2344b13`: **3 passed / 77 failed**,
@@ -10494,7 +10494,7 @@ a store satisfying "since `phase_2_to_3`" necessarily satisfies "since
 rest. With `-ge`, one missing store would have counted as three inconsistencies
 and printed the same sentence three times.
 
-**WP-B residuals — 15, all real, none blocking.** (This header read "two" while
+**WP-B residuals — 17, all real, none blocking.** (This header read "two" while
 enumerating seven: it was written at two and never updated as items were
 added, including by the commit whose own subject was "derive the counts
 instead of transcribing them". The first correction of it said 15, because the
@@ -10614,7 +10614,24 @@ awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
    fail-closed posture that function's own header promises. The value now
    reaches git RAW (`# BL-233-WPB-SHA-RAW-FOR-GIT`) and is cleaned only where it
    is displayed.
-15. **Every successful store now DIRTIES A TRACKED FILE.**
+15. **A test was DELETED rather than fixed a fourth time.** D13 asserted that
+   this feature's display of a duplicate-key gate date adds no forged line, and
+   it was vacuous in three successive forms: scoped by a substring a forgery can
+   never contain; then rewritten with a real control but a payload writing TWO
+   backslashes on disk (so `echo -e` emitted one line, not two) and the forged
+   text never beginning a line; then with the APPROVAL_LOG evidence dropped, and
+   still measuring 0/0. A vacuity floor was added and it FIRED, which is why this
+   is a deletion and not a fourth silent pass. Coverage is not lost: M19 drives
+   the same mechanism with a payload proved to discriminate (control 1 → mutant
+   2), and M19's control leg IS that assertion. One working test beats two, one
+   of which cannot fail.
+16. **`accum_oneline` mangles legitimate backslashes IN THE TRANSCRIPT ONLY.** An
+   attestation reason like `ported C:\Users\karl\src … the \d+ regex` displays
+   as `ported C:Userskarlsrc … the d+ regex`. Storage, idempotence and staleness
+   all round-trip the value VERBATIM (verified). The trade is deliberate — it is
+   what makes `echo -e` inert and therefore what makes residual 13's rule true —
+   and it is recorded so the display loss is a choice rather than a surprise.
+17. **Every successful store now DIRTIES A TRACKED FILE.**
    `.claude/process-state.json` is tracked here and in generated projects
    (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
    session leaves a modified file that a later `git add -A` sweeps into an
