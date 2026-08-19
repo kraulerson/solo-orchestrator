@@ -729,7 +729,17 @@ _cpg_accum_source_work() {
 # compare against, so staleness is not a question that can be asked.
 _ACCUM_STALE_REASON=""
 _cpg_accum_source_since() {
-  local sha="$1" paths
+  local sha paths
+  # SANITISE AT THE BOUNDARY, not at each display site. $1 is `recorded_head`,
+  # read by jq out of .claude/process-state.json — identical provenance to the
+  # values that forged verdict lines twice already — and it is interpolated into
+  # _ACCUM_STALE_REASON, which is rendered by the caller. Wrapping every display
+  # site is how the sixth and seventh instances of this class got in: the sweep
+  # each round described the PREVIOUS round's syntax (first `reason|recorded|
+  # attest` keywords, then `echo -e`), and was blind to the surface the fix had
+  # just created. Cleaning the value where it ENTERS makes the display sites
+  # irrelevant, which is the only version of this that stays true.
+  sha=$(accum_oneline "$1")   # BL-233-WPB-SHA-ONELINE
   _ACCUM_STALE_REASON="source work has landed since the attested commit"
   if ! command -v git >/dev/null 2>&1; then return 1; fi
   if ! git rev-parse --git-dir >/dev/null 2>&1; then return 1; fi
@@ -855,7 +865,14 @@ _cpg_record_accum_attestation() {
 # outcomes. Here the label and the increment cannot drift apart, because nothing
 # outside this pair decides either one.
 _cpg_check_accumulation() {
-  local gate_key="$1" prev="$2" label="$3"
+  local gate_key="$1" prev label="$3"
+  # Same boundary rule. `get_gate_date` extracts with `grep -o` and validates
+  # with an ANCHORED `grep -qE` — and grep matches PER LINE, so a duplicate
+  # `"phase_1_to_2"` key in phase-state.json yields a multi-line value whose
+  # FIRST line is a valid date and which therefore passes validation. jq accepts
+  # duplicate keys, so the file is not even malformed. That predates this work,
+  # but three display sites here interpolate $prev, so it is cleaned on the way in.
+  prev=$(accum_oneline "$2")   # BL-233-WPB-PREV-ONELINE
   local last reason recorded recorded_head _accum_bad
   local _accum_state
 
@@ -874,6 +891,14 @@ _cpg_check_accumulation() {
     echo -e "${RED}[FAIL]${NC} $label accumulation: CANNOT BE VERIFIED — jq is unavailable, so neither the requirement nor the durable record can be read."
     echo "        Install jq. Passing silently here would be the substitution this gate exists to remove: \"could not check\" is not \"nothing to check\"."
     return 1   # BL-233-WPB-JQ-FAILCLOSED
+  fi
+
+  # ANNOUNCED BEFORE the requirement is resolved, because the `none` arm returns
+  # early — and `none` is exactly the verdict a corrupt ledger produces for a
+  # project whose only declaration lived there. Placing this after the resolution
+  # meant it never printed in the one case it exists for.
+  if [ -f ".claude/tool-usage.json" ] && ! accum_json_readable ".claude/tool-usage.json"; then
+    echo -e "${YELLOW}[WARN]${NC} $label accumulation: .claude/tool-usage.json does not parse and was skipped. It is session scratch that SessionStart rewrites, so it does not block — but if it carried this project's only Qdrant declaration, the requirement is not being seen."   # BL-233-WPB-LEDGER-SKIPPED
   fi
 
   _accum_state=$(accum_requirement_state)

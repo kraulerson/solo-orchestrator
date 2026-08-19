@@ -1530,6 +1530,16 @@ if [ "$IS_COMMIT" = true ] && [ "$SOIF_ACCUM_LIB_LOADED" = "1" ] \
         #
         # This repo's own tracker comment names the antipattern: hand-escaping
         # for a LIST of characters "is a list, not the control CLASS".
+        # SANITISE FIRST, then validate. `grep` matches PER LINE, so a value whose
+        # FIRST line is a valid date passed this check while still carrying a
+        # newline — and jq emits a real newline for a JSON `\n` escape. The value
+        # then reached `ESCAPED_WARNINGS=$(echo "$WARNINGS" | sed 's/"/\\"/g')`,
+        # which escapes quotes only, making the whole hook envelope invalid JSON.
+        # $WARNINGS is the SHARED accumulator, so that discarded every warning the
+        # hook had collected — TDD, Context7, qdrant-find — with no error anywhere.
+        # The guard's own comment said "a backslash or control character"; it
+        # closed the backslash half and left the control-character half open.
+        ACC_PREV=$(accum_oneline "$ACC_PREV")   # BL-233-WPB-ACCPREV-ONELINE
         if ! printf '%s' "$ACC_PREV" | grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'; then
           ACC_PREV=""
         fi
