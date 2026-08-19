@@ -10409,10 +10409,10 @@ the WP-B residuals recorded with it.
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — **70 assertions, 16 mutants**, both
+`tests/test-bl233-wpb-accumulation.sh` — **75 assertions, 18 mutants**, both
 derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
 than transcribed, because this entry has now carried a wrong count in three
-consecutive revisions. Measured against the CURRENT merge-base `2344b13`: **3 passed / 70 failed**,
+consecutive revisions. Measured against the CURRENT merge-base `2344b13`: **3 passed / 75 failed**,
 and the three are NAMED rather than rounded to zero — A8, H2 and
 H4 assert absences (no bash error; never denies; a store inside the window
 produces no warning) which a tree with no accumulation gate also satisfies.
@@ -10494,7 +10494,7 @@ a store satisfying "since `phase_2_to_3`" necessarily satisfies "since
 rest. With `-ge`, one missing store would have counted as three inconsistencies
 and printed the same sentence three times.
 
-**WP-B residuals — 11, all real, none blocking.** (This header read "two" while
+**WP-B residuals — 13, all real, none blocking.** (This header read "two" while
 enumerating seven: it was written at two and never updated as items were
 added, including by the commit whose own subject was "derive the counts
 instead of transcribing them". The first correction of it said 15, because the
@@ -10552,14 +10552,18 @@ awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
    problem, so `## BL-149:` is satisfied without an env-var bypass. If that ever
    proves wrong the fix is to move the arm below the attestation block.
 8. **The same forging surface survives in BL-073's reviewer attestation** — the
-   two `echo -e` sites that render `$cpg_attest_reason` in
-   `_cpg_check_reviewers`' no-manifest and incomplete-reviews arms. Cited by
-   FUNCTION and variable rather than by line: the first draft of this residual
-   said "~2656 and ~2730" and those numbers had already drifted to 2698/2772 by
-   the next day, which is exactly the failure CLAUDE.md's CITATION RULE exists to
-   prevent — recorded here because being caught by it while writing a residual
-   about care is the useful part. Left deliberately: pre-existing, out of this
-   entry's scope, needs its own mutation proofs.
+   two `echo -e` sites that render `$cpg_attest_reason`, in the no-manifest and
+   incomplete-reviews arms of the Phase 3→4 review gate. Left deliberately:
+   pre-existing, out of this entry's scope, and it needs its own mutation proofs.
+
+   **Cited by VARIABLE (`$cpg_attest_reason`), because the two previous attempts
+   at this one citation were both wrong.** The first said "~2656 and ~2730";
+   those had already drifted to 2698/2772 when review measured them, and to
+   2719/2793 a day later — three values in two days. The second said
+   `_cpg_check_reviewers`, and no such function exists; those arms sit in the
+   script body. A grep-able token is the only form that survives, which is
+   exactly what CLAUDE.md's CITATION RULE says and why it says it.
+
 9. **The accumulation gate does not run in solo-orchestrator itself.**
    Measured: `. scripts/lib/accumulation.sh && accum_requirement_state` returns
    `none` in this checkout, because there is no `.claude/manifest.json` and the
@@ -10575,7 +10579,26 @@ awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
    hand-builds its fixtures rather than running the scaffolder. It cannot be
    closed inside the fast lane: a test that invokes `init.sh` is unit-lane
    exempt by the BL-181 predicate, so it would have to live in the full lane.
-11. **Every successful store now DIRTIES A TRACKED FILE.**
+11. **The same forging surface exists on PRE-EXISTING gate-date arms.** A
+   DUPLICATE `"phase_1_to_2"` key in `.claude/phase-state.json` — which jq
+   accepts, so the file is not malformed — makes `get_gate_date` return a
+   multi-line value, because it extracts with `grep -o` and validates with an
+   anchored `grep -qE`, and **grep matches per line**. BL-071's
+   "gate dated …, but APPROVAL_LOG.md has no dated entry" arm then renders it
+   through `echo -e` and a forged `[OK]` line appears. Measured, out of this
+   entry's scope, left deliberately — this entry's own arms clean the value at
+   ingest (`# BL-233-WPB-PREV-ONELINE`), so D13 is scoped to the accumulation
+   output rather than to the whole transcript.
+12. **THE RULE, because the sweep was wrong twice in a row.** Round 5 swept for
+   the KEYWORDS `reason|recorded|attest` and missed `$last`. Round 6 swept for
+   the SYNTAX `echo -e` — in the same round that moved four sites onto `printf`,
+   so the sweep was blind to the surface it had just created — and missed `$sha`.
+   Each sweep described the PREVIOUS round's shape. The rule that holds is a
+   BOUNDARY rule, not a search: **every value that arrives from a file, from jq,
+   or from the environment is passed through `accum_oneline` where it ENTERS**,
+   and no display site needs to be audited at all. M17 and M18 are the proofs
+   that the ingest wrap is load-bearing.
+13. **Every successful store now DIRTIES A TRACKED FILE.**
    `.claude/process-state.json` is tracked here and in generated projects
    (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
    session leaves a modified file that a later `git add -A` sweeps into an
