@@ -10409,10 +10409,11 @@ the WP-B residuals recorded with it.
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — **65 assertions, 15 mutants**, both
+`tests/test-bl233-wpb-accumulation.sh` — **70 assertions, 16 mutants**, both
 derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
 than transcribed, because this entry has now carried a wrong count in three
-consecutive revisions. Measured against the base tree `7b94e4b`: **3 passed / 65 failed**, and the three are NAMED rather than rounded to zero — A8, H2 and
+consecutive revisions. Measured against the CURRENT merge-base `2344b13`: **3 passed / 70 failed**,
+and the three are NAMED rather than rounded to zero — A8, H2 and
 H4 assert absences (no bash error; never denies; a store inside the window
 produces no warning) which a tree with no accumulation gate also satisfies.
 They are regression guards, not discriminators.
@@ -10493,7 +10494,7 @@ a store satisfying "since `phase_2_to_3`" necessarily satisfies "since
 rest. With `-ge`, one missing store would have counted as three inconsistencies
 and printed the same sentence three times.
 
-**WP-B residuals — 9, all real, none blocking.** (This header read "two" while
+**WP-B residuals — 11, all real, none blocking.** (This header read "two" while
 enumerating seven: it was written at two and never updated as items were
 added, including by the commit whose own subject was "derive the counts
 instead of transcribing them". The first correction of it said 15, because the
@@ -10550,13 +10551,31 @@ awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
    JSON *is* an honest escape, and it is the only one that resolves the actual
    problem, so `## BL-149:` is satisfied without an env-var bypass. If that ever
    proves wrong the fix is to move the arm below the attestation block.
-8. **The same `echo -e` forging surface survives in BL-073's reviewer
-   attestation** (`check-phase-gate.sh` ~2656 and ~2730), which renders
-   `$cpg_attest_reason` and can forge `[OK]` verdict lines exactly as the
-   accumulation arms could before this work. Left deliberately: pre-existing,
-   out of this entry's scope, and it needs its own mutation proofs. Filed here
-   so the asymmetry is recorded rather than discovered.
-9. **Every successful store now DIRTIES A TRACKED FILE.**
+8. **The same forging surface survives in BL-073's reviewer attestation** — the
+   two `echo -e` sites that render `$cpg_attest_reason` in
+   `_cpg_check_reviewers`' no-manifest and incomplete-reviews arms. Cited by
+   FUNCTION and variable rather than by line: the first draft of this residual
+   said "~2656 and ~2730" and those numbers had already drifted to 2698/2772 by
+   the next day, which is exactly the failure CLAUDE.md's CITATION RULE exists to
+   prevent — recorded here because being caught by it while writing a residual
+   about care is the useful part. Left deliberately: pre-existing, out of this
+   entry's scope, needs its own mutation proofs.
+9. **The accumulation gate does not run in solo-orchestrator itself.**
+   Measured: `. scripts/lib/accumulation.sh && accum_requirement_state` returns
+   `none` in this checkout, because there is no `.claude/manifest.json` and the
+   tracked `.claude/settings.json` declares no `mcpServers`. The RETRIEVAL half
+   (the PostToolUse/PreToolUse hooks) does fire here; the accumulation half does
+   not. Every proof that it works therefore comes from synthetic fixtures and
+   from CI, never from the one environment the author uses interactively — which
+   is the same "validated where written, not where it runs" axis this work has
+   been caught on repeatedly. Recorded rather than quietly relied upon.
+10. **`# BL-233-WPB-MANIFEST-DECL` has no test.** `init.sh`'s line writing
+   `.claude/manifest.json::mcp.qdrant_required` is what makes the whole
+   tracked-declaration design work in a real generated project, and the I-group
+   hand-builds its fixtures rather than running the scaffolder. It cannot be
+   closed inside the fast lane: a test that invokes `init.sh` is unit-lane
+   exempt by the BL-181 predicate, so it would have to live in the full lane.
+11. **Every successful store now DIRTIES A TRACKED FILE.**
    `.claude/process-state.json` is tracked here and in generated projects
    (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
    session leaves a modified file that a later `git add -A` sweeps into an
