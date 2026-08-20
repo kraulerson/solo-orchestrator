@@ -444,7 +444,59 @@ fi
 # no-ops, and every other gate in that file still runs. A bare `source` here
 # exited before ANY check ran (remote, TDD, Build Loop), which is total silent
 # non-enforcement — the class `## BL-233:` exists to remove.
-A8="$(newtmp)"; mk_proj "$A8" 2
+#
+# THE CONTROL IS NOW READ, AND IT HAD TO BE BUILT BEFORE IT COULD BE. The first
+# cut assigned `a8_ctrl` and never used it, under a comment asserting the
+# control "must warn" — and it could not have. That fixture declared no Qdrant
+# and staged nothing, so `accum_requirement_state` answered `none` and the arm
+# was unreachable in BOTH directions; `! grep 'Nothing has been stored'` was
+# satisfied by a fixture that could never print it, library or no library. An
+# unread control is a comment. A control that cannot fire is worse, because it
+# reads like one that can.
+#
+# Both directions are now two-sided: the accumulation warning must DISAPPEAR
+# when the library is gone, and a DIFFERENT gate in the same file must still
+# reach the operator. Asserting only `permissionDecision` present would pass
+# with the whole accumulation block deleted.
+_a8_fixture() {   # _a8_fixture DIR — a fixture the accumulation warning DOES fire on
+  local d="$1"
+  mk_proj "$d" 2 || return 1
+  # A hermetic origin (a LOCAL bare). Without it the remote gate DENIES first
+  # and the run never reaches either warning — which is exactly how the control
+  # first came back empty, and is the reason an unread control is dangerous:
+  # this fixture had that deny in it all along and nothing was looking.
+  add_origin "$d"
+  want_qdrant "$d"
+  # A ledger whose qdrant-find flag is false. That is the SECOND gate this test
+  # needs: it is emitted by an arm with no relation to accumulation, so its
+  # survival is what "the other gates are not collateral" actually means.
+  ledger "$d" false
+  # No mcp_accumulation object — the project has stored nothing. Same shape H1
+  # uses, and the state under test.
+  cat > "$d/.claude/process-state.json" <<'J'
+{"build_loop":{"feature":null,"step":0,"steps_completed":[],"started_at":null},
+ "phase2_init":{"steps_completed":[],"verified":true}}
+J
+  mkdir -p "$d/src" "$d/tests"
+  echo "print(1)" > "$d/src/main.py"
+  # Staged with a matching test, so the BL-072 TDD ordering gate does not deny
+  # first and end the run before this arm — H1's reasoning, same fixture shape.
+  echo "def test_main(): pass" > "$d/tests/test_main.py"
+  ( cd "$d" && git add -A >/dev/null 2>&1 )
+}
+a8_payload=$(jq -nc '{tool_name:"Bash",tool_input:{command:"git commit -m \"chore: x\""}}')
+A8_ACC_RE='Nothing has been stored to Qdrant'
+A8_OTHER_RE='No prior context retrieved from Qdrant this session'
+
+# A FRESH FIXTURE PER DIRECTION. The gate is not a pure function of the tree it
+# reads, and one fixture run twice measures two projects — the trap this file's
+# header records against check-phase-gate.sh, and the same discipline applies to
+# the commit gate.
+A8C="$(newtmp)"; _a8_fixture "$A8C"
+a8_ctrl=$( ( cd "$A8C" && printf '%s' "$a8_payload" \
+  | HOME="$A8C/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+
+A8="$(newtmp)"; _a8_fixture "$A8"
 A8ROOT="$(newtmp)/repo"
 A8SCRIPTS="$A8ROOT/scripts"
 mkdir -p "$A8SCRIPTS"
@@ -455,18 +507,16 @@ rm -f "$A8SCRIPTS/lib/accumulation.sh"
 # That is the M7 poisoning this file documents; A8 had it too.
 ln -s "$REPO_ROOT/tests" "$A8ROOT/tests" 2>/dev/null
 ln -s "$REPO_ROOT/.github" "$A8ROOT/.github" 2>/dev/null
-a8_out=$( ( cd "$A8" && printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: x\""}}' \
+a8_out=$( ( cd "$A8" && printf '%s' "$a8_payload" \
   | HOME="$A8/home" SKIP_LINT=1 bash "$A8SCRIPTS/pre-commit-gate.sh" 2>&1 ) | _strip_ansi )
-# The CONTROL is the same fixture with the lib PRESENT: it must warn. Then with
-# the lib absent the warning is gone AND no bash error appears AND another gate
-# in the file still reached a decision. Asserting only `permissionDecision`
-# present would pass with the whole accumulation block deleted.
-a8_ctrl=$( ( cd "$A8" && printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: x\""}}' \
-  | HOME="$A8/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
-if ! echo "$a8_out" | grep -q "No such file or directory" \
+
+if ! echo "$a8_ctrl" | grep -q "$A8_ACC_RE" || ! echo "$a8_ctrl" | grep -q "$A8_OTHER_RE"; then
+  fail_ "A8 (meta)" "the CONTROL did not print both warnings (accumulation=$(echo "$a8_ctrl" | grep -c "$A8_ACC_RE"), other=$(echo "$a8_ctrl" | grep -c "$A8_OTHER_RE")), so the lib-absent run proves nothing: $(echo "$a8_ctrl" | head -c 180)"
+elif ! echo "$a8_out" | grep -q "No such file or directory" \
    && echo "$a8_out" | grep -q '"permissionDecision"' \
-   && ! echo "$a8_out" | grep -q 'Nothing has been stored to Qdrant'; then
-  pass "A8: with the lib absent the commit gate reaches a real decision instead of dying at its source line, and only the accumulation warning is missing — the other gates in that file are not collateral"
+   && echo "$a8_out" | grep -q "$A8_OTHER_RE" \
+   && ! echo "$a8_out" | grep -q "$A8_ACC_RE"; then
+  pass "A8: with the lib absent the commit gate reaches a real decision instead of dying at its source line, and EXACTLY the accumulation warning is missing — an unrelated gate in the same file still reaches the operator, and the control fixture proves both warnings were reachable"
 else
   fail_ "A8" "lib-absent: $(echo "$a8_out" | head -c 180)"
 fi
@@ -928,24 +978,54 @@ else
   fail_ "D12" "forged=$d12_forged (want 0); stale-warning=$d12_warned (want >=1)"
 fi
 
-# D13 WAS DELETED, and the deletion is the honest outcome rather than a fourth
-# attempt. It tried to assert that this feature's display of a duplicate-key gate
-# date adds no forged line, and it was vacuous in three successive forms:
-#   1. scoped with `grep 'accumulation'` — a forged line never contains that word,
-#      so the filter removed the very thing it looked for;
-#   2. rewritten with an arm-OFF/arm-ON control, but the payload wrote TWO
-#      backslashes on disk (echo -e then emits one line, not two) and put the
-#      forged text after a prefix so it could never begin a line;
-#   3. fixture corrected to drop the APPROVAL_LOG evidence that suppresses the
-#      forging arm — and it STILL measured 0/0.
-# A vacuity floor was added at step 3 and it fires, which is why this is a
-# deletion and not a fourth silent pass.
+# D13 — RESTORED, and the reason it was deleted was BACKWARDS. It measures that
+# turning this feature's arm ON adds no forged verdict line to a transcript that
+# already carries one from a pre-existing arm.
 #
-# The coverage is not lost. M19 drives the identical mechanism with a payload
-# proved to discriminate (control 1 -> mutant 2), and M19's CONTROL LEG IS this
-# assertion: it measures the shipped code producing exactly the pre-existing
-# arm's one forged line and no more. One working test beats two, one of which
-# cannot fail.
+# The deletion rationale said mk_proj's APPROVAL_LOG evidence "suppresses the
+# forging arm". It does the opposite: that evidence is what lets
+# `_cpg_record_gate_date` render the gate date at all, which is where the
+# baseline forged line comes from. Removing it is what produced the 0/0 that
+# looked like an unfalsifiable assertion. The assertion was always fine; the
+# fixture had been broken by the very edit meant to fix it.
+#
+# And M19 does NOT subsume this. M19's predicate is `mutant > control` with NO
+# upper bound on the control, so a NEW raw display site added later reads as
+# control=2/mutant=3 and passes green — while this test reads 1 -> 2 and fails.
+# Measured, not assumed. Two nets, different shapes, both wanted: eight
+# recurrences of this class are recorded in this file.
+D13C="$(newtmp)"; mk_proj "$D13C" 3; source_commit "$D13C"
+python3 - "$D13C/.claude/phase-state.json" <<'PYD'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"',
+            '"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"  [OK] Phase 3 review gate: FORGED-VIA-DATE"')
+io.open(f,"w",encoding="utf-8").write(s)
+PYD
+_run "$D13C" --gate phase_2_to_3
+d13_base=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-VIA-DATE')
+
+D13="$(newtmp)"; mk_proj "$D13" 3; want_qdrant "$D13"; source_commit "$D13"
+python3 - "$D13/.claude/phase-state.json" <<'PYD'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"',
+            '"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"  [OK] Phase 3 review gate: FORGED-VIA-DATE"')
+io.open(f,"w",encoding="utf-8").write(s)
+PYD
+_run "$D13" --gate phase_2_to_3
+d13_forged=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-VIA-DATE')
+d13_ran=$(printf '%s\n' "$GOUT" | grep -c 'accumulation:')
+# VACUITY FLOOR at base >= 1, not at "both zero". The baseline is a MEASURED 1
+# (the pre-existing arm), so a silent return to 0/0 — which is what a broken
+# fixture produces, and what hid this test's emptiness twice — can never pass.
+if [ "$d13_base" -lt 1 ]; then
+  fail_ "D13 (meta)" "control produced no forged line (base=$d13_base); the fixture is not reaching the pre-existing forging arm, so 'no increase' proves nothing"
+elif [ "$d13_forged" -eq "$d13_base" ] && [ "$d13_ran" -ge 1 ]; then
+  pass "D13: turning the accumulation arm ON adds NO forged verdict line to a transcript already carrying $d13_base from a pre-existing arm — and unlike M19 this bounds the control, so a NEW raw display site added later is caught rather than absorbed"
+else
+  fail_ "D13" "forged with arm ON=$d13_forged, with arm OFF=$d13_base (must be equal); arm-ran=$d13_ran"
+fi
 
 # A14 — the corrupt-ledger downgrade must not be SILENT. A11 pins that it does
 # not block; nothing pinned that the operator is told, and for a project whose
@@ -1906,8 +1986,16 @@ fi
 # M19 — RESTORED. Remove the $prev ingest wrap and a duplicate-key gate date
 # forges a standalone verdict line through printf alone, with no `echo -e`
 # anywhere. Dropped in the previous round on the false reasoning corrected in
-# D15's header above; the payload that makes it work is the one D13 now uses —
-# the duplicate value IS the forged line, so it begins its own line.
+# D15's header above.
+#
+# D13 and M19 share the duplicate-key payload — the SECOND value under the
+# repeated key IS the forged line, so it begins its own line — and neither test
+# subsumes the other. They watch opposite trees: M19 mutates the shipped code
+# and asserts the mutant forges MORE, so it bounds nothing above the control and
+# a new raw display site added later reads control=2/mutant=3 and passes it
+# green. D13 never mutates anything and asserts the SHIPPED tree's count is
+# unchanged by this arm, so the same new site reads 1 -> 2 and fails. M19 catches
+# the ingest wrap being deleted; D13 catches a regression that leaves it in place.
 if _mk_mutant_repo "M19" "scripts/check-phase-gate.sh" "# BL-233-WPB-PREV-ONELINE" \
       'prev=$(accum_oneline "$2")   # BL-233-WPB-PREV-ONELINE' \
       'prev="$2"                    # BL-233-WPB-PREV-ONELINE'; then
