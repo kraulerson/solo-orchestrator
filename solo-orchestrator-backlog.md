@@ -10402,8 +10402,508 @@ document the two visible symptoms and should be read first for the evidence;
 neither should be fixed on its own, because a patch to either leaves the
 mechanism intact.
 **Status:** Open — **WP-A landed** on `feat/bl233-mcp-enforcement`; **WP-B (the
-storing half: warn at commit, block at the phase gate) is still open**, and so
-is item 6's underlying question of whether accumulation is enforced at all.
+storing half) landed 2026-08-17** on `feat/bl233-wpb-accumulation`, closing item
+6. Open for the three WP-A residuals below (1-3; residual 4 is now fixed) plus
+the WP-B residuals recorded with it.
+
+**WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
+`347f619`, corrected by the follow-up commit on the same branch after an
+adversarial review found the derivation defect recorded below.
+`tests/test-bl233-wpb-accumulation.sh` — **100 assertions, 28 mutants**, both
+derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
+than transcribed, because this entry has now carried a wrong count in three
+consecutive revisions. Measured against the CURRENT merge-base `2344b13` with
+this suite dropped into a `git archive` of that tree: **2 passed / 101 failed**.
+The tally exceeds 78 for one derived reason, and the first explanation offered
+for it was INVENTED — in the paragraph whose whole subject is not transcribing
+numbers, which is why the derivation is printed here:
+```
+grep -E '^  \[FAIL\]' <run> | sed 's/^  \[FAIL\] //; s/ — .*//; s/\[.*//' \
+  | sort | uniq -c | awk '$1>1'     #  ->  4 D6
+```
+`D6` reports PER HEAD SHAPE — three loop iterations plus one final line against
+a single `pass` site — so it contributes 4 lines for 1 label and every other
+label contributes exactly 1. 2 passes + 98 distinct failing labels = 100, + D6's
+3 extra lines = 101. The **meta arms do not contribute**, which is what the first
+explanation claimed: `_mk_mutant_repo` returns 1 on a meta failure, so the
+assertion it guards is SKIPPED, and all 20 meta lines in that run stand IN PLACE
+OF an assertion rather than beside one. The two passes are NAMED
+rather than rounded to zero — H2 and H4 assert absences (the commit arm never
+denies; a store inside the window produces no warning) which a tree with no
+accumulation gate also satisfies. They are regression guards, not
+discriminators. **A8 used to be a third such pass and is not any more**: its
+control is now applied, so on a tree with no `scripts/lib/accumulation.sh` the
+control cannot warn and A8's meta arm fires. That is the difference between a
+control that is computed and a control that is read.
+An earlier draft of this entry claimed "0 passed / 35 failed" — that was a
+35-assertion draft of the suite, carried forward unchanged after the suite grew,
+and re-deriving it is the whole of `## BL-230:`'s lesson.
+
+**Three counts in the first draft of this entry were wrong; they are corrected
+here rather than quietly dropped.** (1) The regression set was derived with a
+grep that OMITTED `check-phase-gate` — 41 files instead of the 91 that name any
+of the four changed scripts. (2) The "61 suites" figure is reproducible, but
+only with the derivation actually used, `grep -rl 'check-phase-gate' tests/`;
+a path-prefixed pattern yields 56. State the command, not the number. (3) The
+RED figure above.
+Karl decided the posture up front: **WARN at commit, BLOCK at the phase gate**,
+because storing is not per-commit work and a gate people cannot satisfy honestly
+gets deleted (`## BL-149:`). He then decided the three things the entry left
+open, and they are recorded here because none is recoverable from the diff:
+
+- **The window is DURABLE and phase-scoped** — at least one *successful*
+  `qdrant-store` since the previous gate's date. It could NOT come from
+  `.claude/tool-usage.json`: `session-test-gate-check.sh` WIPES that file on
+  every `startup`, so a phase spanning twenty sessions would have been satisfied
+  by one junk store in whichever session happened to run the gate. The record
+  lives in `.claude/process-state.json::mcp_accumulation`, written by
+  `# BL-233-WPB-ACCUM-WRITE` in the tracker and read by the gate. A **missing**
+  object reads as zero stores — a missing key defaulting RESTRICTIVE, the exact
+  inverse of `## BL-221:`.
+- **Conditional, plus an attested escape.** It blocks only when the phase made
+  SOURCE commits and stored nothing; a docs-only or exploratory phase passes
+  clean with no ceremony (`# BL-233-WPB-SOURCEWORK`). The escape is BL-072's
+  shape — `SOLO_MCP_ACCUM_ATTESTED=1` plus a mandatory reason, recorded, and
+  **refused if it cannot be recorded** (`# BL-233-WPB-ATTEST-REFUSE`).
+- **Gates 1→2, 2→3 and 3→4.** Phase 0→1 is pre-code discovery and is exempt.
+
+**The requirement-derivation decision is the one most likely to be re-litigated,
+so here is the measurement.** The obvious source for "does this project require
+Qdrant" is the ledger's `mcp_requirements.qdrant_required`. It is the wrong
+source twice: the ledger is untracked runtime scratch, so *deleting it* would
+switch a blocking gate off — `## BL-231:`'s "tracking file absent ⇒ no
+enforcement, silently" row, reintroduced inside the very gate meant to end it;
+and measured **on the merge-base tree `2344b13`, with the recipe printed** —
+because this figure was the last one in the entry still carrying no derivation,
+and one of its three numbers does not survive being asked for one:
+```
+cd <pristine 2344b13 checkout>
+grep -rl 'check-phase-gate' tests/ | wc -l                                  # 60
+S=$(grep -rl 'check-phase-gate' tests/ \
+      | xargs grep -lE '"current_phase"[[:space:]]*:[[:space:]]*[2-9]')
+echo "$S" | wc -l                                                           # 29
+echo "$S" | xargs grep -hcE '"current_phase"[[:space:]]*:[[:space:]]*[2-9]' \
+  | awk '{n+=$1} END{print n}'                                              # 52
+echo "$S" | xargs grep -l 'tool-usage.json' | wc -l                         # 0
+```
+**29 suites drive it at `current_phase >= 2` and not one writes a ledger** — so
+a ledger-derived requirement would have forced an edit to every one of them to
+say nothing. Two corrections to what this paragraph used to assert. (1) The
+**60**, not 61: the 61 was measured on a working tree that already contained
+this entry's own new suite, and stating it as a property of "this tree" made a
+number that grows with the PR read as a fixed measurement. (2) The **74
+fixture-creation sites is withdrawn** — no derivation reproduces it (the site
+count is 52; the nearest alternatives give 79 and 84), so it was hand-counted or
+produced by a one-liner nobody wrote down, which is the whole failure mode this
+entry keeps recording. The load-bearing number was never 74 anyway; it is the
+**0**. Note also that the "not one writes a ledger" claim is true of `2344b13`
+and **false of this branch's head** — `tests/test-bl233-wpb-accumulation.sh`
+writes ledgers deliberately (`grep -oE '\bledger "' tests/test-bl233-wpb-accumulation.sh | wc -l` → 11) — which is why the
+measurement is scoped to the tree the decision was made against. The first fix for that read `.claude/settings.local.json`
+instead, reasoning that `init.sh` writes it and `git add -A` commits it. **THAT
+WAS ALSO WRONG, and worse, because it looked committed.** Claude Code adds
+`settings.local.json` to the user's GLOBAL git excludes by design (it is
+personal configuration), and `generate_gitignore` COPIES
+`templates/generated/gitignore-base.tmpl` — which already ignores
+`.claude/tool-usage.json` — before appending. Both OR arms were therefore absent
+from every fresh clone: the gate blocked on the author's machine and printed
+`NOT CHECKED` on CI. Proved by round trip (build → commit → local bare → clone →
+run), which is the test that was missing; the I-group now carries it.
+
+**The fix is not "a different file" — it is that TRACKEDNESS IS A QUESTION FOR
+GIT.** `accum_file_tracked` (`# BL-233-WPB-TRACKED`, now in
+`scripts/lib/accumulation.sh` and shared with the commit-time warning) asks
+`git ls-files`, and the derivation returns three states rather than a boolean: `tracked` (survives a
+clone), `untracked` (true here, invisible on CI — enforced, with a warning
+naming the remedy), `none`. `init.sh` now records the durable declaration in
+`.claude/manifest.json` (`# BL-233-WPB-MANIFEST-DECL`), which the generated
+`.gitignore` does not cover.
+
+**`$HOME` is deliberately NOT read** — `session-test-gate-check.sh` reads four
+settings files, two of them under `$HOME`, and copying that here would make a
+phase gate's verdict depend on whose machine ran it. **Zero of those 29 fixtures
+redirect `HOME`**, so a host-derived answer passes on a developer box with
+Qdrant configured and fails on a runner without it: `## BL-234:`'s class exactly.
+A5 and mutant M3 pin the narrow scope in both directions.
+
+**One deliberate asymmetry, called out because it looks like a bug.** The
+accumulation arm dispatches on `case "$current_phase"` with **`-eq`**, while
+every sibling check in that file uses `-ge`. The siblings are right to: their
+evidence must exist independently at each boundary. Accumulation windows NEST —
+a store satisfying "since `phase_2_to_3`" necessarily satisfies "since
+`phase_1_to_2`" — so the latest gate's window is the strictest and subsumes the
+rest. With `-ge`, one missing store would have counted as three inconsistencies
+and printed the same sentence three times.
+
+**THREE fail-opens, all in the dimension the suite never drove — the window
+itself. The first was found by review, the second by review of the fix, and the
+third by this suite's own test going intermittently green.**
+
+**(1) A window that opens in the FUTURE.** `_cpg_accum_source_work` asks git for the window's commits
+with `git log --since=<gate date>`. A gate date in the FUTURE returns zero
+commits and exit 0 — git ANSWERED, so none of the function's three cannot-tell
+arms fire — the empty payload then matches `^$` in the exempt set, and the gate
+printed `[OK] accumulation: nothing owed — every change since 2099-12-31 was
+documentation`. Measured: issue count 9 → 8, landing exactly on the
+no-requirement control. That is two defects at once: an affirmative claim about
+the project that is false (the same substitution the extension allow-list was
+rewritten to remove, reached by a different route), and a **silent off switch
+for a blocking gate** — the precise thing this entry refused to accept from the
+ledger, arriving instead through `gates.*`. It also put the two halves of the
+feature into open disagreement: the commit gate reads source from STAGED PATHS
+and warned, while the phase gate read it from a DATE WINDOW and said nothing was
+owed, which the shared library's own header calls worse than a missing warning.
+
+**Not only tampering.** `_cpg_record_gate_date` PRESERVES a date already
+recorded, so a machine whose clock or timezone is ahead of the one running the
+gate writes a window that is in the future THERE and nowhere else — `## BL-234:`'s
+silent local-vs-CI class, for the third time inside this one feature.
+
+**(2) A window that is RECORDED but UNPARSEABLE — reached without any clock
+skew.** `get_gate_date` maps BOTH "no gate recorded" and "a gate recorded whose
+value will not parse" to `""`, and `""` then reaches `_cpg_accum_after`, whose
+`[ -z "$gate" ]` arm makes ANY store ever recorded satisfy the gate. One edit of
+`gates.*` to `not-a-date` took a blocking fixture from 9 inconsistencies to 8,
+with a 2020 store reported as satisfying a 2026 phase. Closed by
+`# BL-233-WPB-AMBIGUOUS-WINDOW`, which needs the raw value; and the raw value
+needs `# BL-233-WPB-RAW-SNAPSHOT`, because `_cpg_record_gate_date` REWRITES
+`gates.*` from APPROVAL_LOG evidence DURING the run — the second cut of this fix
+re-read the file and measured a different one, saw `not-a-date` already
+normalised to today's date, reported "parses fine", and left the hole open while
+its own test went green. **N3** pins the resolution, **N4** pins that a
+genuinely absent gate still means "the whole history" (the first cut refused
+three fixtures out of four), and **M22** kills it.
+
+**(3) THE WINDOW DID NOT OPEN AT MIDNIGHT, and this one was found by a TEST
+FLAKING, not by review.** `_cpg_accum_source_work` passed a bare date to
+`git log --since`. git's approxidate fills the fields a date string OMITS from
+the CURRENT CLOCK, so `--since=<date>` means "that date at whatever time it is
+right now". Measured: a commit made at 10:35:18 today is invisible to
+`--since=<today>` two seconds later and visible to `--since=<today> 00:00:00`.
+Every source commit made earlier in the day on the window's opening date was
+therefore outside its own window — so a phase whose previous gate was recorded
+today reported "nothing owed" all afternoon, and the SAME TREE returned a
+different verdict depending on the hour, which is `## BL-234:`'s class wearing a
+clock instead of a hostname. Surfaced as N2 passing 32 times out of 40; the
+eight failures were the product, and chasing them into it rather than
+stabilising the fixture is the only reason this is recorded here. Closed by
+`# BL-233-WPB-SINCE-MIDNIGHT`, pinned by **N7** (a source commit back-dated to
+00:00:01 on the opening day — no clock race in the assertion itself) and killed
+by **M24**.
+
+**(4) THE OTHER OPERAND OF THE SAME COMPARISON, left unguarded for two rounds
+while the first was hardened four ways.** `_cpg_accum_after` compares the window
+START against the persisted STORE TIMESTAMP. Rounds 10-11 validated the start
+against future dates, unparseable values, duplicate keys and an unreadable state
+file; the store timestamp got nothing but a numeric check. It is the WORSE half
+to leave open: a future window start fails LOUDLY, a future store timestamp
+satisfies the gate SILENTLY and on every later run — measured, `2099-01-01` and
+`9999-12-31` both take a blocking fixture from 11 issues to 10 — and
+`.claude/process-state.json` is TRACKED (residual 17), so the bad value is
+committed and reaches every clone. The hazard was named in this entry's own
+prose (residual 19: *"a machine that is ahead writes the gate date AND the store
+timestamp in the future"*) and guarded on one side only. Closed by
+`# BL-233-WPB-STORE-FUTURE`, compared UTC-to-UTC because the tracker writes the
+field with `date -u`, which makes the check exact and removes any need for
+timezone slack. **N11** pins it (and asserts the transcript NAMES the clock, so
+the operator is not told to re-store when re-storing cannot help), **M27** kills
+it. **The suite was leaning on the hole**: D14's fixture used a store dated
+twelve days in the future, and its own floor went red the moment the guard
+landed — which is what a floor is for.
+
+**And a regression this entry introduced in the OTHER file.** `pre-commit-gate.sh`
+is `set -euo pipefail`, and the accumulation block's `jq` read of
+`.current_phase` had no `|| printf '0'` while both siblings below it did. On the
+PreToolUse path that abort discards the ENTIRE `$WARNINGS` accumulator —
+Context7, qdrant-find, TDD — silently, and the new block has no
+`[ -f "$TOOL_USAGE" ]` precondition, so it became reachable for any project whose
+state file will not parse. Guarded (`# BL-233-WPB-ACCPHASE-GUARD`), and the
+PRE-EXISTING sibling at `# BL-233-WPB-CURPHASE-GUARD` had to be guarded with it:
+under errexit that line aborts FIRST, so fixing only the new one looked correct
+and changed nothing observable (rc=5 either way until both were done). **H8**
+pins survival, **M28** measures the rc=5 without it. H4 — which should have
+caught this — was a pure double-absence, and a hook that DIED satisfied it
+exactly as well as one that correctly stayed quiet; it now carries an exit-code
+floor.
+
+**Also refuted in the same round: a "guard that cannot fire".** The numeric guard
+on the window start was omitted, justified by `get_gate_date` validating to
+`YYYY-MM-DD`. This file refutes that 200 lines away: that validation is a
+PER-LINE `grep -qE`, so a duplicate key yields a multi-line value that passes if
+ANY line is a date, and `accum_oneline` concatenates them. `ZZZZZZZZZZ2026-02-01`
+reached `[ -le ]`, which blocks — right direction — while printing a raw
+`integer expression expected` from the shell INTO a blocking verdict. Guard
+restored — and then WIDENED, because the first form validated only the first ten
+characters and therefore caught the garbage-first operand order while waving
+through date-first, whose concatenation git reads as a future instant. It now
+validates the WHOLE window string and its LINE COUNT
+(`# BL-233-WPB-WINDOW-SHAPE`), pinned by **N6** and **N8**, killed by **M23**.
+And the FAIL line no longer hard-codes ", which is not in the past": that reason
+is false on every path that reaches it but one, so an arm written to remove a
+false affirmative printed one of its own. The reason is now carried in
+`_ACCUM_WINDOW_REASON` (the `_ACCUM_STALE_REASON` precedent) and **N5** shims
+`date` to fail on a past window to prove it.
+
+The fix is `_cpg_accum_window_measurable` (`# BL-233-WPB-FUTURE-WINDOW`), asked
+BEFORE either question about the window, because a future window answers both
+with a confident falsehood: nothing can be stored after it and nothing can be
+committed after it. It answers "measurable", not "future", so the caller blocks
+on ANY reason the window cannot be read — a `date` that will not respond reads
+as not measurable. The window start needs no numeric guard: it is `get_gate_date`
+output, already anchored to `YYYY-MM-DD` or empty, and an arm that cannot fire
+is `## BL-104:`'s shape (this follows `_cpg_accum_after`'s precedent in the same
+file, which guards its persisted timestamp and pointedly does not guard its gate
+date). Pinned in both directions, because an over-strict guard fails as silently
+as an over-permissive one: **N1** (future window → refused, same issue count as
+the past-window control, and no claim made about the project), **N2** (a window
+opening TODAY stays measurable — the comparison is `-le`, not `-lt`, or every
+gate would be refused on the day its own date was recorded), **M20** (neuter the
+guard → the fail-open returns verbatim, `nothing owed` 0 → 1), **M21** (`-le` →
+`-lt` → today's window refused, 0 → 1). N2 and M21 re-derive the date if it
+moves under the fixture, because a midnight crossing would otherwise read as a
+real failure and this suite has already shipped one clock-race flake
+(`## BL-241:`).
+
+**WP-B residuals — 24, all real, none blocking.** (This header read "two" while
+enumerating seven: it was written at two and never updated as items were
+added, including by the commit whose own subject was "derive the counts
+instead of transcribing them". The first correction of it said 15, because the
+derivation ran past the section into the WP-A list — a derived number is only
+as good as its boundary. Both halves, checked:
+```
+awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
+  solo-orchestrator-backlog.md | grep -cE '^[0-9]+\. (\*\*|~~)'
+```
+)
+1. **Plugin-provided MCP servers are still invisible**, now on a second surface.
+   WP-A residual 2 records that `session-test-gate-check.sh` classifies by NAME
+   from `.mcpServers`; the WP-B derivation reads the same key in the project
+   files, so a Qdrant reachable only through a plugin derives NOT REQUIRED and
+   the accumulation gate silently switches off. One fix serves both.
+2. **`store_success_count` is LIFETIME, not per-phase.** Only `last_store_at`
+   decides the window; the counter is observability and nothing reads it for a
+   verdict. It is recorded so nobody later mistakes it for a per-phase quota —
+   a count target is exactly the shape that invites junk stores to hit a number.
+3. **Structured data is judged by BASENAME, and that list will need tending.**
+   `json`/`yml`/`yaml`/`toml` are not blanket-exempt — a blanket exemption made
+   an entire Kubernetes / Helm / Ansible / OpenAPI phase read as "nothing owed",
+   which is the allow-list defect one layer over. Recognised metadata
+   (`package.json`, `pyproject.toml`, `.claude/*.json`, rc-files, …) is exempt
+   and everything else in those extensions is source. The list rots
+   FAIL-CLOSED — a new metadata filename produces a nuisance block the operator
+   clears by storing or attesting, never a silent pass — which is the tolerable
+   direction, but it is a list and it will need entries.
+4. **Legacy projects stay unenforced until someone adds the manifest field.**
+   A project scaffolded before `# BL-233-WPB-MANIFEST-DECL` declares Qdrant only
+   in files git does not track, so in a clone the gate reports `NOT CHECKED` and
+   names the one-line remedy. It is reported, never silent — but it IS a real
+   gap, and it is the honest residual of the fix rather than a claim that every
+   project is now covered.
+5. ~~**`_cpg_accum_source_since` is the one PERMISSIVE arm.**~~ **INVERTED after
+   review, 2026-08-18.** It was permissive, and that was wrong: an empty,
+   malformed, tampered or garbage-collected `head` silently restored the
+   permanent bypass the staleness check exists to remove — reachable by editing
+   one JSON field OR by an ordinary `git gc --prune=now`, and its twin
+   `_cpg_accum_source_work` fails CLOSED on the identical question. It now fails
+   closed too and names WHICH cause (`# BL-233-WPB-STALE-FAILCLOSED`). The only
+   remaining permissive arm is "no git at all", where staleness is not a
+   question that can be asked.
+6. **The test suite runs the commit gate, and env must go on the RIGHT of the
+   pipe.** `HOME=... SKIP_LINT=1 printf ... | bash gate` sets both variables for
+   `printf`, not for the gate — so the fixtures read the REAL `$HOME` and the
+   two slow full-tree lints ran on every call. Measured: 505s -> 27s once
+   corrected, and it was also a host-dependence bug sitting inside the suite
+   written to pin host-dependence. It burst the `unit-shard` 12-minute cap and
+   cancelled CI before it was found.
+7. **The `unreadable` arm is the ONE blocking arm with no attested escape** —
+   it returns before the attestation block, so `SOLO_MCP_ACCUM_ATTESTED=1`
+   cannot clear it. Recorded as a decision rather than inherited: fixing the
+   JSON *is* an honest escape, and it is the only one that resolves the actual
+   problem, so `## BL-149:` is satisfied without an env-var bypass. If that ever
+   proves wrong the fix is to move the arm below the attestation block.
+8. **The same forging surface survives in BL-073's reviewer attestation** — the
+   two `echo -e` sites that render `$cpg_attest_reason`, in the no-manifest and
+   incomplete-reviews arms of the Phase 3→4 review gate. Left deliberately:
+   pre-existing, out of this entry's scope, and it needs its own mutation proofs.
+
+   **Cited by VARIABLE (`$cpg_attest_reason`), because the two previous attempts
+   at this one citation were both wrong.** The first said "~2656 and ~2730";
+   those had already drifted to 2698/2772 when review measured them, and to
+   2719/2793 a day later — three values in two days. The second said
+   `_cpg_check_reviewers`, and no such function exists; those arms sit in the
+   script body. A grep-able token is the only form that survives, which is
+   exactly what CLAUDE.md's CITATION RULE says and why it says it.
+
+9. **The accumulation gate does not run in solo-orchestrator itself.**
+   Measured: `. scripts/lib/accumulation.sh && accum_requirement_state` returns
+   `none` in this checkout, because there is no `.claude/manifest.json` and the
+   tracked `.claude/settings.json` declares no `mcpServers`. The RETRIEVAL half
+   (the PostToolUse/PreToolUse hooks) does fire here; the accumulation half does
+   not. Every proof that it works therefore comes from synthetic fixtures and
+   from CI, never from the one environment the author uses interactively — which
+   is the same "validated where written, not where it runs" axis this work has
+   been caught on repeatedly. Recorded rather than quietly relied upon.
+10. **`# BL-233-WPB-MANIFEST-DECL` has no test.** `init.sh`'s line writing
+   `.claude/manifest.json::mcp.qdrant_required` is what makes the whole
+   tracked-declaration design work in a real generated project, and the I-group
+   hand-builds its fixtures rather than running the scaffolder. It cannot be
+   closed inside the fast lane: a test that invokes `init.sh` is unit-lane
+   exempt by the BL-181 predicate, so it would have to live in the full lane.
+11. **The same forging surface exists on PRE-EXISTING gate-date arms.** A
+   DUPLICATE `"phase_1_to_2"` key in `.claude/phase-state.json` — which jq
+   accepts, so the file is not malformed — makes `get_gate_date` return a
+   multi-line value, because it extracts with `grep -o` and validates with an
+   anchored `grep -qE`, and **grep matches per line**. BL-071's
+   "gate dated …, but APPROVAL_LOG.md has no dated entry" arm then renders it
+   through `echo -e` and a forged `[OK]` line appears. Measured, out of this
+   entry's scope, left deliberately — this entry's own arms clean the value at
+   ingest (`# BL-233-WPB-PREV-ONELINE`), so nothing this PR adds can widen it.
+   **Two details here were wrong until now and are corrected rather than
+   dropped.** (a) The arm that renders it is NOT BL-071's "gate dated …, but
+   APPROVAL_LOG.md has no dated entry" branch — it is the OPPOSITE branch of the
+   same `if`, `_cpg_record_gate_date`'s `gate date already recorded (…) —
+   preserving first-pass timestamp (idempotent)` message, which is why removing
+   `APPROVAL_LOG.md` does not merely change the count but aborts the gate before
+   any gate-date arm runs (that is residual 15's causal point, measured). (b)
+   D13 is **not** "scoped to the accumulation output" — that describes D13's
+   FIRST vacuous form, the one residual 15 calls scoping by a substring a forgery
+   can never contain. The restored D13 counts forged lines across the WHOLE
+   transcript and subtracts a control fixture, which is precisely what lets it
+   bound a new raw display site anywhere in the file.
+12. **THE RULE, because the sweep was wrong twice in a row.** Round 5 swept for
+   the KEYWORDS `reason|recorded|attest` and missed `$last`. Round 6 swept for
+   the SYNTAX `echo -e` — in the same round that moved four sites onto `printf`,
+   so the sweep was blind to the surface it had just created — and missed `$sha`.
+   Each sweep described the PREVIOUS round's shape. The rule that holds is a
+   BOUNDARY rule, not a search: **every value that arrives from a file, from jq,
+   or from the environment is passed through `accum_oneline` where it ENTERS**,
+   and no display site needs to be audited at all. M17 and M18 are the proofs
+   that the ingest wrap is load-bearing.
+13. **The rule needed the backslash, and that is the whole lesson.** Residual 12
+   said "clean at the boundary and no display site needs auditing". That was
+   false as written: `accum_oneline` stripped REAL control bytes, but `echo -e`
+   MANUFACTURES a real newline out of the two-character sequence backslash-n,
+   which a control strip leaves untouched. An eighth instance followed — ingest
+   sanitising and `printf '%s'` are COMPLEMENTS, and round 7 had replaced one
+   with the other. The primitive now removes the backslash too, so `echo -e` is
+   inert on these values and the sentence is finally true; D15 proves it by
+   reverting a display site to `echo -e` and measuring no new forgery.
+14. **Sanitising for display must not sanitise for SEMANTICS.** Cleaning the
+   attestation head at ingest turned a display filter into a git-ref normaliser:
+   an invalid ref became a valid one once C0 bytes were stripped, so a tampered
+   attestation resolved and the verdict flipped FAIL to OK — inverting the
+   fail-closed posture that function's own header promises. The value now
+   reaches git RAW (`# BL-233-WPB-SHA-RAW-FOR-GIT`) and is cleaned only where it
+   is displayed.
+15. **A test was vacuous three times, then DELETED on BACKWARDS reasoning, and
+   is now RESTORED with a floor.** D13 asserts that this feature's display of a
+   duplicate-key gate date adds no forged line to the transcript. It was vacuous
+   in three successive forms: scoped by a substring a forgery can never contain;
+   then rewritten with a real control but a payload writing TWO backslashes on
+   disk (so `echo -e` emitted one line, not two) and the forged text never
+   beginning a line; then with `mk_proj`'s `APPROVAL_LOG.md` evidence dropped,
+   still measuring 0/0. The deletion that followed reasoned that the evidence
+   SUPPRESSED the forging arm. It does the opposite: that evidence is what lets
+   `_cpg_record_gate_date` render the gate date at all, and the rendered date is
+   where the baseline forged line comes from — so removing it is what CAUSED the
+   0/0. The assertion was sound throughout; the fixture had been broken by the
+   edit meant to fix it. Restored with the evidence intact and a vacuity floor at
+   `base >= 1`, it measures 1 → 1, and a silent return to 0/0 now fails loudly.
+   **M19 does not subsume it**, which the deletion also claimed. M19's predicate
+   is `mutant > control` with NO upper bound on the control, so a new raw display
+   site added later reads control=2 / mutant=3 and passes green, while D13 reads
+   1 → 2 and fails. The two watch opposite trees — M19 the mutated one, D13 the
+   shipped one — so both are wanted.
+16. **`accum_oneline` mangles legitimate backslashes IN THE TRANSCRIPT ONLY.** An
+   attestation reason like `ported C:\Users\karl\src … the \d+ regex` displays
+   as `ported C:Userskarlsrc … the d+ regex`. Storage, idempotence and staleness
+   all round-trip the value VERBATIM (verified). The trade is deliberate — it is
+   what makes `echo -e` inert and therefore what makes residual 13's rule true —
+   and it is recorded so the display loss is a choice rather than a surprise.
+17. **Every successful store now DIRTIES A TRACKED FILE.**
+   `.claude/process-state.json` is tracked here and in generated projects
+   (`init.sh` writes it and `git add -A` commits it), so a `qdrant-store` mid-
+   session leaves a modified file that a later `git add -A` sweeps into an
+   unrelated commit. This is consistent with what that file already is — the
+   Build-Loop step counter and the two existing gate writers
+   (`_cpg_record_gate_date`, `_cpg_record_reviewer_attestation`) all mutate it —
+   and being tracked is what makes the accumulation record auditable in history
+   and survive a clone, which an untracked file would not. The change is
+   frequency, not kind. Verified live on this tree: a real store through the
+   registered hook wrote `{"store_success_count":1,"last_store_at":"…"}`.
+18. **A stale `process-state.json.lockdir` has no breaker.** If a writer is
+   killed between `mkdir` and `rmdir`, every subsequent `qdrant-store`
+   PostToolUse hook spins for its full 3s budget, never records, and the phase
+   gate then blocks indefinitely on a project that is storing correctly. It
+   fails CLOSED and it is VISIBLE (`# BL-233-WPB-RECORD-FAILED-VISIBLE` names
+   the condition at session end), so this is a latency-and-durability residual
+   rather than a correctness hole — but 3s on a hook that fires per tool call is
+   a real cost, and nothing ages the lock out. The lock pattern is inherited
+   from the two pre-existing writers of that file, so a breaker belongs to all
+   three at once and not to this entry alone.
+
+19. ~~**An unmeasurable window blocks a project that DID store, and the attested
+   escape does not reach it.**~~ **FIXED, and the fix is the more important half
+   of this whole wave.** Filed as a deliberate trade; it was not one. Every
+   window guard added in rounds 10-11 fails CLOSED, and the block sat AHEAD of
+   the escape, so a wrong clock or a half-written state file left an honest
+   operator with no way past a blocking gate except hand-editing a date. That is
+   `## BL-149:`'s standing rule — *a gate people cannot satisfy honestly gets
+   deleted* — broken by the entry that cites it.
+   **The bypasses these guards close were rated improbable on review; an honest
+   operator hitting a dead end was not.** The measurability check now sets a flag
+   instead of returning (`# BL-233-WPB-WINDOW-ATTESTABLE`): the two PERMISSIVE
+   shortcuts stay skipped, because a store "inside" an unmeasurable window and
+   "nothing owed" are the answers that were false; the ATTESTED path is reached,
+   and the attestation is durably recorded exactly as elsewhere. Fail-closed to
+   a script, open to a human who says why. **N10** asserts both halves — the
+   store that must not satisfy, and the attestation that must clear and be
+   recorded — and **M26** kills the early return, because reading as "tighter"
+   is precisely why that edit gets made.
+20. **The raw `gates.*` value now reaches a verdict line, and flattening it is
+   not the same as neutralising it.** `# BL-233-WPB-AMBIGUOUS-WINDOW` and
+   `# BL-233-WPB-WINDOW-SHAPE` quote the offending value so the operator can see
+   what is wrong with it. `accum_oneline` strips its control characters and
+   backslashes, so it cannot begin a line and cannot forge an `[OK]` verdict —
+   exit code and issue count are provably unaffected — but a value containing
+   the TEXT `accumulation: satisfied` will still be counted by a bare
+   `grep -c 'accumulation: satisfied'`, which is this suite's own verdict
+   primitive. The quoted value is truncated to 40 characters to bound the
+   surface. The real fix is for assertions about verdicts to anchor on the
+   line, and most here already do.
+21. **The same bare-`--since` defect exists in `session-test-gate-check.sh` and
+   is NOT fixed here.** That script reads the same `gates.phase_1_to_2` field
+   and runs `git log --oneline --since="$PHASE2_DATE" --no-merges`, so its
+   commit counter has exactly the fault
+   `# BL-233-WPB-SINCE-MIDNIGHT` removes from the gate: the window starts at the
+   current clock time on that date, not midnight, so commits made earlier in the
+   day are uncounted and the same tree counts differently by the hour. It is the
+   only other `--since` under `scripts/`. Left out of this entry deliberately —
+   it belongs to a different feature's counter and this entry claims no sweep of
+   the class — but recorded with the one-token fix so it is not rediscovered.
+
+22. **The commit-time warning still lags the gate on TWO window shapes.** After
+   `# BL-233-WPB-WARN-UNREADABLE-WINDOW`, the two halves agree on a valid
+   window, a future window, an unparseable gate date and an absent gate. They
+   still DISAGREE on a duplicate `gates.*` key whose last value is a valid date
+   (the gate sees both via `get_gate_date`'s per-line `grep -o`; the commit half
+   reads with `jq`, which is last-wins) and on a `.gates` that is not an object.
+   The gate BLOCKS, the warning stays silent. **Deliberately not fixed**: both
+   shapes require hand-crafting the JSON, and the consequence is a missing
+   nudge, not a fail-open. Recorded because "warn at commit, block at the gate"
+   is the posture, and a known gap in it should be written down rather than
+   discovered twice.
+23. **`GIT_DIR` / `GIT_WORK_TREE` redirect the source-work measurement.** Setting
+   them makes `_cpg_accum_source_work` read another repository, which reports
+   "nothing owed" — a silent, unrecorded bypass, unlike the documented
+   `SOIF_PHASE_GATES=warn` and the recorded `SOLO_MCP_ACCUM_ATTESTED`.
+   Pre-existing and not specific to this arm: the class affects every `git` read
+   in `check-phase-gate.sh`. Noted here because the accumulation gate is the
+   first BLOCKING check whose failure direction is "pass".
+24. **An unreadable `phase-state.json` (mode 000) makes the WHOLE gate report
+   `Phase gates consistent`, rc=0.** Verified byte-identical on merge-base
+   `2344b13`, so it predates this entry entirely and is out of its scope — but
+   it is the same silent-non-enforcement class and belongs on the record.
 
 **WP-A, 2026-08-13 — what shipped and what was decided.** Items 1-5 and 7 are
 done for the retrieval half; `tests/test-bl233-mcp-outcome-enforcement.sh` is
@@ -10474,13 +10974,19 @@ None of these blocks the WP-A work; all three are real and none is fixed:
    which falls through to **deny** with a parseable envelope and no stderr leak
    — fail-closed, as intended, though the message does not tell the operator
    their pattern is the problem.
-4. **`session-end-qdrant-reminder.sh` still counts DECLARATIONS.** It reads
-   `.calls | length` and the `*_called` flags, so its end-of-session summary
-   reports calls that FAILED as calls that happened — it now disagrees with the
-   gate. It is a Stop-hook reminder and nothing enforces on it, so this is
-   cosmetic today, but the outcome fields it needs
-   (`qdrant_find_succeeded`, `qdrant_find_failed`, `qdrant_find_interrupted`)
-   are already in the ledger. **WP-B pickup.**
+4. ~~**`session-end-qdrant-reminder.sh` still counts DECLARATIONS.**~~
+   **FIXED in WP-B (2026-08-17).** It read `.calls | length` and the `*_called`
+   flags, so a call that FAILED was reported as a call that happened, and after
+   WP-A it actively disagreed with the gate beside it. It now filters on
+   `.outcome`, reads `qdrant_store_succeeded` rather than `qdrant_store_called`
+   (`# BL-233-WPB-OUTCOME`, mutant M6), and REPORTS the failed round trips
+   instead of omitting them — an absent failure is indistinguishable from an
+   idle session, and that ambiguity is what let a dead Qdrant look healthy for
+   weeks. One subtlety worth keeping: a row written *before* WP-A carries no
+   `.outcome`, and its absence is read as **success**, because the pre-WP-A
+   tracker was registered on `PostToolUse` only and the rows it wrote are
+   exactly the calls that fired without error. Defaulting those to failure would
+   have invented failures that never happened.
 
 ### The mechanism
 

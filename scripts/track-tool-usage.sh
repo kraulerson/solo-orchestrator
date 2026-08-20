@@ -258,6 +258,63 @@ if [ "$OUTCOME" = "failure" ] && [ -n "$TOOL_ERROR" ]; then
     "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
 fi
 
+# ── BL-233 WP-B: the DURABLE accumulation record ────────────────────────────
+# The per-session ledger cannot answer "did this PHASE accumulate anything".
+# `session-test-gate-check.sh` WIPES .claude/tool-usage.json on every `startup`
+# (it merges only on resume/compact/clear), and a phase spans many sessions —
+# so a phase gate reading the ledger would be asking "did THIS SESSION store",
+# which one junk store ten seconds before the gate satisfies. The gate therefore
+# reads .claude/process-state.json::mcp_accumulation, which survives session
+# boundaries, and this function is its ONLY writer.
+#
+# It takes the same mkdir advisory lock as check-phase-gate.sh's two writers of
+# that same file (_cpg_record_gate_date, _cpg_record_reviewer_attestation). An
+# unlocked third writer would not merely race itself — it would break THEIR
+# mutual exclusion. The budget is deliberately short (3s, vs the gate's 10s):
+# this runs on a PostToolUse hook, and a tool call must not stall behind a lock.
+#
+# A failed write is RECORDED in the ledger, never swallowed. A store that never
+# reached the durable record would otherwise leave the operator in front of a
+# phase gate that blocks for no visible reason.
+_tt_record_accumulation() {
+  local ts="$1"
+  local file=".claude/process-state.json"
+  local lock_dir="$file.lockdir"
+  local attempts=0 rc=0
+
+  mkdir -p .claude 2>/dev/null || return 1
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -ge 30 ] && return 1
+    sleep 0.1
+  done
+
+  if [ ! -f "$file" ]; then
+    echo '{}' > "$file" 2>/dev/null || { rmdir "$lock_dir" 2>/dev/null; return 1; }
+  fi
+
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --arg ts "$ts" \
+        '.mcp_accumulation = ((.mcp_accumulation // {})
+           | .store_success_count = ((.store_success_count // 0) + 1)
+           | .last_store_at = $ts
+           | .attestations = (.attestations // {}))' \
+        "$file" > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$file" || exit 1
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
+  rmdir "$lock_dir" 2>/dev/null || true
+  return "$rc"
+}
+
 # ── Context7 ────────────────────────────────────────────────────────────────
 if echo "$TOOL_NAME" | grep -q "context7" 2>/dev/null; then
   # context7_called stays name-derived on purpose: it is the OBSERVABILITY
@@ -298,8 +355,14 @@ if echo "$TOOL_NAME" | grep -q "qdrant" 2>/dev/null; then
     fi
   elif echo "$TOOL_NAME" | grep -q "store" 2>/dev/null; then
     jq '.qdrant_store_called = true' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
-    if [ "$OUTCOME" = "success" ]; then
+    if [ "$OUTCOME" = "success" ]; then   # BL-233-WPB-ACCUM-WRITE
       jq '.qdrant_store_succeeded = true' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+      # The session-scoped flag above and the durable record below answer two
+      # different questions. Only the durable one crosses a phase boundary.
+      if ! _tt_record_accumulation "$TIMESTAMP"; then
+        jq '.qdrant_store_record_failed = ((.qdrant_store_record_failed // 0) + 1)' \
+          "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+      fi
     fi
   fi
 fi

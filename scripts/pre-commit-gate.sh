@@ -11,6 +11,25 @@ set -euo pipefail
 #   - JSON with permissionDecision: "deny" = block
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# BL-233 WP-B: the accumulation predicates, shared with check-phase-gate.sh so
+# this warning cannot drift from the gate it is warning about.
+#
+# GUARDED, in this file's own idiom (see tdd-classify.sh above), and the
+# degradation is DELIBERATE. A bare `source` here was measured taking the whole
+# commit gate down in any project installed before this lib existed: on the
+# PreToolUse path it exits non-zero before ANY check runs — remote, TDD,
+# Build Loop, all of it — and on the commit-msg path it blocks every commit with
+# a bash error whose rc is 1, so `soif_ledger_blocked` never records the block
+# either. Silently disabling every gate in the file is the exact
+# non-enforcement class `## BL-233:` exists to remove, so the accumulation
+# WARNING no-ops when the lib is absent and every other gate keeps running.
+# Safe because this arm is warn-only; the phase gate is where it blocks.
+SOIF_ACCUM_LIB_LOADED=0
+if [ -f "$SCRIPT_DIR/lib/accumulation.sh" ]; then
+  # shellcheck source=scripts/lib/accumulation.sh
+  . "$SCRIPT_DIR/lib/accumulation.sh"
+  SOIF_ACCUM_LIB_LOADED=1
+fi
 
 # BL-072 Phase C1: shared TDD file-classification core. Sourced (not
 # re-implemented) so the live gate below and the dogfood replay
@@ -1423,7 +1442,13 @@ PHASE_STATE=".claude/phase-state.json"
 WARNINGS=""
 
 if [ "$IS_COMMIT" = true ] && [ -f "$TOOL_USAGE" ] && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null; then
-  CURRENT_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null)
+  # Same guard, same reason, and it is fixed HERE TOO because otherwise the one
+  # below is inert: under `set -euo pipefail` this line aborts the hook FIRST, so
+  # guarding only the accumulation block would have looked correct and changed
+  # nothing observable — measured, rc=5 either way until both were guarded.
+  # Pre-existing, predating `## BL-233:`; half a fix to a silent-non-enforcement
+  # class is worse than none, and this entry is why anyone looked.
+  CURRENT_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null || printf '0')   # BL-233-WPB-CURPHASE-GUARD
 
   if [ "$CURRENT_PHASE" = "2" ]; then
     # Check if this is a source commit (reuse staged file check)
@@ -1446,6 +1471,154 @@ if [ "$IS_COMMIT" = true ] && [ -f "$TOOL_USAGE" ] && [ -f "$PHASE_STATE" ] && c
       QDRANT_FIND=$(jq -r '.qdrant_find_called // false' "$TOOL_USAGE" 2>/dev/null)
       if [ "$QDRANT_FIND" = "false" ]; then
         WARNINGS="${WARNINGS}No prior context retrieved from Qdrant this session. Consider checking for relevant architecture decisions and patterns. "
+      fi
+    fi
+  fi
+fi
+
+# ── BL-233 WP-B: the COMMIT half of "warn at commit, block at the phase gate" ─
+# Karl's decision (2026-08-17). Storing is NOT per-commit work: a commit that
+# produced no insight has nothing to store, so a per-commit BLOCK would be a
+# gate people cannot satisfy honestly — and `## BL-149:` is the standing rule
+# that such a gate gets deleted. This arm therefore only ever WARNS, and it is
+# emitted through the same `permissionDecision: allow` envelope below.
+#
+# The window here is FORWARD-looking and differs from check-phase-gate.sh's on
+# purpose. The gate, run at current_phase N, verifies the crossing INTO N — so
+# its window opens at gate (N-1). This warning is about the gate you have not
+# hit yet: while working in phase N you are heading for the N→N+1 gate, whose
+# window opens at the gate that put you IN phase N. Same rule, different tense.
+if [ "$IS_COMMIT" = true ] && [ "$SOIF_ACCUM_LIB_LOADED" = "1" ] \
+   && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null; then
+  # `|| printf '0'` IS NOT DECORATION. This file is `set -euo pipefail`, so an
+  # unguarded command substitution that fails takes the whole hook with it — and
+  # on the PreToolUse path that discards the ENTIRE $WARNINGS accumulator
+  # (Context7, qdrant-find, TDD), silently, for a reason unrelated to any of
+  # them. Both siblings below already carry the guard; this one did not, and the
+  # block it sits in has no `[ -f "$TOOL_USAGE" ]` precondition, so the abort
+  # became reachable for any project with an unparseable phase-state.json.
+  # That is this file's own header rule — "silently disabling every gate in the
+  # file is the exact non-enforcement class `## BL-233:` exists to remove" —
+  # applied at the source line and not 1,460 lines later.
+  ACC_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null || printf '0')   # BL-233-WPB-ACCPHASE-GUARD
+  ACC_PREV_KEY=""
+  case "$ACC_PHASE" in
+    1) ACC_PREV_KEY="phase_0_to_1" ;;
+    2) ACC_PREV_KEY="phase_1_to_2" ;;
+    3) ACC_PREV_KEY="phase_2_to_3" ;;
+  esac
+
+  if [ -n "$ACC_PREV_KEY" ]; then
+    # THE SAME derivation the phase gate uses, from the SAME file
+    # (scripts/lib/accumulation.sh). It used to be a hand-copied loop that read
+    # settings*.json and the ledger but NOT .claude/manifest.json — so on a
+    # clone of a project scaffolded by init.sh, where the manifest is the only
+    # declaration, the gate blocked and this warning said nothing. The whole
+    # posture is "warn at commit, block at the phase gate"; a warning that is
+    # silent on the path the fix creates is worse than absent.
+    ACC_REQUIRED=false
+    if [ "$(accum_requirement_state)" != "none" ]; then
+      ACC_REQUIRED=true
+    fi
+
+    if [ "$ACC_REQUIRED" = true ]; then
+      ACC_STAGED=$(git diff --cached --name-only 2>/dev/null || true)
+      ACC_HAS_SOURCE=false
+      # Here-strings, not `echo | grep -q`: under `set -o pipefail` that
+      # pipeline returns 141 on a MATCH once the payload is big enough
+      # (`## BL-238:`), and here a spurious 141 would silently drop the warning.
+      # THE SAME predicate the phase gate uses, from the same library — not a
+      # copy. Two literals is what the earlier version had, and they had already
+      # drifted from process-checklist.sh's dep-manifest list.
+      if accum_paths_have_source "$ACC_STAGED"; then
+        ACC_HAS_SOURCE=true
+      fi
+
+      if [ "$ACC_HAS_SOURCE" = true ]; then
+        ACC_PREV=$(jq -r --arg k "$ACC_PREV_KEY" '.gates[$k] // ""' "$PHASE_STATE" 2>/dev/null || printf '')
+        [ "$ACC_PREV" = "null" ] && ACC_PREV=""
+        # Kept BEFORE validation blanks it, so this half can tell "no gate
+        # recorded" from "a gate recorded as garbage" — the same distinction the
+        # phase gate makes with `# BL-233-WPB-RAW-SNAPSHOT`.
+        ACC_PREV_RAW=$(accum_oneline "$ACC_PREV")
+        # VALIDATE before it reaches the warning text. This value is spliced into
+        # WARNINGS, which is emitted through a hand-rolled `sed 's/"/\\"/g'` JSON
+        # envelope — and a backslash or control character in it makes the whole
+        # hook envelope unparseable, so the warning is silently discarded. The
+        # phase gate validates the same field (get_gate_date's YYYY-MM-DD regex);
+        # this surface did not. Same rule, same place, both sides.
+        #
+        # This repo's own tracker comment names the antipattern: hand-escaping
+        # for a LIST of characters "is a list, not the control CLASS".
+        # SANITISE FIRST, then validate. `grep` matches PER LINE, so a value whose
+        # FIRST line is a valid date passed this check while still carrying a
+        # newline — and jq emits a real newline for a JSON `\n` escape. The value
+        # then reached `ESCAPED_WARNINGS=$(echo "$WARNINGS" | sed 's/"/\\"/g')`,
+        # which escapes quotes only, making the whole hook envelope invalid JSON.
+        # $WARNINGS is the SHARED accumulator, so that discarded every warning the
+        # hook had collected — TDD, Context7, qdrant-find — with no error anywhere.
+        # The guard's own comment said "a backslash or control character"; it
+        # closed the backslash half and left the control-character half open.
+        ACC_PREV=$(accum_oneline "$ACC_PREV")   # BL-233-WPB-ACCPREV-ONELINE
+        if ! printf '%s' "$ACC_PREV" | grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'; then
+          ACC_PREV=""
+        fi
+        ACC_LAST=""
+        # Guarded, same as the phase gate: an unparseable record must not read
+        # as "nothing stored". Here it stays a WARNING either way, so the
+        # consequence is only a misleading nudge — but the two surfaces must
+        # answer the same question the same way.
+        if [ -f ".claude/process-state.json" ] && accum_json_readable ".claude/process-state.json"; then
+          ACC_LAST=$(jq -r '.mcp_accumulation.last_store_at // ""' ".claude/process-state.json" 2>/dev/null || printf '')
+          [ "$ACC_LAST" = "null" ] && ACC_LAST=""
+        fi
+
+        # Integer date compare, same reasoning as the gate's _cpg_accum_after:
+        # `[ a \> b ]` is locale-collated, and same-day counts because gates.*
+        # carry a date with no time.
+        ACC_SATISFIED=false
+        if [ -n "$ACC_LAST" ]; then
+          if [ -z "$ACC_PREV" ]; then
+            # AN UNREADABLE WINDOW IS NOT AN ABSENT ONE, and this branch used to
+            # answer as though it were — under a comment that said in as many
+            # words "the gate treats any store as satisfying, so stay quiet".
+            # The phase gate NO LONGER does: `# BL-233-WPB-AMBIGUOUS-WINDOW` and
+            # `# BL-233-WPB-WINDOW-SHAPE` refuse a gate date that is recorded but
+            # will not parse. Left alone, the half that WARNS went silent exactly
+            # where the half that BLOCKS started refusing — the failure this
+            # file's own comments call worse than no warning at all.
+            if [ -n "$ACC_PREV_RAW" ]; then
+              :   # BL-233-WPB-WARN-UNREADABLE-WINDOW
+            else
+              ACC_SATISFIED=true
+            fi
+          else
+            _acc_a="${ACC_LAST:0:10}"; _acc_a="${_acc_a//-/}"
+            _acc_b="${ACC_PREV:0:10}"; _acc_b="${_acc_b//-/}"
+            # The two unparseable cases resolve in OPPOSITE directions, and each
+            # matches the gate, so this warning predicts the gate it is warning
+            # about. A corrupt last_store_at is NOT a store (the gate blocks, so
+            # warn). A gate date that is ABSENT means the window is the whole
+            # history and any store satisfies it (stay quiet); a gate date that
+            # is RECORDED BUT UNPARSEABLE means the window cannot be measured,
+            # and the gate now BLOCKS on it — so this warns.
+            case "$_acc_a" in
+              ''|*[!0-9]*) : ;;
+              *) case "$_acc_b" in
+                   # UNREACHABLE by construction and left as it was: $ACC_PREV
+                   # empty is handled by the outer branch above, so $_acc_b can
+                   # only be empty there. Making this arm "smart" would be an
+                   # arm that cannot fire (`## BL-104:`).
+                   ''|*[!0-9]*) ACC_SATISFIED=true ;;
+                   *) [ "$_acc_a" -ge "$_acc_b" ] && ACC_SATISFIED=true ;;
+                 esac ;;
+            esac
+          fi
+        fi
+
+        if [ "$ACC_SATISFIED" = false ]; then   # BL-233-WPB-COMMIT-WARN
+          WARNINGS="${WARNINGS}Nothing has been stored to Qdrant since ${ACC_PREV:-project start}, and this is a source commit. The phase gate BLOCKS on this — a phase with source commits and no successful qdrant-store does not advance. Store what this phase decided before you reach it. "
+        fi
       fi
     fi
   fi

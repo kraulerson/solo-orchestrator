@@ -517,6 +517,7 @@ jobs:
             tests/test-brownfield-wp5b-test-debt.sh
             tests/test-brownfield-wp6-collision-archive.sh
             tests/test-bl233-mcp-outcome-enforcement.sh
+            tests/test-bl233-wpb-accumulation.sh
             tests/test-bl234-currency-and-availability.sh
             tests/test-bl222-security-clock-evidence.sh
             tests/test-bl229-host-pipeline-paths.sh

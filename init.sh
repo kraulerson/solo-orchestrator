@@ -1369,6 +1369,13 @@ create_project() {
   # though --plan itself runs framework-side only.
   cp "$SCRIPT_DIR/scripts/lib/render-project-docs.sh"  scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/plan-staging.sh"         scripts/lib/
+  # BL-233 WP-B: the accumulation predicates, sourced by BOTH shipped gates
+  # (check-phase-gate.sh and pre-commit-gate.sh). Source-closure (BL-088) is not
+  # optional here — without this line the commit gate dies at its `source` line
+  # in every generated project, which either blocks every commit with a bash
+  # error or, on the PreToolUse path, makes the whole gate exit non-zero before
+  # any check runs. tests/test-scaffold-source-closure.sh enforces it.
+  cp "$SCRIPT_DIR/scripts/lib/accumulation.sh"         scripts/lib/
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
   # BL-088: check-phase-gate.sh's Phase-3→4 gate auto-runs (and points the
@@ -2335,6 +2342,25 @@ TUEOF
 }
 QDEOF
       print_ok "Qdrant MCP configured with project-specific collection: $PROJECT_NAME"
+
+      # BL-233-WPB-MANIFEST-DECL: record the requirement where a CLONE can see it.
+      # settings.local.json above cannot carry this: Claude Code adds that file
+      # to the user's global git excludes by design, so it never leaves this
+      # machine. check-phase-gate.sh's accumulation gate asks git whether the
+      # declaring file is tracked, and .claude/manifest.json is the one that is.
+      # Without this line the gate is correct here and inert on CI.
+      if [ -f .claude/manifest.json ]; then
+        if jq '.mcp = ((.mcp // {}) | .qdrant_required = true)' .claude/manifest.json \
+             > .claude/manifest.json.tmp 2>/dev/null; then
+          mv .claude/manifest.json.tmp .claude/manifest.json
+          print_ok "Qdrant accumulation requirement recorded in .claude/manifest.json (survives a clone)"
+        else
+          rm -f .claude/manifest.json.tmp
+          print_warn "Could not record mcp.qdrant_required in .claude/manifest.json — the phase-gate accumulation check will not fire in a fresh clone until it is added."
+        fi
+      else
+        print_warn "No .claude/manifest.json to record mcp.qdrant_required in — the phase-gate accumulation check will not fire in a fresh clone until it is added."
+      fi
     fi
   fi
 

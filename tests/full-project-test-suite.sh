@@ -2032,6 +2032,15 @@ run_child_suite "tests/test-delta-db-ledger-close.sh" \
 run_child_suite "tests/test-bl233-mcp-outcome-enforcement.sh" \
   "tests/test-bl233-mcp-outcome-enforcement.sh"
 
+# BL-233 WP-B — the ACCUMULATION half: warn at commit, BLOCK at the phase gate.
+# Pins the durable record (process-state.json::mcp_accumulation, written only on
+# a SUCCEEDING qdrant-store), the phase-scoped window, the source-work honest
+# path, the attested escape that is refused when it cannot be recorded, and the
+# project-scope-only requirement derivation that keeps the verdict independent
+# of the machine running it. Never touches init.sh, so it runs in the unit lane.
+run_child_suite "tests/test-bl233-wpb-accumulation.sh" \
+  "tests/test-bl233-wpb-accumulation.sh"
+
 # BL-234 — currency and availability MEASURED, not declared. Four checks read a
 # declaration as a capability: freshness never fetched (so `pin-behind` compared
 # the pin against the clone it was cut from), `is_qdrant_mcp_registered` tested
