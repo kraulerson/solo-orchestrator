@@ -10409,11 +10409,11 @@ the WP-B residuals recorded with it.
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — **82 assertions, 21 mutants**, both
+`tests/test-bl233-wpb-accumulation.sh` — **90 assertions, 24 mutants**, both
 derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
 than transcribed, because this entry has now carried a wrong count in three
 consecutive revisions. Measured against the CURRENT merge-base `2344b13` with
-this suite dropped into a `git archive` of that tree: **2 passed / 83 failed**.
+this suite dropped into a `git archive` of that tree: **2 passed / 91 failed**.
 The tally exceeds 78 for one derived reason, and the first explanation offered
 for it was INVENTED — in the paragraph whose whole subject is not transcribing
 numbers, which is why the derivation is printed here:
@@ -10423,8 +10423,8 @@ grep -E '^  \[FAIL\]' <run> | sed 's/^  \[FAIL\] //; s/ — .*//; s/\[.*//' \
 ```
 `D6` reports PER HEAD SHAPE — three loop iterations plus one final line against
 a single `pass` site — so it contributes 4 lines for 1 label and every other
-label contributes exactly 1. 2 passes + 80 distinct failing labels = 82, + D6's
-3 extra lines = 83. The **meta arms do not contribute**, which is what the first
+label contributes exactly 1. 2 passes + 88 distinct failing labels = 90, + D6's
+3 extra lines = 91. The **meta arms do not contribute**, which is what the first
 explanation claimed: `_mk_mutant_repo` returns 1 on a meta failure, so the
 assertion it guards is SKIPPED, and all 20 meta lines in that run stand IN PLACE
 OF an assertion rather than beside one. The two passes are NAMED
@@ -10535,8 +10535,11 @@ a store satisfying "since `phase_2_to_3`" necessarily satisfies "since
 rest. With `-ge`, one missing store would have counted as three inconsistencies
 and printed the same sentence three times.
 
-**The one fail-open ten rounds of review found, and it was in the dimension the
-suite never drove.** `_cpg_accum_source_work` asks git for the window's commits
+**THREE fail-opens, all in the dimension the suite never drove — the window
+itself. The first was found by review, the second by review of the fix, and the
+third by this suite's own test going intermittently green.**
+
+**(1) A window that opens in the FUTURE.** `_cpg_accum_source_work` asks git for the window's commits
 with `git log --since=<gate date>`. A gate date in the FUTURE returns zero
 commits and exit 0 — git ANSWERED, so none of the function's three cannot-tell
 arms fire — the empty payload then matches `^$` in the exempt set, and the gate
@@ -10555,6 +10558,52 @@ owed, which the shared library's own header calls worse than a missing warning.
 recorded, so a machine whose clock or timezone is ahead of the one running the
 gate writes a window that is in the future THERE and nowhere else — `## BL-234:`'s
 silent local-vs-CI class, for the third time inside this one feature.
+
+**(2) A window that is RECORDED but UNPARSEABLE — reached without any clock
+skew.** `get_gate_date` maps BOTH "no gate recorded" and "a gate recorded whose
+value will not parse" to `""`, and `""` then reaches `_cpg_accum_after`, whose
+`[ -z "$gate" ]` arm makes ANY store ever recorded satisfy the gate. One edit of
+`gates.*` to `not-a-date` took a blocking fixture from 9 inconsistencies to 8,
+with a 2020 store reported as satisfying a 2026 phase. Closed by
+`# BL-233-WPB-AMBIGUOUS-WINDOW`, which needs the raw value; and the raw value
+needs `# BL-233-WPB-RAW-SNAPSHOT`, because `_cpg_record_gate_date` REWRITES
+`gates.*` from APPROVAL_LOG evidence DURING the run — the second cut of this fix
+re-read the file and measured a different one, saw `not-a-date` already
+normalised to today's date, reported "parses fine", and left the hole open while
+its own test went green. **N3** pins the resolution, **N4** pins that a
+genuinely absent gate still means "the whole history" (the first cut refused
+three fixtures out of four), and **M22** kills it.
+
+**(3) THE WINDOW DID NOT OPEN AT MIDNIGHT, and this one was found by a TEST
+FLAKING, not by review.** `_cpg_accum_source_work` passed a bare date to
+`git log --since`. git's approxidate fills the fields a date string OMITS from
+the CURRENT CLOCK, so `--since=<date>` means "that date at whatever time it is
+right now". Measured: a commit made at 10:35:18 today is invisible to
+`--since=<today>` two seconds later and visible to `--since=<today> 00:00:00`.
+Every source commit made earlier in the day on the window's opening date was
+therefore outside its own window — so a phase whose previous gate was recorded
+today reported "nothing owed" all afternoon, and the SAME TREE returned a
+different verdict depending on the hour, which is `## BL-234:`'s class wearing a
+clock instead of a hostname. Surfaced as N2 passing 32 times out of 40; the
+eight failures were the product, and chasing them into it rather than
+stabilising the fixture is the only reason this is recorded here. Closed by
+`# BL-233-WPB-SINCE-MIDNIGHT`, pinned by **N7** (a source commit back-dated to
+00:00:01 on the opening day — no clock race in the assertion itself) and killed
+by **M24**.
+
+**Also refuted in the same round: a "guard that cannot fire".** The numeric guard
+on the window start was omitted, justified by `get_gate_date` validating to
+`YYYY-MM-DD`. This file refutes that 200 lines away: that validation is a
+PER-LINE `grep -qE`, so a duplicate key yields a multi-line value that passes if
+ANY line is a date, and `accum_oneline` concatenates them. `ZZZZZZZZZZ2026-02-01`
+reached `[ -le ]`, which blocks — right direction — while printing a raw
+`integer expression expected` from the shell INTO a blocking verdict. Guard
+restored (`# BL-233-WPB-WINDOW-NUMERIC`), pinned by **N6**, killed by **M23**.
+And the FAIL line no longer hard-codes ", which is not in the past": that reason
+is false on two of the four paths that reach it, so an arm written to remove a
+false affirmative printed one of its own. The reason is now carried in
+`_ACCUM_WINDOW_REASON` (the `_ACCUM_STALE_REASON` precedent) and **N5** shims
+`date` to fail on a past window to prove it.
 
 The fix is `_cpg_accum_window_measurable` (`# BL-233-WPB-FUTURE-WINDOW`), asked
 BEFORE either question about the window, because a future window answers both
@@ -10576,7 +10625,7 @@ moves under the fixture, because a midnight crossing would otherwise read as a
 real failure and this suite has already shipped one clock-race flake
 (`## BL-241:`).
 
-**WP-B residuals — 18, all real, none blocking.** (This header read "two" while
+**WP-B residuals — 19, all real, none blocking.** (This header read "two" while
 enumerating seven: it was written at two and never updated as items were
 added, including by the commit whose own subject was "derive the counts
 instead of transcribing them". The first correction of it said 15, because the
@@ -10753,6 +10802,20 @@ awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
    a real cost, and nothing ages the lock out. The lock pattern is inherited
    from the two pre-existing writers of that file, so a breaker belongs to all
    three at once and not to this entry alone.
+
+19. **An unmeasurable window blocks a project that DID store, and the attested
+   escape does not reach it.** The measurability check runs before both the
+   "was anything stored" and the "was source work done" questions, so a project
+   whose gate date is unreadable or in the future now blocks where it previously
+   printed `[OK] satisfied`, and `SOLO_MCP_ACCUM_ATTESTED=1` does not clear it.
+   Deliberate — an attestation excuses "nothing was stored", not "the gate does
+   not know what it is measuring" — and the remedy is named in the message,
+   because the recorded date is the thing that is wrong. Recorded because the
+   trade is real and because the first draft of the placement comment justified
+   it with "nothing can be stored after it", which is FALSE in the clock-skew
+   case that motivates the check: a machine that is ahead writes the gate date
+   AND the store timestamp in the future. The placement is right; that argument
+   for it was not.
 
 **WP-A, 2026-08-13 — what shipped and what was decided.** Items 1-5 and 7 are
 done for the retrieval half; `tests/test-bl233-mcp-outcome-enforcement.sh` is
