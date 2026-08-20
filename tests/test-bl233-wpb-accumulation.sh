@@ -467,9 +467,13 @@ _a8_fixture() {   # _a8_fixture DIR — a fixture the accumulation warning DOES 
   # this fixture had that deny in it all along and nothing was looking.
   add_origin "$d"
   want_qdrant "$d"
-  # A ledger whose qdrant-find flag is false. That is the SECOND gate this test
-  # needs: it is emitted by an arm with no relation to accumulation, so its
-  # survival is what "the other gates are not collateral" actually means.
+  # A ledger. Its `false` argument sets `mcp_requirements.qdrant_required`, NOT
+  # the qdrant-find flag — `ledger()` hardcodes `qdrant_find_called:false`, and
+  # that hardcoded flag is what fires the SECOND warning this test needs. That
+  # warning comes from an arm with no relation to accumulation, so its survival
+  # is what "the other gates are not collateral" actually means. The argument is
+  # `false` so the ledger does not become a second requirement source: the
+  # declaration under test is the settings file written just above.
   ledger "$d" false
   # No mcp_accumulation object — the project has stored nothing. Same shape H1
   # uses, and the state under test.
@@ -492,6 +496,14 @@ A8_OTHER_RE='No prior context retrieved from Qdrant this session'
 # reads, and one fixture run twice measures two projects — the trap this file's
 # header records against check-phase-gate.sh, and the same discipline applies to
 # the commit gate.
+#
+# TWO TESTS IN THIS FILE DO NOT FOLLOW THE RULE, and that is recorded rather
+# than papered over: D15 and M19 each run two gates against ONE fixture. Both
+# are benign TODAY and it was measured, not assumed — those fixtures pre-record
+# every gate date, so `_cpg_record_gate_date` returns on its idempotent branch
+# before writing, and the phase-state file is byte-identical after three
+# successive runs. It is benign by a property of the fixture, not of the gate,
+# so a future edit that drops a pre-recorded date reopens it there.
 A8C="$(newtmp)"; _a8_fixture "$A8C"
 a8_ctrl=$( ( cd "$A8C" && printf '%s' "$a8_payload" \
   | HOME="$A8C/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
@@ -516,7 +528,7 @@ elif ! echo "$a8_out" | grep -q "No such file or directory" \
    && echo "$a8_out" | grep -q '"permissionDecision"' \
    && echo "$a8_out" | grep -q "$A8_OTHER_RE" \
    && ! echo "$a8_out" | grep -q "$A8_ACC_RE"; then
-  pass "A8: with the lib absent the commit gate reaches a real decision instead of dying at its source line, and EXACTLY the accumulation warning is missing — an unrelated gate in the same file still reaches the operator, and the control fixture proves both warnings were reachable"
+  pass "A8: with the lib absent the commit gate reaches a real decision instead of dying at its source line, and EXACTLY the accumulation warning is missing — an unrelated gate in the same file still EMITS (this greps raw stdout; whether the JSON envelope around it parses is M18's assertion, not this one), and the control fixture proves both warnings were reachable"
 else
   fail_ "A8" "lib-absent: $(echo "$a8_out" | head -c 180)"
 fi
@@ -1977,7 +1989,13 @@ d15_ran=$(printf '%s\n' "$d15_out" | grep -c 'accumulation:')
 # count is not attributable to the reverted accumulation site — the comparison is.
 d15_ctrl=$( ( cd "$D15" && HOME="$D15/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
 d15_base=$(printf '%s\n' "$d15_ctrl" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-D15')
-if [ "$d15_forged" -eq "$d15_base" ] && [ "$d15_ran" -ge 1 ]; then
+# VACUITY FLOOR, same shape as D13's and for the same recorded reason: this
+# assertion is an EQUALITY, so a payload injection that silently no-ops reads
+# 0 == 0 and passes green. The baseline is a MEASURED 1, so a drop to 0 is a
+# broken fixture and must say so rather than agree with itself.
+if [ "$d15_base" -lt 1 ]; then
+  fail_ "D15 (meta)" "control produced no forged line (base=$d15_base); the duplicate-key payload is not reaching a display site, so 'the reverted site adds none' proves nothing"
+elif [ "$d15_forged" -eq "$d15_base" ] && [ "$d15_ran" -ge 1 ]; then
   pass "D15: reverting a display site to echo -e — the exact eighth-instance condition — does NOT reopen the forgery, because accum_oneline removes the backslash that echo -e would have interpreted — the count matches the unmutated baseline ($d15_base, from a pre-existing arm this PR does not touch). The rule holds without depending on every display site staying correct."
 else
   fail_ "D15" "forged with reverted display=$d15_forged, unmutated baseline=$d15_base (must be equal); arm-ran=$d15_ran"
