@@ -1521,6 +1521,10 @@ if [ "$IS_COMMIT" = true ] && [ "$SOIF_ACCUM_LIB_LOADED" = "1" ] \
       if [ "$ACC_HAS_SOURCE" = true ]; then
         ACC_PREV=$(jq -r --arg k "$ACC_PREV_KEY" '.gates[$k] // ""' "$PHASE_STATE" 2>/dev/null || printf '')
         [ "$ACC_PREV" = "null" ] && ACC_PREV=""
+        # Kept BEFORE validation blanks it, so this half can tell "no gate
+        # recorded" from "a gate recorded as garbage" — the same distinction the
+        # phase gate makes with `# BL-233-WPB-RAW-SNAPSHOT`.
+        ACC_PREV_RAW=$(accum_oneline "$ACC_PREV")
         # VALIDATE before it reaches the warning text. This value is spliced into
         # WARNINGS, which is emitted through a hand-rolled `sed 's/"/\\"/g'` JSON
         # envelope — and a backslash or control character in it makes the whole
@@ -1559,18 +1563,36 @@ if [ "$IS_COMMIT" = true ] && [ "$SOIF_ACCUM_LIB_LOADED" = "1" ] \
         ACC_SATISFIED=false
         if [ -n "$ACC_LAST" ]; then
           if [ -z "$ACC_PREV" ]; then
-            ACC_SATISFIED=true
+            # AN UNREADABLE WINDOW IS NOT AN ABSENT ONE, and this branch used to
+            # answer as though it were — under a comment that said in as many
+            # words "the gate treats any store as satisfying, so stay quiet".
+            # The phase gate NO LONGER does: `# BL-233-WPB-AMBIGUOUS-WINDOW` and
+            # `# BL-233-WPB-WINDOW-SHAPE` refuse a gate date that is recorded but
+            # will not parse. Left alone, the half that WARNS went silent exactly
+            # where the half that BLOCKS started refusing — the failure this
+            # file's own comments call worse than no warning at all.
+            if [ -n "$ACC_PREV_RAW" ]; then
+              :   # BL-233-WPB-WARN-UNREADABLE-WINDOW
+            else
+              ACC_SATISFIED=true
+            fi
           else
             _acc_a="${ACC_LAST:0:10}"; _acc_a="${_acc_a//-/}"
             _acc_b="${ACC_PREV:0:10}"; _acc_b="${_acc_b//-/}"
             # The two unparseable cases resolve in OPPOSITE directions, and each
-            # matches _cpg_accum_after so this warning predicts the gate it is
-            # warning about. A corrupt last_store_at is NOT a store (the gate
-            # will block, so warn); a corrupt gate date means no window can be
-            # computed (the gate treats any store as satisfying, so stay quiet).
+            # matches the gate, so this warning predicts the gate it is warning
+            # about. A corrupt last_store_at is NOT a store (the gate blocks, so
+            # warn). A gate date that is ABSENT means the window is the whole
+            # history and any store satisfies it (stay quiet); a gate date that
+            # is RECORDED BUT UNPARSEABLE means the window cannot be measured,
+            # and the gate now BLOCKS on it — so this warns.
             case "$_acc_a" in
               ''|*[!0-9]*) : ;;
               *) case "$_acc_b" in
+                   # UNREACHABLE by construction and left as it was: $ACC_PREV
+                   # empty is handled by the outer branch above, so $_acc_b can
+                   # only be empty there. Making this arm "smart" would be an
+                   # arm that cannot fire (`## BL-104:`).
                    ''|*[!0-9]*) ACC_SATISFIED=true ;;
                    *) [ "$_acc_a" -ge "$_acc_b" ] && ACC_SATISFIED=true ;;
                  esac ;;

@@ -667,7 +667,8 @@ _cpg_accum_after() {
   [ "$a" -ge "$b" ]
 }
 
-# _cpg_accum_window_measurable <window_start> — can this window be measured?
+# _cpg_accum_window_measurable <window_start> <window_key> <raw_window_value>
+#   — can this window be measured at all?
 #
 # `git log --since=<date>` with a date in the FUTURE returns zero commits and
 # exits 0. Git ANSWERED, so none of the three cannot-tell arms in
@@ -690,11 +691,11 @@ _cpg_accum_after() {
 # `date` that will not answer therefore reads as NOT measurable — "could not
 # measure" must never resolve to "nothing to measure".
 #
-# The window start is get_gate_date output, already anchored to YYYY-MM-DD or
-# "" by that function, so it gets NO numeric guard here. That is deliberate and
-# follows _cpg_accum_after's precedent in this file: it guards its persisted
-# timestamp and pointedly does not guard its gate date, because an arm that
-# cannot fire is `## BL-104:`'s shape.
+# THE WINDOW START IS VALIDATED HERE, and the earlier version of this paragraph
+# argued the opposite — that get_gate_date's anchoring made a guard an arm that
+# could not fire (`## BL-104:`). That was refuted by this same file: that
+# anchoring is a PER-LINE `grep -qE`, so a duplicate key passes it. The guard is
+# `# BL-233-WPB-WINDOW-SHAPE`, it fires, and M23 kills the tree without it.
 _ACCUM_WINDOW_REASON=""
 _cpg_accum_window_measurable() {
   local w="$1" key="$2" raw="$3" a today _nan
@@ -709,6 +710,18 @@ _cpg_accum_window_measurable() {
   # landing on the no-requirement control, with a 2020 store reported as
   # satisfying. Same shape as the future window, no clock skew required.
   if [ -z "$w" ]; then
+    # AN UNREADABLE STATE FILE IS NOT AN ABSENT GATE. The snapshot below reads
+    # gates.* through jq, and jq's failure was swallowed to "" — which is the
+    # very signal this arm keys on. Measured: one stray `,,,` in
+    # phase-state.json alongside `"phase_1_to_2":"not-a-date"` produced
+    # `[OK] accumulation: satisfied` off a 2020 store on a 2026 phase, with the
+    # corruption surfacing only as a NON-COUNTING [WARN] elsewhere in the run,
+    # so on an otherwise-consistent project nothing saved the gate. `gates` not
+    # being an object does the same thing.
+    if [ "${_ACCUM_GATES_READABLE:-1}" != "1" ]; then
+      _ACCUM_WINDOW_REASON=".claude/phase-state.json does not parse (or its .gates is not an object), so \"no gate recorded\" and \"a gate recorded as garbage\" cannot be told apart"
+      return 1
+    fi
     # NON-EMPTY IS NOT ENOUGH — the raw value must also FAIL the date regex, or
     # every project with a perfectly good gate date is refused. That was the
     # first cut of this arm and it refused three fixtures out of four.
@@ -727,19 +740,37 @@ _cpg_accum_window_measurable() {
     return 0   # genuinely no gate recorded: the window is the whole history
   fi
 
-  # THE NUMERIC GUARD IS NOT DEAD CODE, and the reasoning that removed it was
-  # refuted by this same file 230 lines away. `get_gate_date` validates with a
-  # per-line `grep -qE`, so a DUPLICATE key in phase-state.json (which jq
-  # accepts, so the file is not malformed) yields a multi-line value that passes
-  # validation if ANY line is a date; accum_oneline then concatenates the lines.
-  # Without this guard `ZZZZZZZZZZ2026-02-01` reached `[ -le ]`, which blocks —
-  # correct direction — while printing a raw `integer expression expected` from
-  # the shell into a blocking verdict. The sibling half of this feature already
-  # re-validates the same field for the same reason
-  # (`# BL-233-WPB-ACCPREV-ONELINE`); this half now agrees with it.
+  # THE WHOLE STRING IS VALIDATED, NOT ITS FIRST TEN CHARACTERS, and the
+  # difference is a live fail-open. `get_gate_date` validates with a PER-LINE
+  # `grep -qE`, so a DUPLICATE key in phase-state.json (which jq accepts, so the
+  # file is not malformed) yields a multi-line value that passes if ANY line is a
+  # date; accum_oneline then concatenates the lines.
+  #
+  # The first guard here sliced `${w:0:10}` and asked only whether that reduced
+  # to a number. With the GARBAGE first — `ZZZZZZZZZZ2026-02-01` — that catches
+  # it. With the DATE first it does not, and the full concatenation is what
+  # reaches `git log --since`, where approxidate reads it as some other instant
+  # entirely. Measured: `--since="2026-02-01 2099-12-31 00:00:00"` resolves to
+  # --max-age=4102383600 (2099-12-31) and `--since="2026-02-012099-12-31 …"` to
+  # 1798696800 (2026-12-31) — both FUTURE, both producing verbatim the
+  # "nothing owed" verdict `# BL-233-WPB-FUTURE-WINDOW` exists to remove, at the
+  # same 9 -> 8 issue delta. A guard that catches one operand order is not a
+  # guard on the value.
+  #
+  # Anchored and whole, therefore: after this line $w IS a single YYYY-MM-DD, so
+  # the slice below cannot be non-numeric and `git log --since` cannot be handed
+  # anything approxidate can reinterpret.
+  _nan="the recorded gate date is not a single YYYY-MM-DD value (\"${w:0:40}\") — a duplicate key in .claude/phase-state.json yields a multi-line value that per-line validation accepts, and git reads the concatenation as some other instant"
+  # THE LINE COUNT IS PART OF THE CHECK. `grep` matches PER LINE, so an anchored
+  # pattern alone passes any multi-line value whose FIRST line is a date — the
+  # same per-line hole in `get_gate_date` that created this defect, reproduced
+  # inside the guard for it. It happens to be unreachable in the shipped tree
+  # because accum_oneline flattens $prev at ingest, and that is exactly the
+  # reason to close it: a guard that is only correct because something upstream
+  # is correct is not a guard, and D15 drives a tree where the upstream strip is
+  # gone.
+  if [ "$(grep -c . <<< "$w")" != "1" ] || ! grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' <<< "$w"; then _ACCUM_WINDOW_REASON="$_nan"; return 1; fi   # BL-233-WPB-WINDOW-SHAPE
   a="${w:0:10}"; a="${a//-/}"
-  _nan="the recorded gate date does not reduce to a number (\"$w\") — a duplicate key in .claude/phase-state.json yields a multi-line value that per-line validation accepts"
-  case "$a" in ''|*[!0-9]*) _ACCUM_WINDOW_REASON="$_nan"; return 1 ;; esac   # BL-233-WPB-WINDOW-NUMERIC
 
   today=$(date +%Y%m%d 2>/dev/null) || today=""
   case "$today" in
@@ -1074,10 +1105,15 @@ _cpg_check_accumulation() {
   # not. Recorded as residual 19.
   #
   # THE REASON IS CARRIED, NOT ASSUMED. The first version hard-coded ", which is
-  # not in the past" into this line — and that is false on two of the four paths
-  # that reach it (an unparseable recorded date, and a `date` that will not
-  # answer), so the arm added to remove a false affirmative about the project
-  # printed one of its own. `_ACCUM_STALE_REASON` is the precedent in this file.
+  # not in the past" into this line — and that is false on EVERY path that
+  # reaches it except one: an unreadable state file, a gate date recorded as
+  # garbage, a window that is not a single YYYY-MM-DD, and a `date` that will not
+  # answer all block on a window that may well be in the past. An arm added to
+  # remove a false affirmative about the project was printing one of its own, and
+  # an earlier draft of this very comment then MIScounted the paths as "two of
+  # four". The count is not restated here on purpose: the paths are enumerated in
+  # `_cpg_accum_window_measurable` and a number here is a second place to be
+  # wrong. `_ACCUM_STALE_REASON` is the precedent for carrying it.
   # THE KEY THE WINDOW OPENS AT IS THE PREVIOUS GATE, NOT THIS ONE. Passing
   # $gate_key read phase_2_to_3's value while checking phase_2_to_3, so a
   # tampered phase_1_to_2 was reported by quoting an untouched, valid date — and
@@ -1211,7 +1247,12 @@ _cpg_raw_gate_value() {
     [ "$v" = "null" ] && v=""
   fi
   if [ "${SOIF_ACCUM_LIB_LOADED:-0}" = "1" ]; then
-    v=$(accum_oneline "$v")   # boundary rule: sanitise where it ENTERS
+    # Boundary rule: sanitise where it ENTERS. NOT mutation-pinned, and that is
+    # stated rather than hidden — removing it leaves the suite green because the
+    # only display site sanitises again. It stays because the rule is "every
+    # value that arrives from a file passes through accum_oneline where it
+    # enters", and a rule with an exception is a search.
+    v=$(accum_oneline "$v")
   fi
   printf '%s' "$v"
 }
@@ -1222,6 +1263,15 @@ gate_2_to_3=$(get_gate_date "phase_2_to_3")
 gate_3_to_4=$(get_gate_date "phase_3_to_4")
 # Captured HERE, beside the validated values and before any check runs, because
 # `_cpg_record_gate_date` rewrites gates.* mid-run from APPROVAL_LOG evidence.
+# Whether gates.* could be READ AT ALL, captured with them. Without this a jq
+# failure is indistinguishable from an absent gate, and "absent" is the
+# permissive answer.
+_ACCUM_GATES_READABLE=1
+if [ -f "$PHASE_STATE" ] && command -v jq >/dev/null 2>&1; then
+  if ! jq -e '(.gates // {}) | type == "object"' "$PHASE_STATE" >/dev/null 2>&1; then
+    _ACCUM_GATES_READABLE=0   # BL-233-WPB-GATES-READABLE
+  fi
+fi
 raw_gate_0_to_1=$(_cpg_raw_gate_value "phase_0_to_1")   # BL-233-WPB-RAW-SNAPSHOT
 raw_gate_1_to_2=$(_cpg_raw_gate_value "phase_1_to_2")
 raw_gate_2_to_3=$(_cpg_raw_gate_value "phase_2_to_3")

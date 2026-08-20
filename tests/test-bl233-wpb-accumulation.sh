@@ -1167,8 +1167,8 @@ else
 fi
 
 # N5 — THE REASON MUST BE THE REAL ONE. The first version of this arm hard-coded
-# ", which is not in the past" into the FAIL line, and that is false on two of
-# the four paths that reach it. An arm added to remove a false affirmative about
+# ", which is not in the past" into the FAIL line, and that is false on every
+# path that reaches it but one. An arm added to remove a false affirmative about
 # the project printed one of its own. Here `date` is shimmed to fail while the
 # window is comfortably in the PAST.
 N5="$(newtmp)"; mk_proj "$N5" 3; want_qdrant "$N5"; source_commit "$N5"
@@ -1199,13 +1199,68 @@ s=s.replace('"phase_1_to_2":"2026-02-01"',
 io.open(f,"w",encoding="utf-8").write(s)
 PYN6
 _run "$N6" --gate phase_2_to_3; n6_out=$GOUT
-n6_refused=$(grep -c 'does not reduce to a number' <<< "$n6_out")
+n6_refused=$(grep -c 'is not a single YYYY-MM-DD value' <<< "$n6_out")
 n6_shellerr=$(grep -c 'integer expression expected' <<< "$n6_out")
 n6_owed=$(grep -c 'nothing owed' <<< "$n6_out")
 if [ "$n6_refused" -ge 1 ] && [ "$n6_shellerr" -eq 0 ] && [ "$n6_owed" -eq 0 ]; then
   pass "N6: a duplicate key in phase-state.json yields a window that does not reduce to a number — the gate names it and blocks, with no raw shell diagnostic leaking into the verdict"
 else
   fail_ "N6" "duplicate-key window: refused=$n6_refused; shell-error=$n6_shellerr (want 0); nothing-owed=$n6_owed (want 0)"
+fi
+
+# N8 — THE SAME DUPLICATE KEY, OPERANDS THE OTHER WAY ROUND. N6 alone was not a
+# guard on the value, only on one operand order: the first guard sliced
+# ${w:0:10} and asked whether that reduced to a number, which catches
+# ZZZZZZZZZZ2026-02-01 and waves through 2026-02-01 + a future date. The FULL
+# concatenation is what reaches `git log --since`, and approxidate reads it as
+# some other instant — measured, `--since="2026-02-01 2099-12-31 00:00:00"`
+# resolves to --max-age=4102383600, i.e. 2099. The result was verbatim the
+# "nothing owed" verdict the future-window guard exists to remove, at the same
+# 9 -> 8 delta.
+N8C="$(newtmp)"; mk_proj "$N8C" 3; want_qdrant "$N8C"; source_commit "$N8C"
+_run "$N8C" --gate phase_2_to_3; n8_ctrl=$GISSUES
+n8_ctrl_blocked=$(grep -c 'accumulation: BLOCKED' <<< "$GOUT")
+
+N8="$(newtmp)"; mk_proj "$N8" 3; want_qdrant "$N8"; source_commit "$N8"
+python3 - "$N8/.claude/phase-state.json" <<'PYN8'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"',
+            '"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":" 2099-12-31"')
+io.open(f,"w",encoding="utf-8").write(s)
+PYN8
+_run "$N8" --gate phase_2_to_3; n8_issues=$GISSUES; n8_out=$GOUT
+n8_refused=$(grep -c 'is not a single YYYY-MM-DD value' <<< "$n8_out")
+n8_owed=$(grep -c 'nothing owed' <<< "$n8_out")
+if [ "$n8_ctrl_blocked" -lt 1 ]; then
+  fail_ "N8 (meta)" "the single-key CONTROL did not block (issues=$n8_ctrl); nothing is being measured"
+elif [ "$n8_issues" -eq "$n8_ctrl" ] && [ "$n8_refused" -ge 1 ] && [ "$n8_owed" -eq 0 ]; then
+  pass "N8: a duplicate gate date with the VALID value FIRST is refused too — the shape check reads the whole string, so git is never handed a concatenation approxidate can reinterpret as a future instant (count matches the single-key control, $n8_ctrl)"
+else
+  fail_ "N8" "date-first duplicate: issues=$n8_issues (control $n8_ctrl); refused=$n8_refused; nothing-owed=$n8_owed"
+fi
+
+# N9 — A STATE FILE THAT WILL NOT PARSE IS NOT AN ABSENT GATE. The raw snapshot
+# reads gates.* through jq, and jq's failure was swallowed to "" — which is the
+# exact signal the ambiguity arm keys on, so one stray comma restored the
+# collapse the ambiguity arm was written to close. The corruption surfaces
+# elsewhere in the run only as a NON-COUNTING [WARN], so on an otherwise-clean
+# project nothing else saved the gate.
+N9="$(newtmp)"; mk_proj "$N9" 3; want_qdrant "$N9"; source_commit "$N9"; stored "$N9" "2020-01-01T10:00:00Z"
+python3 - "$N9/.claude/phase-state.json" <<'PYN9'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"', '"phase_1_to_2":"not-a-date"')
+s=s.replace('"track":"light"', '"track":"light",,,')      # jq can no longer read it
+io.open(f,"w",encoding="utf-8").write(s)
+PYN9
+_run "$N9" --gate phase_2_to_3; n9_out=$GOUT
+n9_refused=$(grep -c 'does not parse (or its .gates is not an object)' <<< "$n9_out")
+n9_satisfied=$(grep -c 'accumulation: satisfied' <<< "$n9_out")
+if [ "$n9_refused" -ge 1 ] && [ "$n9_satisfied" -eq 0 ]; then
+  pass "N9: a phase-state.json jq cannot read is refused as unmeasurable rather than collapsing into 'no gate recorded' — a 2020 store does not satisfy a 2026 phase because a comma is in the wrong place"
+else
+  fail_ "N9" "unreadable state file: refused=$n9_refused (want >=1); satisfied=$n9_satisfied (want 0)"
 fi
 
 # N7 — THE WINDOW OPENS AT MIDNIGHT, NOT AT THE CURRENT CLOCK TIME. Found by N2
@@ -2160,102 +2215,134 @@ PYM
     fail_ "M18" "mutant-invalid=$m18_bad control-valid=$m18_ok; CONTROL=[$(printf '%s' "$m18_ctrl" | head -c 150)]"
   fi
 fi
-# D15 — DEFENCE IN DEPTH, stated as a measurement rather than a hope.
+# D15 — DEFENCE IN DEPTH, stated as a measurement rather than a hope, and
+# RETARGETED because the feature outgrew its old fixture.
 #
-# CORRECTION, kept visible rather than quietly restated. An earlier version of
-# this comment claimed the $prev ingest wrap was "belt, not braces" because
-# `get_gate_date` greps line by line so $prev could never carry a real newline.
-# That was WRONG — and the code's own `# BL-233-WPB-PREV-ONELINE` comment says so
-# three lines above the wrap it dismissed: `get_gate_date` emits ONE LINE PER
-# `grep -o` match and validates with a `grep -qE` that passes if ANY line
-# matches, so a duplicate key yields a multi-line $prev. The wrap is load-bearing
-# against printf alone, and M19 below proves it. It was dropped once on that
-# false reasoning; dropping a mutant is only honest when the reason is true.
+# It used to revert the BLOCKED display site to `echo -e` and drive it with a
+# duplicate-key gate date. `# BL-233-WPB-WINDOW-SHAPE` now rejects that value
+# outright, so the payload can no longer REACH that site — a strengthening, and
+# D15's own vacuity floor is what caught the fixture going hollow rather than
+# green. The untrusted value that still reaches a verdict line is the one the
+# CANNOT-BE-VERIFIED arm quotes, so that is the site under test now.
 #
-# What IS load-bearing is the primitive. This drives that directly: revert the
-# BLOCKED display site to `echo -e` — the exact eighth-instance condition — and
-# confirm the backslash strip alone still holds the line. If someone later
-# "simplifies" a display site back, the hole does not reopen.
-D15ROOT="$(newtmp)/repo"; mkdir -p "$D15ROOT"
-cp -R "$REPO_ROOT/scripts" "$D15ROOT/scripts" 2>/dev/null
-ln -s "$REPO_ROOT/tests" "$D15ROOT/tests" 2>/dev/null
-ln -s "$REPO_ROOT/.github" "$D15ROOT/.github" 2>/dev/null
-python3 - "$D15ROOT/scripts/check-phase-gate.sh" <<'PYR'
+# TWO mutants, because one is not falsifiable. Reverting a display site to
+# `echo -e` alone must forge NOTHING; reverting it AND neutering the ingest strip
+# must forge. Comparing those is what shows the STRIP is the thing holding the
+# line, rather than the choice of printf at any one site.
+# THREE labs, not two, and the third is the one that makes the claim honest.
+# A duplicate-key gate date is ALSO rendered by a PRE-EXISTING arm
+# (`_cpg_record_gate_date`'s "gate date already recorded" message, via echo -e),
+# so a raw count is not attributable to the site under test — the same trap D13
+# records. The baseline is measured, and the reverted site must not move it.
+#
+# _d15_lab echoes "FORGED RAN" on ONE line. It is called in `$( )`, which is a
+# SUBSHELL, so a global set inside it dies with the subshell — this file's own
+# harness lost every meta-failure that way once. Everything it reports comes
+# back through stdout.
+_d15_lab() {   # _d15_lab REVERT_DISPLAY KEEP_STRIP
+  local root="$(newtmp)/repo" revert="$1" keep="$2"
+  mkdir -p "$root"
+  cp -R "$REPO_ROOT/scripts" "$root/scripts" 2>/dev/null
+  ln -s "$REPO_ROOT/tests" "$root/tests" 2>/dev/null
+  ln -s "$REPO_ROOT/.github" "$root/.github" 2>/dev/null
+  if [ "$revert" = "yes" ]; then
+    python3 - "$root/scripts/check-phase-gate.sh" <<'PYR'
 import io,sys
-f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
-old=("""  printf '%b[FAIL]%b %s accumulation: BLOCKED — source commits since ' "${RED}" "${NC}" "$label"\n"""
-     """  printf '%s' "${prev:-project start}"\n"""
-     """  printf ', and NO successful qdrant-store in that window.\\n'""")
-new=("""  echo -e "${RED}[FAIL]${NC} $label accumulation: BLOCKED — source commits since ${prev:-project start}, and NO successful qdrant-store in that window." """)
-assert s.count(old)==1, "d15 anchor %d" % s.count(old)
+f=sys.argv[1]
+s=io.open(f,encoding="utf-8").read()
+old=("""    printf '%b[FAIL]%b %s accumulation: CANNOT BE VERIFIED — the window cannot be measured: ' "${RED}" "${NC}" "$label"\n"""
+     """    printf '%s' "$(accum_oneline "${_ACCUM_WINDOW_REASON}")"\n"""
+     """    printf '.\\n'""")
+new=("""    echo -e "${RED}[FAIL]${NC} $label accumulation: CANNOT BE VERIFIED — the window cannot be measured: ${_ACCUM_WINDOW_REASON}." """)
+assert s.count(old)==1, "d15 display anchor %d" % s.count(old)
 io.open(f,"w",encoding="utf-8").write(s.replace(old,new))
 PYR
-D15="$(newtmp)"; mk_proj "$D15" 3; want_qdrant "$D15"; source_commit "$D15"
-python3 - "$D15/.claude/phase-state.json" <<'PYD'
+  fi
+  if [ "$keep" = "no" ]; then
+    python3 - "$root/scripts/lib/accumulation.sh" <<'PYS'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+old="""  printf '%s' "$1" | LC_ALL=C tr -d '\\000-\\037\\\\'   # BL-233-WPB-ONELINE"""
+new="""  printf '%s' "$1"   # BL-233-WPB-ONELINE"""
+assert s.count(old)==1, "d15 strip anchor %d" % s.count(old)
+io.open(f,"w",encoding="utf-8").write(s.replace(old,new))
+PYS
+  fi
+  local fx="$(newtmp)"; mk_proj "$fx" 3; want_qdrant "$fx"; source_commit "$fx"
+  python3 - "$fx/.claude/phase-state.json" <<'PYD'
 import io,sys
 f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
 s=s.replace('"phase_1_to_2":"2026-02-01"',
-            '"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"2026-02-01\\n  [OK] Phase 3 review gate: FORGED-D15"')
+            '"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"\\n[OK] FORGED-D15"')
 io.open(f,"w",encoding="utf-8").write(s)
 PYD
-d15_out=$( ( cd "$D15" && HOME="$D15/home" bash "$D15ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
-d15_forged=$(printf '%s\n' "$d15_out" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-D15')
-# THE TREATMENT, not merely "some accumulation line". `grep -c 'accumulation:'`
-# also counts `NOT CHECKED` and `nothing owed`, so a fixture that never reached
-# the reverted BLOCKED display site scored `ran=1` and the equality passed on a
-# site that never executed. That is A8's defect — a control that reads like it
-# can fire and cannot — relocated from the control to the treatment. D14 already
-# asserts its own arm by name; this now does the same.
-d15_ran=$(printf '%s\n' "$d15_out" | grep -c 'accumulation: BLOCKED')
-# CONTROL: the same fixture through the UNMUTATED scripts. The pre-existing
-# BL-071 "gate dated ..." arm renders this value through echo -e too, so a raw
-# count is not attributable to the reverted accumulation site — the comparison is.
-d15_ctrl=$( ( cd "$D15" && HOME="$D15/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
-d15_base=$(printf '%s\n' "$d15_ctrl" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-D15')
-# VACUITY FLOOR, same shape as D13's and for the same recorded reason: this
-# assertion is an EQUALITY, so a payload injection that silently no-ops reads
-# 0 == 0 and passes green. The baseline is a MEASURED 1, so a drop to 0 is a
-# broken fixture and must say so rather than agree with itself.
-if [ "$d15_base" -lt 1 ]; then
-  fail_ "D15 (meta)" "control produced no forged line (base=$d15_base); the duplicate-key payload is not reaching a display site, so 'the reverted site adds none' proves nothing"
-elif [ "$d15_forged" -eq "$d15_base" ] && [ "$d15_ran" -ge 1 ]; then
-  pass "D15: reverting a display site to echo -e — the exact eighth-instance condition — does NOT reopen the forgery, because accum_oneline removes the backslash that echo -e would have interpreted — the count matches the unmutated baseline ($d15_base, from a pre-existing arm this PR does not touch). The rule holds without depending on every display site staying correct."
+  local out
+  out=$( ( cd "$fx" && HOME="$fx/home" bash "$root/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  printf '%s %s\n' \
+    "$(grep -cE '^ *\[OK\] FORGED-D15' <<< "$out")" \
+    "$(grep -c 'CANNOT BE VERIFIED' <<< "$out")"
+}
+set -- $(_d15_lab no  yes); d15_base=$1;    d15_ran_base=$2
+set -- $(_d15_lab yes yes); d15_revert=$1;  d15_ran_rev=$2
+set -- $(_d15_lab yes no ); d15_nostrip=$1; d15_ran_no=$2
+if [ "$d15_ran_base" -lt 1 ] || [ "$d15_ran_rev" -lt 1 ] || [ "$d15_ran_no" -lt 1 ]; then
+  fail_ "D15 (meta)" "the site under test did not run in every lab (base=$d15_ran_base revert=$d15_ran_rev nostrip=$d15_ran_no); the payload is not reaching it, so 'it forged nothing' proves nothing"
+elif [ "$d15_revert" -eq "$d15_base" ] && [ "$d15_nostrip" -gt "$d15_base" ]; then
+  pass "D15: reverting a display site to echo -e — the exact eighth-instance condition — adds NOTHING to the baseline $d15_base a pre-existing arm already forges ($d15_revert), and the SAME revert forges once the ingest strip is removed ($d15_nostrip). The primitive holds the line, not the choice of printf at any one site."
 else
-  fail_ "D15" "forged with reverted display=$d15_forged, unmutated baseline=$d15_base (must be equal); arm-ran=$d15_ran"
+  fail_ "D15" "baseline=$d15_base reverted=$d15_revert (must be equal) strip-removed=$d15_nostrip (must exceed baseline)"
 fi
 
-# M19 — RESTORED. Remove the $prev ingest wrap and a duplicate-key gate date
-# forges a standalone verdict line through printf alone, with no `echo -e`
-# anywhere. Dropped in the previous round on the false reasoning corrected in
-# D15's header above.
+# M19 — REWRITTEN, because what it proves CHANGED and saying so is the point.
 #
-# D13 and M19 share the duplicate-key payload — the SECOND value under the
-# repeated key IS the forged line, so it begins its own line — and neither test
-# subsumes the other. They watch opposite trees: M19 mutates the shipped code
-# and asserts the mutant forges MORE, so it bounds nothing above the control and
-# a new raw display site added later reads control=2/mutant=3 and passes it
-# green. D13 never mutates anything and asserts the SHIPPED tree's count is
-# unchanged by this arm, so the same new site reads 1 -> 2 and fails. M19 catches
-# the ingest wrap being deleted; D13 catches a regression that leaves it in place.
+# It used to assert that removing the $prev ingest wrap lets a duplicate-key
+# gate date forge a standalone verdict line through printf alone — "the wrap is
+# load-bearing, not belt". That was true, and `# BL-233-WPB-WINDOW-SHAPE` has
+# since made it false: a multi-line window is now REFUSED before it reaches any
+# display site, so removing the wrap forges nothing on its own. Measured, and
+# the old assertion went red rather than quietly passing, which is why this is a
+# rewrite and not a deletion.
+#
+# The wrap STAYS — the boundary rule is "sanitise where it enters", and a rule
+# with an exception is a search. What it no longer is, is the only thing holding
+# this payload. So M19 now measures WHICH guard holds it: remove the wrap alone
+# and nothing moves; remove the wrap AND the shape guard and the forgery
+# returns. That is a two-legged claim, and neither leg passes on its own.
 if _mk_mutant_repo "M19" "scripts/check-phase-gate.sh" "# BL-233-WPB-PREV-ONELINE" \
       'prev=$(accum_oneline "$2")   # BL-233-WPB-PREV-ONELINE' \
       'prev="$2"                    # BL-233-WPB-PREV-ONELINE'; then
-  M19F="$(newtmp)"; mk_proj "$M19F" 3; want_qdrant "$M19F"; source_commit "$M19F"
-  python3 - "$M19F/.claude/phase-state.json" <<'PYN'
+  M19ROOT="$MUT_ROOT"
+  _m19_fixture() {
+    local d="$1"; mk_proj "$d" 3; want_qdrant "$d"; source_commit "$d"
+    python3 - "$d/.claude/phase-state.json" <<'PYN'
 import io,sys
 f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
 s=s.replace('"phase_1_to_2":"2026-02-01"',
             '"phase_1_to_2":"2026-02-01",\n "phase_1_to_2":"  [OK] Phase 3 review gate: FORGED-M19"')
 io.open(f,"w",encoding="utf-8").write(s)
 PYN
-  m19_mut=$( ( cd "$M19F" && HOME="$M19F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
-  m19_ctrl=$( ( cd "$M19F" && HOME="$M19F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
-  m19_f=$(printf '%s\n' "$m19_mut"  | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M19')
-  m19_c=$(printf '%s\n' "$m19_ctrl" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M19')
-  if [ "$m19_f" -gt "$m19_c" ]; then
-    pass "M19: unwrapping \$prev at ingest lets a duplicate-key gate date forge a standalone verdict line through printf alone — the wrap is load-bearing, not belt ($m19_c -> $m19_f)"
+  }
+  _m19_count() {   # _m19_count SCRIPT FIXTURE
+    ( cd "$2" && HOME="$2/home" bash "$1" --gate phase_2_to_3 2>&1 ) | _strip_ansi \
+      | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M19'
+  }
+  M19A="$(newtmp)"; _m19_fixture "$M19A"
+  m19_c=$(_m19_count "$CPG" "$M19A")
+  M19B="$(newtmp)"; _m19_fixture "$M19B"
+  m19_wrap=$(_m19_count "$M19ROOT/scripts/check-phase-gate.sh" "$M19B")
+  # SECOND mutation on the SAME tree: neuter the shape guard as well.
+  _mutate "$M19ROOT/scripts/check-phase-gate.sh" \
+    "$(grep -n 'BL-233-WPB-WINDOW-SHAPE$' "$M19ROOT/scripts/check-phase-gate.sh" | tail -1 | cut -d: -f2-)" \
+    '  :   # BL-233-WPB-WINDOW-SHAPE'
+  m19_both_ok=$(_parses "$M19ROOT/scripts/check-phase-gate.sh")
+  M19C="$(newtmp)"; _m19_fixture "$M19C"
+  m19_both=$(_m19_count "$M19ROOT/scripts/check-phase-gate.sh" "$M19C")
+  if [ "$m19_both_ok" -ne 1 ]; then
+    fail_ "M19 (meta)" "the second mutation did not leave a parsing script"
+  elif [ "$m19_wrap" -eq "$m19_c" ] && [ "$m19_both" -gt "$m19_c" ]; then
+    pass "M19: removing the \$prev ingest wrap alone now forges NOTHING beyond the pre-existing baseline ($m19_c -> $m19_wrap) because # BL-233-WPB-WINDOW-SHAPE refuses a multi-line window before any display site sees it; remove BOTH and the forgery returns ($m19_both). The wrap became belt, and this measures which guard is the braces rather than asserting the old answer."
   else
-    fail_ "M19" "mutant forged $m19_f, control forged $m19_c — expected mutant strictly higher"
+    fail_ "M19" "baseline=$m19_c wrap-removed=$m19_wrap (must equal baseline) wrap+shape-removed=$m19_both (must exceed baseline)"
   fi
 fi
 
@@ -2330,9 +2417,9 @@ fi
 # `[ -le ]` again: still fail-closed, but a raw shell diagnostic is printed into
 # a blocking verdict. N6 asserts the ABSENCE of that leak, which an unimplemented
 # guard also satisfies — this is what makes N6 a discriminator.
-if _mk_mutant_repo "M23" "scripts/check-phase-gate.sh" "# BL-233-WPB-WINDOW-NUMERIC" \
-      "  case \"\$a\" in ''|*[!0-9]*) _ACCUM_WINDOW_REASON=\"\$_nan\"; return 1 ;; esac   # BL-233-WPB-WINDOW-NUMERIC" \
-      '  :   # BL-233-WPB-WINDOW-NUMERIC'; then
+if _mk_mutant_repo "M23" "scripts/check-phase-gate.sh" "# BL-233-WPB-WINDOW-SHAPE" \
+      "  if [ \"\$(grep -c . <<< \"\$w\")\" != \"1\" ] || ! grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])\$' <<< \"\$w\"; then _ACCUM_WINDOW_REASON=\"\$_nan\"; return 1; fi   # BL-233-WPB-WINDOW-SHAPE" \
+      '  :   # BL-233-WPB-WINDOW-SHAPE'; then
   M23F="$(newtmp)"; mk_proj "$M23F" 3; want_qdrant "$M23F"; source_commit "$M23F"
   python3 - "$M23F/.claude/phase-state.json" <<'PYM23'
 import io,sys
@@ -2377,6 +2464,69 @@ if _mk_mutant_repo "M24" "scripts/check-phase-gate.sh" "# BL-233-WPB-SINCE-MIDNI
   else
     fail_ "M24" "mutant nothing-owed=$m24_m (want >=1), control=$m24_c (want 0)"
   fi
+fi
+
+# M25 — neuter the readability snapshot and a jq failure becomes "no gate
+# recorded" again, which is the permissive answer. N9 asserts an ABSENCE (no
+# "satisfied" line) that an unimplemented guard also satisfies; this is what
+# makes N9 a discriminator rather than a hope.
+if _mk_mutant_repo "M25" "scripts/check-phase-gate.sh" "# BL-233-WPB-GATES-READABLE" \
+      '    _ACCUM_GATES_READABLE=0   # BL-233-WPB-GATES-READABLE' \
+      '    _ACCUM_GATES_READABLE=1   # BL-233-WPB-GATES-READABLE'; then
+  M25F="$(newtmp)"; mk_proj "$M25F" 3; want_qdrant "$M25F"; source_commit "$M25F"; stored "$M25F" "2020-01-01T10:00:00Z"
+  python3 - "$M25F/.claude/phase-state.json" <<'PYM25'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"', '"phase_1_to_2":"not-a-date"')
+s=s.replace('"track":"light"', '"track":"light",,,')
+io.open(f,"w",encoding="utf-8").write(s)
+PYM25
+  m25_mut=$( ( cd "$M25F" && HOME="$M25F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m25_ctrl=$( ( cd "$M25F" && HOME="$M25F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m25_m=$(grep -c 'accumulation: satisfied' <<< "$m25_mut")
+  m25_c=$(grep -c 'accumulation: satisfied' <<< "$m25_ctrl")
+  if [ "$m25_m" -ge 1 ] && [ "$m25_c" -eq 0 ]; then
+    pass "M25: treating an unreadable phase-state.json as readable lets a jq failure read as 'no gate recorded', and a 2020 store then satisfies a 2026 phase ($m25_c -> $m25_m) — one stray comma is the whole exploit"
+  else
+    fail_ "M25" "mutant satisfied=$m25_m (want >=1), control satisfied=$m25_c (want 0)"
+  fi
+fi
+
+# H7 — THE TWO HALVES MUST AGREE. "Warn at commit, block at the phase gate" is
+# the whole posture, and a warning that is SILENT on a path the gate blocks is
+# the failure this feature's own comments call worse than no warning at all.
+# When the gate learned to refuse a recorded-but-unparseable window, this half
+# still read that case as "no window, so any store satisfies" and said nothing.
+H7="$(newtmp)"; mk_proj "$H7" 2; add_origin "$H7"; want_qdrant "$H7"; ledger "$H7" true
+cat > "$H7/.claude/process-state.json" <<'J'
+{"build_loop":{"feature":null,"step":0,"steps_completed":[],"started_at":null},
+ "phase2_init":{"steps_completed":[],"verified":true},
+ "mcp_accumulation":{"store_success_count":1,"last_store_at":"2020-01-01T10:00:00Z","attestations":{}}}
+J
+mkdir -p "$H7/src" "$H7/tests"
+echo "print(1)" > "$H7/src/main.py"
+echo "def test_main(): pass" > "$H7/tests/test_main.py"
+jq '.gates.phase_1_to_2 = "not-a-date"' "$H7/.claude/phase-state.json" > "$H7/.claude/ps.tmp" && mv "$H7/.claude/ps.tmp" "$H7/.claude/phase-state.json"
+( cd "$H7" && git add -A >/dev/null 2>&1 )
+h7_out=$( ( cd "$H7" && printf '%s' "$h1_payload" | HOME="$H7/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+# CONTROL: the identical project with a VALID window. The ancient store is
+# outside it, so the warning fires for the ordinary reason — proving the warning
+# is producible on this fixture at all.
+H7C="$(newtmp)"; mk_proj "$H7C" 2; add_origin "$H7C"; want_qdrant "$H7C"; ledger "$H7C" true
+cp "$H7/.claude/process-state.json" "$H7C/.claude/process-state.json"
+mkdir -p "$H7C/src" "$H7C/tests"
+echo "print(1)" > "$H7C/src/main.py"
+echo "def test_main(): pass" > "$H7C/tests/test_main.py"
+( cd "$H7C" && git add -A >/dev/null 2>&1 )
+h7_ctrl=$( ( cd "$H7C" && printf '%s' "$h1_payload" | HOME="$H7C/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+h7_warned=$(grep -c 'Nothing has been stored to Qdrant' <<< "$h7_out")
+h7_ctrl_warned=$(grep -c 'Nothing has been stored to Qdrant' <<< "$h7_ctrl")
+if [ "$h7_ctrl_warned" -lt 1 ]; then
+  fail_ "H7 (meta)" "the valid-window CONTROL did not warn, so the unparseable case proves nothing: $(echo "$h7_ctrl" | head -c 160)"
+elif [ "$h7_warned" -ge 1 ]; then
+  pass "H7: a gate date that is RECORDED but will not parse warns at commit time too — the half that warns is no longer silent on a path the half that blocks now refuses"
+else
+  fail_ "H7" "unparseable window: commit-gate warned=$h7_warned (want >=1), control warned=$h7_ctrl_warned"
 fi
 
 echo ""
