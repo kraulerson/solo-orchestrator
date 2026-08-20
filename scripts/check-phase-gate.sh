@@ -657,6 +657,43 @@ _cpg_accum_after() {
   [ "$a" -ge "$b" ]
 }
 
+# _cpg_accum_window_measurable <window_start> — can this window be measured?
+#
+# `git log --since=<date>` with a date in the FUTURE returns zero commits and
+# exits 0. Git ANSWERED, so none of the three cannot-tell arms in
+# _cpg_accum_source_work fire; the empty payload then matches `^$` in the exempt
+# set and the gate announces "nothing owed — every change since 2099-12-31 was
+# documentation". That is a false affirmative about the project — the same
+# substitution the extension allow-list was rewritten to remove — arrived at by
+# a different route, and it is a silent OFF SWITCH for a blocking gate. Refusing
+# a silent off switch is the whole reason `## BL-233:` declined to read the
+# requirement from the ledger; one reached through gates.* is no better.
+#
+# NOT hypothetical, and not only tampering. `_cpg_record_gate_date` PRESERVES a
+# date already recorded (its idempotent branch), so a date written by a machine
+# whose clock or timezone is ahead of the one running the gate is in the future
+# THERE and nowhere else — `## BL-234:`'s silent local-vs-CI class, which this
+# feature has now been bitten by twice.
+#
+# Answering "measurable" rather than "future" is deliberate: the caller must
+# block on ANY reason the window cannot be read, not on one named reason. A
+# `date` that will not answer therefore reads as NOT measurable — "could not
+# measure" must never resolve to "nothing to measure".
+#
+# The window start is get_gate_date output, already anchored to YYYY-MM-DD or
+# "" by that function, so it gets NO numeric guard here. That is deliberate and
+# follows _cpg_accum_after's precedent in this file: it guards its persisted
+# timestamp and pointedly does not guard its gate date, because an arm that
+# cannot fire is `## BL-104:`'s shape.
+_cpg_accum_window_measurable() {
+  local w="$1" a today
+  [ -n "$w" ] || return 0   # no start = the whole history, which is measurable
+  a="${w:0:10}"; a="${a//-/}"
+  today=$(date +%Y%m%d 2>/dev/null) || return 1
+  case "$today" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$a" -le "$today" ]   # BL-233-WPB-FUTURE-WINDOW
+}
+
 # _cpg_accum_source_work <since_date> — did this phase produce SOURCE commits?
 #
 # Ground truth from git, NOT from a hook-maintained counter. `## BL-239:` — this
@@ -709,12 +746,16 @@ _cpg_accum_source_work() {
 
 # _cpg_accum_source_since <sha> — source work committed after <sha>?
 # Same classifier as _cpg_accum_source_work, over a commit RANGE instead of a
-# date. Returns 1 (no source work) when it CANNOT tell, and that permissive
-# direction is correct ONLY here: this decides whether an attestation already on
-# record has gone stale, and inventing staleness would re-block work the
-# operator legitimately excused.
-# Returns 0 = "the attestation no longer covers the tree" (stale), 1 = still
-# covers it.
+# date. Returns 0 = "the attestation no longer covers the tree" (stale),
+# 1 = still covers it.
+#
+# THE PARAGRAPH THAT USED TO OPEN THIS BLOCK IS DELETED, NOT AMENDED. It said
+# this function "returns 1 (no source work) when it CANNOT tell, and that
+# permissive direction is correct ONLY here" — the pre-inversion behaviour,
+# left in place when the inversion landed (backlog residual 5,
+# `# BL-233-WPB-STALE-FAILCLOSED`), directly contradicted by the next paragraph.
+# A reader who stopped at the first one would believe the permanent bypass was
+# still by design.
 #
 # IT FAILS CLOSED, and it says why. The first version returned 1 (still valid)
 # for an empty, malformed, tampered or garbage-collected `head` — so ANY
@@ -942,6 +983,19 @@ _cpg_check_accumulation() {
     # survive a clone.
     echo -e "${YELLOW}[WARN]${NC} $label accumulation: the Qdrant requirement is declared ONLY in a file git does not track (.claude/settings.local.json is in Claude Code's global excludes; .claude/tool-usage.json is in the generated .gitignore). Enforcing it HERE, but a fresh clone or CI runner will not see it."
     echo "        Make it durable: jq '.mcp.qdrant_required = true' .claude/manifest.json   (and commit it)"
+  fi
+
+  # THE WINDOW MUST BE MEASURABLE BEFORE EITHER QUESTION ABOUT IT MEANS ANYTHING,
+  # so this precedes both "was anything stored in it" and "was source work done
+  # in it". A future window answers BOTH questions with a confident falsehood:
+  # nothing can be stored after it, and nothing can be committed after it.
+  if ! _cpg_accum_window_measurable "$prev"; then
+    printf '%b[FAIL]%b %s accumulation: CANNOT BE VERIFIED — the window opens at ' "${RED}" "${NC}" "$label"
+    printf '%s' "$prev"
+    printf ', which is not in the past, so no commit and no store can fall inside it.\n'
+    echo "        Nothing is being claimed about this project: a window that cannot be measured is not an empty one."
+    echo "        Fix the date in .claude/phase-state.json (gates.$gate_key), or check the clock on the machine that recorded it."
+    return 1
   fi
 
   last=$(_cpg_accum_last_store)

@@ -1039,6 +1039,70 @@ else
   fail_ "D13" "forged with arm ON=$d13_forged, with arm OFF=$d13_base (must be equal); arm-ran=$d13_ran"
 fi
 
+# ── N-group: the window has to be MEASURABLE before anything is claimed ──
+# Round 10's blocker, and the one dimension 78 assertions never drove.
+# `git log --since=<a future date>` returns zero commits and exits 0 — git
+# ANSWERED — so none of _cpg_accum_source_work's three cannot-tell arms fire,
+# the empty payload matches `^$` in the exempt set, and the gate printed
+#     [OK] accumulation: nothing owed — every change since 2099-12-31 was documentation
+# That is a confident falsehood about the project AND a silent off switch for a
+# blocking gate: issue count 9 -> 8, landing exactly on the no-requirement
+# control. Reachable without tampering — `_cpg_record_gate_date` PRESERVES a
+# date already recorded, so a machine whose clock or timezone is ahead of the
+# runner's writes a window that is in the future THERE and nowhere else, which
+# is `## BL-234:`'s class for the third time in this feature.
+_set_gate() {   # _set_gate DIR KEY DATE
+  local f="$1/.claude/phase-state.json"
+  jq --arg k "$2" --arg d "$3" '.gates[$k] = $d' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+}
+
+# CONTROL: the same fixture with the window in the PAST. It blocks. The
+# future-window fixture must reach the SAME count — a fail-open shows up as a
+# LOWER one, which is precisely how this hid behind a green suite.
+N1C="$(newtmp)"; mk_proj "$N1C" 3; want_qdrant "$N1C"; source_commit "$N1C"
+_run "$N1C" --gate phase_2_to_3; n1_ctrl=$GISSUES
+n1_ctrl_blocked=$(grep -c 'accumulation: BLOCKED' <<< "$GOUT")
+
+N1="$(newtmp)"; mk_proj "$N1" 3; want_qdrant "$N1"; source_commit "$N1"
+_set_gate "$N1" phase_1_to_2 "2099-12-31"
+_run "$N1" --gate phase_2_to_3; n1_issues=$GISSUES; n1_out=$GOUT
+n1_refused=$(grep -c 'CANNOT BE VERIFIED — the window opens at' <<< "$n1_out")
+n1_claimed=$(grep -c 'nothing owed' <<< "$n1_out")
+
+if [ "$n1_ctrl_blocked" -lt 1 ]; then
+  fail_ "N1 (meta)" "the past-window CONTROL did not block (issues=$n1_ctrl), so 'the future window blocks too' proves nothing"
+elif [ "$n1_issues" -eq "$n1_ctrl" ] && [ "$n1_refused" -ge 1 ] && [ "$n1_claimed" -eq 0 ]; then
+  pass "N1: a window opening in the FUTURE is refused as unmeasurable, not reported empty — same issue count as the past-window control ($n1_ctrl), and the transcript makes no claim about the project"
+else
+  fail_ "N1" "future window: issues=$n1_issues (past-window control $n1_ctrl); refused=$n1_refused; nothing-owed=$n1_claimed"
+fi
+
+# N2 — the boundary is `-le`, not `-lt`. A gate recorded TODAY must stay
+# measurable: the day a gate is recorded is the most common day to run it, and
+# `-lt` would refuse every one of them. The date is re-derived if it moves under
+# the fixture, because a midnight crossing would otherwise read as a real
+# failure — this suite has already shipped one clock-race flake (`## BL-241:`).
+n2_try=0
+while :; do
+  _n2_d1=$(date +%Y-%m-%d)
+  N2="$(newtmp)"; mk_proj "$N2" 3; want_qdrant "$N2"; source_commit "$N2"
+  _set_gate "$N2" phase_1_to_2 "$_n2_d1"
+  _run "$N2" --gate phase_2_to_3; n2_out=$GOUT
+  _n2_d2=$(date +%Y-%m-%d)
+  [ "$_n2_d1" = "$_n2_d2" ] && break
+  n2_try=$((n2_try + 1))
+  [ "$n2_try" -ge 2 ] && break
+done
+n2_refused=$(grep -c 'CANNOT BE VERIFIED — the window opens at' <<< "$n2_out")
+n2_ran=$(grep -c 'accumulation:' <<< "$n2_out")
+if [ "$_n2_d1" != "$_n2_d2" ]; then
+  fail_ "N2 (meta)" "the date moved under the fixture on two consecutive attempts ($_n2_d1 -> $_n2_d2); this boundary cannot be measured across a midnight crossing"
+elif [ "$n2_refused" -eq 0 ] && [ "$n2_ran" -ge 1 ]; then
+  pass "N2: a window opening TODAY is measurable — the comparison is -le, not -lt, so a gate is not refused on the day its own date was recorded (positive control: the arm ran, $n2_ran line(s))"
+else
+  fail_ "N2" "today's window was refused as unmeasurable: refused=$n2_refused arm-ran=$n2_ran"
+fi
+
 # A14 — the corrupt-ledger downgrade must not be SILENT. A11 pins that it does
 # not block; nothing pinned that the operator is told, and for a project whose
 # ONLY declaration is the ledger that downgrade turns enforcement off.
@@ -1096,17 +1160,27 @@ else
   fail_ "E3" "expected $((e3_base + 1)) issues, got $e3_issues"
 fi
 
-# E4 asserts an ABSENCE, which an unimplemented gate satisfies for free. The
-# positive control is the SAME fixture driven at 2->3: the string must be
-# producible here, or the absence at 0->1 proves nothing.
-E4="$(newtmp)"; mk_proj "$E4" 1; want_qdrant "$E4"; source_commit "$E4"
+# E4 asserts an ABSENCE, which an unimplemented gate satisfies for free, so it
+# carries a positive control. THE TWO FIXTURES ARE NOW IDENTICAL and `--gate` is
+# the only thing that differs. The first version compared a `current_phase:1`
+# fixture at `--gate phase_0_to_1` against a `current_phase:3` fixture at
+# `--gate phase_2_to_3` — two variables moving at once, under a comment claiming
+# it was "the SAME fixture". `--gate` overrides `current_phase` to the named
+# gate's target, so it is a live variable and confounding it with the recorded
+# phase meant the assertion could not attribute the silence to either.
+#
+# Two SEPARATE phase-3 fixtures, not one run twice: the gate rewrites
+# phase-state.json, and one fixture across two runs measures two projects.
+E4="$(newtmp)"; mk_proj "$E4" 3; want_qdrant "$E4"; source_commit "$E4"
 _run "$E4" --gate phase_0_to_1; e4_out="$GOUT"
 E4B="$(newtmp)"; mk_proj "$E4B" 3; want_qdrant "$E4B"; source_commit "$E4B"
 _run "$E4B" --gate phase_2_to_3; e4b_out="$GOUT"
-if ! echo "$e4_out" | grep -q "accumulation:" && echo "$e4b_out" | grep -q "accumulation:"; then
-  pass "E4: --gate phase_0_to_1 does NOT evaluate accumulation, while the same fixture shape at 2->3 does — Phase 0 is pre-code discovery and writes no source"
+e4_lines=$(grep -c "accumulation:" <<< "$e4_out")
+e4b_lines=$(grep -c "accumulation:" <<< "$e4b_out")
+if [ "$e4_lines" -eq 0 ] && [ "$e4b_lines" -ge 1 ]; then
+  pass "E4: --gate phase_0_to_1 does NOT evaluate accumulation while a fixture identical in every other respect DOES at 2->3 ($e4_lines vs $e4b_lines line(s)) — Phase 0 is pre-code discovery, and the flag is the only variable"
 else
-  fail_ "E4" "expected silence at 0->1 and a report at 2->3 (control produced: $(echo "$e4b_out" | grep -c 'accumulation:') line(s))"
+  fail_ "E4" "expected silence at 0->1 and a report at 2->3; got $e4_lines and $e4b_lines line(s)"
 fi
 
 # ══ F. The tracker's durable write ════════════════════════════════════════
@@ -1881,12 +1955,18 @@ if _mk_mutant_repo "M16" "scripts/lib/accumulation.sh" "# BL-233-WPB-ONELINE" \
           last_store_at:"2026-02-15T10:00:00Z\n  [OK] Phase 3 review gate: FORGED-M16\n  tail",
           attestations:{}}}' > "$M16F/.claude/process-state.json"
   m16_out=$( ( cd "$M16F" && HOME="$M16F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
-  m16_ctrl_forged=$(printf '%s\n' "$GOUT" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M16')
-  m16_forged=$(printf '%s\n' "$m16_out" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M16')
-  if [ "$m16_forged" -ge 1 ]; then
-    pass "M16: removing the control-character strip lets a persisted value forge a verdict line again — D9/D11 enforce the strip, not merely the absence of echo -e"
+  # THE CONTROL IS THE SAME FIXTURE THROUGH THE UNMUTATED SCRIPTS. The first
+  # version read `$GOUT` — the global left behind by an unrelated earlier `_run`
+  # — and then never read the result, so it was a dead variable measuring the
+  # wrong transcript. Twice over the shape round 9 found at A8: a control that
+  # exists in the reader's mind and not in the predicate.
+  m16_ctrl_out=$( ( cd "$M16F" && HOME="$M16F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m16_ctrl_forged=$(grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M16' <<< "$m16_ctrl_out")
+  m16_forged=$(grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-M16' <<< "$m16_out")
+  if [ "$m16_forged" -ge 1 ] && [ "$m16_ctrl_forged" -eq 0 ]; then
+    pass "M16: removing the control-character strip lets a persisted value forge a verdict line again ($m16_ctrl_forged -> $m16_forged) — D9/D11 enforce the strip, not merely the absence of echo -e, and the same payload forges nothing through the shipped tree"
   else
-    fail_ "M16" "mutant forged nothing (forged=$m16_forged) — D9/D11 would pass either way"
+    fail_ "M16" "mutant forged=$m16_forged (want >=1), control forged=$m16_ctrl_forged (want 0) — D9/D11 would pass either way"
   fi
 fi
 
@@ -1983,7 +2063,13 @@ io.open(f,"w",encoding="utf-8").write(s)
 PYD
 d15_out=$( ( cd "$D15" && HOME="$D15/home" bash "$D15ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
 d15_forged=$(printf '%s\n' "$d15_out" | grep -cE '^ *\[OK\] Phase 3 review gate: FORGED-D15')
-d15_ran=$(printf '%s\n' "$d15_out" | grep -c 'accumulation:')
+# THE TREATMENT, not merely "some accumulation line". `grep -c 'accumulation:'`
+# also counts `NOT CHECKED` and `nothing owed`, so a fixture that never reached
+# the reverted BLOCKED display site scored `ran=1` and the equality passed on a
+# site that never executed. That is A8's defect — a control that reads like it
+# can fire and cannot — relocated from the control to the treatment. D14 already
+# asserts its own arm by name; this now does the same.
+d15_ran=$(printf '%s\n' "$d15_out" | grep -c 'accumulation: BLOCKED')
 # CONTROL: the same fixture through the UNMUTATED scripts. The pre-existing
 # BL-071 "gate dated ..." arm renders this value through echo -e too, so a raw
 # count is not attributable to the reverted accumulation site — the comparison is.
@@ -2033,6 +2119,54 @@ PYN
     pass "M19: unwrapping \$prev at ingest lets a duplicate-key gate date forge a standalone verdict line through printf alone — the wrap is load-bearing, not belt ($m19_c -> $m19_f)"
   else
     fail_ "M19" "mutant forged $m19_f, control forged $m19_c — expected mutant strictly higher"
+  fi
+fi
+
+# M20 — neuter the measurability guard and the fail-open is back, verbatim: the
+# future window reports "nothing owed" and the issue count drops. This is the
+# direction that matters; the guard exists for it.
+if _mk_mutant_repo "M20" "scripts/check-phase-gate.sh" "# BL-233-WPB-FUTURE-WINDOW" \
+      '  [ "$a" -le "$today" ]   # BL-233-WPB-FUTURE-WINDOW' \
+      '  return 0                # BL-233-WPB-FUTURE-WINDOW'; then
+  M20F="$(newtmp)"; mk_proj "$M20F" 3; want_qdrant "$M20F"; source_commit "$M20F"
+  _set_gate "$M20F" phase_1_to_2 "2099-12-31"
+  m20_mut=$( ( cd "$M20F" && HOME="$M20F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m20_ctrl=$( ( cd "$M20F" && HOME="$M20F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m20_m=$(grep -c 'nothing owed' <<< "$m20_mut")
+  m20_c=$(grep -c 'nothing owed' <<< "$m20_ctrl")
+  if [ "$m20_m" -ge 1 ] && [ "$m20_c" -eq 0 ]; then
+    pass "M20: removing the measurability guard restores the fail-open exactly — the mutant announces 'nothing owed' on a window nothing can fall inside ($m20_c -> $m20_m), so the guard is what closes it"
+  else
+    fail_ "M20" "mutant nothing-owed=$m20_m (want >=1), control=$m20_c (want 0)"
+  fi
+fi
+
+# M21 — the OTHER direction, because a guard can be wrong by being too strict
+# and that failure is silent in the opposite way: it blocks work that is fine.
+# `-le` -> `-lt` refuses a gate on the day its own date was recorded.
+if _mk_mutant_repo "M21" "scripts/check-phase-gate.sh" "# BL-233-WPB-FUTURE-WINDOW" \
+      '  [ "$a" -le "$today" ]   # BL-233-WPB-FUTURE-WINDOW' \
+      '  [ "$a" -lt "$today" ]   # BL-233-WPB-FUTURE-WINDOW'; then
+  m21_try=0
+  while :; do
+    _m21_d1=$(date +%Y-%m-%d)
+    M21F="$(newtmp)"; mk_proj "$M21F" 3; want_qdrant "$M21F"; source_commit "$M21F"
+    _set_gate "$M21F" phase_1_to_2 "$_m21_d1"
+    m21_mut=$( ( cd "$M21F" && HOME="$M21F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+    m21_ctrl=$( ( cd "$M21F" && HOME="$M21F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+    _m21_d2=$(date +%Y-%m-%d)
+    [ "$_m21_d1" = "$_m21_d2" ] && break
+    m21_try=$((m21_try + 1))
+    [ "$m21_try" -ge 2 ] && break
+  done
+  m21_m=$(grep -c 'CANNOT BE VERIFIED — the window opens at' <<< "$m21_mut")
+  m21_c=$(grep -c 'CANNOT BE VERIFIED — the window opens at' <<< "$m21_ctrl")
+  if [ "$_m21_d1" != "$_m21_d2" ]; then
+    fail_ "M21 (meta)" "the date moved under the fixture on two consecutive attempts ($_m21_d1 -> $_m21_d2); this mutant cannot be measured across a midnight crossing"
+  elif [ "$m21_m" -ge 1 ] && [ "$m21_c" -eq 0 ]; then
+    pass "M21: tightening the comparison to -lt refuses a window opening TODAY ($m21_c -> $m21_m) — the boundary is load-bearing in both directions, and an over-strict gate fails as silently as an over-permissive one"
+  else
+    fail_ "M21" "mutant refused=$m21_m (want >=1), control refused=$m21_c (want 0)"
   fi
 fi
 
