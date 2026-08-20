@@ -10409,14 +10409,20 @@ the WP-B residuals recorded with it.
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — **77 assertions, 19 mutants**, both
+`tests/test-bl233-wpb-accumulation.sh` — **78 assertions, 19 mutants**, both
 derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
 than transcribed, because this entry has now carried a wrong count in three
-consecutive revisions. Measured against the CURRENT merge-base `2344b13`: **3 passed / 77 failed**,
-and the three are NAMED rather than rounded to zero — A8, H2 and
-H4 assert absences (no bash error; never denies; a store inside the window
-produces no warning) which a tree with no accumulation gate also satisfies.
-They are regression guards, not discriminators.
+consecutive revisions. Measured against the CURRENT merge-base `2344b13` with
+this suite dropped into a `git archive` of that tree: **2 passed / 79 failed**.
+The tally exceeds 78 because the meta arms fire an EXTRA `fail_` alongside the
+assertion they guard, which is what they are for. The two passes are NAMED
+rather than rounded to zero — H2 and H4 assert absences (the commit arm never
+denies; a store inside the window produces no warning) which a tree with no
+accumulation gate also satisfies. They are regression guards, not
+discriminators. **A8 used to be a third such pass and is not any more**: its
+control is now applied, so on a tree with no `scripts/lib/accumulation.sh` the
+control cannot warn and A8's meta arm fires. That is the difference between a
+control that is computed and a control that is read.
 An earlier draft of this entry claimed "0 passed / 35 failed" — that was a
 35-assertion draft of the suite, carried forward unchanged after the suite grew,
 and re-deriving it is the whole of `## BL-230:`'s lesson.
@@ -10614,17 +10620,25 @@ awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
    fail-closed posture that function's own header promises. The value now
    reaches git RAW (`# BL-233-WPB-SHA-RAW-FOR-GIT`) and is cleaned only where it
    is displayed.
-15. **A test was DELETED rather than fixed a fourth time.** D13 asserted that
-   this feature's display of a duplicate-key gate date adds no forged line, and
-   it was vacuous in three successive forms: scoped by a substring a forgery can
-   never contain; then rewritten with a real control but a payload writing TWO
-   backslashes on disk (so `echo -e` emitted one line, not two) and the forged
-   text never beginning a line; then with the APPROVAL_LOG evidence dropped, and
-   still measuring 0/0. A vacuity floor was added and it FIRED, which is why this
-   is a deletion and not a fourth silent pass. Coverage is not lost: M19 drives
-   the same mechanism with a payload proved to discriminate (control 1 → mutant
-   2), and M19's control leg IS that assertion. One working test beats two, one
-   of which cannot fail.
+15. **A test was vacuous three times, then DELETED on BACKWARDS reasoning, and
+   is now RESTORED with a floor.** D13 asserts that this feature's display of a
+   duplicate-key gate date adds no forged line to the transcript. It was vacuous
+   in three successive forms: scoped by a substring a forgery can never contain;
+   then rewritten with a real control but a payload writing TWO backslashes on
+   disk (so `echo -e` emitted one line, not two) and the forged text never
+   beginning a line; then with `mk_proj`'s `APPROVAL_LOG.md` evidence dropped,
+   still measuring 0/0. The deletion that followed reasoned that the evidence
+   SUPPRESSED the forging arm. It does the opposite: that evidence is what lets
+   `_cpg_record_gate_date` render the gate date at all, and the rendered date is
+   where the baseline forged line comes from — so removing it is what CAUSED the
+   0/0. The assertion was sound throughout; the fixture had been broken by the
+   edit meant to fix it. Restored with the evidence intact and a vacuity floor at
+   `base >= 1`, it measures 1 → 1, and a silent return to 0/0 now fails loudly.
+   **M19 does not subsume it**, which the deletion also claimed. M19's predicate
+   is `mutant > control` with NO upper bound on the control, so a new raw display
+   site added later reads control=2 / mutant=3 and passes green, while D13 reads
+   1 → 2 and fails. The two watch opposite trees — M19 the mutated one, D13 the
+   shipped one — so both are wanted.
 16. **`accum_oneline` mangles legitimate backslashes IN THE TRANSCRIPT ONLY.** An
    attestation reason like `ported C:\Users\karl\src … the \d+ regex` displays
    as `ported C:Userskarlsrc … the d+ regex`. Storage, idempotence and staleness
