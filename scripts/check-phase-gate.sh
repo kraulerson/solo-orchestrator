@@ -580,11 +580,20 @@ _cpg_record_reviewer_attestation() {
 #
 # Reading it from .claude/tool-usage.json is the obvious answer and is wrong
 # twice: the ledger is untracked runtime scratch that `startup` wipes, so
-# deleting it would switch a blocking gate off (`## BL-231:`); and of the 61
-# suites that name check-phase-gate.sh under tests/, 29 drive it at
-# current_phase >= 2 across 74 fixture-creation sites and NOT ONE writes a
-# ledger, so a ledger-derived requirement would have forced 74 fixture edits to
-# say nothing.
+# deleting it would switch a blocking gate off (`## BL-231:`); and MEASURED ON
+# MERGE-BASE 2344b13 — the tree the decision was made against, and stated as such
+# because these numbers move with the PR — of the 60 suites that name
+# check-phase-gate.sh under tests/, 29 drive it at current_phase >= 2 and NOT ONE
+# writes a ledger, so a ledger-derived requirement would have forced an edit to
+# every one of them to say nothing. The recipe is on `## BL-233:`; the
+# load-bearing number is the ZERO.
+#
+# The earlier form of this comment said "61 suites" and "74 fixture-creation
+# sites". The 61 was read off a working tree that already contained this
+# feature's own new suite, and the 74 reproduces under no derivation anyone can
+# write down, so it is WITHDRAWN. Both are corrected here and not only in the
+# backlog: shipping a retraction to the ledger while the code keeps asserting the
+# retracted figure is the same defect one file over.
 #
 # The first fix for that read .claude/settings.local.json instead, on the
 # reasoning that init.sh writes it and `git add -A` commits it. THAT WAS ALSO
@@ -596,7 +605,8 @@ _cpg_record_reviewer_attestation() {
 # inference from an ignore file you happened to read. accum_file_tracked asks it
 # (scripts/lib/accumulation.sh, shared with the commit-time warning).
 #
-# $HOME is still never read, for the original reason: zero of those 29 fixtures
+# $HOME is still never read, for the original reason: on that same base tree,
+# zero of those 29 fixtures
 # redirect HOME, so a host-derived verdict passes on a developer box with Qdrant
 # configured and fails on a runner without it — `## BL-234:`'s class. A5 and
 # mutant M3 pin the project-only scope in both directions.
@@ -685,13 +695,62 @@ _cpg_accum_after() {
 # follows _cpg_accum_after's precedent in this file: it guards its persisted
 # timestamp and pointedly does not guard its gate date, because an arm that
 # cannot fire is `## BL-104:`'s shape.
+_ACCUM_WINDOW_REASON=""
 _cpg_accum_window_measurable() {
-  local w="$1" a today
-  [ -n "$w" ] || return 0   # no start = the whole history, which is measurable
+  local w="$1" key="$2" raw="$3" a today _nan
+  _ACCUM_WINDOW_REASON=""
+
+  # AN EMPTY WINDOW START IS AMBIGUOUS, and reading it as "no gate recorded" was
+  # a SECOND silent off switch through the same field. `get_gate_date` maps BOTH
+  # "no gate recorded" AND "a gate is recorded whose value will not parse" to "",
+  # and "" then reaches _cpg_accum_after, whose `[ -z "$gate" ] && return 0`
+  # makes ANY store ever recorded satisfy the gate. Measured: one edit of
+  # gates.* to `not-a-date` took a blocking fixture from 9 inconsistencies to 8,
+  # landing on the no-requirement control, with a 2020 store reported as
+  # satisfying. Same shape as the future window, no clock skew required.
+  if [ -z "$w" ]; then
+    # NON-EMPTY IS NOT ENOUGH — the raw value must also FAIL the date regex, or
+    # every project with a perfectly good gate date is refused. That was the
+    # first cut of this arm and it refused three fixtures out of four.
+    #
+    # $raw is a SNAPSHOT taken at the same instant as $w and BEFORE any check
+    # ran, not a fresh read (`# BL-233-WPB-RAW-SNAPSHOT`). Re-reading the file
+    # here is what the second cut did, and it measured a different file:
+    # `_cpg_record_gate_date` rewrites gates.* from APPROVAL_LOG evidence DURING
+    # the run, so `not-a-date` had already normalised to today's date by the
+    # time this line saw it — the arm reported "parses fine", and the fail-open
+    # it was written to close stayed open while the test for it went green.
+    if [ -n "$raw" ] && ! grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' <<< "$raw"; then   # BL-233-WPB-AMBIGUOUS-WINDOW
+      _ACCUM_WINDOW_REASON="a gate date IS recorded for $key and does not parse as YYYY-MM-DD (\"$raw\")"
+      return 1
+    fi
+    return 0   # genuinely no gate recorded: the window is the whole history
+  fi
+
+  # THE NUMERIC GUARD IS NOT DEAD CODE, and the reasoning that removed it was
+  # refuted by this same file 230 lines away. `get_gate_date` validates with a
+  # per-line `grep -qE`, so a DUPLICATE key in phase-state.json (which jq
+  # accepts, so the file is not malformed) yields a multi-line value that passes
+  # validation if ANY line is a date; accum_oneline then concatenates the lines.
+  # Without this guard `ZZZZZZZZZZ2026-02-01` reached `[ -le ]`, which blocks —
+  # correct direction — while printing a raw `integer expression expected` from
+  # the shell into a blocking verdict. The sibling half of this feature already
+  # re-validates the same field for the same reason
+  # (`# BL-233-WPB-ACCPREV-ONELINE`); this half now agrees with it.
   a="${w:0:10}"; a="${a//-/}"
-  today=$(date +%Y%m%d 2>/dev/null) || return 1
-  case "$today" in ''|*[!0-9]*) return 1 ;; esac
-  [ "$a" -le "$today" ]   # BL-233-WPB-FUTURE-WINDOW
+  _nan="the recorded gate date does not reduce to a number (\"$w\") — a duplicate key in .claude/phase-state.json yields a multi-line value that per-line validation accepts"
+  case "$a" in ''|*[!0-9]*) _ACCUM_WINDOW_REASON="$_nan"; return 1 ;; esac   # BL-233-WPB-WINDOW-NUMERIC
+
+  today=$(date +%Y%m%d 2>/dev/null) || today=""
+  case "$today" in
+    ''|*[!0-9]*)
+      _ACCUM_WINDOW_REASON="the system date could not be read, so no window can be placed in time"
+      return 1 ;;
+  esac
+
+  [ "$a" -le "$today" ] && return 0   # BL-233-WPB-FUTURE-WINDOW
+  _ACCUM_WINDOW_REASON="it opens at $w, which is not in the past, so no commit and no store can fall inside it"
+  return 1
 }
 
 # _cpg_accum_source_work <since_date> — did this phase produce SOURCE commits?
@@ -716,8 +775,21 @@ _cpg_accum_source_work() {
   local since="$1" paths
   if ! command -v git >/dev/null 2>&1; then return 0; fi
   if ! git rev-parse --git-dir >/dev/null 2>&1; then return 0; fi
+  # `00:00:00` IS LOAD-BEARING, and its absence was a fail-open found by a test
+  # of this feature going intermittently green. git's approxidate fills the
+  # fields a date string omits FROM THE CURRENT CLOCK, so a bare `--since=<date>`
+  # means "that date at the time of day it happens to be right now", not
+  # midnight. Measured on git 2.x: a commit made at 10:35:18 today is INVISIBLE
+  # to `--since=<today>` two seconds later, and visible to
+  # `--since=<today> 00:00:00`.
+  #
+  # Consequence without it: every source commit made earlier in the day on the
+  # window's opening date is silently outside the window, so a phase whose
+  # previous gate was recorded today reports "nothing owed" all afternoon — and
+  # the SAME TREE yields a different verdict depending on the hour the gate runs,
+  # which is `## BL-234:`'s class wearing a clock instead of a hostname.
   if [ -n "$since" ]; then
-    paths=$(git log --since="$since" --name-only --pretty=format: 2>/dev/null) || return 0
+    paths=$(git log --since="$since 00:00:00" --name-only --pretty=format: 2>/dev/null) || return 0   # BL-233-WPB-SINCE-MIDNIGHT
   else
     paths=$(git log --name-only --pretty=format: 2>/dev/null) || return 0
   fi
@@ -987,14 +1059,43 @@ _cpg_check_accumulation() {
 
   # THE WINDOW MUST BE MEASURABLE BEFORE EITHER QUESTION ABOUT IT MEANS ANYTHING,
   # so this precedes both "was anything stored in it" and "was source work done
-  # in it". A future window answers BOTH questions with a confident falsehood:
-  # nothing can be stored after it, and nothing can be committed after it.
-  if ! _cpg_accum_window_measurable "$prev"; then
-    printf '%b[FAIL]%b %s accumulation: CANNOT BE VERIFIED — the window opens at ' "${RED}" "${NC}" "$label"
-    printf '%s' "$prev"
-    printf ', which is not in the past, so no commit and no store can fall inside it.\n'
+  # in it". An unmeasurable window answers BOTH with a confident falsehood.
+  #
+  # A CONSEQUENCE THIS PLACEMENT OWNS, stated rather than discovered later: a
+  # project that HAS stored, but whose window is unmeasurable, now blocks where
+  # it previously read `[OK] satisfied`, and the attested escape below is not
+  # reached either. That is deliberate — an attestation excuses "nothing was
+  # stored", not "the gate does not know what it is measuring" — and the remedy
+  # is in the message: the recorded date is the thing that is wrong. Note the
+  # earlier draft of this comment justified the placement with "nothing can be
+  # stored after it", which is FALSE in the clock-skew case it cites as
+  # motivation: a machine that is ahead writes both the gate date AND the store
+  # timestamp in the future. The placement is right; that argument for it was
+  # not. Recorded as residual 19.
+  #
+  # THE REASON IS CARRIED, NOT ASSUMED. The first version hard-coded ", which is
+  # not in the past" into this line — and that is false on two of the four paths
+  # that reach it (an unparseable recorded date, and a `date` that will not
+  # answer), so the arm added to remove a false affirmative about the project
+  # printed one of its own. `_ACCUM_STALE_REASON` is the precedent in this file.
+  # THE KEY THE WINDOW OPENS AT IS THE PREVIOUS GATE, NOT THIS ONE. Passing
+  # $gate_key read phase_2_to_3's value while checking phase_2_to_3, so a
+  # tampered phase_1_to_2 was reported by quoting an untouched, valid date — and
+  # a legitimately NULL previous gate was refused because the SUCCESSOR was set.
+  # Caught by driving all four shapes; it would have shipped as a message that
+  # named the wrong field and a gate that blocked correct projects.
+  local _accum_prev_key=""
+  case "$gate_key" in
+    phase_1_to_2) _accum_prev_key="phase_0_to_1" ;;
+    phase_2_to_3) _accum_prev_key="phase_1_to_2" ;;
+    phase_3_to_4) _accum_prev_key="phase_2_to_3" ;;
+  esac
+  if ! _cpg_accum_window_measurable "$prev" "$_accum_prev_key" "$4"; then
+    printf '%b[FAIL]%b %s accumulation: CANNOT BE VERIFIED — the window cannot be measured: ' "${RED}" "${NC}" "$label"
+    printf '%s' "$(accum_oneline "${_ACCUM_WINDOW_REASON}")"
+    printf '.\n'
     echo "        Nothing is being claimed about this project: a window that cannot be measured is not an empty one."
-    echo "        Fix the date in .claude/phase-state.json (gates.$gate_key), or check the clock on the machine that recorded it."
+    echo "        Fix gates.${_accum_prev_key:-$gate_key} in .claude/phase-state.json, or check the clock on the machine that recorded it."
     return 1
   fi
 
@@ -1096,13 +1197,34 @@ _cpg_check_accumulation() {
 
 # The ONE increment site for the accumulation gate.
 _cpg_accum_gate() {
-  _cpg_check_accumulation "$1" "$2" "$3" || issues=$((issues + 1))   # BL-233-WPB-BLOCK
+  _cpg_check_accumulation "$1" "$2" "$3" "$4" || issues=$((issues + 1))   # BL-233-WPB-BLOCK
+}
+
+# _cpg_raw_gate_value <gate_key> — the gates.* value EXACTLY AS RECORDED.
+# get_gate_date maps BOTH "absent" and "present but unparseable" to "", and the
+# accumulation arm has to tell those apart: the first legitimately means "the
+# window is the whole history", the second means the window cannot be measured.
+_cpg_raw_gate_value() {
+  local v=""
+  if [ -f "$PHASE_STATE" ] && command -v jq >/dev/null 2>&1; then
+    v=$(jq -r --arg k "$1" '.gates[$k] // ""' "$PHASE_STATE" 2>/dev/null || printf '')
+    [ "$v" = "null" ] && v=""
+  fi
+  if [ "${SOIF_ACCUM_LIB_LOADED:-0}" = "1" ]; then
+    v=$(accum_oneline "$v")   # boundary rule: sanitise where it ENTERS
+  fi
+  printf '%s' "$v"
 }
 
 gate_0_to_1=$(get_gate_date "phase_0_to_1")
 gate_1_to_2=$(get_gate_date "phase_1_to_2")
 gate_2_to_3=$(get_gate_date "phase_2_to_3")
 gate_3_to_4=$(get_gate_date "phase_3_to_4")
+# Captured HERE, beside the validated values and before any check runs, because
+# `_cpg_record_gate_date` rewrites gates.* mid-run from APPROVAL_LOG evidence.
+raw_gate_0_to_1=$(_cpg_raw_gate_value "phase_0_to_1")   # BL-233-WPB-RAW-SNAPSHOT
+raw_gate_1_to_2=$(_cpg_raw_gate_value "phase_1_to_2")
+raw_gate_2_to_3=$(_cpg_raw_gate_value "phase_2_to_3")
 
 # Extract deployment type and track for conditional checks.
 # BL-095: parsing goes through the # BL-095-STATE-READERS fence in
@@ -2154,9 +2276,9 @@ fi
 # and the conditional would never fire anyway — an arm that cannot fire is the
 # `## BL-104:` shape and is better absent than decorative.
 case "$current_phase" in
-  2) _cpg_accum_gate "phase_1_to_2" "$gate_0_to_1" "Phase 1→2" ;;
-  3) _cpg_accum_gate "phase_2_to_3" "$gate_1_to_2" "Phase 2→3" ;;
-  4) _cpg_accum_gate "phase_3_to_4" "$gate_2_to_3" "Phase 3→4" ;;
+  2) _cpg_accum_gate "phase_1_to_2" "$gate_0_to_1" "Phase 1→2" "$raw_gate_0_to_1" ;;
+  3) _cpg_accum_gate "phase_2_to_3" "$gate_1_to_2" "Phase 2→3" "$raw_gate_1_to_2" ;;
+  4) _cpg_accum_gate "phase_3_to_4" "$gate_2_to_3" "Phase 3→4" "$raw_gate_2_to_3" ;;
 esac
 
 # Check: if current_phase >= 4, gate 3→4 should have a date (BL-071: see

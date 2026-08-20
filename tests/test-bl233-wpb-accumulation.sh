@@ -30,10 +30,16 @@
 #   • The ledger is an untracked runtime scratch file. Deleting it would switch
 #     the requirement off — BL-231's "tracking file absent => no enforcement,
 #     silently" row, reintroduced in a blocking gate.
-#   • Measured on this tree: of the 61 suites that execute check-phase-gate.sh,
-#     29 drive it at current_phase >= 2, across 74 fixture-creation sites, and
-#     NOT ONE of them writes a `.claude/tool-usage.json`. A requirement read
-#     from the ledger would have forced 74 fixture edits to say nothing.
+#   • Measured on MERGE-BASE 2344b13, and scoped to it deliberately: of the 60
+#     suites that execute check-phase-gate.sh, 29 drive it at current_phase >= 2
+#     and NOT ONE writes a `.claude/tool-usage.json`. A ledger-derived
+#     requirement would have forced an edit to every one of them to say nothing.
+#     Both halves of that sentence are FALSE of this branch's head — the count is
+#     61 and one of them writes ledgers, because THIS suite does — which is why
+#     it names the tree. The earlier "61 suites / 74 fixture-creation sites" form
+#     read the 61 off a working tree already carrying this file, and the 74
+#     reproduces under no derivation, so it is withdrawn. The recipe is on
+#     `## BL-233:`; the load-bearing number is the ZERO.
 #
 # The first fix for that read `.claude/settings.local.json`, reasoning that
 # `init.sh` writes it and `git add -A` commits it. THAT WAS ALSO WRONG: Claude
@@ -47,7 +53,8 @@
 #
 # A5 IS THE LOAD-BEARING ONE. The derivation reads the two PROJECT-scope
 # settings files ONLY, never `$HOME/.claude.json` — even though
-# `session-test-gate-check.sh` reads both scopes. Zero of those 29 fixtures
+# `session-test-gate-check.sh` reads both scopes. On that same base tree, zero of
+# those 29 fixtures
 # redirect HOME, so a host-derived verdict passes on a developer machine with
 # Qdrant configured and fails on a runner without it, or the reverse. That is
 # `## BL-234:`'s class exactly: a silent local-vs-CI divergence. Every gate run
@@ -1066,7 +1073,7 @@ n1_ctrl_blocked=$(grep -c 'accumulation: BLOCKED' <<< "$GOUT")
 N1="$(newtmp)"; mk_proj "$N1" 3; want_qdrant "$N1"; source_commit "$N1"
 _set_gate "$N1" phase_1_to_2 "2099-12-31"
 _run "$N1" --gate phase_2_to_3; n1_issues=$GISSUES; n1_out=$GOUT
-n1_refused=$(grep -c 'CANNOT BE VERIFIED — the window opens at' <<< "$n1_out")
+n1_refused=$(grep -c 'CANNOT BE VERIFIED — the window cannot be measured' <<< "$n1_out")
 n1_claimed=$(grep -c 'nothing owed' <<< "$n1_out")
 
 if [ "$n1_ctrl_blocked" -lt 1 ]; then
@@ -1093,14 +1100,144 @@ while :; do
   n2_try=$((n2_try + 1))
   [ "$n2_try" -ge 2 ] && break
 done
-n2_refused=$(grep -c 'CANNOT BE VERIFIED — the window opens at' <<< "$n2_out")
-n2_ran=$(grep -c 'accumulation:' <<< "$n2_out")
+n2_refused=$(grep -c 'CANNOT BE VERIFIED — the window cannot be measured' <<< "$n2_out")
+# THE TREATMENT BY NAME, not any line containing "accumulation:". The loose form
+# also counts `NOT CHECKED` and `nothing owed`, so this floor passed vacuously on
+# a tree with scripts/lib/accumulation.sh removed — the arm never ran at all.
+# That is exactly what D15's floor was fixed for, shipped in the same commit.
+n2_ran=$(grep -c 'accumulation: BLOCKED' <<< "$n2_out")
 if [ "$_n2_d1" != "$_n2_d2" ]; then
   fail_ "N2 (meta)" "the date moved under the fixture on two consecutive attempts ($_n2_d1 -> $_n2_d2); this boundary cannot be measured across a midnight crossing"
 elif [ "$n2_refused" -eq 0 ] && [ "$n2_ran" -ge 1 ]; then
   pass "N2: a window opening TODAY is measurable — the comparison is -le, not -lt, so a gate is not refused on the day its own date was recorded (positive control: the arm ran, $n2_ran line(s))"
 else
   fail_ "N2" "today's window was refused as unmeasurable: refused=$n2_refused arm-ran=$n2_ran"
+fi
+
+# N3 — THE SECOND off switch through the same field, and the reason this group
+# exists rather than one assertion. `get_gate_date` maps BOTH "no gate recorded"
+# AND "a gate recorded whose value will not parse" to "", and "" reaches
+# _cpg_accum_after, whose `[ -z "$gate" ]` arm makes ANY store ever recorded
+# satisfy the gate. One edit of gates.* to `not-a-date` took a blocking fixture
+# from 9 inconsistencies to 8 with a 2020 store reported as satisfying — no
+# clock skew required.
+#
+# The fixture carries an ANCIENT store on purpose: without one the fixture would
+# block for the ordinary reason and the assertion could not tell the two apart.
+_ancient_store() { stored "$1" "2020-01-01T10:00:00Z"; }
+
+# CONTROL: the same fixture with a VALID window. The ancient store is outside it,
+# so it blocks for the ordinary reason.
+N3C="$(newtmp)"; mk_proj "$N3C" 3; want_qdrant "$N3C"; source_commit "$N3C"; _ancient_store "$N3C"
+_run "$N3C" --gate phase_2_to_3; n3_ctrl=$GISSUES
+n3_ctrl_blocked=$(grep -c 'accumulation: BLOCKED' <<< "$GOUT")
+
+N3="$(newtmp)"; mk_proj "$N3" 3; want_qdrant "$N3"; source_commit "$N3"; _ancient_store "$N3"
+_set_gate "$N3" phase_1_to_2 "not-a-date"
+_run "$N3" --gate phase_2_to_3; n3_issues=$GISSUES; n3_out=$GOUT
+n3_refused=$(grep -c 'a gate date IS recorded for phase_1_to_2 and does not parse' <<< "$n3_out")
+n3_named=$(grep -c '"not-a-date"' <<< "$n3_out")
+n3_satisfied=$(grep -c 'accumulation: satisfied' <<< "$n3_out")
+if [ "$n3_ctrl_blocked" -lt 1 ]; then
+  fail_ "N3 (meta)" "the valid-window CONTROL did not block (issues=$n3_ctrl); the fixture is not reaching the arm"
+elif [ "$n3_issues" -eq "$n3_ctrl" ] && [ "$n3_refused" -ge 1 ] && [ "$n3_named" -ge 1 ] && [ "$n3_satisfied" -eq 0 ]; then
+  pass "N3: a gate date that is RECORDED but will not parse is refused as unmeasurable instead of collapsing into 'no gate recorded' — same count as the valid-window control ($n3_ctrl), the offending field is NAMED, and a 2020 store no longer satisfies a 2026 phase"
+else
+  fail_ "N3" "unparseable gate date: issues=$n3_issues (control $n3_ctrl); refused=$n3_refused; named=$n3_named; satisfied=$n3_satisfied"
+fi
+
+# N4 — THE OTHER SIDE, and it is the one an over-eager fix breaks. A gate that is
+# genuinely ABSENT means the window is the whole history, which IS measurable,
+# and the first cut of N3's arm refused it — three fixtures out of four — because
+# it tested only that the raw value was non-empty. The ancient store must still
+# satisfy here.
+N4="$(newtmp)"; mk_proj "$N4" 3; want_qdrant "$N4"; source_commit "$N4"; _ancient_store "$N4"
+_set_gate_null() {   # phase-state with the key present and NULL
+  local f="$1/.claude/phase-state.json"
+  jq --arg k "$2" '.gates[$k] = null' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+}
+_set_gate_null "$N4" phase_1_to_2
+_run "$N4" --gate phase_2_to_3
+n4_satisfied=$(grep -c 'accumulation: satisfied' <<< "$GOUT")
+n4_refused=$(grep -c 'CANNOT BE VERIFIED' <<< "$GOUT")
+if [ "$n4_satisfied" -ge 1 ] && [ "$n4_refused" -eq 0 ]; then
+  pass "N4: a gate date that is genuinely ABSENT still means 'the window is the whole history' — the store satisfies, and the unmeasurable arm does not fire on a project that did nothing wrong"
+else
+  fail_ "N4" "absent gate date: satisfied=$n4_satisfied (want >=1), refused=$n4_refused (want 0)"
+fi
+
+# N5 — THE REASON MUST BE THE REAL ONE. The first version of this arm hard-coded
+# ", which is not in the past" into the FAIL line, and that is false on two of
+# the four paths that reach it. An arm added to remove a false affirmative about
+# the project printed one of its own. Here `date` is shimmed to fail while the
+# window is comfortably in the PAST.
+N5="$(newtmp)"; mk_proj "$N5" 3; want_qdrant "$N5"; source_commit "$N5"
+N5BIN="$(newtmp)/bin"; mkdir -p "$N5BIN"
+printf '#!/bin/sh\nexit 1\n' > "$N5BIN/date"; chmod +x "$N5BIN/date"
+n5_out=$( ( cd "$N5" && HOME="$N5/home" PATH="$N5BIN:$PATH" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+n5_refused=$(grep -c 'CANNOT BE VERIFIED — the window cannot be measured' <<< "$n5_out")
+n5_wrong=$(grep -c 'which is not in the past' <<< "$n5_out")
+n5_right=$(grep -c 'the system date could not be read' <<< "$n5_out")
+if [ "$n5_refused" -ge 1 ] && [ "$n5_right" -ge 1 ] && [ "$n5_wrong" -eq 0 ]; then
+  pass "N5: when the clock cannot be read the gate blocks and says SO — it does not claim a past window 'is not in the past', which is the false affirmative this whole arm exists to remove"
+else
+  fail_ "N5" "date-failure path: refused=$n5_refused; correct-reason=$n5_right; false-reason=$n5_wrong"
+fi
+
+# N6 — the numeric guard, whose omission was justified by reasoning this file
+# refutes 200 lines away. `get_gate_date` validates with a PER-LINE `grep -qE`,
+# so a DUPLICATE key yields a multi-line value that passes if ANY line is a date,
+# and accum_oneline then concatenates them. Without the guard the concatenation
+# reached `[ -le ]`, which blocks — right direction — while printing a raw
+# `integer expression expected` from the shell INTO a blocking verdict.
+N6="$(newtmp)"; mk_proj "$N6" 3; want_qdrant "$N6"; source_commit "$N6"
+python3 - "$N6/.claude/phase-state.json" <<'PYN6'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"',
+            '"phase_1_to_2":"ZZZZZZZZZZ",\n "phase_1_to_2":"2026-02-01"')
+io.open(f,"w",encoding="utf-8").write(s)
+PYN6
+_run "$N6" --gate phase_2_to_3; n6_out=$GOUT
+n6_refused=$(grep -c 'does not reduce to a number' <<< "$n6_out")
+n6_shellerr=$(grep -c 'integer expression expected' <<< "$n6_out")
+n6_owed=$(grep -c 'nothing owed' <<< "$n6_out")
+if [ "$n6_refused" -ge 1 ] && [ "$n6_shellerr" -eq 0 ] && [ "$n6_owed" -eq 0 ]; then
+  pass "N6: a duplicate key in phase-state.json yields a window that does not reduce to a number — the gate names it and blocks, with no raw shell diagnostic leaking into the verdict"
+else
+  fail_ "N6" "duplicate-key window: refused=$n6_refused; shell-error=$n6_shellerr (want 0); nothing-owed=$n6_owed (want 0)"
+fi
+
+# N7 — THE WINDOW OPENS AT MIDNIGHT, NOT AT THE CURRENT CLOCK TIME. Found by N2
+# going intermittently green (8 flakes in 40 runs) and chased into the product
+# rather than papered over in the test: git's approxidate fills the fields a
+# date string OMITS from the current clock, so a bare `--since=<date>` means
+# "that date at whatever time it is right now". A commit made at 10:35:18 today
+# is invisible to `--since=<today>` two seconds later.
+#
+# The fixture back-dates the source commit to 00:00:01 on the gate date, so the
+# assertion carries NO clock race of its own: with the fix the commit is inside
+# the window at every hour of the day, and without it the commit is outside the
+# window at every hour after 00:00:01.
+N7="$(newtmp)"; mk_proj "$N7" 3; want_qdrant "$N7"
+_n7_day=$(date +%Y-%m-%d)
+( cd "$N7" || exit 1
+  unset GITHUB_BASE_REF
+  mkdir -p src && echo "print(1)" > src/main.py
+  git add -A >/dev/null 2>&1
+  GIT_AUTHOR_DATE="${_n7_day}T00:00:01" GIT_COMMITTER_DATE="${_n7_day}T00:00:01" \
+    git commit -qm "feat: first thing this morning" >/dev/null 2>&1 )
+_set_gate "$N7" phase_1_to_2 "$_n7_day"
+_run "$N7" --gate phase_2_to_3; n7_out=$GOUT
+n7_blocked=$(grep -c 'accumulation: BLOCKED' <<< "$n7_out")
+n7_owed=$(grep -c 'nothing owed' <<< "$n7_out")
+n7_has_commit=$( ( cd "$N7" && git log --oneline -- src/main.py 2>/dev/null | grep -c . ) | tr -d ' ')
+if [ "$n7_has_commit" -lt 1 ]; then
+  fail_ "N7 (meta)" "the back-dated source commit did not land, so nothing is being measured"
+elif [ "$n7_blocked" -ge 1 ] && [ "$n7_owed" -eq 0 ]; then
+  pass "N7: a source commit made at 00:00:01 on the window's OPENING DAY is inside the window — the window starts at midnight, not at the hour the gate happens to run, so the same tree does not change verdict over the course of a day"
+else
+  fail_ "N7" "morning commit on the opening day: blocked=$n7_blocked (want >=1), nothing-owed=$n7_owed (want 0)"
 fi
 
 # A14 — the corrupt-ledger downgrade must not be SILENT. A11 pins that it does
@@ -2126,8 +2263,8 @@ fi
 # future window reports "nothing owed" and the issue count drops. This is the
 # direction that matters; the guard exists for it.
 if _mk_mutant_repo "M20" "scripts/check-phase-gate.sh" "# BL-233-WPB-FUTURE-WINDOW" \
-      '  [ "$a" -le "$today" ]   # BL-233-WPB-FUTURE-WINDOW' \
-      '  return 0                # BL-233-WPB-FUTURE-WINDOW'; then
+      '  [ "$a" -le "$today" ] && return 0   # BL-233-WPB-FUTURE-WINDOW' \
+      '  return 0                            # BL-233-WPB-FUTURE-WINDOW'; then
   M20F="$(newtmp)"; mk_proj "$M20F" 3; want_qdrant "$M20F"; source_commit "$M20F"
   _set_gate "$M20F" phase_1_to_2 "2099-12-31"
   m20_mut=$( ( cd "$M20F" && HOME="$M20F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
@@ -2145,8 +2282,8 @@ fi
 # and that failure is silent in the opposite way: it blocks work that is fine.
 # `-le` -> `-lt` refuses a gate on the day its own date was recorded.
 if _mk_mutant_repo "M21" "scripts/check-phase-gate.sh" "# BL-233-WPB-FUTURE-WINDOW" \
-      '  [ "$a" -le "$today" ]   # BL-233-WPB-FUTURE-WINDOW' \
-      '  [ "$a" -lt "$today" ]   # BL-233-WPB-FUTURE-WINDOW'; then
+      '  [ "$a" -le "$today" ] && return 0   # BL-233-WPB-FUTURE-WINDOW' \
+      '  [ "$a" -lt "$today" ] && return 0   # BL-233-WPB-FUTURE-WINDOW'; then
   m21_try=0
   while :; do
     _m21_d1=$(date +%Y-%m-%d)
@@ -2159,14 +2296,86 @@ if _mk_mutant_repo "M21" "scripts/check-phase-gate.sh" "# BL-233-WPB-FUTURE-WIND
     m21_try=$((m21_try + 1))
     [ "$m21_try" -ge 2 ] && break
   done
-  m21_m=$(grep -c 'CANNOT BE VERIFIED — the window opens at' <<< "$m21_mut")
-  m21_c=$(grep -c 'CANNOT BE VERIFIED — the window opens at' <<< "$m21_ctrl")
+  m21_m=$(grep -c 'CANNOT BE VERIFIED — the window cannot be measured' <<< "$m21_mut")
+  m21_c=$(grep -c 'CANNOT BE VERIFIED — the window cannot be measured' <<< "$m21_ctrl")
   if [ "$_m21_d1" != "$_m21_d2" ]; then
     fail_ "M21 (meta)" "the date moved under the fixture on two consecutive attempts ($_m21_d1 -> $_m21_d2); this mutant cannot be measured across a midnight crossing"
   elif [ "$m21_m" -ge 1 ] && [ "$m21_c" -eq 0 ]; then
     pass "M21: tightening the comparison to -lt refuses a window opening TODAY ($m21_c -> $m21_m) — the boundary is load-bearing in both directions, and an over-strict gate fails as silently as an over-permissive one"
   else
     fail_ "M21" "mutant refused=$m21_m (want >=1), control refused=$m21_c (want 0)"
+  fi
+fi
+
+# M22 — neuter the ambiguity resolution and the SECOND off switch is back: an
+# unparseable gate date collapses into "no gate recorded", the window becomes
+# the whole history, and a 2020 store satisfies a 2026 phase.
+if _mk_mutant_repo "M22" "scripts/check-phase-gate.sh" "# BL-233-WPB-AMBIGUOUS-WINDOW" \
+      "    if [ -n \"\$raw\" ] && ! grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])\$' <<< \"\$raw\"; then   # BL-233-WPB-AMBIGUOUS-WINDOW" \
+      '    if false; then   # BL-233-WPB-AMBIGUOUS-WINDOW'; then
+  M22F="$(newtmp)"; mk_proj "$M22F" 3; want_qdrant "$M22F"; source_commit "$M22F"; stored "$M22F" "2020-01-01T10:00:00Z"
+  _set_gate "$M22F" phase_1_to_2 "not-a-date"
+  m22_mut=$( ( cd "$M22F" && HOME="$M22F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m22_ctrl=$( ( cd "$M22F" && HOME="$M22F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m22_m=$(grep -c 'accumulation: satisfied' <<< "$m22_mut")
+  m22_c=$(grep -c 'accumulation: satisfied' <<< "$m22_ctrl")
+  if [ "$m22_m" -ge 1 ] && [ "$m22_c" -eq 0 ]; then
+    pass "M22: collapsing 'recorded but unparseable' back into 'not recorded' lets a 2020 store satisfy a 2026 phase ($m22_c -> $m22_m) — N3 measures the resolution, not the [FAIL] text"
+  else
+    fail_ "M22" "mutant satisfied=$m22_m (want >=1), control satisfied=$m22_c (want 0)"
+  fi
+fi
+
+# M23 — remove the numeric guard and the concatenated duplicate-key value reaches
+# `[ -le ]` again: still fail-closed, but a raw shell diagnostic is printed into
+# a blocking verdict. N6 asserts the ABSENCE of that leak, which an unimplemented
+# guard also satisfies — this is what makes N6 a discriminator.
+if _mk_mutant_repo "M23" "scripts/check-phase-gate.sh" "# BL-233-WPB-WINDOW-NUMERIC" \
+      "  case \"\$a\" in ''|*[!0-9]*) _ACCUM_WINDOW_REASON=\"\$_nan\"; return 1 ;; esac   # BL-233-WPB-WINDOW-NUMERIC" \
+      '  :   # BL-233-WPB-WINDOW-NUMERIC'; then
+  M23F="$(newtmp)"; mk_proj "$M23F" 3; want_qdrant "$M23F"; source_commit "$M23F"
+  python3 - "$M23F/.claude/phase-state.json" <<'PYM23'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+s=s.replace('"phase_1_to_2":"2026-02-01"',
+            '"phase_1_to_2":"ZZZZZZZZZZ",\n "phase_1_to_2":"2026-02-01"')
+io.open(f,"w",encoding="utf-8").write(s)
+PYM23
+  m23_mut=$( ( cd "$M23F" && HOME="$M23F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m23_ctrl=$( ( cd "$M23F" && HOME="$M23F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m23_m=$(grep -c 'integer expression expected' <<< "$m23_mut")
+  m23_c=$(grep -c 'integer expression expected' <<< "$m23_ctrl")
+  if [ "$m23_m" -ge 1 ] && [ "$m23_c" -eq 0 ]; then
+    pass "M23: removing the numeric guard leaks a raw shell diagnostic into a blocking verdict ($m23_c -> $m23_m) — the guard is reachable, which is exactly what the comment justifying its omission denied"
+  else
+    fail_ "M23" "mutant shell-error=$m23_m (want >=1), control=$m23_c (want 0)"
+  fi
+fi
+
+# M24 — drop the explicit midnight and the window silently starts at the current
+# clock time, exactly as it did before N7 was written. This is the mutant for a
+# defect a TEST found by flaking, not a reviewer: N2 went green 32 times out of
+# 40 and the eight failures were the product, not the fixture.
+if _mk_mutant_repo "M24" "scripts/check-phase-gate.sh" "# BL-233-WPB-SINCE-MIDNIGHT" \
+      '    paths=$(git log --since="$since 00:00:00" --name-only --pretty=format: 2>/dev/null) || return 0   # BL-233-WPB-SINCE-MIDNIGHT' \
+      '    paths=$(git log --since="$since" --name-only --pretty=format: 2>/dev/null) || return 0   # BL-233-WPB-SINCE-MIDNIGHT'; then
+  M24F="$(newtmp)"; mk_proj "$M24F" 3; want_qdrant "$M24F"
+  _m24_day=$(date +%Y-%m-%d)
+  ( cd "$M24F" || exit 1
+    unset GITHUB_BASE_REF
+    mkdir -p src && echo "print(1)" > src/main.py
+    git add -A >/dev/null 2>&1
+    GIT_AUTHOR_DATE="${_m24_day}T00:00:01" GIT_COMMITTER_DATE="${_m24_day}T00:00:01" \
+      git commit -qm "feat: first thing this morning" >/dev/null 2>&1 )
+  _set_gate "$M24F" phase_1_to_2 "$_m24_day"
+  m24_mut=$( ( cd "$M24F" && HOME="$M24F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m24_ctrl=$( ( cd "$M24F" && HOME="$M24F/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m24_m=$(grep -c 'nothing owed' <<< "$m24_mut")
+  m24_c=$(grep -c 'nothing owed' <<< "$m24_ctrl")
+  if [ "$m24_m" -ge 1 ] && [ "$m24_c" -eq 0 ]; then
+    pass "M24: a bare --since makes git fill the time of day from the CURRENT clock, so a morning commit falls outside its own window ($m24_c -> $m24_m) — the explicit midnight is what makes the verdict independent of the hour"
+  else
+    fail_ "M24" "mutant nothing-owed=$m24_m (want >=1), control=$m24_c (want 0)"
   fi
 fi
 
