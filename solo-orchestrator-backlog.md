@@ -10414,8 +10414,20 @@ derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
 than transcribed, because this entry has now carried a wrong count in three
 consecutive revisions. Measured against the CURRENT merge-base `2344b13` with
 this suite dropped into a `git archive` of that tree: **2 passed / 79 failed**.
-The tally exceeds 78 because the meta arms fire an EXTRA `fail_` alongside the
-assertion they guard, which is what they are for. The two passes are NAMED
+The tally exceeds 78 for one derived reason, and the first explanation offered
+for it was INVENTED — in the paragraph whose whole subject is not transcribing
+numbers, which is why the derivation is printed here:
+```
+grep -E '^  \[FAIL\]' <run> | sed 's/^  \[FAIL\] //; s/ — .*//; s/\[.*//' \
+  | sort | uniq -c | awk '$1>1'     #  ->  4 D6
+```
+`D6` reports PER HEAD SHAPE — three loop iterations plus one final line against
+a single `pass` site — so it contributes 4 lines for 1 label and every other
+label contributes exactly 1. 2 passes + 76 distinct failing labels = 78, + D6's
+3 extra lines = 79. The **meta arms do not contribute**, which is what the first
+explanation claimed: `_mk_mutant_repo` returns 1 on a meta failure, so the
+assertion it guards is SKIPPED, and all 20 meta lines in that run stand IN PLACE
+OF an assertion rather than beside one. The two passes are NAMED
 rather than rounded to zero — H2 and H4 assert absences (the commit arm never
 denies; a store inside the window produces no warning) which a tree with no
 accumulation gate also satisfies. They are regression guards, not
@@ -10593,8 +10605,19 @@ awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
    "gate dated …, but APPROVAL_LOG.md has no dated entry" arm then renders it
    through `echo -e` and a forged `[OK]` line appears. Measured, out of this
    entry's scope, left deliberately — this entry's own arms clean the value at
-   ingest (`# BL-233-WPB-PREV-ONELINE`), so D13 is scoped to the accumulation
-   output rather than to the whole transcript.
+   ingest (`# BL-233-WPB-PREV-ONELINE`), so nothing this PR adds can widen it.
+   **Two details here were wrong until now and are corrected rather than
+   dropped.** (a) The arm that renders it is NOT BL-071's "gate dated …, but
+   APPROVAL_LOG.md has no dated entry" branch — it is the OPPOSITE branch of the
+   same `if`, `_cpg_record_gate_date`'s `gate date already recorded (…) —
+   preserving first-pass timestamp (idempotent)` message, which is why removing
+   `APPROVAL_LOG.md` does not merely change the count but aborts the gate before
+   any gate-date arm runs (that is residual 15's causal point, measured). (b)
+   D13 is **not** "scoped to the accumulation output" — that describes D13's
+   FIRST vacuous form, the one residual 15 calls scoping by a substring a forgery
+   can never contain. The restored D13 counts forged lines across the WHOLE
+   transcript and subtracts a control fixture, which is precisely what lets it
+   bound a new raw display site anywhere in the file.
 12. **THE RULE, because the sweep was wrong twice in a row.** Round 5 swept for
    the KEYWORDS `reason|recorded|attest` and missed `$last`. Round 6 swept for
    the SYNTAX `echo -e` — in the same round that moved four sites onto `printf`,
