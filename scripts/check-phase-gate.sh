@@ -654,16 +654,43 @@ _cpg_accum_last_store() {
 # Same-day counts. gates.* carry a DATE with no time, so a store on the gate's
 # own date cannot be ordered against it — rejecting it would be a coin flip
 # dressed up as a rule.
+_ACCUM_STORE_FUTURE=0
 _cpg_accum_after() {
-  local ts="$1" gate="$2" a b
+  local ts="$1" gate="$2" a b today_utc
   if [ -z "$ts" ]; then return 1; fi
-  if [ -z "$gate" ]; then return 0; fi
   a="${ts:0:10}";   a="${a//-/}"
-  b="${gate:0:10}"; b="${b//-/}"
-  # Only $a is guarded: $b is get_gate_date output, which that function already
-  # regex-validates to YYYY-MM-DD or "" — and "" returned above. A guard here
-  # could not fire, and an arm that cannot fire is the `## BL-104:` shape.
+
+  # THE OTHER OPERAND OF THE SAME COMPARISON. Rounds 10-11 validated the window
+  # START four ways and left the STORE TIMESTAMP unguarded — on the identical
+  # hazard those guards cite. `_cpg_accum_window_measurable` justifies itself by
+  # clock skew, and residual 19 says in as many words that a machine which is
+  # ahead writes the gate date AND the store timestamp in the future. Only one
+  # of the two was checked.
+  #
+  # It is the WORSE half to leave open. A future window start fails LOUDLY (the
+  # gate refuses and names it); a future store timestamp satisfies the gate
+  # SILENTLY and PERMANENTLY — measured, `9999-12-31` and `2099-01-01` both take
+  # a blocking fixture from 11 issues to 10 — and `.claude/process-state.json`
+  # is tracked (residual 17), so the bad value is committed and reaches every
+  # clone.
+  #
+  # THE COMPARISON IS UTC-TO-UTC and that is what makes it exact rather than
+  # slack-tolerant: the tracker writes this field with `date -u`
+  # (`TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)`), so a correct clock can never
+  # produce a value after `date -u` now, and no timezone allowance is needed.
+  # Comparing against a LOCAL today would have needed a day of slack and would
+  # have been a second thing to get wrong. A `date` that will not answer reads
+  # as NOT satisfied — the fail-closed direction, consistent with the window.
   case "$a" in ''|*[!0-9]*) return 1 ;; esac
+  today_utc=$(date -u +%Y%m%d 2>/dev/null) || today_utc=""
+  case "$today_utc" in ''|*[!0-9]*) return 1 ;; esac
+  if [ "$a" -gt "$today_utc" ]; then _ACCUM_STORE_FUTURE=1; return 1; fi   # BL-233-WPB-STORE-FUTURE
+
+  if [ -z "$gate" ]; then return 0; fi
+  b="${gate:0:10}"; b="${b//-/}"
+  # $b needs no guard: it is get_gate_date output, regex-validated to YYYY-MM-DD
+  # or "" by that function, and "" returned above. $a is guarded ABOVE, before
+  # the future check that needs it numeric.
   [ "$a" -ge "$b" ]
 }
 
@@ -1023,7 +1050,7 @@ _cpg_check_accumulation() {
   # duplicate keys, so the file is not even malformed. That predates this work,
   # but three display sites here interpolate $prev, so it is cleaned on the way in.
   prev=$(accum_oneline "$2")   # BL-233-WPB-PREV-ONELINE
-  local last reason recorded recorded_head _accum_bad
+  local last reason recorded recorded_head _accum_bad _accum_window_bad
   local _accum_state
 
   # FAIL CLOSED on a missing jq, rather than reporting a project fact that was
@@ -1126,17 +1153,26 @@ _cpg_check_accumulation() {
     phase_2_to_3) _accum_prev_key="phase_1_to_2" ;;
     phase_3_to_4) _accum_prev_key="phase_2_to_3" ;;
   esac
+  # IT SETS A FLAG, IT DOES NOT RETURN. An earlier version returned 1 right here,
+  # which put the block AHEAD of the attested escape and therefore made the
+  # escape unreachable for it. That is `## BL-149:`'s rule violated by the very
+  # entry that cites it: a gate an honest operator cannot satisfy is a gate they
+  # delete. A wrong clock or a half-written state file is not misconduct, and
+  # the operator staring at "your gate date is unreadable" must be able to say
+  # so and move on — the attestation is still RECORDED, so nothing is silenced.
+  #
+  # What the flag buys is the part that mattered: the two PERMISSIVE shortcuts
+  # below (a store "inside" the window, and "nothing owed") are skipped, because
+  # those are the questions an unmeasurable window answers with a confident
+  # falsehood. Fail-closed on the automatic paths, open to a human on the
+  # attested one.
+  _accum_window_bad=0
   if ! _cpg_accum_window_measurable "$prev" "$_accum_prev_key" "$4"; then
-    printf '%b[FAIL]%b %s accumulation: CANNOT BE VERIFIED — the window cannot be measured: ' "${RED}" "${NC}" "$label"
-    printf '%s' "$(accum_oneline "${_ACCUM_WINDOW_REASON}")"
-    printf '.\n'
-    echo "        Nothing is being claimed about this project: a window that cannot be measured is not an empty one."
-    echo "        Fix gates.${_accum_prev_key:-$gate_key} in .claude/phase-state.json, or check the clock on the machine that recorded it."
-    return 1
+    _accum_window_bad=1   # BL-233-WPB-WINDOW-ATTESTABLE
   fi
 
   last=$(_cpg_accum_last_store)
-  if _cpg_accum_after "$last" "$prev"; then
+  if [ "$_accum_window_bad" -eq 0 ] && _cpg_accum_after "$last" "$prev"; then
     # printf for $last: it is a PERSISTED value (jq out of process-state.json),
     # so `echo -e` renders \n in it as real newlines and a stored timestamp can
     # forge "[OK] …" verdict lines on every run. Found on the SIXTH recurrence of
@@ -1156,7 +1192,7 @@ _cpg_check_accumulation() {
     return 0
   fi
 
-  if ! _cpg_accum_source_work "$prev"; then
+  if [ "$_accum_window_bad" -eq 0 ] && ! _cpg_accum_source_work "$prev"; then
     printf '%b  [OK]%b %s accumulation: nothing owed — every change since ' "${GREEN}" "${NC}" "$label"
     printf '%s' "${prev:-project start}"
     printf ' was documentation, config or a dependency manifest.\n'
@@ -1215,6 +1251,17 @@ _cpg_check_accumulation() {
     return 1   # BL-233-WPB-ATTEST-REFUSE
   fi
 
+  if [ "$_accum_window_bad" -eq 1 ]; then
+    printf '%b[FAIL]%b %s accumulation: CANNOT BE VERIFIED — the window cannot be measured: ' "${RED}" "${NC}" "$label"
+    printf '%s' "$(accum_oneline "${_ACCUM_WINDOW_REASON}")"
+    printf '.\n'
+    echo "        Nothing is being claimed about this project: a window that cannot be measured is not an empty one."
+    echo "        Fix gates.${_accum_prev_key:-$gate_key} in .claude/phase-state.json, or check the clock on the machine that recorded it."
+    echo "        If the date is wrong and the work IS stored, say so — it is recorded, not silenced:"
+    echo "          SOLO_MCP_ACCUM_ATTESTED=1 SOLO_MCP_ACCUM_ATTESTED_REASON=\"<why the window is unreadable>\" bash scripts/check-phase-gate.sh"
+    return 1
+  fi
+
   if _cpg_accum_record_unreadable; then
     # Say which cause. Without this the operator is told to store or attest when
     # the real problem is a corrupt record — and any attestation already on
@@ -1225,6 +1272,13 @@ _cpg_check_accumulation() {
   printf '%b[FAIL]%b %s accumulation: BLOCKED — source commits since ' "${RED}" "${NC}" "$label"
   printf '%s' "${prev:-project start}"
   printf ', and NO successful qdrant-store in that window.\n'
+  if [ "${_ACCUM_STORE_FUTURE:-0}" = "1" ]; then
+    # Name the real cause. Without this the operator is told to store again when
+    # the record already HAS a store — one whose timestamp is in the future, and
+    # re-storing will not help while the clock that wrote it is wrong.
+    echo "        NOTE: .claude/process-state.json records a store dated in the FUTURE (UTC), so it cannot be counted."
+    echo "        The clock on the machine that wrote it is ahead. Fix the clock and store again, or attest."
+  fi
   echo "        A retrieval requirement with no accumulation requirement is a ratchet with nothing behind it (## BL-233:)."
   echo "        Store what this phase decided (qdrant-store), then re-run — or attest:"
   echo "          SOLO_MCP_ACCUM_ATTESTED=1 SOLO_MCP_ACCUM_ATTESTED_REASON=\"<why nothing was worth storing>\" bash scripts/check-phase-gate.sh"

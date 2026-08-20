@@ -1295,6 +1295,82 @@ else
   fail_ "N7" "morning commit on the opening day: blocked=$n7_blocked (want >=1), nothing-owed=$n7_owed (want 0)"
 fi
 
+# N10 — THE ESCAPE MUST REACH THE UNMEASURABLE WINDOW, and the two halves of
+# that are asserted separately because they pull in opposite directions.
+#
+# The first cut returned 1 the moment the window could not be measured, which
+# put the block AHEAD of the attested escape and made the escape unreachable for
+# it — `## BL-149:`'s rule broken by the entry that cites it, since a wrong
+# clock or a half-written state file is not misconduct and the operator had no
+# way to say so. Reviewers rated the bypasses these guards close as improbable;
+# an honest operator hitting a dead end is not.
+#
+# (a) FAIL-CLOSED half: an unmeasurable window with a store that would look
+#     "inside" it must still block, NOT report satisfied. The permissive
+#     shortcuts stay skipped.
+N10A="$(newtmp)"; mk_proj "$N10A" 3; want_qdrant "$N10A"; source_commit "$N10A"
+stored "$N10A" "2099-12-31T10:00:00Z"
+_set_gate "$N10A" phase_1_to_2 "2099-12-31"
+_run "$N10A" --gate phase_2_to_3; n10a_issues=$GISSUES
+n10a_refused=$(grep -c 'CANNOT BE VERIFIED' <<< "$GOUT")
+n10a_sat=$(grep -c 'accumulation: satisfied' <<< "$GOUT")
+
+# (b) OPEN-TO-A-HUMAN half: the same fixture, attested, must pass AND be
+#     recorded. An escape that leaves no trace is the posture this entry
+#     replaces, so the durable record is asserted, not just the exit.
+N10B="$(newtmp)"; mk_proj "$N10B" 3; want_qdrant "$N10B"; source_commit "$N10B"
+stored "$N10B" "2099-12-31T10:00:00Z"
+_set_gate "$N10B" phase_1_to_2 "2099-12-31"
+n10b_out=$( ( cd "$N10B" && HOME="$N10B/home" SOLO_MCP_ACCUM_ATTESTED=1 \
+  SOLO_MCP_ACCUM_ATTESTED_REASON="the release box clock is ahead" \
+  bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+n10b_issues=$(_num "$(printf '%s\n' "$n10b_out" | sed -n 's/^\([0-9][0-9]*\) inconsistency(ies) found.*/\1/p' | tail -1)")
+n10b_attested=$(grep -c 'accumulation: ATTESTED' <<< "$n10b_out")
+n10b_recorded=$(jq -r '.mcp_accumulation.attestations.phase_2_to_3.reason // ""' "$N10B/.claude/process-state.json" 2>/dev/null)
+
+if [ "$n10a_refused" -lt 1 ] || [ "$n10a_sat" -ne 0 ]; then
+  fail_ "N10 (fail-closed)" "an unmeasurable window with a store 'inside' it did not block: refused=$n10a_refused satisfied=$n10a_sat"
+elif [ "$n10b_attested" -ge 1 ] && [ "$n10b_issues" -lt "$n10a_issues" ] && [ "$n10b_recorded" = "the release box clock is ahead" ]; then
+  pass "N10: an unmeasurable window still refuses the AUTOMATIC paths (a store that looks 'inside' it does not satisfy) and is clearable by an ATTESTATION that is durably recorded ($n10a_issues -> $n10b_issues) — fail-closed to a script, open to a human who says why"
+else
+  fail_ "N10" "attested run: attested=$n10b_attested issues=$n10b_issues (unattested $n10a_issues); recorded reason='$n10b_recorded'"
+fi
+
+# N11 — THE OTHER OPERAND OF THE SAME COMPARISON. Two rounds validated the
+# window START four ways and left the STORE TIMESTAMP unguarded, on the identical
+# hazard those guards cite: clock skew. It is the worse half to leave open — a
+# future window start fails LOUDLY, a future store timestamp satisfies the gate
+# SILENTLY and FOREVER, and process-state.json is tracked, so the bad value is
+# committed and reaches every clone.
+_n11_fix() {   # _n11_fix DIR TIMESTAMP — an in-window source commit, one store
+  local d="$1" ts="$2"
+  mk_proj "$d" 3; want_qdrant "$d"
+  ( cd "$d" || exit 1
+    unset GITHUB_BASE_REF
+    mkdir -p src && echo "print(1)" > src/main.py
+    git add -A >/dev/null 2>&1
+    GIT_AUTHOR_DATE="2026-05-01T10:00:00" GIT_COMMITTER_DATE="2026-05-01T10:00:00" \
+      git commit -qm "feat: inside the window" >/dev/null 2>&1 )
+  stored "$d" "$ts"
+}
+# CONTROL: a store INSIDE the window satisfies. Without this the refusal below
+# would be satisfied by a gate that never counts any store at all.
+N11C="$(newtmp)"; _n11_fix "$N11C" "2026-05-10T10:00:00Z"
+_run "$N11C" --gate phase_2_to_3; n11_ctrl=$GISSUES
+n11_ctrl_sat=$(grep -c 'accumulation: satisfied' <<< "$GOUT")
+
+N11="$(newtmp)"; _n11_fix "$N11" "2099-01-01T10:00:00Z"
+_run "$N11" --gate phase_2_to_3; n11_issues=$GISSUES; n11_out=$GOUT
+n11_sat=$(grep -c 'accumulation: satisfied' <<< "$n11_out")
+n11_named=$(grep -c 'records a store dated in the FUTURE' <<< "$n11_out")
+if [ "$n11_ctrl_sat" -lt 1 ]; then
+  fail_ "N11 (meta)" "the in-window CONTROL did not satisfy (issues=$n11_ctrl); the fixture never reaches the arm, so refusing a future store proves nothing"
+elif [ "$n11_sat" -eq 0 ] && [ "$n11_issues" -gt "$n11_ctrl" ] && [ "$n11_named" -ge 1 ]; then
+  pass "N11: a store timestamp dated in the FUTURE does not satisfy the gate ($n11_ctrl -> $n11_issues) and the transcript NAMES the clock as the cause — re-storing will not help while the machine that wrote it is ahead"
+else
+  fail_ "N11" "future store: satisfied=$n11_sat (want 0); issues=$n11_issues (control $n11_ctrl); cause-named=$n11_named"
+fi
+
 # A14 — the corrupt-ledger downgrade must not be SILENT. A11 pins that it does
 # not block; nothing pinned that the operator is told, and for a project whose
 # ONLY declaration is the ledger that downgrade turns enforcement off.
@@ -1307,6 +1383,12 @@ else
   fail_ "A14" "no skip notice: $(echo "$GOUT" | grep -i accumulation | head -c 180)"
 fi
 
+# NOTE ON THE DATE BELOW: it must be in the PAST. This fixture reaches the
+# SATISFIED arm, and `# BL-233-WPB-STORE-FUTURE` now refuses a store timestamp
+# dated after today (UTC) — so the original `2026-09-01` stopped reaching the
+# arm the moment that guard landed, and D14's own floor caught it. A test whose
+# fixture leans on a hole goes red when the hole closes, which is the point of
+# having the floor.
 # D14 — the WIDTH of the stripped class is load-bearing, and only a literal
 # find-string in M16 defended it. Narrowing the class to newline alone passes the
 # whole suite while leaving CR and ESC alive — and an ESC-bracket-2-K erase plus
@@ -1316,7 +1398,7 @@ fi
 # PR-blocking checks every time."
 D14="$(newtmp)"; mk_proj "$D14" 3; want_qdrant "$D14"; source_commit "$D14"
 jq -n '{mcp_accumulation:{store_success_count:1,
-        last_store_at:"2026-09-01\u001b[2K\r  [OK] Phase 3 review gate: FORGED-BY-ESC",
+        last_store_at:"2026-04-01\u001b[2K\r  [OK] Phase 3 review gate: FORGED-BY-ESC",
         attestations:{}}}' > "$D14/.claude/process-state.json"
 d14_raw=$( ( cd "$D14" && HOME="$D14/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) )
 d14_ctl=$(printf '%s' "$d14_raw" | LC_ALL=C tr -dc '\001-\010\013\014\016-\037' | wc -c | tr -d ' ')
@@ -1571,12 +1653,24 @@ mkdir -p "$H4/src" "$H4/tests"
 echo "print(1)" > "$H4/src/main.py"
 echo "def test_main(): pass" > "$H4/tests/test_main.py"
 ( cd "$H4" && git add -A >/dev/null 2>&1 )
-h4_out=$( ( cd "$H4" && printf '%s' "$h1_payload" | HOME="$H4/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
-if ! echo "$h4_out" | grep -q 'Nothing has been stored to Qdrant' \
-   && ! echo "$h4_out" | grep -q '"permissionDecision": *"deny"'; then
-  pass "H4: a store INSIDE the window silences the commit-time warning — the date compare is exercised in both directions, not just the firing one"
+h4_out=$( ( cd "$H4" && printf '%s' "$h1_payload" | HOME="$H4/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ); echo "H4RC=$?" )
+h4_rc=$(printf '%s\n' "$h4_out" | sed -n 's/^H4RC=//p' | tail -1)
+h4_out=$(printf '%s\n' "$h4_out" | grep -v '^H4RC=' | _strip_ansi)
+h4_warned=$(grep -c 'Nothing has been stored to Qdrant' <<< "$h4_out")
+h4_denied=$(grep -c '"permissionDecision": *"deny"' <<< "$h4_out")
+# THE EXIT CODE IS THE FLOOR, and its absence had a measured consequence. This
+# was a pure DOUBLE ABSENCE — no warning, no deny — which a hook that DIED and
+# printed nothing satisfies exactly as well as one that correctly stayed quiet.
+# `scripts/pre-commit-gate.sh` is `set -euo pipefail`, and an unguarded `jq` in
+# the accumulation block aborted it on any project with an unparseable
+# phase-state.json, discarding every warning the hook had collected. The suite
+# stayed 94/0 with that bug present AND with it fixed: nothing discriminated.
+if [ "$h4_rc" != "0" ]; then
+  fail_ "H4 (meta)" "the commit gate exited $h4_rc — a hook that died also produces 'no warning', so silence proves nothing"
+elif [ "$h4_warned" -eq 0 ] && [ "$h4_denied" -eq 0 ]; then
+  pass "H4: a store INSIDE the window silences the commit-time warning while the hook still exits 0 — the date compare is exercised in both directions, and silence is distinguished from death"
 else
-  fail_ "H4" "warned despite a store inside the window: $(echo "$h4_out" | head -c 200)"
+  fail_ "H4" "warned=$h4_warned denied=$h4_denied despite a store inside the window: $(echo "$h4_out" | head -c 200)"
 fi
 
 # ══ I. The clone round trip — the test that was missing ═══════════════════
@@ -2527,6 +2621,114 @@ elif [ "$h7_warned" -ge 1 ]; then
   pass "H7: a gate date that is RECORDED but will not parse warns at commit time too — the half that warns is no longer silent on a path the half that blocks now refuses"
 else
   fail_ "H7" "unparseable window: commit-gate warned=$h7_warned (want >=1), control warned=$h7_ctrl_warned"
+fi
+
+# M26 — put the block back AHEAD of the escape and N10's second half dies. This
+# is the mutant for a usability property rather than a security one, and it is
+# here because the reverse edit is the natural one: returning early reads as
+# tighter, and it is how this arm was first written.
+if _mk_mutant_repo "M26" "scripts/check-phase-gate.sh" "# BL-233-WPB-WINDOW-ATTESTABLE" \
+      '    _accum_window_bad=1   # BL-233-WPB-WINDOW-ATTESTABLE' \
+      '    return 1              # BL-233-WPB-WINDOW-ATTESTABLE'; then
+  M26F="$(newtmp)"; mk_proj "$M26F" 3; want_qdrant "$M26F"; source_commit "$M26F"
+  _set_gate "$M26F" phase_1_to_2 "2099-12-31"
+  M26G="$(newtmp)"; mk_proj "$M26G" 3; want_qdrant "$M26G"; source_commit "$M26G"
+  _set_gate "$M26G" phase_1_to_2 "2099-12-31"
+  _m26_run() {   # _m26_run SCRIPT FIXTURE
+    ( cd "$2" && HOME="$2/home" SOLO_MCP_ACCUM_ATTESTED=1 \
+      SOLO_MCP_ACCUM_ATTESTED_REASON="the release box clock is ahead" \
+      bash "$1" --gate phase_2_to_3 2>&1 ) | _strip_ansi | grep -c 'accumulation: ATTESTED'
+  }
+  m26_mut=$(_m26_run "$MUT_ROOT/scripts/check-phase-gate.sh" "$M26F")
+  m26_ctrl=$(_m26_run "$CPG" "$M26G")
+  if [ "$m26_ctrl" -ge 1 ] && [ "$m26_mut" -eq 0 ]; then
+    pass "M26: returning early instead of flagging puts the block ahead of the escape and an honest operator has no way past it ($m26_ctrl -> $m26_mut) — N10's second half measures the escape, not the exit code"
+  else
+    fail_ "M26" "control attested=$m26_ctrl (want >=1), mutant attested=$m26_mut (want 0)"
+  fi
+fi
+
+# M27 — neuter the store-timestamp future check and the silent, permanent
+# satisfaction returns. N11 asserts an ABSENCE (no "satisfied" line), which an
+# unimplemented guard also satisfies; this is what makes N11 discriminate.
+if _mk_mutant_repo "M27" "scripts/check-phase-gate.sh" "# BL-233-WPB-STORE-FUTURE" \
+      '  if [ "$a" -gt "$today_utc" ]; then _ACCUM_STORE_FUTURE=1; return 1; fi   # BL-233-WPB-STORE-FUTURE' \
+      '  :   # BL-233-WPB-STORE-FUTURE'; then
+  M27F="$(newtmp)"; _n11_fix "$M27F" "2099-01-01T10:00:00Z"
+  M27G="$(newtmp)"; _n11_fix "$M27G" "2099-01-01T10:00:00Z"
+  m27_mut=$( ( cd "$M27F" && HOME="$M27F/home" bash "$MUT_ROOT/scripts/check-phase-gate.sh" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m27_ctrl=$( ( cd "$M27G" && HOME="$M27G/home" bash "$CPG" --gate phase_2_to_3 2>&1 ) | _strip_ansi )
+  m27_m=$(grep -c 'accumulation: satisfied' <<< "$m27_mut")
+  m27_c=$(grep -c 'accumulation: satisfied' <<< "$m27_ctrl")
+  if [ "$m27_m" -ge 1 ] && [ "$m27_c" -eq 0 ]; then
+    pass "M27: removing the refusal lets a store dated 2099 satisfy the gate again ($m27_c -> $m27_m) — and it would do so on every later run, from a value that is committed to the repo"
+  else
+    fail_ "M27" "mutant satisfied=$m27_m (want >=1), control satisfied=$m27_c (want 0)"
+  fi
+fi
+
+# H8 — AN UNPARSEABLE phase-state.json MUST NOT KILL THE HOOK. This file is
+# `set -euo pipefail`, and the accumulation block's `jq` read of .current_phase
+# had no `|| printf '0'` while both siblings below it did. On the PreToolUse
+# path that abort discards the ENTIRE $WARNINGS accumulator — Context7,
+# qdrant-find, TDD — silently, for a reason unrelated to any of them. The block
+# has no `[ -f "$TOOL_USAGE" ]` precondition, so this PR made the abort
+# reachable for any project whose state file will not parse.
+#
+# The assertion is the SURVIVAL OF AN UNRELATED WARNING, not the exit code
+# alone: a hook can exit 0 having produced nothing at all.
+H8="$(newtmp)"; mk_proj "$H8" 2; add_origin "$H8"; want_qdrant "$H8"; ledger "$H8" true
+cat > "$H8/.claude/process-state.json" <<'J'
+{"build_loop":{"feature":null,"step":0,"steps_completed":[],"started_at":null},
+ "phase2_init":{"steps_completed":[],"verified":true}}
+J
+mkdir -p "$H8/src" "$H8/tests"
+echo "print(1)" > "$H8/src/main.py"
+echo "def test_main(): pass" > "$H8/tests/test_main.py"
+( cd "$H8" && git add -A >/dev/null 2>&1 )
+# CONTROL first, on a HEALTHY state file: the unrelated warning must be
+# producible on this fixture at all.
+h8_ctrl=$( ( cd "$H8" && printf '%s' "$h1_payload" | HOME="$H8/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ) | _strip_ansi )
+h8_ctrl_other=$(grep -c 'No prior context retrieved from Qdrant this session' <<< "$h8_ctrl")
+# Now corrupt it — one stray comma, the shape a half-written file leaves.
+python3 - "$H8/.claude/phase-state.json" <<'PYH8'
+import io,sys
+f=sys.argv[1]; s=io.open(f,encoding="utf-8").read()
+io.open(f,"w",encoding="utf-8").write(s.replace('"track":"light"', '"track":"light",,,'))
+PYH8
+h8_raw=$( ( cd "$H8" && printf '%s' "$h1_payload" | HOME="$H8/home" SKIP_LINT=1 bash "$COMMIT_GATE" 2>&1 ); echo "H8RC=$?" )
+h8_rc=$(printf '%s\n' "$h8_raw" | sed -n 's/^H8RC=//p' | tail -1)
+h8_out=$(printf '%s\n' "$h8_raw" | grep -v '^H8RC=' | _strip_ansi)
+h8_other=$(grep -c 'No prior context retrieved from Qdrant this session' <<< "$h8_out")
+# WHAT IS AND IS NOT CLAIMED. The unrelated warnings this fixture produces are
+# gated on `current_phase == 2`, and with the state file unreadable the phase is
+# unknown — so they correctly do NOT fire, and asserting their survival would be
+# asserting a bug. The claim is narrower and is the one that matters: the hook
+# RUNS TO COMPLETION instead of being killed by errexit partway through. The
+# control proves the fixture is otherwise live, and M28 supplies the other
+# direction by measuring rc=5 without the guard.
+if [ "$h8_ctrl_other" -lt 1 ]; then
+  fail_ "H8 (meta)" "the healthy-state CONTROL produced no warning at all, so this fixture is not exercising the hook and 'it survived' proves nothing"
+elif [ "$h8_rc" = "0" ]; then
+  pass "H8: an unparseable phase-state.json leaves the commit hook ALIVE (rc=$h8_rc) instead of killing it under errexit partway through — the phase-gated warnings correctly stay quiet because the phase is unknown, but nothing else in the file is silently disabled (M28 measures the rc=5 the unguarded form produces)"
+else
+  fail_ "H8" "corrupt state file killed the hook: rc=$h8_rc (want 0); control warning=$h8_ctrl_other"
+fi
+
+# M28 — remove the guard and the hook dies on a corrupt state file, taking every
+# warning with it. H8 asserts survival, which an unguarded tree also shows if the
+# abort happens to be unreachable; this proves it is reachable.
+if _mk_mutant_repo "M28" "scripts/pre-commit-gate.sh" "# BL-233-WPB-ACCPHASE-GUARD" \
+      "  ACC_PHASE=\$(jq -r '.current_phase // 0' \"\$PHASE_STATE\" 2>/dev/null || printf '0')   # BL-233-WPB-ACCPHASE-GUARD" \
+      "  ACC_PHASE=\$(jq -r '.current_phase // 0' \"\$PHASE_STATE\" 2>/dev/null)   # BL-233-WPB-ACCPHASE-GUARD"; then
+  m28_raw=$( ( cd "$H8" && printf '%s' "$h1_payload" | HOME="$H8/home" SKIP_LINT=1 bash "$MUT_ROOT/scripts/pre-commit-gate.sh" 2>&1 ); echo "M28RC=$?" )
+  m28_rc=$(printf '%s\n' "$m28_raw" | sed -n 's/^M28RC=//p' | tail -1)
+  m28_other=$(printf '%s\n' "$m28_raw" | grep -c 'No prior context retrieved from Qdrant this session')
+  if [ "$m28_rc" != "0" ]; then
+    pass "M28: without the guard a corrupt phase-state.json aborts the hook (rc=$m28_rc) and every warning it had collected is discarded — H8 measures survival, not the absence of one message"
+  else
+    fail_ "M28" "mutant rc=$m28_rc (want non-zero); the abort is not reachable, so H8 proves nothing"
+  fi
 fi
 
 echo ""

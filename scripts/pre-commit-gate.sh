@@ -1442,7 +1442,13 @@ PHASE_STATE=".claude/phase-state.json"
 WARNINGS=""
 
 if [ "$IS_COMMIT" = true ] && [ -f "$TOOL_USAGE" ] && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null; then
-  CURRENT_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null)
+  # Same guard, same reason, and it is fixed HERE TOO because otherwise the one
+  # below is inert: under `set -euo pipefail` this line aborts the hook FIRST, so
+  # guarding only the accumulation block would have looked correct and changed
+  # nothing observable — measured, rc=5 either way until both were guarded.
+  # Pre-existing, predating `## BL-233:`; half a fix to a silent-non-enforcement
+  # class is worse than none, and this entry is why anyone looked.
+  CURRENT_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null || printf '0')   # BL-233-WPB-CURPHASE-GUARD
 
   if [ "$CURRENT_PHASE" = "2" ]; then
     # Check if this is a source commit (reuse staged file check)
@@ -1484,7 +1490,17 @@ fi
 # window opens at the gate that put you IN phase N. Same rule, different tense.
 if [ "$IS_COMMIT" = true ] && [ "$SOIF_ACCUM_LIB_LOADED" = "1" ] \
    && [ -f "$PHASE_STATE" ] && command -v jq &>/dev/null; then
-  ACC_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null)
+  # `|| printf '0'` IS NOT DECORATION. This file is `set -euo pipefail`, so an
+  # unguarded command substitution that fails takes the whole hook with it — and
+  # on the PreToolUse path that discards the ENTIRE $WARNINGS accumulator
+  # (Context7, qdrant-find, TDD), silently, for a reason unrelated to any of
+  # them. Both siblings below already carry the guard; this one did not, and the
+  # block it sits in has no `[ -f "$TOOL_USAGE" ]` precondition, so the abort
+  # became reachable for any project with an unparseable phase-state.json.
+  # That is this file's own header rule — "silently disabling every gate in the
+  # file is the exact non-enforcement class `## BL-233:` exists to remove" —
+  # applied at the source line and not 1,460 lines later.
+  ACC_PHASE=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null || printf '0')   # BL-233-WPB-ACCPHASE-GUARD
   ACC_PREV_KEY=""
   case "$ACC_PHASE" in
     1) ACC_PREV_KEY="phase_0_to_1" ;;
