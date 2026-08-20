@@ -10409,11 +10409,11 @@ the WP-B residuals recorded with it.
 **WP-B, 2026-08-17 — what shipped, and the four decisions behind it.** Landed in
 `347f619`, corrected by the follow-up commit on the same branch after an
 adversarial review found the derivation defect recorded below.
-`tests/test-bl233-wpb-accumulation.sh` — **90 assertions, 24 mutants**, both
+`tests/test-bl233-wpb-accumulation.sh` — **94 assertions, 25 mutants**, both
 derived (`grep -cE '^\s*pass "'` and `grep -cE '_mk_mutant_repo "M'`) rather
 than transcribed, because this entry has now carried a wrong count in three
 consecutive revisions. Measured against the CURRENT merge-base `2344b13` with
-this suite dropped into a `git archive` of that tree: **2 passed / 91 failed**.
+this suite dropped into a `git archive` of that tree: **2 passed / 95 failed**.
 The tally exceeds 78 for one derived reason, and the first explanation offered
 for it was INVENTED — in the paragraph whose whole subject is not transcribing
 numbers, which is why the derivation is printed here:
@@ -10423,8 +10423,8 @@ grep -E '^  \[FAIL\]' <run> | sed 's/^  \[FAIL\] //; s/ — .*//; s/\[.*//' \
 ```
 `D6` reports PER HEAD SHAPE — three loop iterations plus one final line against
 a single `pass` site — so it contributes 4 lines for 1 label and every other
-label contributes exactly 1. 2 passes + 88 distinct failing labels = 90, + D6's
-3 extra lines = 91. The **meta arms do not contribute**, which is what the first
+label contributes exactly 1. 2 passes + 92 distinct failing labels = 94, + D6's
+3 extra lines = 95. The **meta arms do not contribute**, which is what the first
 explanation claimed: `_mk_mutant_repo` returns 1 on a meta failure, so the
 assertion it guards is SKIPPED, and all 20 meta lines in that run stand IN PLACE
 OF an assertion rather than beside one. The two passes are NAMED
@@ -10598,9 +10598,13 @@ PER-LINE `grep -qE`, so a duplicate key yields a multi-line value that passes if
 ANY line is a date, and `accum_oneline` concatenates them. `ZZZZZZZZZZ2026-02-01`
 reached `[ -le ]`, which blocks — right direction — while printing a raw
 `integer expression expected` from the shell INTO a blocking verdict. Guard
-restored (`# BL-233-WPB-WINDOW-NUMERIC`), pinned by **N6**, killed by **M23**.
+restored — and then WIDENED, because the first form validated only the first ten
+characters and therefore caught the garbage-first operand order while waving
+through date-first, whose concatenation git reads as a future instant. It now
+validates the WHOLE window string and its LINE COUNT
+(`# BL-233-WPB-WINDOW-SHAPE`), pinned by **N6** and **N8**, killed by **M23**.
 And the FAIL line no longer hard-codes ", which is not in the past": that reason
-is false on two of the four paths that reach it, so an arm written to remove a
+is false on every path that reaches it but one, so an arm written to remove a
 false affirmative printed one of its own. The reason is now carried in
 `_ACCUM_WINDOW_REASON` (the `_ACCUM_STALE_REASON` precedent) and **N5** shims
 `date` to fail on a past window to prove it.
@@ -10625,7 +10629,7 @@ moves under the fixture, because a midnight crossing would otherwise read as a
 real failure and this suite has already shipped one clock-race flake
 (`## BL-241:`).
 
-**WP-B residuals — 19, all real, none blocking.** (This header read "two" while
+**WP-B residuals — 21, all real, none blocking.** (This header read "two" while
 enumerating seven: it was written at two and never updated as items were
 added, including by the commit whose own subject was "derive the counts
 instead of transcribing them". The first correction of it said 15, because the
@@ -10816,6 +10820,28 @@ awk '/^\*\*WP-B residuals/{f=1} f&&/^\*\*WP-A, 2026-08-13/{exit} f' \\
    case that motivates the check: a machine that is ahead writes the gate date
    AND the store timestamp in the future. The placement is right; that argument
    for it was not.
+
+20. **The raw `gates.*` value now reaches a verdict line, and flattening it is
+   not the same as neutralising it.** `# BL-233-WPB-AMBIGUOUS-WINDOW` and
+   `# BL-233-WPB-WINDOW-SHAPE` quote the offending value so the operator can see
+   what is wrong with it. `accum_oneline` strips its control characters and
+   backslashes, so it cannot begin a line and cannot forge an `[OK]` verdict —
+   exit code and issue count are provably unaffected — but a value containing
+   the TEXT `accumulation: satisfied` will still be counted by a bare
+   `grep -c 'accumulation: satisfied'`, which is this suite's own verdict
+   primitive. The quoted value is truncated to 40 characters to bound the
+   surface. The real fix is for assertions about verdicts to anchor on the
+   line, and most here already do.
+21. **The same bare-`--since` defect exists in `session-test-gate-check.sh` and
+   is NOT fixed here.** That script reads the same `gates.phase_1_to_2` field
+   and runs `git log --oneline --since="$PHASE2_DATE" --no-merges`, so its
+   commit counter has exactly the fault
+   `# BL-233-WPB-SINCE-MIDNIGHT` removes from the gate: the window starts at the
+   current clock time on that date, not midnight, so commits made earlier in the
+   day are uncounted and the same tree counts differently by the hour. It is the
+   only other `--since` under `scripts/`. Left out of this entry deliberately —
+   it belongs to a different feature's counter and this entry claims no sweep of
+   the class — but recorded with the one-token fix so it is not rediscovered.
 
 **WP-A, 2026-08-13 — what shipped and what was decided.** Items 1-5 and 7 are
 done for the retrieval half; `tests/test-bl233-mcp-outcome-enforcement.sh` is
