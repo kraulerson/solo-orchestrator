@@ -220,13 +220,22 @@ post-init maintenance tool, fails loudly, near-universal binary).
 **Options:** (a) one-line install hint in the message + a "maintenance tools"
 docs note; (b) accept — the failure is loud and self-explanatory.
 
-## F-010: Brownfield onboarding gap — still unfiled
+## F-010: Brownfield onboarding gap — FILED as `## BL-242:`
 
 **Raised:** 2026-07-12 session note ("real gap, NOT filed yet"); re-verified
 2026-08-01 — zero `brownfield` mentions in the backlog. `init.sh` refuses
 existing directories, so the framework cannot onboard an existing codebase.
-**Status:** Awaiting decision.
+**Status:** Resolved 2026-08-20 — option (a) taken, at Karl's direction.
 
-**Options:** (a) file as a backlog entry sourced from our own surfaces (the
-init.sh refusal path) with explicit scope choices; (b) declare out-of-scope for
-the framework's mission and record that in README/CLAUDE.md; (c) leave here.
+**Superseded by `## BL-242:`**, which carries the whole picture: the ten merged
+PRs, the seven capabilities that still print `NOT DONE` at run time (with a
+derivation recipe rather than a hand-maintained list), the four of those that
+`§10` of the design assigns to **no work package at all**, and the six open
+defects filed against what shipped. Take questions about brownfield adoption
+there.
+
+**Worth keeping visible even though this row is now closed:** the gap this
+followup describes was closed in code — the framework HAS onboarded existing
+codebases since WP4 (PR #337) — while the row itself still read "still unfiled"
+and "awaiting decision" ten days later. A followup that outlives the thing it
+describes is how a half-built feature ends up with no tracker.
