@@ -183,7 +183,7 @@ and committing exactly the files it wrote.
 > [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
 
 **These three pages live in this repo and are not copied into generated
-projects** — `init.sh` ships seven guides into `docs/reference/`, and these are
+projects** — `init.sh` ships the framework's guides into `docs/reference/`, and these are
 not among them. Read them here.
 
 ---

@@ -880,7 +880,7 @@ convenience call.
 ### And one more, from this page rather than the driver
 
 **This page is not shipped into adopted or generated projects.** `init.sh` copies
-seven guides into `docs/reference/`; `docs/adoption.md` and `docs/scout.md` are
+the framework's guides into `docs/reference/`; `docs/adoption.md` and `docs/scout.md` are
 not among them. Read them here, in the framework clone you run the driver from.
 
 ### Summary — what you can and cannot get today

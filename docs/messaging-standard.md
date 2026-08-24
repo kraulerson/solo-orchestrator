@@ -22,9 +22,14 @@ implement". A summary that is technically complete and practically unreadable ha
 not informed anyone — it has transferred the work of understanding onto the
 person least equipped to do it, and then treated their approval as informed.
 
-The two halves below solve two different failures. The **format** stops summaries
-from being conclusions without reasoning. The **vocabulary** stops the reasoning
-from being unreadable.
+The two halves below solve two different failures. The **format** (Part 1) stops
+summaries from being conclusions without reasoning. The **vocabulary** (Part 2)
+stops the reasoning from being unreadable.
+
+**Part 4 records where this standard is not yet true of this repository**, and it
+is not an appendix. A standard that arrives claiming to describe the code, when
+it does not, teaches its readers that its claims are decorative — which costs
+more than the gap it was hiding.
 
 ---
 
@@ -183,15 +188,26 @@ that design is the finding.
 > The accumulation gate is failing open on unmeasurable windows due to
 > approxidate resolution, so the phase gate may pass spuriously.
 
-Six vocabulary violations, and a reader who is not a developer learns nothing
-they can act on.
+**Its vocabulary is fine, and that is the point of using it here.** "phase gate"
+is correct by the table above; "failing open" is used in exactly the sense fixed
+there. Counting violations would be the wrong lesson, and an earlier draft of
+this document claimed "six" — a number nothing derives, in a document whose
+first rule is not to state numbers you did not derive.
+
+What it fails is **Part 1** and **Part 4**. *Unmeasurable windows*, *approxidate
+resolution* and *spuriously* are jargon; a reader who is not a developer learns
+nothing they can act on. And it is a conclusion with no options, no
+recommendation, and no cost of inaction — so there is nothing to decide with.
+
+A sentence can obey every term in Part 2 and still be useless. The vocabulary
+makes precise writing possible; it does not make writing plain.
 
 **This:**
 
-> **What happened.** A safety check that is supposed to stop a project moving
-> forward can be switched off by putting a wrong date in one settings file. When
-> the date is wrong, the check cannot work out what to look at, and instead of
-> stopping it lets the project through.
+> **What happened.** A gate — the checkpoint a project has to pass to move from
+> one stage to the next — can be switched off by putting a wrong date in one
+> settings file. When the date is wrong, the gate cannot work out what to look
+> at, and instead of stopping it lets the project through.
 >
 > **What it means for you.** A project could pass a checkpoint it has not
 > earned, and nothing would say so. It needs someone to edit a file, or a
@@ -201,9 +217,9 @@ they can act on.
 > it and move on — costs nothing today, but the check is not trustworthy until
 > it is done.
 >
-> **Recommendation: fix it now.** The whole value of this check is that it
-> cannot be quietly bypassed. A safety check with a known way around it is worse
-> than no check, because people rely on it.
+> **Recommendation: fix it now.** The whole value of this gate is that it cannot
+> be quietly bypassed. A gate with a known way around it is worse than no gate,
+> because people rely on it.
 >
 > **If you do nothing.** Nothing breaks today. The risk stays, and it gets
 > harder to justify later, because every week it goes unfixed is a week someone
@@ -211,9 +227,69 @@ they can act on.
 
 Same facts. The technical account still appears above it, in full.
 
+**Note what the rewrite does with `gate`.** It uses the fixed term and glosses it
+in the same breath — *"a gate — the checkpoint a project has to pass to move from
+one stage to the next"*. The earlier draft dodged instead, writing "a safety
+check", which the table forbids for a phase boundary and which taught the reader
+a word that means something else. **Gloss the fixed term; do not substitute a
+loose one.** A reader who meets `gate` once with its meaning attached can read
+every later summary; a reader taught a synonym has to be taught again.
+
 ---
 
-## Part 4 — Applying it
+## Part 4 — Where this standard is not yet true
+
+**Stated here rather than discovered.** A standard that arrives claiming to
+describe the repository, when it does not, teaches readers that its claims are
+decorative. These three are known, measured, and unfixed on arrival.
+
+**1. `gate` is still overloaded in this repository's own prose.** The narrowing
+in Part 2 is a rule for what gets written from now on, not a description of what
+is already written. Counting qualifier+`gate` phrases that are not phase
+boundaries (`grep -oE '(pre-commit|commit-time|commit|test|MCP|review|quality|push|filesystem)[ -]gates?'`):
+
+| Surface | non-phase `gate` uses |
+|---|---|
+| `docs/builders-guide.md` (shipped to every project) | 28 |
+| `docs/user-guide.md` | 12 |
+| `README.md` | 11 |
+| `templates/generated/claude-md.tmpl` | 10 |
+| `CLAUDE.md` | 6 |
+
+That is a floor, not a total — the pattern misses bare uses like "silence the
+gate". **Two of those files are the ones this standard was installed into**, so
+it contradicts itself on arrival for its own headline term. The cleanup is a
+separate, mechanical pass; until it runs, treat Part 2 as binding on new prose.
+
+**2. `track` has a second live sense this standard does not resolve.** Part 2
+fixes it to the ceremony level (light / standard / full). The **Delta Track** —
+the post-1.0 lifecycle — uses the same word throughout shipped prose, and in a
+generated project's own `CLAUDE.md` the *only* uses are the Delta-Track sense.
+So for this one term the standard does not remove an overload; it picks one of
+two live senses and contradicts the surface the agent reads first. Renaming one
+of them is the real fix and is not attempted here.
+
+**3. `[WARN]` arms that block are defects by Part 2, and this does not file
+them.** `scripts/check-phase-gate.sh` emits 71 `[WARN]`s; those followed by
+`issues=$((issues + 1))` block, because the exit predicate is
+`if [ $issues -eq 0 ]`. How many depends on how close you require the two lines
+to be — **34** within one line, **40** within two, **41** within three:
+
+```
+awk -v W=1 '/\[WARN\]/{m=NR} m && NR<=m+W && /issues=\$\(\(issues \+ 1\)\)/{c++; m=0} END{print c+0}' \
+  scripts/check-phase-gate.sh
+```
+
+**The window sensitivity is the honest part** — that spread is a property of the
+measurement, not of the code, which is exactly why the recipe is printed instead
+of a bare number. `CLAUDE.md` documents this as THE `[WARN]` TRAP: a deliberate,
+recorded hazard. Under Part 2 each of those is a label disagreeing with a
+behaviour. Relabelling them is a real change to a gate's output and is not made
+by a documentation commit.
+
+---
+
+## Part 5 — Applying it
 
 **Greenfield.** Phase gate verdicts, intake summaries, and Build Loop reports.
 The reader is often deciding whether to approve a phase boundary — the most
