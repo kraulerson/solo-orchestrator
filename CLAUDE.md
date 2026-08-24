@@ -178,6 +178,28 @@ here.
   `## BL-NNN:`. Verify against the entry's current top-of-block status (and git
   history) before treating any status line as a stray.
 
+## MESSAGING STANDARD
+
+Every summary you give a human carries the full technical account **and** a
+plain-English half — `docs/messaging-standard.md`, which `init.sh` also ships to
+generated projects as `docs/reference/messaging-standard.md`.
+
+Five parts, in order: what happened in plain English; what it means for them;
+options with pros and cons; a recommendation **with its reasoning**; and what
+happens if they do nothing. The plain-English half is ADDITIVE — exact commands,
+paths, error text and numbers stay, in full, above it.
+
+It also fixes a **controlled vocabulary**, and the sharpest edit is `gate`: in
+prose it means the check between one phase and the next, and NOTHING else. The
+commit-time, test, MCP and review surfaces are **checks**. Script filenames are
+unaffected; this constrains prose, not code. Same for `block` vs `refuse` (a
+failed check vs a tool that never started), `gap` vs `defect` (never built vs
+built wrong), and `parked` vs `deferred` (nobody decided vs decided-to-wait).
+
+Two rules that outrank brevity: **never round a number you did not derive**, and
+**never soften a block into a suggestion** — if the reader cannot proceed, the
+first sentence says so.
+
 ## CITATION RULE
 
 Cite code by a **grep-able `# BL-NNN-…` marker comment** or a **function name** —

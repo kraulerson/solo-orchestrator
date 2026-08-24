@@ -7,12 +7,13 @@ place any file without guessing.
 
 ## Guides (`docs/*.md`)
 
-Thirteen top-level guides — the platform-agnostic methodology and its operator- and
+Fourteen top-level guides — the platform-agnostic methodology and its operator- and
 executive-facing companions. The last three cover what happens *outside* the
 five-phase build: after v1.0 ships, and before a project that already exists comes in.
 
 | Guide | What it is |
 |---|---|
+| [messaging-standard.md](messaging-standard.md) | **How the framework talks to a human, in every project type.** The required shape of a summary — plain-English half alongside the technical account, with options, a recommendation and its reasoning, and the cost of doing nothing — plus a controlled vocabulary fixing `gate`, `check`, `block`, `refuse`, `phase`, `track`, `gap`, `defect`, `residual`, `attest`, `parked`, `fail closed` and `fail open` to one meaning each. Shipped to every project as `docs/reference/messaging-standard.md`. |
 | [builders-guide.md](builders-guide.md) | The authoritative platform-agnostic build methodology: phases, decision gates, the Build Loop, TDD ordering enforcement, and the Phase 1→2 / 2→3 / 3→4 gate contracts. |
 | [user-guide.md](user-guide.md) | Operator walkthrough — day-to-day commands, the enforcement-tier tables, POC modes, upgrades, and the phase-by-phase "what you do" checklists. |
 | [governance-framework.md](governance-framework.md) | Organizational governance: role-separated approval gates, tier definitions, ZDR/data-classification mandate, legal/privacy obligations, cross-model validation. |
