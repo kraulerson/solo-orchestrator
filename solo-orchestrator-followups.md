@@ -229,8 +229,9 @@ existing directories, so the framework cannot onboard an existing codebase.
 
 **Superseded by `## BL-242:`**, which carries the whole picture: the twelve
 merged PRs, the seven unbuilt capabilities (with a derivation recipe rather than
-a hand-maintained list — five announce themselves on every run, two only when
-they have something to report), the three that `§10` of the design assigns to
+a hand-maintained list — five announce on every run; the other two are
+conditional, and one of those announces precisely when the secrets scan did NOT
+run), the three that `§10` of the design assigns to
 **no work package at all** — all three now carrying a recorded decision (D1-D3,
 Karl, 2026-08-23) though none is yet built — and the five live defects. Take questions about
 brownfield adoption there.
