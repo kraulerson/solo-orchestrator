@@ -12566,28 +12566,38 @@ work whose PR this was blocking).
 
 ---
 
-## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities print `NOT DONE` at run time, and four of them are owned by nobody
+## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities are unbuilt, three of them owned by nobody
 
 **Status:** Open
 
-**Filed 2026-08-20 at Karl's direction.** The feature has existed in shippable
+**Filed 2026-08-23 at Karl's direction.** The feature has existed in shippable
 form since 2026-08-10 and its only tracker until now was `## F-010:` in
 `solo-orchestrator-followups.md` — an entry whose own title says *"still
-unfiled"* and whose status is *"Awaiting decision"*. A feature with ten merged
-PRs, seven live runtime stubs and six open defects against it was being tracked
-by a note asking whether it should be tracked. (Six, not four — two of them,
-`## BL-223:` and `## BL-224:`, are Open — DEFERRED, and "deferred" is a decision
-about when to fix, not a reason to leave out of a count.) That is the whole reason this
+unfiled"* and whose status was *"Awaiting decision"*. A feature with eleven
+merged PRs, seven unbuilt capabilities and five live defects was being tracked
+by a note asking whether it should be tracked. That is the whole reason this
 entry exists; the engineering below is a summary, the filing is the point.
 
-**Every number here is derived, not transcribed** — the design document's own
-status row has now been wrong three times (see the correction note at the end),
-and the last thing this entry should do is inherit that.
+**THE FIRST DRAFT OF THIS ENTRY WAS BLOCKED IN REVIEW WITH FOUR REFUTED CLAIMS,
+and the corrections are kept visible rather than quietly applied** — two of the
+four were in its title. It claimed all seven capabilities "print `NOT DONE` at
+run time" (two do not); it printed a PR-derivation recipe that does not produce
+its own table; it described `## BL-215:` as an open gap two weeks after the gap
+shipped; and it counted **four** unowned capabilities by reading the one surface
+that `docs/adoption.md` explicitly says must not be read alone. An entry whose
+thesis is *"ask the code"* got the count wrong by asking one line of it.
 
 ### What shipped
 
-Ten merged PRs, derived from the merge commits on `main`
-(`git log --oneline --merges main | grep -i brownfield`):
+**The table below is HAND-ASSEMBLED from merge inspection, and that is stated
+because no one-liner reproduces it.** The obvious recipe —
+`git log --oneline --merges main | grep -i brownfield` — returns nine PRs plus a
+branch-sync merge, and **misses #343 entirely** (its branch is
+`docs/delta-scout-adoption-and-readme`, which contains no "brownfield"). A
+path-based `--full-history` derivation over the adoption surface returns a
+16-PR superset including unrelated PRs that merely touched those files. Both are
+useful starting points; neither is the answer, and printing one as though it
+were is what the first draft did.
 
 | Work package | Deliverable | PR |
 |---|---|---|
@@ -12597,24 +12607,32 @@ Ten merged PRs, derived from the merge commits on `main`
 | WP2 | Scout scanner sections (stack, phaseMap, reality probes, secrets, collisions, tests-baseline, intake-prefill) | #331 |
 | WP3 | In-core enabling arms — `scripts/lib/adoption-stamp.sh`, the `adopted` flag, the adoption-window-bounded TDD exemption, stamp acceptance in the gate | #335 |
 | WP4 | **The driver** — `scripts/adopt-project.sh` + `scripts/lib/adopt/`, the scenario chooser asked verbatim, the placement + floor rule, the reverse intake | #337 |
+| WP0 (fix) | `# BL-215-CORE-GLOB-SYNC` — the fifth CORE glob in both boundary lints | #340 |
 | WP8 | User-facing pages — `docs/scout.md`, `docs/adoption.md` | #343 |
 | WP5b | Test-debt ledger — `scripts/lib/adopt/adopt-test-debt.sh` | #344 |
 | WP6 | Collision archive — `scripts/lib/adopt/adopt-archive.sh` | #345 |
 | — | CI: brownfield suites pinned to the `slow-misc` shard | #346 |
 
-Seven suites cover it: `test-brownfield-wp1-scout.sh`,
-`test-brownfield-wp2-scout-sections.sh`, `test-brownfield-wp3-adoption-arms.sh`,
-`test-brownfield-wp3-regenerate-path.sh`, `test-brownfield-wp4-driver.sh`,
-`test-brownfield-wp5b-test-debt.sh`, `test-brownfield-wp6-collision-archive.sh`,
-plus `test-lint-module-dependencies.sh` for WP0's lint.
+Eight suites cover it — the seven `tests/test-brownfield-wp*.sh` files plus
+`tests/test-lint-module-dependencies.sh` for WP0's lint. Measured 2026-08-23:
+**309 assertions, 0 failed.** One caveat that is not this entry's to fix:
+`test-brownfield-wp3-regenerate-path.sh` is `unit-lane-exempt:init-sh-invoker`,
+so it is **full-lane only and does not gate a PR**.
 
-### What is NOT built — seven capabilities, and the driver says so at run time
+### What is NOT built — seven capabilities
 
-To the driver's credit, none of this is papered over: each missing capability
-emits a labelled `NOT DONE` block during a run. The authoritative list is the
-set of `adopt_stub_*` functions actually CALLED, not the set defined — derive it,
-because the two have already diverged once (`adopt_stub_test_debt_ledger` is
-gone from the code and survives only in a comment):
+Five announce themselves unconditionally during a run with a labelled `NOT DONE`
+block. **Two do not**, and the first draft of this entry said all seven did:
+`adopt_stub_framework_script_collisions` and `adopt_stub_secrets_disposition`
+both open or close with `[ "$n" -gt 0 ] || return 0`, so on a clean adoptee — no
+framework-script collisions, a secrets scan that ran and found nothing — they
+print **nothing at all**. On such a project five blocks appear, not seven. That
+is defensible behaviour (there is nothing to report) and an indefensible thing
+for this entry to have got wrong, because "the driver announces every gap" was
+the reason to trust it.
+
+The authoritative list is the `adopt_stub_*` functions actually CALLED. Derive
+it; do not maintain it:
 
 ```
 for f in scripts/adopt-project.sh scripts/lib/adopt/*.sh; do
@@ -12623,40 +12641,52 @@ for f in scripts/adopt-project.sh scripts/lib/adopt/*.sh; do
 done | grep -ohE '\badopt_stub_[a-z_]+' | sort -u                # -> 7
 ```
 
-**Both exclusions are load-bearing and the first draft of this recipe had
-neither**, so it returned 8 and sat beside the number 7 — the exact defect this
-entry's sibling `## BL-233:` spent four revisions on. Comments are not calls
-(`adopt_stub_test_debt_ledger` is a comment in `adopt-state.sh`), and
-`adopt-stubs.sh` holds the definitions, so counting it measures what EXISTS
-rather than what RUNS.
+**Both exclusions are load-bearing; with neither the recipe returns 9** (the
+first draft of this sentence said 8, which is what *either one alone* returns).
+Comments are not calls — `adopt_stub_test_debt_ledger` survives only as a
+comment in `adopt-state.sh`. And skipping `adopt-stubs.sh` removes
+`adopt_stub_notice`, the shared print helper, which is not a capability; the
+defined-but-uncalled set is in fact **empty**, so the first draft's stated
+reason for that exclusion ("measures what EXISTS rather than what RUNS") was not
+the operative one.
 
-| Capability (verbatim from the notice) | Owner (verbatim) |
-|---|---|
-| the certification pass | **WP5** |
-| the Adoption Record, the audit rows and the CI carve-out | **WP7** |
-| the provenance headers on reconstructed documents | **WP7** |
-| installing the framework's version of *N* colliding script(s) | *unassigned — §10 gives this class to no work package* |
-| the secrets disposition | *unassigned — §10 gives §6.3 to no work package* |
-| the commit-time scanners (the fallback pre-commit hook) | *nobody yet — §10 names no owner* |
-| your project's framework documents | *unassigned — §10 names no owner* |
+| Capability (verbatim from the notice) | Owner | Announces |
+|---|---|---|
+| the certification pass | **WP5** | always |
+| the Adoption Record, the audit rows and the CI carve-out | **WP7** | always |
+| the provenance headers on reconstructed documents | **WP7** | always |
+| the commit-time scanners (the fallback pre-commit hook) | **WP7** — see below | always |
+| your project's framework documents | **nobody** | always |
+| installing the framework's version of *N* colliding script(s) | **nobody** | only when N > 0 |
+| the secrets disposition | **nobody** | only when the scan found something |
 
-**THE FOUR UNOWNED ONES ARE THE ITEM THAT NEEDS A DECISION, and they are the
-half most likely to be missed** — WP5 and WP7 are merely undone, which any
-resumption of the plan sweeps up. The bottom four were never assigned to a work
-package at all, so finishing every named WP leaves them exactly where they are.
-`§10` of the design allocates work to packages and gives these to none. Until
-someone decides, "the adoption feature is finished" cannot be said truthfully.
+**THREE are owned by nobody, and that is the item needing a decision.** `§10` of
+the design allocates work to packages and gives these three to none, so
+finishing WP5 and WP7 leaves all three exactly where they are. Until someone
+decides, "the adoption feature is finished" cannot be said truthfully.
 
-The commit-time hook is a **deliberate deferral, not an oversight** — Karl's
-decision, recorded in the design: installing it before the artifacts it reads
-exist would refuse every commit. It still needs an owner for the day the
-artifacts do exist.
+**The commit-time hook is WP7's, and the driver's own text says otherwise.**
+`adopt_stub_hooks` prints `Owner: nobody yet — §10 names no owner`, and this
+entry's first draft counted it as a fourth unowned capability on the strength of
+that one string. `docs/adoption.md` anticipates exactly that mistake and refuses
+it in as many words — *"Read that 'Owner: nobody yet' against the decision, not
+instead of it… **Karl's decision is that the commit-time hook is installed by
+WP7**, once the artifacts it reads exist"* — and `adopt-stubs.sh`'s own header
+agrees (*"§10 gives WP7 the commit-time hook"*), contradicting the string 85
+lines below it. **The stale string is a small real defect**: it should be
+corrected when that file is next touched, because the next reader will make the
+same error this entry did. The deferral itself is deliberate, not an oversight —
+installing the hook before the artifacts it reads exist would refuse every
+commit.
 
-### Open defects against what shipped
+### Defects — five live, one already fixed, one closed
 
 Filed separately and NOT duplicated here; this entry is the parent, they are the
-particulars:
+particulars. **The heading in the first draft was "Open defects against what
+shipped" and was wrong for three of the six it listed** — one gap is fixed and
+two are not against brownfield deliverables at all.
 
+**In the shipped adoption code:**
 - `## BL-225:` — the driver writes 78 files, STAGES 64, then discovers the
   adoptee's `.gitignore` refuses one: no preflight, no rollback, no `git reset`,
   and a refusal that says *"nothing has been committed"* while 64 files sit
@@ -12666,22 +12696,34 @@ particulars:
   most of them nothing moved.
 - `## BL-228:` — `language` is a single-select scalar, so a polyglot project
   cannot be described, and nothing ever asks for the system architecture.
-- `## BL-215:` — the boundary lints' CORE set omits `scripts/host-drivers/*.sh`;
-  a gap inside WP0's own deliverable.
-- `## BL-223:` and `## BL-224:` — Open — DEFERRED (a parse-cost optimisation and
-  a lint false-positive respectively).
-- `## BL-221:` — **Closed** (PR #356), recorded here so the list is the whole
-  set rather than the open subset.
+
+**Found during the work, but the fix lands in pre-existing core files, not in a
+brownfield deliverable** — adjacency, not ownership:
+- `## BL-223:` — `soif_parse_shipped_scripts` in `scripts/lib/scaffold-shipped-set.sh`. Open — DEFERRED.
+- `## BL-224:` — `scripts/lint-no-live-remote-in-tests.sh`. Open — DEFERRED.
+
+**Already fixed, status line stale:**
+- `## BL-215:` — the boundary lints' CORE set omitted `scripts/host-drivers/*.sh`.
+  **The gap shipped in PR #340** under `# BL-215-CORE-GLOB-SYNC`; both
+  `CORE_GLOBS` arrays carry the fifth glob today, and the design document already
+  says so twice. Its `**Status:** Open` line needs closing — a pre-existing
+  ledger defect, noted here because the first draft of this entry re-asserted the
+  closed gap in the present tense inside a document meant to be authoritative.
+
+**Closed:** `## BL-221:` (PR #356), recorded so this is the whole set rather
+than the open subset.
 
 ### What this entry is asking for
 
-1. **A decision on the four unowned capabilities** — assign, defer explicitly,
-   or declare out of scope. Karl's call; nothing else here is blocked on it, and
-   everything else is blocked on it being said out loud.
+1. **A decision on the three unowned capabilities** — assign, defer explicitly,
+   or declare out of scope. Karl's call; nothing else is blocked on it, and
+   everything is blocked on it being said out loud.
 2. **`## BL-225:` before any resumption** — a half-staged tree plus a false
    "nothing has been committed" is worse than a refusal, and adoption's whole
    value proposition is that it is safe to point at an existing repository.
 3. **WP5 then WP7**, in that order, if the plan resumes.
+4. Two one-line hygiene items: close `## BL-215:`, and correct
+   `adopt_stub_hooks`'s owner string to WP7.
 
 **`## F-010:` is superseded by this entry** and now points here.
 
@@ -12689,9 +12731,10 @@ particulars:
 corrected with this filing.** It said "Nothing is built" through v1.1 (true when
 written); v1.2 corrected it to WP0–WP3; v1.2.1 corrected it to WP0–WP4 with
 "WP5, WP5b, WP6 and WP7 have not" shipped. WP5b (#344) and WP6 (#345) merged
-**after** that sentence was written, so it has been overstating the gap since
-2026-08-10. v1.2.2 restates the not-built set as the seven runtime stubs above,
-which is a list the code can be asked for rather than one a human maintains.
+**after** that sentence was written (it rode in on #343, 2026-08-10), so it has
+overstated the gap for thirteen days. v1.2.2 restates the not-built set as the
+seven runtime stubs above — a list the code can be asked for rather than one a
+human maintains.
 
 ## BL-240: `workflow.html`'s "Verified against the tree on YYYY-MM-DD" stamp has no mechanism — and a staleness check is a lint that can red without a defect
 

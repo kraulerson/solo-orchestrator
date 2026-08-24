@@ -225,14 +225,14 @@ docs note; (b) accept — the failure is loud and self-explanatory.
 **Raised:** 2026-07-12 session note ("real gap, NOT filed yet"); re-verified
 2026-08-01 — zero `brownfield` mentions in the backlog. `init.sh` refuses
 existing directories, so the framework cannot onboard an existing codebase.
-**Status:** Resolved 2026-08-20 — option (a) taken, at Karl's direction.
+**Status:** Resolved 2026-08-23 — option (a) taken, at Karl's direction.
 
-**Superseded by `## BL-242:`**, which carries the whole picture: the ten merged
-PRs, the seven capabilities that still print `NOT DONE` at run time (with a
-derivation recipe rather than a hand-maintained list), the four of those that
-`§10` of the design assigns to **no work package at all**, and the six open
-defects filed against what shipped. Take questions about brownfield adoption
-there.
+**Superseded by `## BL-242:`**, which carries the whole picture: the eleven
+merged PRs, the seven unbuilt capabilities (with a derivation recipe rather than
+a hand-maintained list — five announce themselves on every run, two only when
+they have something to report), the three that `§10` of the design assigns to
+**no work package at all**, and the five live defects. Take questions about
+brownfield adoption there.
 
 **Worth keeping visible even though this row is now closed:** the gap this
 followup describes was closed in code — the framework HAS onboarded existing
