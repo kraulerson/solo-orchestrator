@@ -12596,7 +12596,7 @@ branch-sync merge (`dfa259e`), and **misses THREE of the twelve**: #343
 (`docs/delta-scout-adoption-and-readme`), #340
 (`fix/bl215-core-glob-host-drivers`) and #336, none of whose branches contain
 "brownfield".
-*(An earlier draft said it missed one. It misses two, and the arithmetic did not
+*(An earlier draft said it missed one, then two. It misses THREE, and the arithmetic did not
 close — a reader adding 9 + 1 got ten against an eleven-row table. #340 was the
 PR the previous review round found missing from the table; it was added and this
 sentence was not updated with it.)*
@@ -12604,7 +12604,10 @@ sentence was not updated with it.)*
 A path-based `--full-history` derivation over the adoption surface returns 16
 PRs — but that is **not a superset either**: it omits #346, which touched only
 `.github/workflows/tests.yml`. Widening the paths to include that file returns
-115. So no path-based derivation is simultaneously small and complete, which
+115. *(Both figures depend on the exact path list, which is not written down
+here — a reviewer's own reasonable guess returned 13 and 151. They are stated as
+what one path set produced, not as reproducible measurements, which is the
+honest status of a number whose recipe is missing.)* So no path-based derivation is simultaneously small and complete, which
 strengthens rather than weakens the point: both are useful starting points,
 neither is the answer, and printing one as though it were is what the first
 draft did.
@@ -12698,14 +12701,14 @@ scope row, it is the other way round: that row reads *"Framework CI at
 framework-owned filenames on all three hosts; the SDLC-undermining detector
 (report-only); keep-or-retire recorded; provenance-header lint; the eight-clause
 Adoption Record lint"* — **no hook**. So about §10, `adopt_stub_hooks` is
-ACCURATE and the header comment is the false one. The conclusion is unchanged;
+ACCURATE and the WP5b SECTION comment is the false one — not either file's header, which attributes §10 correctly. The conclusion is unchanged;
 the evidence chain was inverted, in an entry whose thesis is that the code
 should be asked rather than remembered.
 
 **This changes the hygiene item.** Rewriting `adopt_stub_hooks` to say "WP7"
 would propagate a false §10 attribution. The honest string names the decision,
 not the section — something like *"WP7, by Karl's decision (§10 does not assign
-it)"* — and `adopt-stubs.sh`'s header comment is the line that needs correcting.
+it)"* — and the FALSE line is `adopt-stubs.sh`'s WP5b section comment — not its file header, which makes a correct §10/WP7 attribution. There is a SECOND copy in `scripts/lib/adopt/adopt-test-debt.sh`; a fix naming only one file fixes half of it. That comment is also wrong twice: it asserts `adopt_stub_hooks` "already carries that sentence" when it carries the opposite.
 The deferral itself is deliberate, not an oversight: installing the hook before
 the artifacts it reads exist would refuse every commit.
 
@@ -12745,7 +12748,11 @@ than the open subset.
 
 ### THE THREE UNOWNED CAPABILITIES — DECIDED (Karl, 2026-08-23)
 
-All three are now settled. **None is built**; what changed is that each has an
+All three now carry a RECORDED DECISION — which is not the same as settled, and
+an earlier version of this line said "all three are now settled" while the
+design document recorded two open sub-questions about them (D2's tier scope, and
+whether D3 reaches `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md`). Both are in the
+asks list below. **None is built**; what changed is that each has an
 answer, so "the adoption feature is finished" becomes a statement someone can
 check rather than one nobody can evaluate. Recorded here because none of the
 three is recoverable from the code.
@@ -12960,9 +12967,11 @@ an assessment and a plan to record, not just a scenario and a rung.
 
 **The design document needs more than its status row.** D4 overturns `§4 — The
 two scenarios (D2)`, which `§0.1` lists among the settled decisions carried into
-the design, and D5/D6 redraw work-package boundaries. Every amendment so far has
-been able to say *"No settled decision, decision table, or WP boundary changed"*;
-**this one cannot**, and it should not pretend otherwise. That amendment is a
+the design, and **D1, D3, D5 and D6** redraw work-package boundaries — D3 says so
+in its own text (*"extends WP6's collision archive to a third class"*), which an
+earlier version of this sentence named only D5/D6 despite. Every amendment BEFORE
+v1.2.2 could say *"No settled decision, decision table, or WP boundary changed"*;
+**v1.2.2, shipped in this PR, cannot**, and its §0.2 says so. That amendment is a
 separate piece of work from this filing and is not attempted here.
 
 ### Why review is the only control point for this entry
@@ -12987,18 +12996,31 @@ same standard as code rather than waved through as "docs-only".
    runs **tool resolution** (D5, Act 2), which installs gitleaks as a
    `required: true` matrix entry, so `tool-unavailable` becomes a backstop for
    `scan-failed` rather than the primary case. It stays a hard refusal.
-2. **A decision on whether to amend the design document or supersede it.** D4
-   overturns a settled decision and D5/D6 redraw WP boundaries; no previous
-   amendment has had to say that. This filing does not attempt it.
-3. **`## BL-225:` before any resumption** — a half-staged tree plus a false
+2. **Two sub-questions left open by D2 and D3**, both raised by review and
+   neither decided here. **(a)** D2 says adoption STOPS on unacknowledged
+   secrets; v1's §6.3 and decision table D4 both settle *"BLOCK at strict; BIG
+   WARNING at personal"*. Karl's instruction named no tier — so D2 either
+   overrides the tiering or applies at strict only. **(b)** D3's scope is
+   `adopt_stub_project_docs`, whose text names *"the document templates"*, and
+   §7.5 settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as *"If present,
+   treated as theirs"*. Whether D3 reaches those three is undecided.
+3. **A decision on whether to amend the design document or supersede it.** D4
+   overturns a settled decision and D1/D3/D5/D6 redraw WP boundaries; no
+   amendment before v1.2.2 had to say that. This filing does not attempt the
+   supersession.
+4. **`## BL-225:` before any resumption** — a half-staged tree plus a false
    "nothing has been committed" is worse than a refusal, and adoption's whole
    value proposition is that it is safe to point at an existing repository.
-4. **WP5 re-cut or retired, then WP7** — see the consequences section; WP5 as
+5. **WP5 re-cut or retired, then WP7** — see the consequences section; WP5 as
    specified no longer has a job.
-5. Two hygiene items: close `## BL-215:`, and correct the OWNER-STRING PAIR in
-   `adopt-stubs.sh` — the header comment claiming §10 gives WP7 the hook is the
-   false one, and `adopt_stub_hooks`'s string should name Karl's decision rather
-   than §10, which does not assign it.
+6. Two hygiene items: close `## BL-215:`, and correct the OWNER-STRING PAIR in
+   `adopt-stubs.sh` AND `scripts/lib/adopt/adopt-test-debt.sh` — BOTH carry the
+   false "§10 gives WP7 the commit-time hook" claim, in a WP5b section comment
+   rather than either file's header, so a fix naming one file fixes half of it.
+   `adopt_stub_hooks`'s string should name Karl's decision rather than §10,
+   which does not assign it. `docs/adoption.md` also still says the driver's
+   text "will say so once it is next touched", which reads as an instruction to
+   write "WP7" plainly.
 
 **`## F-010:` is superseded by this entry** and now points here.
 
