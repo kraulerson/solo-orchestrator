@@ -12713,11 +12713,97 @@ brownfield deliverable** — adjacency, not ownership:
 **Closed:** `## BL-221:` (PR #356), recorded so this is the whole set rather
 than the open subset.
 
+### THE THREE UNOWNED CAPABILITIES — DECIDED (Karl, 2026-08-23)
+
+All three are now settled. **None is built**; what changed is that each has an
+answer, so "the adoption feature is finished" becomes a statement someone can
+check rather than one nobody can evaluate. Recorded here because none of the
+three is recoverable from the code.
+
+**D1 — COLLIDING SCRIPTS: archive yours, install the framework's, say so.**
+This REVERSES today's behaviour. `adopt_install_framework` currently skips any
+path where `[ -e "$dst" ]`, so the operator's file wins by default and the
+framework's is never installed — "the safe direction", at the cost of a
+half-wired framework nothing announces as broken.
+
+The install set is **65 files, all under `scripts/`** (36 `scripts/`, 24
+`scripts/lib/`, 3 `scripts/host-drivers/`, 2 `scripts/hooks/`), derived from
+`soif_parse_shipped_scripts`. The collision-prone tier is the 36 top-level ones,
+and the realistic names are the generic ones a real project already owns and has
+wired into a Makefile or CI: `validate.sh`, `test-gate.sh`, `cut-release.sh`,
+`check-updates.sh`, `check-versions.sh`, `probe-tool.sh`, `resume.sh`.
+
+Karl's decision: **treat `scripts/` exactly as D3 treats documents.** Archive the
+colliding file, install the framework's version, and NOTICE the operator with
+the list so they can move theirs back. Plus a standing warning that **replacing
+a framework script with their own may break the framework.**
+
+Two consequences this entry owns rather than discovers later:
+- **It fixes the sharpest edge of the current behaviour.** `verify-install.sh`
+  and `upgrade-project.sh` are both in the install set, so under today's rule a
+  collision on either leaves the adopted project unable to self-repair or
+  upgrade, silently. Framework-wins removes that class outright.
+- **It breaks the adoptee's build at the moment of adoption, not later.** If
+  their Makefile calls `scripts/validate.sh`, that call now reaches the
+  framework's script. The notice is therefore not a courtesy — it is the only
+  thing standing between the operator and a confusing failure, and it must name
+  every archived path, not a count.
+
+**D2 — SECRETS: adoption STOPS until every finding is acknowledged, and a scan
+that did not run is not an acceptable state.** Karl's words: *"Stop adoption
+until acknowledged with a reply of having been corrected or the risk is being
+accepted"*, and on the not-scanned case: *"Why wouldn't the secrets scan run?
+That should never be an option."*
+
+`scout-secrets.sh` emits three statuses and only one of them is a result:
+
+| status | cause |
+|---|---|
+| `scanned` | gitleaks ran and its report parsed |
+| `tool-unavailable` | **gitleaks is not installed on the host** |
+| `scan-failed` | gitleaks exited non-zero, **or** its report did not parse — "usually a full disk or a killed process" |
+
+So all three block, with different remedies: install the tool, re-run the scan,
+or disposition the findings. **Requiring gitleaks asks for nothing new** — a
+scaffolded project's own pre-commit hook already runs it, so it is a tool the
+framework demands downstream regardless.
+
+The acknowledgement must be **RECORDED, and refused if it cannot be recorded** —
+BL-072's shape, which `## BL-233:` reused for `SOLO_MCP_ACCUM_ATTESTED`. An
+escape that leaves no trace is the advisory posture both of those entries exist
+to replace.
+
+**One distinction left OPEN for Karl, because it is the interesting half and
+this entry will not decide it silently:** "corrected, or the risk is accepted"
+is a coherent answer to a *known* finding. It is not obviously coherent for
+`tool-unavailable`, where the operator would be accepting the risk of
+credentials **nobody looked for**. The two readings are (a) `tool-unavailable`
+is a HARD REFUSAL with no escape at all — you cannot accept what was never
+measured — or (b) it takes the same acknowledged escape as everything else.
+This entry's author reads Karl's *"should never be an option"* as (a), and says
+so rather than assuming it.
+
+**D3 — PROJECT DOCUMENTS: write them, adapt or replace, archive the originals.**
+Karl's decision: an adopted project gets documents that **match the framework's
+documentation requirements** — adapted or merged from what the project already
+has, or written completely new where the reverse intake changes the architecture
+and feature set dramatically enough that merging would carry a false picture
+forward. **The old documents are archived in the project for historical
+purposes.**
+
+This settles the objection the current stub raises — *"a CLAUDE.md you already
+have would be a collision, not a gap"* — by making it an archive-and-replace,
+not a refusal. It also **extends WP6's collision archive to a third class**:
+that archive today covers AI-layer settings and git hooks, and
+`adopt_stub_project_docs` says in as many words that "documents are neither".
+Under D1 and D3 they are — documents and `scripts/` both become archive classes,
+which is one mechanism serving three cases rather than three mechanisms.
+
 ### What this entry is asking for
 
-1. **A decision on the three unowned capabilities** — assign, defer explicitly,
-   or declare out of scope. Karl's call; nothing else is blocked on it, and
-   everything is blocked on it being said out loud.
+1. ~~**A decision on the three unowned capabilities**~~ — **DECIDED above
+   (D1-D3, Karl, 2026-08-23).** One sub-question remains open: whether
+   `tool-unavailable` is a hard refusal or takes the acknowledged escape (D2).
 2. **`## BL-225:` before any resumption** — a half-staged tree plus a false
    "nothing has been committed" is worse than a refusal, and adoption's whole
    value proposition is that it is safe to point at an existing repository.

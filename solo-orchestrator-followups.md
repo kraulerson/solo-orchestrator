@@ -231,7 +231,8 @@ existing directories, so the framework cannot onboard an existing codebase.
 merged PRs, the seven unbuilt capabilities (with a derivation recipe rather than
 a hand-maintained list — five announce themselves on every run, two only when
 they have something to report), the three that `§10` of the design assigns to
-**no work package at all**, and the five live defects. Take questions about
+**no work package at all** — all three now carrying a recorded decision (D1-D3,
+Karl, 2026-08-23) though none is yet built — and the five live defects. Take questions about
 brownfield adoption there.
 
 **Worth keeping visible even though this row is now closed:** the gap this
