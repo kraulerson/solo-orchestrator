@@ -12566,7 +12566,7 @@ work whose PR this was blocking).
 
 ---
 
-## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities are unbuilt, three of them owned by nobody
+## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
 
 **Status:** Open
 
@@ -12799,16 +12799,148 @@ that archive today covers AI-layer settings and git hooks, and
 Under D1 and D3 they are — documents and `scripts/` both become archive classes,
 which is one mechanism serving three cases rather than three mechanisms.
 
+### THE SHAPE OF ADOPTION ITSELF — DECIDED (Karl, 2026-08-23)
+
+D1-D3 above settle three unowned capabilities. D4-D8 below change the FEATURE,
+and they overturn a decision the design document lists as settled. Recorded
+here in full because none is recoverable from the code, and because the last
+time a decision of this size lived only in a conversation it produced `## F-010:`.
+
+**D4 — THE CHOOSER IS DELETED, NOT DEMOTED. Adoption assesses; it does not ask.**
+The driver today asks a verbatim scenario question (`completed` / `in-flight`)
+and, in an earlier draft of this conversation, would have gained a second one
+("was this built with Solo Orchestrator or another SDLC framework?"). Both are
+dropped. Every adopted project runs the full SDLC as Solo Orchestrator designs
+it.
+
+**Karl's reasoning, which is the load-bearing part and belongs verbatim:**
+*"I think trusting an end user to know what's needed is a mistake considering
+they are using the orchestrator BECAUSE they are not already following a proper
+SDLC."*
+
+That is a **selection-effect argument, and it is stronger than the mechanical
+one**. The mechanical objection was that a self-reported "yes, I used a
+framework" reduces scrutiny while being unverifiable — which inverts the floor
+rule the driver already enforces one question earlier (*"evidence you have not
+produced is not evidence"*, `adopt_decide_placement`). The selection argument
+goes further: the population being asked is, BY DEFINITION, the population
+least equipped to answer. Scout can detect Solo Orchestrator's own artifacts
+without asking anyone; everything else is a claim.
+
+**Blast radius, stated rather than discovered:** the chooser is asked verbatim
+at three sites and has its own tests; `adopt_ask_scenario` and
+`adopt_ask_audience` go; `adopt_decide_placement` loses its "claimed" operand
+and derives from evidence alone. This is a deletion with a footprint, not a
+string edit.
+
+**D5 — FOUR ACTS, and the split is forced rather than chosen.** The evaluators
+are model-driven and the driver is shell, so adoption cannot be one process.
+Karl's call is that adoption WAITS for the review ("using AI, it's only a few
+minutes"), which means the framework must be installed before the reviewers can
+run.
+
+1. **SURVEY** — Scout, read-only, no framework required. Writes only
+   `.claude/adoption/scout-report.json`.
+2. **PREPARE** — shell, writes. Order constrained by facts already in the code,
+   not by preference: **tool resolution** against the matrix (installs required
+   tools including gitleaks — the step adoption skips entirely today); the
+   **secrets gate** (now guaranteed a scanner); the **test-debt census** BEFORE
+   the install, or the 65 framework scripts pollute the baseline; the
+   **collision archive** BEFORE any writer, or it captures the framework's file
+   under the operator's name; **install**; **write minimal state and land at
+   PHASE 0 PROVISIONALLY**; **commit**; **hooks last**.
+3. **ASSESS** — Claude Code. `resume.sh` already exists as the state-aware entry
+   point and detects `adopted, unassessed`. The **requirements interview** and
+   **all evaluators** run here.
+4. **PLACE AND PROCEED** — rung derived from assessment evidence; documents
+   written; plan presented; normal Build Loop.
+
+**THE PROVISIONAL PHASE-0 LANDING IS THE LOAD-BEARING CHOICE**, and it is what
+makes the split safe. It preserves the promise `adopt_main` already prints —
+*"If you stop partway, this project ends up more strictly gated than it started,
+never less."* An operator who never runs Act 3 leaves a project sitting at phase
+0 with everything ahead of it. **A project cannot land high by abandonment**;
+the scheme cannot express that outcome, rather than defending against it.
+
+One consequence: the reverse intake's mechanical prefill can stay in Act 2, but
+the **requirements interview moves to Act 3**, because it needs a model.
+
+**D6 — "REBUILD" IS A VERDICT ADOPTION RETURNS, NOT WORK ADOPTION DOES.**
+Karl's case, which this entry accepts in full: an inventory system built as HTML
+over an Excel file is not a project with debt, it is a project with the wrong
+architecture, and a framework that adopts it and stamps it is lying. Adoption
+must be able to conclude *"this architecture is unfit for its stated
+requirements."*
+
+What it must NOT do is perform the rebuild. A rebuild consists of a Phase 0
+intake, an architecture phase, a Build Loop and gates — **which is Solo
+Orchestrator's ordinary path**. So the verdict EXITS into machinery that already
+exists, with the intake pre-filled from everything the assessment just learned.
+This is placement, not disagreement, and it is the difference between a bounded
+feature and an unbounded one: "rebuild" adds almost nothing to what must be
+built.
+
+**D7 — "WRONG TECHNOLOGY" IS ONLY A FINDING RELATIVE TO STATED REQUIREMENTS,
+and the requirements come from the interview.** Karl: *"It should be part of the
+interview to decide that and present the reasoning to the user."* The interview
+asks how many people use it, whether it needs high availability, whether it is
+internet-facing, what scalability it needs, how sensitive the data is — and the
+verdict derives from those answers.
+
+**The failure mode this guards against is specific:** an evaluator with good
+taste reads the STACK and says "rebuild this in Python" without reading the
+REQUIREMENTS. HTML over a spreadsheet, for three people in one office, once a
+month, is genuinely fine. A verdict not derived from the interview is an opinion
+wearing a certification stamp.
+
+**D8 — THE VERDICT'S PRESENTATION IS PART OF THE REQUIREMENT, not a courtesy.**
+Karl: the full technical explanation must be available AND the same content must
+be presented as a plain-English TL;DR for a non-developer, with **pros, cons,
+options, and suggestions with reasoning, so a non-developer can make an informed
+decision.**
+
+Two things follow. First, this is not a new standard to invent — it is the
+communication contract Karl already requires of agents working in this
+repository, generalised from how the framework reports to HIM into how the
+framework reports to ITS users. Second, it is what makes D6's "recommendation,
+never a gate" honest: a rebuild is the most expensive recommendation software
+can make, and one delivered as an unexplained verdict is indistinguishable from
+a refusal. **The reasoning IS the deliverable**; the conclusion alone is not.
+
+### Consequences for the unbuilt work packages
+
+**WP5's certification pass largely dissolves into Act 3.** Its problem was that
+a `completed` project landed at phase 4 with every prior gate needing
+certification and no certifier built. Under D4/D5 there is no claimed rung to
+certify against — **the assessment IS the certification**, and the landing rung
+falls out of it. WP5 should be re-cut or retired, not built as specified.
+
+**WP7 is unchanged in need but changes in content:** the Adoption Record now has
+an assessment and a plan to record, not just a scenario and a rung.
+
+**The design document needs more than its status row.** D4 overturns `§4 — The
+two scenarios (D2)`, which `§0.1` lists among the settled decisions carried into
+the design, and D5/D6 redraw work-package boundaries. Every amendment so far has
+been able to say *"No settled decision, decision table, or WP boundary changed"*;
+**this one cannot**, and it should not pretend otherwise. That amendment is a
+separate piece of work from this filing and is not attempted here.
+
 ### What this entry is asking for
 
 1. ~~**A decision on the three unowned capabilities**~~ — **DECIDED above
-   (D1-D3, Karl, 2026-08-23).** One sub-question remains open: whether
-   `tool-unavailable` is a hard refusal or takes the acknowledged escape (D2).
-2. **`## BL-225:` before any resumption** — a half-staged tree plus a false
+   (D1-D3).** And the sub-question that was open there is now moot: adoption
+   runs **tool resolution** (D5, Act 2), which installs gitleaks as a
+   `required: true` matrix entry, so `tool-unavailable` becomes a backstop for
+   `scan-failed` rather than the primary case. It stays a hard refusal.
+2. **A decision on whether to amend the design document or supersede it.** D4
+   overturns a settled decision and D5/D6 redraw WP boundaries; no previous
+   amendment has had to say that. This filing does not attempt it.
+3. **`## BL-225:` before any resumption** — a half-staged tree plus a false
    "nothing has been committed" is worse than a refusal, and adoption's whole
    value proposition is that it is safe to point at an existing repository.
-3. **WP5 then WP7**, in that order, if the plan resumes.
-4. Two one-line hygiene items: close `## BL-215:`, and correct
+4. **WP5 re-cut or retired, then WP7** — see the consequences section; WP5 as
+   specified no longer has a job.
+5. Two one-line hygiene items: close `## BL-215:`, and correct
    `adopt_stub_hooks`'s owner string to WP7.
 
 **`## F-010:` is superseded by this entry** and now points here.
