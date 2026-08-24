@@ -12573,7 +12573,7 @@ work whose PR this was blocking).
 **Filed 2026-08-23 at Karl's direction.** The feature has existed in shippable
 form since 2026-08-10 and its only tracker until now was `## F-010:` in
 `solo-orchestrator-followups.md` — an entry whose own title says *"still
-unfiled"* and whose status was *"Awaiting decision"*. A feature with eleven
+unfiled"* and whose status was *"Awaiting decision"*. A feature with twelve
 merged PRs, seven unbuilt capabilities and five live defects was being tracked
 by a note asking whether it should be tracked. That is the whole reason this
 entry exists; the engineering below is a summary, the filing is the point.
@@ -12592,12 +12592,22 @@ thesis is *"ask the code"* got the count wrong by asking one line of it.
 **The table below is HAND-ASSEMBLED from merge inspection, and that is stated
 because no one-liner reproduces it.** The obvious recipe —
 `git log --oneline --merges main | grep -i brownfield` — returns nine PRs plus a
-branch-sync merge, and **misses #343 entirely** (its branch is
-`docs/delta-scout-adoption-and-readme`, which contains no "brownfield"). A
-path-based `--full-history` derivation over the adoption surface returns a
-16-PR superset including unrelated PRs that merely touched those files. Both are
-useful starting points; neither is the answer, and printing one as though it
-were is what the first draft did.
+branch-sync merge (`dfa259e`), and **misses THREE of the twelve**: #343
+(`docs/delta-scout-adoption-and-readme`), #340
+(`fix/bl215-core-glob-host-drivers`) and #336, none of whose branches contain
+"brownfield".
+*(An earlier draft said it missed one. It misses two, and the arithmetic did not
+close — a reader adding 9 + 1 got ten against an eleven-row table. #340 was the
+PR the previous review round found missing from the table; it was added and this
+sentence was not updated with it.)*
+
+A path-based `--full-history` derivation over the adoption surface returns 16
+PRs — but that is **not a superset either**: it omits #346, which touched only
+`.github/workflows/tests.yml`. Widening the paths to include that file returns
+115. So no path-based derivation is simultaneously small and complete, which
+strengthens rather than weakens the point: both are useful starting points,
+neither is the answer, and printing one as though it were is what the first
+draft did.
 
 | Work package | Deliverable | PR |
 |---|---|---|
@@ -12607,6 +12617,7 @@ were is what the first draft did.
 | WP2 | Scout scanner sections (stack, phaseMap, reality probes, secrets, collisions, tests-baseline, intake-prefill) | #331 |
 | WP3 | In-core enabling arms — `scripts/lib/adoption-stamp.sh`, the `adopted` flag, the adoption-window-bounded TDD exemption, stamp acceptance in the gate | #335 |
 | WP4 | **The driver** — `scripts/adopt-project.sh` + `scripts/lib/adopt/`, the scenario chooser asked verbatim, the placement + floor rule, the reverse intake | #337 |
+| — | Design v1.2 (build-evidence amendment) + `## BL-215:` filed | #336 |
 | WP0 (fix) | `# BL-215-CORE-GLOB-SYNC` — the fifth CORE glob in both boundary lints | #340 |
 | WP8 | User-facing pages — `docs/scout.md`, `docs/adoption.md` | #343 |
 | WP5b | Test-debt ledger — `scripts/lib/adopt/adopt-test-debt.sh` | #344 |
@@ -12622,7 +12633,12 @@ so it is **full-lane only and does not gate a PR**.
 ### What is NOT built — seven capabilities
 
 Five announce themselves unconditionally during a run with a labelled `NOT DONE`
-block. **Two do not**, and the first draft of this entry said all seven did:
+block. **Two do not**, and the first draft of this entry said all seven did.
+*(The secrets one is conditional in only one direction: `adopt_stub_secrets_-`
+`disposition` has an EARLIER unconditional arm for `status != "scanned"`, so on
+a host without gitleaks SIX blocks appear, not five. The prose below got this
+right — "a secrets scan that RAN and found nothing" — and the table row above
+dropped the qualifier until review caught it.)*
 `adopt_stub_framework_script_collisions` and `adopt_stub_secrets_disposition`
 both open or close with `[ "$n" -gt 0 ] || return 0`, so on a clean adoptee — no
 framework-script collisions, a secrets scan that ran and found nothing — they
@@ -12658,26 +12674,40 @@ the operative one.
 | the commit-time scanners (the fallback pre-commit hook) | **WP7** — see below | always |
 | your project's framework documents | **nobody** | always |
 | installing the framework's version of *N* colliding script(s) | **nobody** | only when N > 0 |
-| the secrets disposition | **nobody** | only when the scan found something |
+| the secrets disposition | **nobody** | when the scan found something — **and unconditionally when it did not RUN** |
 
 **THREE are owned by nobody, and that is the item needing a decision.** `§10` of
 the design allocates work to packages and gives these three to none, so
 finishing WP5 and WP7 leaves all three exactly where they are. Until someone
 decides, "the adoption feature is finished" cannot be said truthfully.
 
-**The commit-time hook is WP7's, and the driver's own text says otherwise.**
+**The commit-time hook is WP7's by KARL'S DECISION — and not by §10, which is
+where an earlier draft of this paragraph got its evidence backwards.**
 `adopt_stub_hooks` prints `Owner: nobody yet — §10 names no owner`, and this
 entry's first draft counted it as a fourth unowned capability on the strength of
 that one string. `docs/adoption.md` anticipates exactly that mistake and refuses
 it in as many words — *"Read that 'Owner: nobody yet' against the decision, not
 instead of it… **Karl's decision is that the commit-time hook is installed by
-WP7**, once the artifacts it reads exist"* — and `adopt-stubs.sh`'s own header
-agrees (*"§10 gives WP7 the commit-time hook"*), contradicting the string 85
-lines below it. **The stale string is a small real defect**: it should be
-corrected when that file is next touched, because the next reader will make the
-same error this entry did. The deferral itself is deliberate, not an oversight —
-installing the hook before the artifacts it reads exist would refuse every
-commit.
+WP7**, once the artifacts it reads exist"*. That decision is the whole basis,
+and it is sufficient.
+
+**What was wrong was the corroboration.** This entry cited `adopt-stubs.sh`'s
+header (*"§10 gives WP7 the commit-time hook"*) as agreeing, and called the
+`adopt_stub_hooks` string the stale defect. Checked against §10's actual WP7
+scope row, it is the other way round: that row reads *"Framework CI at
+framework-owned filenames on all three hosts; the SDLC-undermining detector
+(report-only); keep-or-retire recorded; provenance-header lint; the eight-clause
+Adoption Record lint"* — **no hook**. So about §10, `adopt_stub_hooks` is
+ACCURATE and the header comment is the false one. The conclusion is unchanged;
+the evidence chain was inverted, in an entry whose thesis is that the code
+should be asked rather than remembered.
+
+**This changes the hygiene item.** Rewriting `adopt_stub_hooks` to say "WP7"
+would propagate a false §10 attribution. The honest string names the decision,
+not the section — something like *"WP7, by Karl's decision (§10 does not assign
+it)"* — and `adopt-stubs.sh`'s header comment is the line that needs correcting.
+The deferral itself is deliberate, not an oversight: installing the hook before
+the artifacts it reads exist would refuse every commit.
 
 ### Defects — five live, one already fixed, one closed
 
@@ -12849,9 +12879,19 @@ run.
    **collision archive** BEFORE any writer, or it captures the framework's file
    under the operator's name; **install**; **write minimal state and land at
    PHASE 0 PROVISIONALLY**; **commit**; **hooks last**.
-3. **ASSESS** — Claude Code. `resume.sh` already exists as the state-aware entry
-   point and detects `adopted, unassessed`. The **requirements interview** and
-   **all evaluators** run here.
+3. **ASSESS** — Claude Code. `resume.sh` is the state-aware entry point and is
+   **where Act 3 hooks in — it does not read the adoption stamp today**, and
+   `adopted, unassessed` is a state this design INTRODUCES. Measured:
+   `grep -ic adopt scripts/resume.sh` → 0, and `unassessed` appears nowhere in
+   `scripts/` or `tests/`. The flag itself exists (`soif_adoption_adopted`,
+   `# BF-ADOPT-FLAG-READ`) and `resume.sh` is simply not among its callers, so
+   the work is a new branch in a script that already has the right shape — not
+   nothing, and not already done. *(An earlier draft of this line said
+   `resume.sh` "already exists … and detects". That is the same present-tense-
+   claim-about-unbuilt-code defect that blocked this entry's first draft over
+   `## BL-215:`, and an implementer reading it would budget zero work for Act
+   3's entry point.)* The **requirements interview** and **all evaluators** run
+   here.
 4. **PLACE AND PROCEED** — rung derived from assessment evidence; documents
    written; plan presented; normal Build Loop.
 
@@ -12925,6 +12965,21 @@ been able to say *"No settled decision, decision table, or WP boundary changed"*
 **this one cannot**, and it should not pretend otherwise. That amendment is a
 separate piece of work from this filing and is not attempted here.
 
+### Why review is the only control point for this entry
+
+**Measured during round two of review, by planting two false claims in this very
+entry** — a falsified derived number (`65 files` → `650 files`) and a false
+attribution to a real function — and running the full lint suite: **15/15 PASS.**
+No PR-blocking check reads prose for truth, and none can. That is structurally
+why a green PR carried a present-tense claim about code that does not exist
+(`resume.sh`, corrected above) through to a second review round.
+
+The consequence is worth stating plainly rather than leaving implied: **for this
+entry, the green checkmarks mean the markdown is well-formed and its citations
+resolve — nothing more.** Every factual claim in it rests on adversarial review,
+and that is the argument for `## BL-242:`-class documents being reviewed at the
+same standard as code rather than waved through as "docs-only".
+
 ### What this entry is asking for
 
 1. ~~**A decision on the three unowned capabilities**~~ — **DECIDED above
@@ -12940,8 +12995,10 @@ separate piece of work from this filing and is not attempted here.
    value proposition is that it is safe to point at an existing repository.
 4. **WP5 re-cut or retired, then WP7** — see the consequences section; WP5 as
    specified no longer has a job.
-5. Two one-line hygiene items: close `## BL-215:`, and correct
-   `adopt_stub_hooks`'s owner string to WP7.
+5. Two hygiene items: close `## BL-215:`, and correct the OWNER-STRING PAIR in
+   `adopt-stubs.sh` — the header comment claiming §10 gives WP7 the hook is the
+   false one, and `adopt_stub_hooks`'s string should name Karl's decision rather
+   than §10, which does not assign it.
 
 **`## F-010:` is superseded by this entry** and now points here.
 

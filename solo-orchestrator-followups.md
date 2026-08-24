@@ -227,7 +227,7 @@ docs note; (b) accept — the failure is loud and self-explanatory.
 existing directories, so the framework cannot onboard an existing codebase.
 **Status:** Resolved 2026-08-23 — option (a) taken, at Karl's direction.
 
-**Superseded by `## BL-242:`**, which carries the whole picture: the eleven
+**Superseded by `## BL-242:`**, which carries the whole picture: the twelve
 merged PRs, the seven unbuilt capabilities (with a derivation recipe rather than
 a hand-maintained list — five announce themselves on every run, two only when
 they have something to report), the three that `§10` of the design assigns to
@@ -237,6 +237,8 @@ brownfield adoption there.
 
 **Worth keeping visible even though this row is now closed:** the gap this
 followup describes was closed in code — the framework HAS onboarded existing
-codebases since WP4 (PR #337) — while the row itself still read "still unfiled"
-and "awaiting decision" ten days later. A followup that outlives the thing it
+codebases since WP4 (PR #337, merged 2026-08-09) — while the row itself still
+read "still unfiled" and "awaiting decision" **fourteen days later**. (An
+earlier draft said ten. No anchor yields ten; it is an uncorrected residue of
+the same three-day date error that `9050a18` fixed everywhere else.) A followup that outlives the thing it
 describes is how a half-built feature ends up with no tracker.

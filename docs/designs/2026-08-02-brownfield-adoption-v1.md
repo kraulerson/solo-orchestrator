@@ -121,8 +121,38 @@ author-proposed.
 
 ### §0.2 — Amendment changelog
 
-**v1.2.2 (2026-08-23) — the status row's THIRD correction, and the last one it
-should need.** No settled decision, decision table or WP boundary changed.
+**v1.2.2 (2026-08-23) — the status row's third CORRECTION and its fourth
+REVISION, and the last one it
+should need.** **THIS AMENDMENT DOES CHANGE SETTLED THINGS, and saying
+otherwise here would be false.** Every prior amendment could honestly use that
+formula; this one cannot, and review caught it trying. `## BL-242:`'s D1, D2 and
+D3 are folded into the status row above, and each contradicts settled text this
+amendment leaves standing:
+
+- **D2 vs settled decision D4 and §6.3.** Both the decision table and §6.3 read
+  *"**BLOCK at strict**; **BIG WARNING at personal**"*. D2 says adoption STOPS
+  until every finding is acknowledged — at the personal tier the settled
+  decision WARNS and D2 STOPS. **This is an open question for Karl, not a
+  resolved one:** his instruction was "stop adoption until acknowledged" with no
+  mention of tiers, so D2 may be exactly what he wants, or the tiering may
+  survive and D2 apply at strict only. It is recorded as changed rather than
+  quietly applied.
+- **D3 vs §7.5.** §7.5 settles that adoption *"creates them when absent"* and is
+  *"notice-only when present"* for `CLAUDE.md` and `PROJECT_INTAKE.md`. D3
+  replaces existing documents and archives the originals.
+- **D1/D3 vs §7.1 and WP6's scope.** The status row states in as many words that
+  they make `scripts/` and documents two further classes for the collision
+  archive. That is a WP boundary change.
+
+`## BL-242:` correctly flagged D4, D5 and D6 as needing an amendment it
+deliberately does not attempt — and missed that D1, D2 and D3 are the three it
+DID write in. The v2 supersession that entry requests is where all six belong;
+until it lands, this row is the only place they appear and it says so.
+- *(On the count: v1.2.1's bullet below also says "the third time this row has
+  needed correcting", and both cannot be third. By this entry's own enumeration
+  — "Nothing is built" → WP0-WP3 → WP0-WP4 → this — v1.2.1 was the SECOND
+  correction and this is the third. The v1.2.1 wording is left as written; it is
+  noted here rather than silently edited.)*
 - The row read **"WP5, WP5b, WP6 and WP7 have not"** shipped. **WP5b merged as
   PR #344 and WP6 as PR #345**, both AFTER that sentence was written (it rode in
   on #343, 2026-08-10), so the row overstated the gap for thirteen days. Corrected to WP0–WP4, WP5b, WP6 and WP8 built;
