@@ -193,6 +193,68 @@ else
 $opt_leak"
 fi
 
+# ── T-refdocs-closure: the shipped REFERENCE DOCS must exist in this repo ────
+# A GAP THIS SUITE DID NOT COVER UNTIL 2026-08-23, found while adding the
+# eighth shipped doc. Everything above closes over shipped SCRIPTS via
+# soif_parse_shipped_scripts. init.sh also ships reference DOCUMENTS —
+# `cp "$SCRIPT_DIR/docs/<name>.md" docs/reference/` — through a sibling parser,
+# soif_parse_shipped_reference_docs, and NOTHING asserted their sources exist.
+#
+# The failure it allows is quiet and late: delete or rename one of those docs
+# and every check here still passes, `bash -n init.sh` still passes, and the
+# break surfaces only when a real operator runs init.sh and the cp fails
+# partway through a scaffold. That is the same class this suite was written
+# for, one parser over.
+echo "=== T-refdocs-closure: every shipped reference doc has a source ==="
+refdocs_missing=""
+refdocs_n=0
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  refdocs_n=$((refdocs_n + 1))
+  # The parser emits the DESTINATION (docs/reference/<base>); the source is
+  # docs/<base>, which is the only shape init.sh's cp line can take.
+  src="$REPO_ROOT/docs/${rel#docs/reference/}"
+  [ -f "$src" ] || refdocs_missing="$refdocs_missing$src
+"
+done <<REFDOCS
+$(soif_parse_shipped_reference_docs "$INIT")
+REFDOCS
+# VACUITY FLOOR. "No missing sources" is true of a parser that returned nothing
+# at all, which is exactly how a silent-empty parse would look — the same
+# tamper-evidence SHIPPED_COUNT gives the scripts half above.
+if [ "$refdocs_n" -lt 1 ]; then
+  fail_ "T-refdocs-closure (meta)" "the reference-doc parser derived NOTHING from init.sh; an empty set cannot be closed, so this proves nothing"
+elif [ -z "$refdocs_missing" ]; then
+  pass "T-refdocs-closure: all $refdocs_n shipped reference doc(s) have a source in docs/"
+else
+  fail_ "T-refdocs-closure" "shipped reference doc(s) with no source — init.sh would fail partway through a real scaffold:
+$refdocs_missing"
+fi
+
+# ── T-refdocs-catches-generic: the mutation, because absence proves nothing ──
+# Point the parser at an init.sh whose docs/ source cannot exist. If the check
+# stays green on that, it is not checking anything.
+echo "=== T-refdocs-catches-generic: a shipped doc with no source → RED ==="
+mut_init3="$(mktemp)"
+cp "$INIT" "$mut_init3"
+printf '  cp "$SCRIPT_DIR/docs/__no-such-shipped-doc__.md" docs/reference/\n' >> "$mut_init3"
+mut_missing=""
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  src="$REPO_ROOT/docs/${rel#docs/reference/}"
+  [ -f "$src" ] || mut_missing="$mut_missing$src
+"
+done <<REFDOCSMUT
+$(soif_parse_shipped_reference_docs "$mut_init3")
+REFDOCSMUT
+if printf '%s\n' "$mut_missing" | grep -q '__no-such-shipped-doc__'; then
+  pass "T-refdocs-catches-generic: a cp line whose docs/ source is absent is flagged"
+else
+  fail_ "T-refdocs-catches-generic" "an init.sh shipping a nonexistent doc was NOT flagged; got:
+$mut_missing"
+fi
+rm -f "$mut_init3"
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
