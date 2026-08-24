@@ -2041,6 +2041,9 @@ run_child_suite "tests/test-bl233-mcp-outcome-enforcement.sh" \
 run_child_suite "tests/test-bl233-wpb-accumulation.sh" \
   "tests/test-bl233-wpb-accumulation.sh"
 
+run_child_suite "tests/test-pr-review-gate.sh" \
+  "tests/test-pr-review-gate.sh"
+
 # BL-234 — currency and availability MEASURED, not declared. Four checks read a
 # declaration as a capability: freshness never fetched (so `pin-behind` compared
 # the pin against the clone it was cut from), `is_qdrant_mcp_registered` tested

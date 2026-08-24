@@ -2,7 +2,7 @@
 name: pr-reviewer
 description: Use when a PR or PR stack needs an adversarial five-dimension review before merge — technical standard, currency, optimality, stability, and security. Dispatch it on demand with one or more PR numbers or a base...head range; it refutes rather than confirms, treating every claim in PR bodies, commit messages, and backlog entries as UNVERIFIED until independently reproduced against the code and the actual PR-blocking checks, and returns a per-PR verdict (approve / minor_concerns / major_concerns / block, where major_concerns+ blocks merge) with numbered, evidence-backed findings. On-demand only, never auto-on-open.
 model: fable
-effort: xhigh
+effort: max
 ---
 
 <!--

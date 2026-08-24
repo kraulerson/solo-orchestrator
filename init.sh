@@ -1393,6 +1393,8 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/upgrade-project.sh" scripts/
   cp "$SCRIPT_DIR/scripts/reconfigure-project.sh" scripts/
   cp "$SCRIPT_DIR/scripts/verify-install.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/check-pr-review.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/record-pr-review.sh" scripts/
   cp "$SCRIPT_DIR/scripts/test-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-versions.sh" scripts/
   # BL-235-SHIP-PROBE: check-versions.sh above and resolve-tools.sh both run the
@@ -2819,6 +2821,31 @@ install_precommit_hook() {
 
   soif_write_precommit_hook ".git/hooks/pre-commit"
   print_ok "Pre-commit hook installed (gitleaks + Semgrep + schema migration checks)"
+
+  # THE REVIEW GATE IS A PRE-PUSH HOOK, and the boundary is the decision.
+  # Karl, 2026-08-23: the adversarial review is mandatory before code leaves the
+  # machine. Not before each COMMIT — three reasons, and the first is decisive.
+  # A git hook is a shell script and cannot invoke a model-driven reviewer (the
+  # brownfield evaluators hit the same wall); measured reviews run 11-39 minutes
+  # against commits that land every few minutes, which is `## BL-149:`'s
+  # deleted-gate shape exactly; and the model this gate specifies is slow by
+  # design. Push is where the cost is affordable and the check has teeth.
+  #
+  # The hook is a thin delegator on purpose: the logic lives in a shipped,
+  # testable script rather than in a heredoc nobody can run in isolation.
+  if [ ! -f ".git/hooks/pre-push" ]; then
+    cat > ".git/hooks/pre-push" <<'PREPUSH'
+#!/usr/bin/env bash
+# Solo Orchestrator — adversarial review gate. Delegates to the shipped script.
+# Degrades OPEN if the script is absent: a project that has not been given the
+# gate has not failed it, and refusing every push on a missing file would be a
+# gate nobody could satisfy. Its absence is loud in verify-install.
+[ -x scripts/check-pr-review.sh ] || exit 0
+exec bash scripts/check-pr-review.sh
+PREPUSH
+    chmod +x ".git/hooks/pre-push"
+    print_ok "Pre-push review gate installed (scripts/check-pr-review.sh)"
+  fi
 
   # BL-072 Phase C2 + BL-107: install the tier-keyed TDD-ordering gate as a
   # COMMIT-MSG hook -- the only git-hook point where .git/COMMIT_EDITMSG holds
