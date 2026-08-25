@@ -187,7 +187,7 @@ check_project_structure() {
   # init.sh's cp lines. This script runs INSIDE A GENERATED PROJECT, which has
   # no init.sh to parse — so the list is a copy, and a copy drifts.
   #
-  # It had drifted twice by 2026-08-23: uat-authoring-guide.md has shipped since
+  # It had drifted twice by 2026-08-24: uat-authoring-guide.md has shipped since
   # the 2026-06-28 six-doc drift-cluster closer (`77c6517`) and was never added,
   # and messaging-standard.md was added to init.sh earlier on this same branch.
   # Both are below now, and

@@ -194,7 +194,7 @@ $opt_leak"
 fi
 
 # ── T-refdocs-closure: the shipped REFERENCE DOCS must exist in this repo ────
-# A GAP THIS SUITE DID NOT COVER UNTIL 2026-08-23, found while adding the
+# A GAP THIS SUITE DID NOT COVER UNTIL 2026-08-24, found while adding the
 # eighth shipped doc. Everything above closes over shipped SCRIPTS via
 # soif_parse_shipped_scripts. init.sh also ships reference DOCUMENTS —
 # `cp "$SCRIPT_DIR/docs/<name>.md" docs/reference/` — through a sibling parser,
