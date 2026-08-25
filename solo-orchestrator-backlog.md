@@ -12804,10 +12804,13 @@ case: *"Why wouldn't the secrets scan run? That should never be an option."*
 Karl, 2026-08-25, resolving the sub-question review raised: *"Keep warn loudly
 for casual personal projects. Organizational projects are always a stop."*
 
-**WHETHER THIS CONFIRMS `§6.3` OR OVERTURNS IT DEPENDS ON A QUESTION NOBODY HAS
-ANSWERED, and an earlier version of this paragraph asserted the confirmation
-flatly while declaring the question undecided four lines below.** Both cannot
-stand. `§6.3` reads *"**BLOCK at strict**; **BIG WARNING at personal**"* — one
+**WHETHER THIS CONFIRMS `§6.3` OR OVERTURNS IT LOOKED LIKE AN OPEN QUESTION. IT
+WAS NOT ONE — RESOLVED BELOW, BY DERIVATION, 2026-08-25.** *(An earlier version
+of this paragraph asserted the confirmation flatly while declaring the question
+undecided four lines below; both could not stand. A later one left this head
+asserting "a question nobody has answered" in the present tense while the tail
+26 lines down said RESOLVED — the same defect again, in the commit whose whole
+subject was closing it.)* The fork it adjudicates: `§6.3` reads *"**BLOCK at strict**; **BIG WARNING at personal**"* — one
 value from each of two DIFFERENT settings:
 
 - `enforcement_level` ∈ `no` | `light` | `strict` (`scripts/lib/enforcement-level.sh`)
@@ -13070,14 +13073,14 @@ same standard as code rather than waved through as "docs-only".
    acknowledged escape or is a hard refusal with none is STILL OPEN; the D2
    section holds the reasoning, and this list defers to it rather than deciding
    in a summary.
-2. ~~**Two sub-questions left open by D2 and D3**~~ — **D2's are BOTH CLOSED.**
+2. ~~**Two sub-questions left open by D2 and D3**~~ — **the two D2 sub-questions
+   THIS ITEM tracked are both closed** (a third, `tool-unavailable`'s escape,
+   descends from D2, lives in item 1 and stays open).
    The tier scope was ruled by Karl on 2026-08-25 (organizational stops, casual
    personal warns loudly), and the axis reading that descended from it was
    **closed by DERIVATION on the same date, not by asking Karl a second time**:
-   `§6.3`'s BLOCK arm keys on `strict`, the ordinary personal project IS strict,
-   the ruling sends it to the warning arm, and no `enforcement_level` combination
-   is left over — so D2 OVERTURNS `§6.3` as written and the count is THREE. The
-   D2 section carries the full derivation; it is not restated here.
+   D2 OVERTURNS `§6.3` as written, so the count is THREE. The D2 section carries
+   the derivation.
    *(Two earlier versions of this clause were wrong in opposite directions: the
    first asserted "confirms `§6.3`" flatly while the D2 section said the opposite,
    and the second said the axis question was still open after it had been asked
