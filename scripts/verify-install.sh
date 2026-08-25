@@ -182,6 +182,18 @@ check_project_structure() {
   [ -f ".claude/orchestrator-source.json" ] && register_pass "orchestrator-source.json exists" || register_fixable "orchestrator-source.json missing" "fix_orchestrator_source"
 
   # Framework documents
+  # HAND-MAINTAINED, AND IT CANNOT BE OTHERWISE HERE. Everywhere else the
+  # shipped-doc set is derived by soif_parse_shipped_reference_docs from
+  # init.sh's cp lines. This script runs INSIDE A GENERATED PROJECT, which has
+  # no init.sh to parse — so the list is a copy, and a copy drifts.
+  #
+  # It had drifted twice by 2026-08-24: uat-authoring-guide.md has shipped since
+  # the 2026-06-28 six-doc drift-cluster closer (`77c6517`) and was never added,
+  # and messaging-standard.md was added to init.sh earlier on this same branch.
+  # Both are below now, and
+  # T-refdocs-verify-install-list in tests/test-scaffold-source-closure.sh
+  # compares this list against the parser so the next drift goes RED in the
+  # framework repo instead of silently costing a generated project its repair.
   local framework_docs=(
     "builders-guide.md"
     "governance-framework.md"
@@ -189,6 +201,8 @@ check_project_structure() {
     "cli-setup-addendum.md"
     "user-guide.md"
     "security-scan-guide.md"
+    "uat-authoring-guide.md"
+    "messaging-standard.md"
   )
   for doc in "${framework_docs[@]}"; do
     if [ -f "docs/reference/$doc" ]; then
@@ -1172,7 +1186,10 @@ fix_framework_doc() {
 }
 
 # Generate fix functions for each framework doc
-for _doc in builders-guide governance-framework executive-review cli-setup-addendum user-guide security-scan-guide; do
+# SYNC SIBLING of the framework_docs array in check_project_structure — a doc
+# detected there with no fix_* function here is detected and not repairable.
+# Same drift, same pin (T-refdocs-verify-install-list).
+for _doc in builders-guide governance-framework executive-review cli-setup-addendum user-guide security-scan-guide uat-authoring-guide messaging-standard; do
   eval "fix_framework_doc_${_doc}() { fix_framework_doc '${_doc}.md'; }"
 done
 

@@ -1320,6 +1320,7 @@ create_project() {
   cp "$SCRIPT_DIR/docs/executive-review.md" docs/reference/
   cp "$SCRIPT_DIR/docs/cli-setup-addendum.md" docs/reference/
   cp "$SCRIPT_DIR/docs/user-guide.md" docs/reference/
+  cp "$SCRIPT_DIR/docs/messaging-standard.md" docs/reference/
   cp "$SCRIPT_DIR/docs/security-scan-guide.md" docs/reference/
   # Audit uat-authoring-guide-2 (2026-06): the UAT authoring guide is
   # referenced by init.sh's UAT-references fallback print_* strings AND

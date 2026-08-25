@@ -51,12 +51,31 @@ soif_parse_shipped_scripts() {
 # soif_parse_shipped_reference_docs <init_file>
 #   Prints one shipped verbatim reference doc per line ("docs/reference/<base>"),
 #   LC-sorted & deduped. Derived MECHANICALLY from init.sh's docs→docs/reference/
-#   cp lines (the seven-doc Class-T verbatim set: builders-guide,
-#   governance-framework, executive-review, cli-setup-addendum, user-guide,
-#   security-scan-guide, uat-authoring-guide). A `cp "$SCRIPT_DIR/docs/foo.md"
-#   docs/reference/` line yields "docs/reference/foo.md" (cp to a directory keeps
-#   the source basename). Extends the shipped-set parser to reference docs for
-#   the BL-109 currency inventory; NO hand-maintained list. bash-3.2 safe.
+#   cp lines. A `cp "$SCRIPT_DIR/docs/foo.md" docs/reference/` line yields
+#   "docs/reference/foo.md" (cp to a directory keeps the source basename).
+#   Extends the shipped-set parser to reference docs for the BL-109 currency
+#   inventory; NO hand-maintained list. bash-3.2 safe.
+#
+#   THE COUNT AND THE ENUMERATION THAT USED TO LIVE HERE ARE GONE. This
+#   docstring said "the seven-doc Class-T verbatim set" and then named all seven
+#   — a hand-maintained list, inside the function whose entire selling point is
+#   that there is no hand-maintained list. It went stale the moment an eighth
+#   doc shipped. Ask the function.
+#
+# soif_parse_shipped_reference_doc_sources <init_file>
+#   The SAME cp lines, viewed from the other end: one SOURCE path per line
+#   ("docs/<...>/<base>"), LC-sorted & deduped.
+#
+#   IT EXISTS BECAUSE THE DESTINATION DOES NOT DETERMINE THE SOURCE, and a
+#   caller that reconstructs one from the other is wrong in both directions.
+#   `base="${src##*/}"` above strips a directory component precisely because
+#   the source may carry one, so `cp "$SCRIPT_DIR/docs/platform-modules/x.md"`
+#   lands at "docs/reference/x.md" — and a caller reconstructing "docs/x.md"
+#   from that destination checks a file that has nothing to do with the cp.
+#   Measured: such a caller reported "all 9 shipped reference doc(s) have a
+#   source" for an init.sh whose cp exited 1, and reported a MISSING source for
+#   a subdirectory cp that would have succeeded. Anything asking "does the
+#   source exist" must use this, not the destination.
 soif_parse_shipped_reference_docs() {
   local init_file="$1"
   local line src base
@@ -66,6 +85,17 @@ soif_parse_shipped_reference_docs() {
         [ -n "$src" ] || continue
         base="${src##*/}"
         printf 'docs/reference/%s\n' "$base"
+      done | sort -u
+}
+
+soif_parse_shipped_reference_doc_sources() {
+  local init_file="$1"
+  local line src
+  grep -E 'cp[[:space:]]+"\$SCRIPT_DIR/docs/[^"]*"[[:space:]]+docs/reference/' "$init_file" \
+    | while IFS= read -r line; do
+        src="$(printf '%s\n' "$line" | sed -n 's#.*cp[[:space:]]*"\$SCRIPT_DIR/\(docs/[^"]*\)".*#\1#p')"
+        [ -n "$src" ] || continue
+        printf '%s\n' "$src"
       done | sort -u
 }
 
