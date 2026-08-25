@@ -220,13 +220,26 @@ post-init maintenance tool, fails loudly, near-universal binary).
 **Options:** (a) one-line install hint in the message + a "maintenance tools"
 docs note; (b) accept — the failure is loud and self-explanatory.
 
-## F-010: Brownfield onboarding gap — still unfiled
+## F-010: Brownfield onboarding gap — FILED as `## BL-242:`
 
 **Raised:** 2026-07-12 session note ("real gap, NOT filed yet"); re-verified
 2026-08-01 — zero `brownfield` mentions in the backlog. `init.sh` refuses
 existing directories, so the framework cannot onboard an existing codebase.
-**Status:** Awaiting decision.
+**Status:** Resolved 2026-08-23 — filed as a backlog entry sourced from this
+repository's own surfaces (what the `**Options:**` block this entry used to
+carry, deleted in the same change, called
+option (a)), at Karl's direction.
 
-**Options:** (a) file as a backlog entry sourced from our own surfaces (the
-init.sh refusal path) with explicit scope choices; (b) declare out-of-scope for
-the framework's mission and record that in README/CLAUDE.md; (c) leave here.
+**Superseded by `## BL-242:`. Take every question about brownfield adoption
+there — the merged PRs, the unbuilt capabilities, the ownership decisions, the
+open questions and the defects are all recorded on that entry and are
+deliberately NOT restated here.** This row previously summarised them, and six
+adversarial review rounds found the summary drifting from the entry it
+summarised; the summary is gone rather than re-synchronised.
+
+**Worth keeping visible even though this row is now closed:** the gap this
+followup describes was closed in CODE at PR #337 (merged 2026-08-09) while the
+row itself still read "still unfiled" and "awaiting decision" a fortnight later.
+A followup that outlives the thing it describes is how a half-built feature ends
+up with no tracker — which is the whole reason `## BL-242:` exists.
+

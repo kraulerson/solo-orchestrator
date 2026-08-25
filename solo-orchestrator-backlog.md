@@ -12566,6 +12566,540 @@ work whose PR this was blocking).
 
 ---
 
+## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
+
+**Status:** Open
+
+**Filed 2026-08-23 at Karl's direction.** The feature has been able to adopt an
+existing codebase since **PR #337 merged on 2026-08-09**; the last of the
+shipped work packages landed 2026-08-10 and its only tracker until now was `## F-010:` in
+`solo-orchestrator-followups.md` — an entry whose own title says *"still
+unfiled"* and whose status was *"Awaiting decision"*. A feature with twelve
+merged PRs, seven unbuilt capabilities and five live defects was being tracked
+by a note asking whether it should be tracked. That is the whole reason this
+entry exists; the engineering below is a summary, the filing is the point.
+
+**THE FIRST DRAFT OF THIS ENTRY WAS BLOCKED IN REVIEW WITH FOUR REFUTED CLAIMS,
+and the corrections are kept visible rather than quietly applied** — two of the
+four were in its title. It claimed all seven capabilities "print `NOT DONE` at
+run time" (two do not); it printed a PR-derivation recipe that does not produce
+its own table; it described `## BL-215:` as an open gap two weeks after the gap
+shipped; and it counted **four** unowned capabilities by reading the one surface
+that `docs/adoption.md` explicitly says must not be read alone. An entry whose
+thesis is *"ask the code"* got the count wrong by asking one line of it.
+
+### What shipped
+
+**The table below is HAND-ASSEMBLED from merge inspection, and that is stated
+because no one-liner reproduces it.** The obvious recipe —
+`git log --oneline --merges main | grep -i brownfield` — returns nine PRs plus a
+branch-sync merge (`dfa259e`), and **misses THREE of the twelve**: #343
+(`docs/delta-scout-adoption-and-readme`), #340
+(`fix/bl215-core-glob-host-drivers`) and #336, none of whose branches contain
+"brownfield".
+*(An earlier draft said it missed one, then two. It misses THREE, and the arithmetic did not
+close — a reader adding 9 + 1 got ten against an eleven-row table. #340 was the
+PR the previous review round found missing from the table; it was added and this
+sentence was not updated with it.)*
+
+A path-based `--full-history` derivation over the adoption surface returns 16
+PRs — but that is **not a superset either**: it omits #346, which touched only
+`.github/workflows/tests.yml`. Widening the paths to include that file returns
+115. *(Both figures depend on the exact path list, which is not written down
+here — a reviewer's own reasonable guess returned 13 and 151. They are stated as
+what one path set produced, not as reproducible measurements, which is the
+honest status of a number whose recipe is missing.)* So no path-based derivation is simultaneously small and complete, which
+strengthens rather than weakens the point: both are useful starting points,
+neither is the answer, and printing one as though it were is what the first
+draft did.
+
+| Work package | Deliverable | PR |
+|---|---|---|
+| — | Architecture design v1 (`docs/designs/2026-08-02-brownfield-adoption-v1.md`) | #318 |
+| WP0 | Severable-module contract + `scripts/lint-module-dependencies.sh` | #325 |
+| WP1 | **Scout** — `scripts/scout.sh` + `scripts/lib/scout/*.sh` | #329 |
+| WP2 | Scout scanner sections (stack, phaseMap, reality probes, secrets, collisions, tests-baseline, intake-prefill) | #331 |
+| WP3 | In-core enabling arms — `scripts/lib/adoption-stamp.sh`, the `adopted` flag, the adoption-window-bounded TDD exemption, stamp acceptance in the gate | #335 |
+| WP4 | **The driver** — `scripts/adopt-project.sh` + `scripts/lib/adopt/`, the scenario chooser asked verbatim, the placement + floor rule, the reverse intake | #337 |
+| — | Design v1.2 (build-evidence amendment) + `## BL-215:` filed | #336 |
+| WP0 (fix) | `# BL-215-CORE-GLOB-SYNC` — the fifth CORE glob in both boundary lints | #340 |
+| WP8 | User-facing pages — `docs/scout.md`, `docs/adoption.md` | #343 |
+| WP5b | Test-debt ledger — `scripts/lib/adopt/adopt-test-debt.sh` | #344 |
+| WP6 | Collision archive — `scripts/lib/adopt/adopt-archive.sh` | #345 |
+| — | CI: the **WP5b and WP6** suites pinned to the `slow-misc` shard | #346 |
+
+Eight suites cover it — the seven `tests/test-brownfield-wp*.sh` files plus
+`tests/test-lint-module-dependencies.sh` for WP0's lint. Measured 2026-08-23:
+**309 assertions, 0 failed.** One caveat that is not this entry's to fix:
+`test-brownfield-wp3-regenerate-path.sh` is `unit-lane-exempt:init-sh-invoker`,
+so it is **full-lane only and does not gate a PR**.
+
+### What is NOT built — seven capabilities
+
+Five announce themselves unconditionally during a run with a labelled `NOT DONE`
+block. **Two do not**, and the first draft of this entry said all seven did.
+*(The secrets one is conditional in only one direction: `adopt_stub_secrets_-`
+`disposition` has an EARLIER unconditional arm for `status != "scanned"`, so on
+a host without gitleaks SIX blocks appear, not five. The prose below got this
+right — "a secrets scan that RAN and found nothing" — and the table row above
+dropped the qualifier until review caught it.)*
+`adopt_stub_framework_script_collisions` and `adopt_stub_secrets_disposition`
+both open or close with `[ "$n" -gt 0 ] || return 0`, so on a clean adoptee — no
+framework-script collisions, a secrets scan that ran and found nothing — they
+print **nothing at all**. On such a project five blocks appear, not seven. That
+is defensible behaviour (there is nothing to report) and an indefensible thing
+for this entry to have got wrong, because "the driver announces every gap" was
+the reason to trust it.
+
+The authoritative list is the `adopt_stub_*` functions actually CALLED. Derive
+it; do not maintain it:
+
+```
+for f in scripts/adopt-project.sh scripts/lib/adopt/*.sh; do
+  case "$f" in *adopt-stubs.sh) continue;; esac        # the DEFINITIONS live there
+  sed -e 's/^[[:space:]]*#.*$//' -e 's/[[:space:]]#.*$//' "$f"   # comments are not calls
+done | grep -ohE '\badopt_stub_[a-z_]+' | sort -u                # -> 7
+```
+
+**Both exclusions are load-bearing; with neither the recipe returns 9** (the
+first draft of this sentence said 8, which is what *either one alone* returns).
+Comments are not calls — `adopt_stub_test_debt_ledger` survives only as a
+comment in `adopt-state.sh`. And skipping `adopt-stubs.sh` removes
+`adopt_stub_notice`, the shared print helper, which is not a capability; the
+defined-but-uncalled set is in fact **empty**, so the first draft's stated
+reason for that exclusion ("measures what EXISTS rather than what RUNS") was not
+the operative one.
+
+| Capability (verbatim from the notice) | Owner | Announces |
+|---|---|---|
+| the certification pass | **WP5** | always |
+| the Adoption Record, the audit rows and the CI carve-out | **WP7** | always |
+| the provenance headers on reconstructed documents | **WP7** | always |
+| the commit-time scanners (the fallback pre-commit hook) | **WP7** — see below | always |
+| your project's framework documents | **nobody** | always |
+| installing the framework's version of *N* colliding script(s) | **nobody** | only when N > 0 |
+| the secrets disposition | **nobody** | when the scan found something — **and unconditionally when it did not RUN** |
+
+**THREE are owned by nobody, and that is the item needing a decision.** `§10` of
+the design allocates work to packages and gives these three to none, so
+finishing WP5 and WP7 leaves all three exactly where they are. Until someone
+decides, "the adoption feature is finished" cannot be said truthfully.
+
+**The commit-time hook is WP7's by KARL'S DECISION — and not by §10, which is
+where an earlier draft of this paragraph got its evidence backwards.**
+`adopt_stub_hooks` prints `Owner: nobody yet — §10 names no owner`, and this
+entry's first draft counted it as a fourth unowned capability on the strength of
+that one string. `docs/adoption.md` anticipates exactly that mistake and refuses
+it in as many words — *"Read that 'Owner: nobody yet' against the decision, not
+instead of it… **Karl's decision is that the commit-time hook is installed by
+WP7**, once the artifacts it reads exist"*. That decision is the whole basis,
+and it is sufficient.
+
+**What was wrong was the corroboration.** This entry cited `adopt-stubs.sh`'s
+header (*"§10 gives WP7 the commit-time hook"*) as agreeing, and called the
+`adopt_stub_hooks` string the stale defect. Checked against §10's actual WP7
+scope row, it is the other way round: that row reads *"Framework CI at
+framework-owned filenames on all three hosts; the SDLC-undermining detector
+(report-only); keep-or-retire recorded; provenance-header lint; the eight-clause
+Adoption Record lint"* — **no hook**. So about §10, `adopt_stub_hooks` is
+ACCURATE and the WP5b SECTION comment is the false one — not either file's header, which attributes §10 correctly. The conclusion is unchanged;
+the evidence chain was inverted, in an entry whose thesis is that the code
+should be asked rather than remembered.
+
+**This changes the hygiene item.** Rewriting `adopt_stub_hooks` to say "WP7"
+would propagate a false §10 attribution. The honest string names the decision,
+not the section — something like *"WP7, by Karl's decision (§10 does not assign
+it)"* — and the FALSE line is `adopt-stubs.sh`'s WP5b section comment — not its file header, which makes a correct §10/WP7 attribution. There is a SECOND copy in `scripts/lib/adopt/adopt-test-debt.sh`; a fix naming only one file fixes half of it. That comment is also wrong twice: it asserts `adopt_stub_hooks` "already carries that sentence" when it carries the opposite.
+The deferral itself is deliberate, not an oversight: installing the hook before
+the artifacts it reads exist would refuse every commit.
+
+### Defects — five live, one already fixed, one closed
+
+Filed separately and NOT duplicated here; this entry is the parent, they are the
+particulars. **The heading in the first draft was "Open defects against what
+shipped" and was wrong for three of the six it listed** — one gap is fixed and
+two are not against brownfield deliverables at all.
+
+**In the shipped adoption code:**
+- `## BL-225:` — the driver writes 78 files, STAGES 64, then discovers the
+  adoptee's `.gitignore` refuses one: no preflight, no rollback, no `git reset`,
+  and a refusal that says *"nothing has been committed"* while 64 files sit
+  staged. **The one that would actually burn an operator adopting a real
+  project**, and the first thing to fix if this work resumes.
+- `## BL-226:` — adoption tells the operator their files were "moved" when for
+  most of them nothing moved.
+- `## BL-228:` — `language` is a single-select scalar, so a polyglot project
+  cannot be described, and nothing ever asks for the system architecture.
+
+**Found during the work, but the fix lands in pre-existing core files, not in a
+brownfield deliverable** — adjacency, not ownership:
+- `## BL-223:` — `soif_parse_shipped_scripts` in `scripts/lib/scaffold-shipped-set.sh`. Open — DEFERRED.
+- `## BL-224:` — `scripts/lint-no-live-remote-in-tests.sh`. Open — DEFERRED.
+
+**Already fixed, status line stale:**
+- `## BL-215:` — the boundary lints' CORE set omitted `scripts/host-drivers/*.sh`.
+  **The FIX shipped in PR #340** under `# BL-215-CORE-GLOB-SYNC`; both
+  `CORE_GLOBS` arrays carry the fifth glob today, and the design document already
+  says so twice. Its `**Status:** Open` line needs closing — a pre-existing
+  ledger defect, noted here because the first draft of this entry re-asserted the
+  closed gap in the present tense inside a document meant to be authoritative.
+
+**Closed:** `## BL-221:` (PR #356), recorded so this is the whole set rather
+than the open subset.
+
+### THE THREE UNOWNED CAPABILITIES — DECIDED (Karl, 2026-08-23; D2 refined 2026-08-25)
+
+All three now carry a RECORDED DECISION — which is not the same as settled, and
+an earlier version of this line said "all three are now settled" while the
+design document recorded two open sub-questions about them (D2's tier scope, and
+whether D3 reaches `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md`) — D2's tier scope
+has since been answered, and the D2 question still open FROM THAT PAIR is the
+AXIS reading. **Three questions live in the asks list below, not two** — those
+two, plus a third that descends from D2 and post-dates the design document:
+whether `tool-unavailable` admits the acknowledged escape or is a hard refusal
+with none. *(This sentence said "both current questions", which undercounts the
+entry's own open set on any reading but the narrowest.)* **None is built**; what changed is that each has an
+answer, so "the adoption feature is finished" becomes a statement someone can
+check rather than one nobody can evaluate. Recorded here because none of the
+three is recoverable from the code.
+
+**D1 — COLLIDING SCRIPTS: archive yours, install the framework's, say so.**
+This REVERSES today's behaviour. `adopt_install_framework` currently skips any
+path where `[ -e "$dst" ]`, so the operator's file wins by default and the
+framework's is never installed — "the safe direction", at the cost of a
+half-wired framework nothing announces as broken.
+
+The install set is **65 files, all under `scripts/`** (36 `scripts/`, 24
+`scripts/lib/`, 3 `scripts/host-drivers/`, 2 `scripts/hooks/`), derived from
+`soif_parse_shipped_scripts`. The collision-prone tier is the 36 top-level ones,
+and the realistic names are the generic ones a real project already owns and has
+wired into a Makefile or CI: `validate.sh`, `test-gate.sh`, `cut-release.sh`,
+`check-updates.sh`, `check-versions.sh`, `probe-tool.sh`, `resume.sh`.
+
+Karl's decision: **treat `scripts/` exactly as D3 treats documents.** Archive the
+colliding file, install the framework's version, and NOTICE the operator with
+the list so they can move theirs back. Plus a standing warning that **replacing
+a framework script with their own may break the framework.**
+
+Two consequences this entry owns rather than discovers later:
+- **It fixes the sharpest edge of the current behaviour.** `verify-install.sh`
+  and `upgrade-project.sh` are both in the install set, so under today's rule a
+  collision on either leaves the adopted project unable to self-repair or
+  upgrade, silently. Framework-wins removes that class outright.
+- **It breaks the adoptee's build at the moment of adoption, not later.** If
+  their Makefile calls `scripts/validate.sh`, that call now reaches the
+  framework's script. The notice is therefore not a courtesy — it is the only
+  thing standing between the operator and a confusing failure, and it must name
+  every archived path, not a count.
+
+**D2 — SECRETS: TIER-SCOPED. Organizational projects STOP; casual personal
+projects get a loud warning. A scan that did not run is not an acceptable state
+either way.** Karl, first pass: *"Stop adoption until acknowledged with a reply
+of having been corrected or the risk is being accepted"*, and on the not-scanned
+case: *"Why wouldn't the secrets scan run? That should never be an option."*
+Karl, 2026-08-25, resolving the sub-question review raised: *"Keep warn loudly
+for casual personal projects. Organizational projects are always a stop."*
+
+**WHETHER THIS CONFIRMS `§6.3` OR OVERTURNS IT DEPENDS ON A QUESTION NOBODY HAS
+ANSWERED, and an earlier version of this paragraph asserted the confirmation
+flatly while declaring the question undecided four lines below.** Both cannot
+stand. `§6.3` reads *"**BLOCK at strict**; **BIG WARNING at personal**"* — one
+value from each of two DIFFERENT settings:
+
+- `enforcement_level` ∈ `no` | `light` | `strict` (`scripts/lib/enforcement-level.sh`)
+- `deployment` ∈ `personal` | `organizational`
+
+**They are NOT independent, and calling them that was wrong.** `init.sh`'s
+`# BL-030` block forces `ENFORCEMENT_LEVEL="strict"` whenever deployment is
+organizational — a supplied `--enforcement-level` is ignored with a warning — so
+**organizational ⇒ strict**, one way. And `# BL-180-ENFORCEMENT-DEFAULT` resolves
+the level for every path with `[ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"`,
+so **the ordinary personal project is `personal` + `strict`.**
+
+That combination is where the two readings diverge, and it is the DEFAULT one —
+not a corner case. For a default personal project both of `§6.3`'s arms match and
+they say opposite things. Karl's ruling picks the warning arm.
+
+- Read on **`deployment`**: D2 confirms `§6.3`, and this work changes **two**
+  settled things (D1, D3).
+- Read on **`enforcement_level`**: D2 overturns `§6.3`'s BLOCK-at-strict arm for
+  the default personal project, and the count is **three**.
+
+**The question is therefore not a tidy-up left for the supersession — it decides
+the count.** Recorded as open. What is NOT in doubt is the operational intent:
+organizational projects stop, casual personal projects warn loudly. Since
+organizational implies strict anyway, the two readings agree everywhere EXCEPT a
+personal project that kept the default level — which is most of them.
+
+`scout-secrets.sh` emits three statuses and only one of them is a result:
+
+| status | cause |
+|---|---|
+| `scanned` | gitleaks ran and its report parsed |
+| `tool-unavailable` | **gitleaks is not installed on the host** |
+| `scan-failed` | gitleaks exited non-zero, **or** its report did not parse — "usually a full disk or a killed process" |
+
+So `tool-unavailable` and `scan-failed` block at BOTH tiers — a scan that did not
+run is not an acceptable state either way — while `scanned`-with-findings stops
+an organizational adoption and warns loudly on a casual personal one. Remedies:
+install the tool, re-run the scan, or disposition the findings. *(An earlier
+version of this sentence said "all three block", untiered, four paragraphs below
+the heading that tiers them.)* **Requiring gitleaks asks for nothing new** — a
+scaffolded project's own pre-commit hook already runs it, so it is a tool the
+framework demands downstream regardless.
+
+The acknowledgement must be **RECORDED, and refused if it cannot be recorded** —
+BL-072's shape, which `## BL-233:` reused for `SOLO_MCP_ACCUM_ATTESTED`. An
+escape that leaves no trace is the advisory posture both of those entries exist
+to replace.
+
+**One distinction left OPEN for Karl, because it is the interesting half and
+this entry will not decide it silently:** "corrected, or the risk is accepted"
+is a coherent answer to a *known* finding. It is not obviously coherent for
+`tool-unavailable`, where the operator would be accepting the risk of
+credentials **nobody looked for**. The two readings are (a) `tool-unavailable`
+is a HARD REFUSAL with no escape at all — you cannot accept what was never
+measured — or (b) it takes the same acknowledged escape as everything else.
+This entry's author reads Karl's *"should never be an option"* as (a), and says
+so rather than assuming it.
+
+**D3 — PROJECT DOCUMENTS: write them, adapt or replace, archive the originals.**
+Karl's decision: an adopted project gets documents that **match the framework's
+documentation requirements** — adapted or merged from what the project already
+has, or written completely new where the reverse intake changes the architecture
+and feature set dramatically enough that merging would carry a false picture
+forward. **The old documents are archived in the project for historical
+purposes.**
+
+This settles the objection the current stub raises — *"a CLAUDE.md you already
+have would be a collision, not a gap"* — by making it an archive-and-replace,
+not a refusal. It also **extends WP6's collision archive beyond the two
+classes it covers today**: that archive today covers AI-layer settings and git
+hooks, and `adopt_stub_project_docs` says in as many words that "documents are
+neither". Under D1 and D3 they are — `scripts/` and documents become the third
+and fourth archive classes, which is one mechanism serving four cases rather
+than four mechanisms.
+
+### THE SHAPE OF ADOPTION ITSELF — DECIDED (Karl, 2026-08-23)
+
+D1-D3 above settle three unowned capabilities. D4-D8 below change the FEATURE,
+and they overturn a decision the design document lists as settled. Recorded
+here in full because none is recoverable from the code, and because the last
+time a decision of this size lived only in a conversation it produced `## F-010:`.
+
+**D4 — THE CHOOSER IS DELETED, NOT DEMOTED. Adoption assesses; it does not ask.**
+The driver today asks a verbatim scenario question (`completed` / `in-flight`)
+and, in an earlier draft of this conversation, would have gained a second one
+("was this built with Solo Orchestrator or another SDLC framework?"). Both are
+dropped. Every adopted project runs the full SDLC as Solo Orchestrator designs
+it.
+
+**Karl's reasoning, which is the load-bearing part and belongs verbatim:**
+*"I think trusting an end user to know what's needed is a mistake considering
+they are using the orchestrator BECAUSE they are not already following a proper
+SDLC."*
+
+That is a **selection-effect argument, and it is stronger than the mechanical
+one**. The mechanical objection was that a self-reported "yes, I used a
+framework" reduces scrutiny while being unverifiable — which inverts the floor
+rule the driver already enforces one question earlier (*"evidence you have not
+produced is not evidence"*, `adopt_decide_placement`). The selection argument
+goes further: the population being asked is, BY DEFINITION, the population
+least equipped to answer. Scout can detect Solo Orchestrator's own artifacts
+without asking anyone; everything else is a claim.
+
+**Blast radius, stated rather than discovered:** the chooser is asked verbatim
+at three sites and has its own tests; `adopt_ask_scenario` and
+`adopt_ask_audience` go; `adopt_decide_placement` loses its "claimed" operand
+and derives from evidence alone. This is a deletion with a footprint, not a
+string edit.
+
+**D5 — FOUR ACTS, and the split is forced rather than chosen.** The evaluators
+are model-driven and the driver is shell, so adoption cannot be one process.
+Karl's call is that adoption WAITS for the review ("using AI, it's only a few
+minutes"), which means the framework must be installed before the reviewers can
+run.
+
+1. **SURVEY** — Scout, read-only, no framework required. Writes only
+   `.claude/adoption/scout-report.json`.
+2. **PREPARE** — shell, writes. Order constrained by facts already in the code,
+   not by preference: **tool resolution** against the matrix (installs required
+   tools including gitleaks — the step adoption skips entirely today); the
+   **secrets gate** (now guaranteed a scanner); the **test-debt census** BEFORE
+   the install, or the 65 framework scripts pollute the baseline; the
+   **collision archive** BEFORE any writer, or it captures the framework's file
+   under the operator's name; **install**; **write minimal state and land at
+   PHASE 0 PROVISIONALLY**; **commit**; **hooks last**.
+3. **ASSESS** — Claude Code. `resume.sh` is the state-aware entry point and is
+   **where Act 3 hooks in — it does not read the adoption stamp today**, and
+   `adopted, unassessed` is a state this design INTRODUCES. Measured:
+   `grep -ic adopt scripts/resume.sh` → 0, and `unassessed` appears nowhere in
+   `scripts/` or `tests/`. The flag itself exists (`soif_adoption_adopted`,
+   `# BF-ADOPT-FLAG-READ`) and `resume.sh` is simply not among its callers, so
+   the work is a new branch in a script that already has the right shape — not
+   nothing, and not already done. *(An earlier draft of this line said
+   `resume.sh` "already exists … and detects". That is the same present-tense-
+   claim-about-unbuilt-code defect that blocked this entry's first draft over
+   `## BL-215:`, and an implementer reading it would budget zero work for Act
+   3's entry point.)* The **requirements interview** and **all evaluators** run
+   here.
+4. **PLACE AND PROCEED** — rung derived from assessment evidence; documents
+   written; plan presented; normal Build Loop.
+
+**THE PROVISIONAL PHASE-0 LANDING IS THE LOAD-BEARING CHOICE**, and it is what
+makes the split safe. It preserves the promise `adopt_main` already prints —
+*"If you stop partway, this project ends up more strictly gated than it started,
+never less."* An operator who never runs Act 3 leaves a project sitting at phase
+0 with everything ahead of it. **A project cannot land high by abandonment**;
+the scheme cannot express that outcome, rather than defending against it.
+
+One consequence: the reverse intake's mechanical prefill can stay in Act 2, but
+the **requirements interview moves to Act 3**, because it needs a model.
+
+**D6 — "REBUILD" IS A VERDICT ADOPTION RETURNS, NOT WORK ADOPTION DOES.**
+Karl's case, which this entry accepts in full: an inventory system built as HTML
+over an Excel file is not a project with debt, it is a project with the wrong
+architecture, and a framework that adopts it and stamps it is lying. Adoption
+must be able to conclude *"this architecture is unfit for its stated
+requirements."*
+
+What it must NOT do is perform the rebuild. A rebuild consists of a Phase 0
+intake, an architecture phase, a Build Loop and gates — **which is Solo
+Orchestrator's ordinary path**. So the verdict EXITS into machinery that already
+exists, with the intake pre-filled from everything the assessment just learned.
+This is placement, not disagreement, and it is the difference between a bounded
+feature and an unbounded one: "rebuild" adds almost nothing to what must be
+built.
+
+**D7 — "WRONG TECHNOLOGY" IS ONLY A FINDING RELATIVE TO STATED REQUIREMENTS,
+and the requirements come from the interview.** Karl: *"It should be part of the
+interview to decide that and present the reasoning to the user."* The interview
+asks how many people use it, whether it needs high availability, whether it is
+internet-facing, what scalability it needs, how sensitive the data is — and the
+verdict derives from those answers.
+
+**The failure mode this guards against is specific:** an evaluator with good
+taste reads the STACK and says "rebuild this in Python" without reading the
+REQUIREMENTS. HTML over a spreadsheet, for three people in one office, once a
+month, is genuinely fine. A verdict not derived from the interview is an opinion
+wearing a certification stamp.
+
+**D8 — THE VERDICT'S PRESENTATION IS PART OF THE REQUIREMENT, not a courtesy.**
+Karl: the full technical explanation must be available AND the same content must
+be presented as a plain-English TL;DR for a non-developer, with **pros, cons,
+options, and suggestions with reasoning, so a non-developer can make an informed
+decision.**
+
+Two things follow. First, this is not a new standard to invent — it is the
+communication contract Karl already requires of agents working in this
+repository, generalised from how the framework reports to HIM into how the
+framework reports to ITS users. Second, it is what makes D6's "recommendation,
+never a gate" honest: a rebuild is the most expensive recommendation software
+can make, and one delivered as an unexplained verdict is indistinguishable from
+a refusal. **The reasoning IS the deliverable**; the conclusion alone is not.
+
+### Consequences for the unbuilt work packages
+
+**WP5's certification pass largely dissolves into Act 3.** Its problem was that
+a `completed` project landed at phase 4 with every prior gate needing
+certification and no certifier built. Under D4/D5 there is no claimed rung to
+certify against — **the assessment IS the certification**, and the landing rung
+falls out of it. WP5 should be re-cut or retired, not built as specified.
+
+**WP7 is unchanged in need but changes in content:** the Adoption Record now has
+an assessment and a plan to record, not just a scenario and a rung.
+
+**The design document needs more than its status row.** D4 overturns `§4 — The
+two scenarios (D2)`, which `§0.1` lists among the settled decisions carried into
+the design, and **D1, D3, D5 and D6** redraw work-package boundaries — D3 says so
+in its own text (*"extends WP6's collision archive beyond the two classes it
+covers today"*), which an
+earlier version of this sentence named only D5/D6 despite. Every amendment BEFORE
+v1.2.2 could say *"No settled decision, decision table, or WP boundary changed"*;
+**v1.2.2, shipped in this PR, cannot**, and its §0.2 says so. That amendment is a
+separate piece of work from this filing and is not attempted here.
+
+### Why review is the only control point for this entry
+
+**Measured during round two of review, by planting two false claims in this very
+entry** — a falsified derived number (`65 files` → `650 files`) and a false
+attribution to a real function — and running the full lint suite: **15/15 PASS.**
+No PR-blocking check reads prose for truth, and none can. That is structurally
+why a green PR carried a present-tense claim about code that does not exist
+(`resume.sh`, corrected above) through to a second review round.
+
+The consequence is worth stating plainly rather than leaving implied: **for this
+entry, the green checkmarks mean the markdown is well-formed and its citations
+resolve — nothing more.** Every factual claim in it rests on adversarial review,
+and that is the argument for `## BL-242:`-class documents being reviewed at the
+same standard as code rather than waved through as "docs-only".
+
+### What this entry is asking for
+
+1. ~~**A decision on the three unowned capabilities**~~ — **DECIDED above
+   (D1-D3).** On the sub-question that was open there: adoption runs **tool
+   resolution** (D5, Act 2), which installs gitleaks as a `required: true`
+   matrix entry, so `tool-unavailable` becomes a rare backstop rather than the
+   primary case. **RARE IS NOT MOOT, and an earlier version of this item said
+   moot and answered the question itself** — while the D2 section four hundred
+   lines above deliberately left it open. Whether `tool-unavailable` admits the
+   acknowledged escape or is a hard refusal with none is STILL OPEN; the D2
+   section holds the reasoning, and this list defers to it rather than deciding
+   in a summary.
+2. ~~**Two sub-questions left open by D2 and D3**~~ — **D2's is ANSWERED**
+   (Karl, 2026-08-25): tier-scoped, organizational stops and personal warns
+   loudly. **Whether that CONFIRMS `§6.3` or overturns its BLOCK-at-strict arm
+   is the axis question below — it is STILL OPEN, and the D2 section carries the
+   derivation.** *(This clause said "which confirms `§6.3` rather than
+   overturning it" — flatly, while the D2 section ~200 lines above said the
+   opposite, and while v1's Version row and §0.2 in this same PR both carried
+   the contingent version. Round seven of review caught it: the seventh
+   consecutive instance of correct-in-one-place, stale-in-the-sibling, and the
+   one the structural collapse did not reach because both copies live inside
+   this entry.)* **One further sub-question remains:**
+   D3's scope is `adopt_stub_project_docs`, whose text names *"the document
+   templates"*, and `§7.5` settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as
+   *"If present, treated as theirs: kept, and reconciled by the interview rather
+   than overwritten"* — calling that *"a direct inversion of `create_project()`'s
+   CURRENT [emphasis added] unconditional `cp`"*. Whether D3 reaches those three is undecided. A
+   SECOND-ORDER question rides on D2's answer and is also undecided: `§6.3`
+   phrases the tiering as "strict / personal", mixing `enforcement_level` with
+   `deployment`, and Karl's ruling names only the latter.
+3. **A decision on whether to amend the design document or supersede it.** D4
+   overturns a settled decision and D1/D3/D5/D6 redraw WP boundaries; no
+   amendment before v1.2.2 had to say that. This filing does not attempt the
+   supersession.
+4. **`## BL-225:` before any resumption** — a half-staged tree plus a false
+   "nothing has been committed" is worse than a refusal, and adoption's whole
+   value proposition is that it is safe to point at an existing repository.
+5. **WP5 re-cut or retired, then WP7** — see the consequences section; WP5 as
+   specified no longer has a job.
+6. Two hygiene items: close `## BL-215:`, and correct the FALSE COMMENT in
+   `adopt-stubs.sh` AND `scripts/lib/adopt/adopt-test-debt.sh` — BOTH carry the
+   false "§10 gives WP7 the commit-time hook" claim, and a fix naming one file
+   fixes half of it. THE TWO SIT DIFFERENTLY, which an earlier version of this
+   item flattened: in `adopt-stubs.sh` it is a WP5b SECTION comment while that
+   file's header attributes §10 correctly; in `adopt-test-debt.sh` it is in the
+   HEADER block, and that file is WP5b in its entirety so "section comment"
+   distinguishes nothing there. Only the `adopt-stubs.sh` copy carries the
+   SECOND error (asserting `adopt_stub_hooks` "already carries that sentence"
+   when it carries the opposite). These are prose comments, not owner strings.
+   `adopt_stub_hooks`'s string should name Karl's decision rather than §10,
+   which does not assign it. `docs/adoption.md` also still says the driver's
+   text "will say so once it is next touched", which reads as an instruction to
+   write "WP7" plainly.
+
+**`## F-010:` is superseded by this entry** and now points here.
+
+**The design document's status row has been wrong three times, and the third is
+corrected with this filing.** It said "Nothing is built" through v1.1 (true when
+written); v1.2 corrected it to WP0–WP3; v1.2.1 corrected it to WP0–WP4 with
+"WP5, WP5b, WP6 and WP7 have not" shipped. WP5b (#344) and WP6 (#345) merged
+**after** that sentence was written (it rode in on #343, 2026-08-10), so it has
+overstated the gap for thirteen days. v1.2.2 restates the not-built set as the
+seven runtime stubs above — a list the code can be asked for rather than one a
+human maintains.
+
 ## BL-240: `workflow.html`'s "Verified against the tree on YYYY-MM-DD" stamp has no mechanism — and a staleness check is a lint that can red without a defect
 
 **Logged:** 2026-08-17 (split out of `## BL-230:` deliberately, at Karl's
