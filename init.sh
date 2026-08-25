@@ -2839,12 +2839,27 @@ install_precommit_hook() {
 # Solo Orchestrator — adversarial review gate. Delegates to the shipped script.
 # Degrades OPEN if the script is absent: a project that has not been given the
 # gate has not failed it, and refusing every push on a missing file would be a
-# gate nobody could satisfy. Its absence is loud in verify-install.
-[ -x scripts/check-pr-review.sh ] || exit 0
+# gate nobody could satisfy (`## BL-149:`). But it degrades LOUDLY — a deleted
+# or chmod -x'd script must not look identical to a clean pass, which is
+# `# BL-112-SAST-NOTRUN`'s posture: could-not-check is never nothing-to-check.
+# verify-install reports this hook and both scripts; that is what makes the
+# absence visible rather than merely announced here.
+if [ ! -x scripts/check-pr-review.sh ]; then
+  printf '%s\n' "[WARN] pre-push: scripts/check-pr-review.sh is absent or not executable — PUSHING UNGATED." >&2
+  printf '%s\n' "       This is not a clean review; nothing was checked. Run scripts/verify-install.sh --auto-fix." >&2
+  exit 0
+fi
 exec bash scripts/check-pr-review.sh
 PREPUSH
     chmod +x ".git/hooks/pre-push"
     print_ok "Pre-push review gate installed (scripts/check-pr-review.sh)"
+  else
+    # BL-PRGATE-INSTALL-SKIP-LOUD: never clobber a hook the operator wrote —
+    # but never skip in silence either. Before this arm, a project whose
+    # pre-push hook predated the framework got NO review gate and NO sentence
+    # saying so, which is the same silent-omission class the gate exists to end.
+    print_warn "Existing .git/hooks/pre-push left untouched — the review gate was NOT installed."
+    print_warn "  To enable it, add to that hook: exec bash scripts/check-pr-review.sh"
   fi
 
   # BL-072 Phase C2 + BL-107: install the tier-keyed TDD-ordering gate as a

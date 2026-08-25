@@ -377,6 +377,13 @@ check_scripts() {
     "scripts/pending-approval.sh"
     "scripts/lint-uat-scenarios.sh"
     "scripts/escalate-to-user.sh"
+    # BL-PRGATE-VERIFY-MANIFEST: the push-time review gate. Listing these is what
+    # makes the pre-push hook's "its absence is loud in verify-install" true —
+    # it was not, and an unlisted script also gives pre-gate projects no
+    # `--auto-fix` backfill path, so the gate reached ONLY projects initialized
+    # after it shipped.
+    "scripts/check-pr-review.sh"
+    "scripts/record-pr-review.sh"
     "scripts/hooks/bypass-detector.sh"
     # BL-030 (post-PR #48): detector, installer, recorder hook, and
     # the fixture-envelope lint that gates the BL-029 hook schema.
@@ -664,6 +671,24 @@ check_git() {
     register_manual "Commit-msg TDD gate hook missing" "Initialize git first, then re-run verify"
   fi
   # BL-141-COMMITMSG-VERIFY-END
+
+  # BL-PRGATE-VERIFY-HOOK: the pre-push review gate. Reported, not auto-fixed:
+  # the hook body is init.sh's to write, and silently materializing a
+  # push-blocking hook under someone's feet is the wrong direction for a gate
+  # whose own doctrine is `## BL-149:` (a gate people cannot satisfy honestly
+  # gets deleted). Naming it is the whole point — before this row, a project
+  # with no gate, a deleted gate script, or a chmod -x'd one all looked
+  # identical to a project that had one.
+  if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
+     && grep -qF 'check-pr-review.sh' "$_hooksdir/pre-push" 2>/dev/null; then
+    register_pass "Pre-push review gate hook installed ($_hooksdir/pre-push)"
+  elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ]; then
+    register_manual "Pre-push hook exists but does not delegate to the review gate" \
+      "init.sh never clobbers an existing pre-push hook. Add: [ -x scripts/check-pr-review.sh ] || exit 0; exec bash scripts/check-pr-review.sh"
+  elif [ -d "$_hooksdir" ]; then
+    register_manual "Pre-push review gate hook missing — pushes are NOT gated by adversarial review" \
+      "Re-run init.sh, or write .git/hooks/pre-push delegating to scripts/check-pr-review.sh"
+  fi
 
   if git rev-parse HEAD &>/dev/null 2>&1; then
     register_pass "Initial commit exists"

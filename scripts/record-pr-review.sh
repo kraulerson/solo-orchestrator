@@ -16,20 +16,27 @@
 #
 # Usage:
 #   scripts/record-pr-review.sh --verdict <approve|minor_concerns|major_concerns|block>
-#                               [--summary-file <path>] [--reviewer <name>]
+#                               [--summary-file <path>] [--reviewer <name>] [--head <sha>]
 set -euo pipefail
 
 STATE=".claude/process-state.json"
 VERDICT=""
+REVIEWED_HEAD=""
 SUMMARY_FILE=""
 REVIEWER="pr-reviewer"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --verdict)      VERDICT="${2:-}"; shift 2 ;;
+    # BL-PRGATE-REVIEWED-HEAD: a review takes minutes, and a commit landing
+    # DURING one would otherwise be laundered under its verdict — the recorder
+    # binds to HEAD-at-record-time. The reviewer knows what it actually read, so
+    # let it say so; a mismatch with push-time HEAD then trips the stale arm,
+    # which is the correct outcome rather than a silent pass.
+    --head)         REVIEWED_HEAD="${2:-}"; shift 2 ;;
     --summary-file) SUMMARY_FILE="${2:-}"; shift 2 ;;
     --reviewer)     REVIEWER="${2:-}"; shift 2 ;;
-    -h|--help)      sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help)      sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "record-pr-review: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -44,7 +51,15 @@ command -v jq >/dev/null 2>&1 || { echo "record-pr-review: jq is required" >&2; 
 command -v git >/dev/null 2>&1 || { echo "record-pr-review: git is required" >&2; exit 2; }
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "record-pr-review: not a git repository" >&2; exit 2; }
 
-HEAD_SHA="$(git rev-parse HEAD 2>/dev/null || printf '')"
+HEAD_SHA="$(git rev-parse --verify HEAD 2>/dev/null || printf '')"   # BL-PRGATE-REVPARSE-VERIFY
+# BL-PRGATE-REVIEWED-HEAD: --head lets the caller name the sha that was
+# ACTUALLY reviewed. Resolved through `--verify` so a typo or a sha that is not
+# in this repository is refused here rather than becoming an unmatchable record
+# that reads as a stale review later.
+if [ -n "$REVIEWED_HEAD" ]; then
+  HEAD_SHA="$(git rev-parse --verify "${REVIEWED_HEAD}^{commit}" 2>/dev/null || printf '')"
+  [ -n "$HEAD_SHA" ] || { echo "record-pr-review: --head '$REVIEWED_HEAD' does not resolve to a commit in this repository" >&2; exit 2; }
+fi
 [ -n "$HEAD_SHA" ] || { echo "record-pr-review: HEAD does not resolve — nothing to record against" >&2; exit 2; }
 
 # THE SUMMARY IS SANITISED AT INGEST, not at display. It is operator- or
@@ -84,6 +99,8 @@ fi
 mv "$TMP" "$STATE"
 
 echo "[OK] PR review recorded: $VERDICT against $HEAD_SHA"
+echo "     $STATE is tracked — leave this change UNCOMMITTED until after the push."
+echo "     Committing it moves HEAD, and the record would then name the wrong commit."
 case "$VERDICT" in
   approve|minor_concerns)
     echo "     A push of this HEAD will pass the review gate." ;;

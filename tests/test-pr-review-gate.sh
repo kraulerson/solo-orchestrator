@@ -41,8 +41,12 @@ mk() {   # mk DIR — a project with one commit
     git config user.email t@e.x; git config user.name "T O"
     echo x > a.txt; git add -A >/dev/null 2>&1; git commit -qm "feat: a" >/dev/null 2>&1 )
 }
-run()  { ( cd "$1" && bash "$CHECK" 2>&1 ); }
-rc_of(){ ( cd "$1" && bash "$CHECK" >/dev/null 2>&1 ); echo $?; }
+run()  { ( cd "$1" && bash "$CHECK" </dev/null 2>&1 ); }
+rc_of(){ ( cd "$1" && bash "$CHECK" </dev/null >/dev/null 2>&1 ); echo $?; }
+# push_out / push_rc DIR REFLINE... — drive the gate the way git does.
+push_out(){ local d="$1"; shift; ( cd "$d" && printf '%s\n' "$@" | bash "$CHECK" 2>&1 ); }
+push_rc() { local d="$1"; shift; ( cd "$d" && printf '%s\n' "$@" | bash "$CHECK" >/dev/null 2>&1 ); echo $?; }
+ZERO=0000000000000000000000000000000000000000
 
 echo "=== A. absent, present, stale, refused — four situations, four messages ==="
 
@@ -77,7 +81,8 @@ C="$(newtmp)"; mk "$C"
 ( cd "$C" && bash "$RECORD" --verdict approve >/dev/null 2>&1
   echo y >> a.txt; git add -A >/dev/null 2>&1; git commit -qm "feat: b" >/dev/null 2>&1 )
 c_out="$(run "$C")"; c_rc="$(rc_of "$C")"
-if [ "$c_rc" -ne 0 ] && printf '%s' "$c_out" | grep -q 'DIFFERENT commit' \
+if [ "$c_rc" -ne 0 ] && printf '%s' "$c_out" | grep -q 'does not cover what you are pushing' \
+   && printf '%s' "$c_out" | grep -q 'Recorded against:' \
    && ! printf '%s' "$c_out" | grep -q 'no review has ever been recorded'; then
   pass "C1: a review of an EARLIER commit blocks and is named as stale, not as missing — the remedy differs"
 else
@@ -160,6 +165,148 @@ case "$i2_sum" in
   "")   fail_ "I2" "the summary was not recorded at all, so the strip proves nothing" ;;
   *)    pass "I2: a summary is stripped of control characters AND backslashes where it ENTERS, so no later display site can be tricked into forging a line" ;;
 esac
+
+echo ""
+echo "=== J. the two arms a mutation battery found UNCOVERED ==="
+
+# J1. THE GATE'S OWN unknown-verdict ARM. I1 below covers the RECORDER refusing
+# an invented verdict, which is a different arm in a different script — a state
+# file can be hand-edited, or written by an older recorder. With no assertion
+# here, flipping the gate's `*)` arm to `exit 0` passed the whole suite.
+J1="$(newtmp)"; mk "$J1"
+( cd "$J1" && printf '{"pr_review":{"head":"%s","verdict":"lgtm"}}\n' "$(git rev-parse HEAD)" > .claude/process-state.json )
+j1_out="$(run "$J1")"; j1_rc="$(rc_of "$J1")"
+if [ "$j1_rc" -ne 0 ] && printf '%s' "$j1_out" | grep -q 'not one this gate understands'; then
+  pass "J1: a verdict the gate does not recognise BLOCKS — 'could not classify' is not 'approved'"
+else
+  fail_ "J1" "rc=$j1_rc out: $(printf '%s' "$j1_out" | grep BLOCKED | head -1)"
+fi
+
+# J2. THE UNTOOLED ARM. The header calls this one of the situations that get
+# their own message, and it had no assertion at all — flipping it to `exit 0`
+# also passed the whole suite. A stub PATH holding only `git` reaches it,
+# because the jq probe precedes every other external tool on the non-attested
+# path.
+J2="$(newtmp)"; mk "$J2"
+j2_stub="$J2/stub"; mkdir -p "$j2_stub"
+ln -s "$(command -v git)" "$j2_stub/git" 2>/dev/null
+if [ -x "$j2_stub/git" ]; then
+  j2_out="$( cd "$J2" && PATH="$j2_stub" "$(command -v bash)" "$CHECK" </dev/null 2>&1 )"
+  j2_rc="$( cd "$J2" && PATH="$j2_stub" "$(command -v bash)" "$CHECK" </dev/null >/dev/null 2>&1; echo $? )"
+  if [ "$j2_rc" -ne 0 ] && printf '%s' "$j2_out" | grep -q 'jq is not installed'; then
+    pass "J2: with jq unavailable the gate BLOCKS and names the TOOLING fault — 'could not check' is never 'nothing to check'"
+  else
+    fail_ "J2" "rc=$j2_rc out: $(printf '%s' "$j2_out" | head -2 | tr '\n' '|')"
+  fi
+else
+  fail_ "J2" "could not build a git-only PATH stub, so the untooled arm went unmeasured"
+fi
+
+echo ""
+echo "=== K. a push does not have to push HEAD (BL-PRGATE-PUSHED-REFS) ==="
+
+# K1 IS THE REGRESSION PIN FOR A REAL FAIL-OPEN. The first cut read only
+# `git rev-parse HEAD`, so with an approve on record for HEAD, pushing ANY other
+# branch shipped never-reviewed commits while the gate printed [OK]. Ordinary
+# git usage, no dishonesty, no trace.
+K="$(newtmp)"; mk "$K"
+# Build the second branch FIRST and stage only the file it adds. Recording
+# before this, with `git add -A`, swept the untracked state file into the other
+# branch's commit — so checking back out to main deleted the record and every
+# case here read as "never reviewed", which would have made K1 pass for the
+# wrong reason.
+( cd "$K" && git checkout -q -b other && echo z > z.txt && git add z.txt >/dev/null 2>&1 \
+  && git commit -qm "feat: unreviewed" >/dev/null 2>&1 && git checkout -q main )
+k_other="$( cd "$K" && git rev-parse other )"
+( cd "$K" && bash "$RECORD" --verdict approve >/dev/null 2>&1 )
+k_head="$( cd "$K" && git rev-parse HEAD )"
+
+k1_out="$(push_out "$K" "refs/heads/other $k_other refs/heads/other $ZERO")"
+k1_rc="$(push_rc  "$K" "refs/heads/other $k_other refs/heads/other $ZERO")"
+if [ "$k1_rc" -ne 0 ] && printf '%s' "$k1_out" | grep -q 'does not cover what you are pushing'; then
+  pass "K1: an approve on record for HEAD does NOT let an unreviewed branch be pushed — the gate reads the refs git hands it, not HEAD"
+else
+  fail_ "K1" "rc=$k1_rc — unreviewed commits would ship: $(printf '%s' "$k1_out" | grep -E '\[OK\]|BLOCKED' | head -1)"
+fi
+
+k2_rc="$(push_rc "$K" "refs/heads/main $k_head refs/heads/main $ZERO")"
+if [ "$k2_rc" -eq 0 ]; then
+  pass "K2: pushing the reviewed commit still passes — closing the fail-open did not close the honest path"
+else
+  fail_ "K2" "the REVIEWED commit was blocked (rc=$k2_rc): $(push_out "$K" "refs/heads/main $k_head refs/heads/main $ZERO" | grep BLOCKED | head -1)"
+fi
+
+# A DELETION SHIPS NO CODE. Blocking `git push --delete` on an unreviewed HEAD
+# was fail-closed for nothing, and `## BL-149:` is the standing rule about gates
+# people cannot satisfy honestly.
+k3_out="$(push_out "$K" "(delete) $ZERO refs/heads/gone $k_other")"
+k3_rc="$(push_rc  "$K" "(delete) $ZERO refs/heads/gone $k_other")"
+if [ "$k3_rc" -eq 0 ] && printf '%s' "$k3_out" | grep -q 'deletion-only'; then
+  pass "K3: a deletion-only push passes and says why — no commits leave the machine, so there is nothing a review could have covered"
+else
+  fail_ "K3" "rc=$k3_rc out: $(printf '%s' "$k3_out" | head -1)"
+fi
+
+# THE ESCAPE MUST REACH THE NEW REFUSAL. `## BL-233:` shipped guards that failed
+# closed AHEAD of the attested escape, leaving an honest operator no way past.
+k4_out="$( cd "$K" && printf '%s\n' "refs/heads/other $k_other refs/heads/other $ZERO" \
+  | SOLO_PR_REVIEW_ATTESTED=1 SOLO_PR_REVIEW_ATTESTED_REASON="pinning that the escape reaches the ref check" bash "$CHECK" 2>&1 )"
+k4_rc="$( cd "$K" && printf '%s\n' "refs/heads/other $k_other refs/heads/other $ZERO" \
+  | SOLO_PR_REVIEW_ATTESTED=1 SOLO_PR_REVIEW_ATTESTED_REASON="pinning that the escape reaches the ref check" bash "$CHECK" >/dev/null 2>&1; echo $? )"
+k4_rec="$( cd "$K" && jq -r '.pr_review_attestations[-1].pushed // ""' .claude/process-state.json 2>/dev/null )"
+if [ "$k4_rc" -eq 0 ] && [ "$k4_rec" = "$k_other" ]; then
+  pass "K4: the attested escape reaches the new ref check AND records the sha actually being pushed, not HEAD"
+else
+  fail_ "K4" "rc=$k4_rc recorded-pushed='$k4_rec' expected='$k_other'"
+fi
+
+echo ""
+echo "=== L. the guard that could not fire (BL-PRGATE-REVPARSE-VERIFY) ==="
+
+# BARE `git rev-parse HEAD` ON AN UNBORN BRANCH ECHOES THE LITERAL STRING
+# "HEAD" TO STDOUT and exits 128, so `|| printf ''` never fires and the
+# emptiness guard both scripts advertise could never fire either. Measured, not
+# reasoned: without --verify a full green loop runs in a repo with ZERO commits,
+# recording an approve against the word "HEAD" and passing the gate on it.
+L="$(newtmp)"
+( cd "$L" && unset GITHUB_BASE_REF && git init -q -b main . >/dev/null 2>&1
+  git config user.email t@e.x; git config user.name "T O"; mkdir -p .claude )
+l_out="$(run "$L")"; l_rc="$(rc_of "$L")"
+if [ "$l_rc" -ne 0 ] && printf '%s' "$l_out" | grep -qi 'unborn\|does not resolve\|nothing resolves'; then
+  pass "L1: with no commits at all the gate REFUSES instead of resolving HEAD to the literal string 'HEAD'"
+else
+  fail_ "L1" "rc=$l_rc out: $(printf '%s' "$l_out" | head -1)"
+fi
+
+l2_rc="$( cd "$L" && bash "$RECORD" --verdict approve >/dev/null 2>&1; echo $? )"
+l2_rec="$( cd "$L" && jq -r '.pr_review.head // "<none>"' .claude/process-state.json 2>/dev/null || printf '<none>' )"
+if [ "$l2_rc" -ne 0 ] && [ "$l2_rec" != "HEAD" ]; then
+  pass "L2: the recorder refuses too, so no verdict is ever written against the word 'HEAD'"
+else
+  fail_ "L2" "rc=$l2_rc recorded-head='$l2_rec'"
+fi
+
+# --head BINDS THE RECORD TO WHAT WAS REVIEWED. A review takes minutes; a commit
+# landing during one would otherwise be laundered under its verdict, because the
+# recorder binds to HEAD-at-record-time.
+L3="$(newtmp)"; mk "$L3"
+l3_first="$( cd "$L3" && git rev-parse HEAD )"
+( cd "$L3" && echo w >> a.txt && git add a.txt >/dev/null 2>&1 && git commit -qm "feat: landed during the review" >/dev/null 2>&1 )
+( cd "$L3" && bash "$RECORD" --verdict approve --head "$l3_first" >/dev/null 2>&1 )
+l3_rec="$( cd "$L3" && jq -r '.pr_review.head // ""' .claude/process-state.json 2>/dev/null )"
+l3_rc="$(rc_of "$L3")"
+if [ "$l3_rec" = "$l3_first" ] && [ "$l3_rc" -ne 0 ]; then
+  pass "L3: --head records the REVIEWED sha, so a commit that landed mid-review trips the stale arm instead of inheriting the verdict"
+else
+  fail_ "L3" "recorded='$l3_rec' expected='$l3_first' gate-rc=$l3_rc (expected non-zero)"
+fi
+
+l4_rc="$( cd "$L3" && bash "$RECORD" --verdict approve --head deadbeefdeadbeefdeadbeefdeadbeefdeadbeef >/dev/null 2>&1; echo $? )"
+if [ "$l4_rc" -ne 0 ]; then
+  pass "L4: --head with a sha not in this repository is refused at record time, not left as an unmatchable record that later reads as a stale review"
+else
+  fail_ "L4" "a nonexistent sha was accepted as the reviewed head"
+fi
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"

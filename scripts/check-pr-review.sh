@@ -74,11 +74,50 @@ _refuse() {
   _say ""
 }
 
-command -v git >/dev/null 2>&1 || { _say "check-pr-review: git unavailable — cannot identify HEAD."; exit 1; }
+command -v git >/dev/null 2>&1 || { _say "check-pr-review: git unavailable — cannot identify what is being pushed."; exit 1; }
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0   # not a repo: nothing to gate
 
-HEAD_SHA="$(git rev-parse HEAD 2>/dev/null || printf '')"
-[ -n "$HEAD_SHA" ] || { _say "check-pr-review: HEAD does not resolve — refusing rather than guessing."; exit 1; }
+# BL-PRGATE-PUSHED-REFS: A PUSH DOES NOT HAVE TO PUSH HEAD, and the first cut of
+# this gate assumed it did — its only input was `git rev-parse HEAD`. With an
+# approve on record for HEAD, `git push origin <some-other-branch>` shipped
+# never-reviewed commits while this script printed [OK]: ordinary git usage, no
+# dishonesty required, no trace left. git hands a pre-push hook the refs on
+# STDIN, one line each: `<local-ref> <local-sha> <remote-ref> <remote-sha>`.
+# `[ -t 0 ]` separates the hook (stdin is a pipe) from a human running this by
+# hand (stdin is a tty), where a read would block forever.
+_pushed_shas=""
+_saw_refs=0
+if [ ! -t 0 ]; then
+  while read -r _lref _lsha _rref _rsha || [ -n "${_lref:-}" ]; do
+    [ -n "${_lref:-}" ] || continue
+    _saw_refs=1
+    [ -n "${_lsha:-}" ] || continue
+    # An all-zero local sha is a DELETION — nothing leaves the machine, so there
+    # is nothing that could have been reviewed. Blocking those was fail-closed
+    # for no gain.
+    case "$_lsha" in
+      *[!0]*) if [ -z "$_pushed_shas" ]; then _pushed_shas="$_lsha"
+              else _pushed_shas="$_pushed_shas $_lsha"; fi ;;
+    esac
+  done
+fi
+
+if [ "$_saw_refs" = "1" ] && [ -z "$_pushed_shas" ]; then
+  printf '%s\n' "${GRN}[OK]${NC} deletion-only push — no commits leave the machine, nothing to review." >&2
+  exit 0
+fi
+
+# BL-PRGATE-REVPARSE-VERIFY: `--verify` is load-bearing. Bare `git rev-parse
+# HEAD` on an unborn branch ECHOES THE LITERAL STRING "HEAD" to stdout and exits
+# 128, so `|| printf ''` never fires, the emptiness guard below could never fire
+# either, and a record could be written against the word "HEAD". Measured.
+HEAD_SHA="$(git rev-parse --verify HEAD 2>/dev/null || printf '')"
+
+# No `sed`/`tr` on this path ON PURPOSE: the untooled arm below is reached with a
+# minimal PATH, and a bare "sed: command not found" is precisely the
+# could-not-check that must never be mistaken for anything else.
+if [ -n "$_pushed_shas" ]; then _targets="$_pushed_shas"; else _targets="$HEAD_SHA"; fi
+[ -n "$_targets" ] || { _say "check-pr-review: nothing resolves to review — no push refs on stdin and HEAD is unborn. Refusing rather than guessing."; exit 1; }
 
 # THE ATTESTED ESCAPE IS CHECKED FIRST AND IS ALWAYS RECORDED. `## BL-072:`'s
 # shape, reused by `## BL-233:`: an escape that leaves no trace is not an escape,
@@ -95,16 +134,16 @@ if [ "${SOLO_PR_REVIEW_ATTESTED:-}" = "1" ]; then
     [ -f "$STATE" ] || printf '{}\n' > "$STATE" 2>/dev/null || true
     _ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     _by="$(git config user.name 2>/dev/null || printf 'unknown')"
-    if jq --arg h "$HEAD_SHA" --arg r "$_reason" --arg t "$_ts" --arg b "$_by" \
-         '.pr_review_attestations = ((.pr_review_attestations // []) + [{head: $h, reason: $r, at: $t, by: $b}])' \
+    if jq --arg h "$HEAD_SHA" --arg p "$_targets" --arg r "$_reason" --arg t "$_ts" --arg b "$_by" \
+         '.pr_review_attestations = ((.pr_review_attestations // []) + [{head: $h, pushed: $p, reason: $r, at: $t, by: $b}])' \
          "$STATE" > "$STATE.att.tmp" 2>/dev/null; then
       mv "$STATE.att.tmp" "$STATE"
-      printf '%s\n' "${YEL}[ATTESTED]${NC} review skipped for $HEAD_SHA — recorded to $STATE, not silenced." >&2
+      printf '%s\n' "${YEL}[ATTESTED]${NC} review skipped for [$_targets] — recorded to $STATE, not silenced." >&2
       exit 0
     fi
     rm -f "$STATE.att.tmp"
   fi
-  _say "${RED}[BLOCKED]${NC} the attestation could NOT be recorded (jq missing, or $STATE unwritable)."
+  _say "${RED}[BLOCKED]${NC} the attestation could NOT be recorded (jq missing, or $STATE unwritable or corrupt)."
   _say "  Refusing it rather than letting it pass unrecorded — an escape that leaves no"
   _say "  trace is the gate being off. Make the state file writable, install jq, re-push."
   exit 1
@@ -135,7 +174,14 @@ _rec_head="$(jq -r '.pr_review.head // ""' "$STATE" 2>/dev/null || printf '')"
 _rec_verdict="$(jq -r '.pr_review.verdict // ""' "$STATE" 2>/dev/null || printf '')"
 
 if [ -z "$_rec_head" ]; then
-  _refuse "no review has ever been recorded for this project"
+  if [ -n "$_rec_verdict" ]; then
+    _refuse "the review record is INCOMPLETE — a verdict with no commit"
+    _say "  Recorded verdict: $_rec_verdict, against no sha."
+    _say "  A verdict that does not name what it reviewed cannot be checked against what"
+    _say "  you are pushing. Re-record with scripts/record-pr-review.sh, or attest."
+  else
+    _refuse "no review has ever been recorded for this project"
+  fi
   exit 1
 fi
 
@@ -143,17 +189,24 @@ fi
 # tree is not a weaker review, it is a review of something else — telling the
 # operator "no review found" when one exists sends them to run a second one
 # instead of re-reviewing the change they just made.
-if [ "$_rec_head" != "$HEAD_SHA" ]; then
-  _refuse "the review on record covers a DIFFERENT commit"
-  _say "  Recorded against: $_rec_head"
-  _say "  You are pushing:  $HEAD_SHA"
-  _say "  The code changed after it was reviewed. Re-review, or attest."
-  exit 1
-fi
+# Every commit this push would ship must be the one that was reviewed. The
+# record holds ONE verdict for ONE sha, so a multi-ref push at differing shas
+# blocks by construction — correctly, because two branches are two reviews. The
+# attested escape is checked ABOVE this and covers the whole push.
+for _t in $_targets; do
+  if [ "$_rec_head" != "$_t" ]; then
+    _refuse "the review on record does not cover what you are pushing"
+    _say "  Recorded against: $_rec_head"
+    _say "  This push ships:  $_targets"
+    _say "  A review of a different tree is a review of something else. Re-review the"
+    _say "  commit you are pushing, push the reviewed one, or attest."
+    exit 1
+  fi
+done
 
 case "$_rec_verdict" in
   approve|minor_concerns)
-    printf '%s\n' "${GRN}[OK]${NC} PR review on record for $HEAD_SHA: $_rec_verdict" >&2
+    printf '%s\n' "${GRN}[OK]${NC} PR review on record for $_rec_head: $_rec_verdict" >&2
     exit 0 ;;
   major_concerns|block)
     _refuse "the review VERDICT for this commit is '$_rec_verdict'"
