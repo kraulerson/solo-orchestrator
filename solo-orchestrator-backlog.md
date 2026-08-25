@@ -12626,7 +12626,7 @@ draft did.
 | WP8 | User-facing pages — `docs/scout.md`, `docs/adoption.md` | #343 |
 | WP5b | Test-debt ledger — `scripts/lib/adopt/adopt-test-debt.sh` | #344 |
 | WP6 | Collision archive — `scripts/lib/adopt/adopt-archive.sh` | #345 |
-| — | CI: brownfield suites pinned to the `slow-misc` shard | #346 |
+| — | CI: the **WP5b and WP6** suites pinned to the `slow-misc` shard | #346 |
 
 Eight suites cover it — the seven `tests/test-brownfield-wp*.sh` files plus
 `tests/test-lint-module-dependencies.sh` for WP0's lint. Measured 2026-08-23:
@@ -13045,7 +13045,15 @@ same standard as code rather than waved through as "docs-only".
    in a summary.
 2. ~~**Two sub-questions left open by D2 and D3**~~ — **D2's is ANSWERED**
    (Karl, 2026-08-25): tier-scoped, organizational stops and personal warns
-   loudly, which confirms `§6.3` rather than overturning it. **One remains:**
+   loudly. **Whether that CONFIRMS `§6.3` or overturns its BLOCK-at-strict arm
+   is the axis question below — it is STILL OPEN, and the D2 section carries the
+   derivation.** *(This clause said "which confirms `§6.3` rather than
+   overturning it" — flatly, while the D2 section ~200 lines above said the
+   opposite, and while v1's Version row and §0.2 in this same PR both carried
+   the contingent version. Round seven of review caught it: the seventh
+   consecutive instance of correct-in-one-place, stale-in-the-sibling, and the
+   one the structural collapse did not reach because both copies live inside
+   this entry.)* **One further sub-question remains:**
    D3's scope is `adopt_stub_project_docs`, whose text names *"the document
    templates"*, and `§7.5` settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as
    *"If present, treated as theirs: kept, and reconciled by the interview rather
