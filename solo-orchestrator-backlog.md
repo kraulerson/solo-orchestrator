@@ -12737,7 +12737,7 @@ brownfield deliverable** — adjacency, not ownership:
 
 **Already fixed, status line stale:**
 - `## BL-215:` — the boundary lints' CORE set omitted `scripts/host-drivers/*.sh`.
-  **The gap shipped in PR #340** under `# BL-215-CORE-GLOB-SYNC`; both
+  **The FIX shipped in PR #340** under `# BL-215-CORE-GLOB-SYNC`; both
   `CORE_GLOBS` arrays carry the fifth glob today, and the design document already
   says so twice. Its `**Status:** Open` line needs closing — a pre-existing
   ledger defect, noted here because the first draft of this entry re-asserted the
@@ -12794,19 +12794,36 @@ case: *"Why wouldn't the secrets scan run? That should never be an option."*
 Karl, 2026-08-25, resolving the sub-question review raised: *"Keep warn loudly
 for casual personal projects. Organizational projects are always a stop."*
 
-**This RESOLVES the contradiction rather than creating one.** An earlier
-recording of D2 said adoption stops full stop, which overturned `§6.3`'s settled
-*"BLOCK at strict; BIG WARNING at personal"*. Tier-scoped, D2 CONFIRMS that
-decision instead — so D2 is no longer among the settled things this work
-changes, and the count drops from three to two.
+**WHETHER THIS CONFIRMS `§6.3` OR OVERTURNS IT DEPENDS ON A QUESTION NOBODY HAS
+ANSWERED, and an earlier version of this paragraph asserted the confirmation
+flatly while declaring the question undecided four lines below.** Both cannot
+stand. `§6.3` reads *"**BLOCK at strict**; **BIG WARNING at personal**"* — one
+value from each of two DIFFERENT settings:
 
-**One imprecision inherited rather than invented, and left for the v2
-supersession:** `§6.3` states the tiering as *"strict / personal"*, which mixes
-two independent axes — `enforcement_level` (`no` | `light` | `strict`, read from
-the manifest by `scripts/lib/enforcement-level.sh`) and `deployment`
-(`personal` | `organizational`). Karl's ruling names the DEPLOYMENT axis. Which
-axis governs — or whether both must agree — is not decided here, and picking one
-silently is how a tiering decision becomes two incompatible ones.
+- `enforcement_level` ∈ `no` | `light` | `strict` (`scripts/lib/enforcement-level.sh`)
+- `deployment` ∈ `personal` | `organizational`
+
+**They are NOT independent, and calling them that was wrong.** `init.sh`'s
+`# BL-030` block forces `ENFORCEMENT_LEVEL="strict"` whenever deployment is
+organizational — a supplied `--enforcement-level` is ignored with a warning — so
+**organizational ⇒ strict**, one way. And `# BL-180-ENFORCEMENT-DEFAULT` resolves
+the level for every path with `[ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"`,
+so **the ordinary personal project is `personal` + `strict`.**
+
+That combination is where the two readings diverge, and it is the DEFAULT one —
+not a corner case. For a default personal project both of `§6.3`'s arms match and
+they say opposite things. Karl's ruling picks the warning arm.
+
+- Read on **`deployment`**: D2 confirms `§6.3`, and this work changes **two**
+  settled things (D1, D3).
+- Read on **`enforcement_level`**: D2 overturns `§6.3`'s BLOCK-at-strict arm for
+  the default personal project, and the count is **three**.
+
+**The question is therefore not a tidy-up left for the supersession — it decides
+the count.** Recorded as open. What is NOT in doubt is the operational intent:
+organizational projects stop, casual personal projects warn loudly. Since
+organizational implies strict anyway, the two readings agree everywhere EXCEPT a
+personal project that kept the default level — which is most of them.
 
 `scout-secrets.sh` emits three statuses and only one of them is a result:
 
@@ -12816,8 +12833,12 @@ silently is how a tiering decision becomes two incompatible ones.
 | `tool-unavailable` | **gitleaks is not installed on the host** |
 | `scan-failed` | gitleaks exited non-zero, **or** its report did not parse — "usually a full disk or a killed process" |
 
-So all three block, with different remedies: install the tool, re-run the scan,
-or disposition the findings. **Requiring gitleaks asks for nothing new** — a
+So `tool-unavailable` and `scan-failed` block at BOTH tiers — a scan that did not
+run is not an acceptable state either way — while `scanned`-with-findings stops
+an organizational adoption and warns loudly on a casual personal one. Remedies:
+install the tool, re-run the scan, or disposition the findings. *(An earlier
+version of this sentence said "all three block", untiered, four paragraphs below
+the heading that tiers them.)* **Requiring gitleaks asks for nothing new** — a
 scaffolded project's own pre-commit hook already runs it, so it is a tool the
 framework demands downstream regardless.
 
@@ -13019,7 +13040,7 @@ same standard as code rather than waved through as "docs-only".
    templates"*, and `§7.5` settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as
    *"If present, treated as theirs: kept, and reconciled by the interview rather
    than overwritten"* — calling that *"a direct inversion of `create_project()`'s
-   unconditional `cp`"*. Whether D3 reaches those three is undecided. A
+   CURRENT unconditional `cp`"*. Whether D3 reaches those three is undecided. A
    SECOND-ORDER question rides on D2's answer and is also undecided: `§6.3`
    phrases the tiering as "strict / personal", mixing `enforcement_level` with
    `deployment`, and Karl's ruling names only the latter.
@@ -13034,8 +13055,14 @@ same standard as code rather than waved through as "docs-only".
    specified no longer has a job.
 6. Two hygiene items: close `## BL-215:`, and correct the OWNER-STRING PAIR in
    `adopt-stubs.sh` AND `scripts/lib/adopt/adopt-test-debt.sh` — BOTH carry the
-   false "§10 gives WP7 the commit-time hook" claim, in a WP5b section comment
-   rather than either file's header, so a fix naming one file fixes half of it.
+   false "§10 gives WP7 the commit-time hook" claim, and a fix naming one file
+   fixes half of it. THE TWO SIT DIFFERENTLY, which an earlier version of this
+   item flattened: in `adopt-stubs.sh` it is a WP5b SECTION comment while that
+   file's header attributes §10 correctly; in `adopt-test-debt.sh` it is in the
+   HEADER block, and that file is WP5b in its entirety so "section comment"
+   distinguishes nothing there. Only the `adopt-stubs.sh` copy carries the
+   SECOND error (asserting `adopt_stub_hooks` "already carries that sentence"
+   when it carries the opposite). These are prose comments, not owner strings.
    `adopt_stub_hooks`'s string should name Karl's decision rather than §10,
    which does not assign it. `docs/adoption.md` also still says the driver's
    text "will say so once it is next touched", which reads as an instruction to

@@ -240,6 +240,11 @@ brownfield adoption there.
 followup describes was closed in code — the framework HAS onboarded existing
 codebases since WP4 (PR #337, merged 2026-08-09) — while the row itself still
 read "still unfiled" and "awaiting decision" **fourteen days later**. (An
-earlier draft said ten. No anchor yields ten; it is an uncorrected residue of
-the same three-day date error that `9050a18` fixed everywhere else.) A followup that outlives the thing it
+earlier draft said ten, and a later one explained that as "no anchor yields ten"
+plus the three-day date error. Both halves were wrong: 2026-08-10 → 2026-08-20
+yields exactly ten, and that is the anchor the DESIGN DOC's contemporaneous
+sentence used — `9050a18` corrected that one to thirteen. The honest account is
+simply that this row copied the design doc's figure instead of computing from
+its own #337 anchor, which under the then-believed date would have given
+eleven.) A followup that outlives the thing it
 describes is how a half-built feature ends up with no tracker.
