@@ -12786,11 +12786,27 @@ Two consequences this entry owns rather than discovers later:
   thing standing between the operator and a confusing failure, and it must name
   every archived path, not a count.
 
-**D2 — SECRETS: adoption STOPS until every finding is acknowledged, and a scan
-that did not run is not an acceptable state.** Karl's words: *"Stop adoption
-until acknowledged with a reply of having been corrected or the risk is being
-accepted"*, and on the not-scanned case: *"Why wouldn't the secrets scan run?
-That should never be an option."*
+**D2 — SECRETS: TIER-SCOPED. Organizational projects STOP; casual personal
+projects get a loud warning. A scan that did not run is not an acceptable state
+either way.** Karl, first pass: *"Stop adoption until acknowledged with a reply
+of having been corrected or the risk is being accepted"*, and on the not-scanned
+case: *"Why wouldn't the secrets scan run? That should never be an option."*
+Karl, 2026-08-25, resolving the sub-question review raised: *"Keep warn loudly
+for casual personal projects. Organizational projects are always a stop."*
+
+**This RESOLVES the contradiction rather than creating one.** An earlier
+recording of D2 said adoption stops full stop, which overturned `§6.3`'s settled
+*"BLOCK at strict; BIG WARNING at personal"*. Tier-scoped, D2 CONFIRMS that
+decision instead — so D2 is no longer among the settled things this work
+changes, and the count drops from three to two.
+
+**One imprecision inherited rather than invented, and left for the v2
+supersession:** `§6.3` states the tiering as *"strict / personal"*, which mixes
+two independent axes — `enforcement_level` (`no` | `light` | `strict`, read from
+the manifest by `scripts/lib/enforcement-level.sh`) and `deployment`
+(`personal` | `organizational`). Karl's ruling names the DEPLOYMENT axis. Which
+axis governs — or whether both must agree — is not decided here, and picking one
+silently is how a tiering decision becomes two incompatible ones.
 
 `scout-secrets.sh` emits three statuses and only one of them is a result:
 
@@ -12996,14 +13012,17 @@ same standard as code rather than waved through as "docs-only".
    runs **tool resolution** (D5, Act 2), which installs gitleaks as a
    `required: true` matrix entry, so `tool-unavailable` becomes a backstop for
    `scan-failed` rather than the primary case. It stays a hard refusal.
-2. **Two sub-questions left open by D2 and D3**, both raised by review and
-   neither decided here. **(a)** D2 says adoption STOPS on unacknowledged
-   secrets; v1's §6.3 and decision table D4 both settle *"BLOCK at strict; BIG
-   WARNING at personal"*. Karl's instruction named no tier — so D2 either
-   overrides the tiering or applies at strict only. **(b)** D3's scope is
-   `adopt_stub_project_docs`, whose text names *"the document templates"*, and
-   §7.5 settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as *"If present,
-   treated as theirs"*. Whether D3 reaches those three is undecided.
+2. ~~**Two sub-questions left open by D2 and D3**~~ — **D2's is ANSWERED**
+   (Karl, 2026-08-25): tier-scoped, organizational stops and personal warns
+   loudly, which confirms `§6.3` rather than overturning it. **One remains:**
+   D3's scope is `adopt_stub_project_docs`, whose text names *"the document
+   templates"*, and `§7.5` settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as
+   *"If present, treated as theirs: kept, and reconciled by the interview rather
+   than overwritten"* — calling that *"a direct inversion of `create_project()`'s
+   unconditional `cp`"*. Whether D3 reaches those three is undecided. A
+   SECOND-ORDER question rides on D2's answer and is also undecided: `§6.3`
+   phrases the tiering as "strict / personal", mixing `enforcement_level` with
+   `deployment`, and Karl's ruling names only the latter.
 3. **A decision on whether to amend the design document or supersede it.** D4
    overturns a settled decision and D1/D3/D5/D6 redraw WP boundaries; no
    amendment before v1.2.2 had to say that. This filing does not attempt the
