@@ -58,7 +58,7 @@ fi
 # shellcheck source=./lib/hook-templates.sh
 . "$ROOT/scripts/lib/hook-templates.sh"
 
-for _fn in soif_write_precommit_hook soif_emit_tdd_commitmsg_block; do
+for _fn in soif_write_precommit_hook soif_emit_tdd_commitmsg_block soif_write_prepush_hook; do
   if ! command -v "$_fn" >/dev/null 2>&1; then
     echo "[FAIL] $ROOT/scripts/lib/hook-templates.sh does not provide $_fn — refusing to install a hook this script cannot generate." >&2
     exit 1
@@ -82,11 +82,21 @@ else
 fi
 chmod +x "$CM"
 
+# BL-PRGATE-CONTRIB-PREPUSH: the framework repo had NO installation path for the
+# push-time review gate, so the repo whose review record motivated the gate got
+# it only by hand — and the hand-installed copy went stale silently, degrading
+# open with no warning while the shipped body degraded loudly. Refreshed
+# unconditionally here, like the pre-commit body above: this script is the
+# contributor's "make my hooks current" command, and a hook it declines to
+# refresh is the drift it exists to end. init.sh keeps its never-clobber rule,
+# because there the existing hook may be the operator's own.
+soif_write_prepush_hook "$ROOT/.git/hooks/pre-push"                    # BL-PRGATE-CONTRIB-PREPUSH
+
 # VERIFY WHAT WAS INSTALLED, rather than reporting on what was intended. A hook
 # that is not executable, or that git will not run, is the defect this entry is
 # about; saying "installed" without looking is how it survived.
 _fail=0
-for h in pre-commit commit-msg; do
+for h in pre-commit commit-msg pre-push; do
   p="$ROOT/.git/hooks/$h"
   if [ ! -x "$p" ]; then echo "[FAIL] $p is not executable" >&2; _fail=1; continue; fi
   if [ ! -s "$p" ]; then echo "[FAIL] $p is empty" >&2; _fail=1; continue; fi

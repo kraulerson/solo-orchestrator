@@ -33,6 +33,15 @@ for f in "$CHECK" "$RECORD"; do
   [ -f "$f" ] || { echo "missing $f"; exit 1; }
 done
 
+echo "=== M. the bit the whole feature hangs on ==="
+for f in "$CHECK" "$RECORD"; do
+  if [ -x "$f" ]; then
+    pass "M0: $(basename "$f") ships EXECUTABLE — the hook degrades open on this bit, so 644 is every push silently ungated"
+  else
+    fail_ "M0" "$(basename "$f") is not executable; the pre-push hook will shrug and let every push through"
+  fi
+done
+
 mk() {   # mk DIR — a project with one commit
   local d="$1"; mkdir -p "$d/.claude"
   ( cd "$d" || exit 1
@@ -306,6 +315,102 @@ if [ "$l4_rc" -ne 0 ]; then
   pass "L4: --head with a sha not in this repository is refused at record time, not left as an unmatchable record that later reads as a stale review"
 else
   fail_ "L4" "a nonexistent sha was accepted as the reviewed head"
+fi
+
+echo ""
+echo "=== S. arms a second mutation battery found unpinned ==="
+
+# S1a/S1b. A1 pins the NO-FILE variant only. Every real generated project HAS a
+# state file — `## BL-233:`'s accumulation writes one — so the arm that actually
+# fires in the field was unpinned, and `exit 0` at the top of it survived the
+# whole suite.
+S1="$(newtmp)"; mk "$S1"
+( cd "$S1" && printf '{}' > .claude/process-state.json )
+s1_out="$(run "$S1")"; s1_rc="$(rc_of "$S1")"
+if [ "$s1_rc" -ne 0 ] && printf '%s' "$s1_out" | grep -q 'no review has ever been recorded'; then
+  pass "S1a: a state file that EXISTS but carries no review still blocks — the field case, not just the pristine one"
+else
+  fail_ "S1a" "rc=$s1_rc out: $(printf '%s' "$s1_out" | grep BLOCKED | head -1)"
+fi
+
+S1b="$(newtmp)"; mk "$S1b"
+( cd "$S1b" && printf '{"pr_review":{"verdict":"approve"}}' > .claude/process-state.json )
+s1b_out="$(run "$S1b")"; s1b_rc="$(rc_of "$S1b")"
+if [ "$s1b_rc" -ne 0 ] && printf '%s' "$s1b_out" | grep -q 'INCOMPLETE'; then
+  pass "S1b: a verdict with no sha reads as INCOMPLETE, not as 'never reviewed' — a record exists, it just cannot be checked"
+else
+  fail_ "S1b" "rc=$s1b_rc out: $(printf '%s' "$s1b_out" | grep BLOCKED | head -1)"
+fi
+
+# S2. K1 pushes ONE unreviewed ref. A `break` after the first stdin line
+# resurrects the original fail-open for every multi-ref push — `git push origin
+# main other`, `--tags`, `--all` — and survived the suite.
+S2="$(newtmp)"; mk "$S2"
+( cd "$S2" && git checkout -q -b other && echo z > z.txt && git add z.txt >/dev/null 2>&1 \
+  && git commit -qm "feat: unreviewed" >/dev/null 2>&1 && git checkout -q main )
+s2_other="$( cd "$S2" && git rev-parse other )"
+( cd "$S2" && bash "$RECORD" --verdict approve >/dev/null 2>&1 )
+s2_head="$( cd "$S2" && git rev-parse HEAD )"
+s2_rc="$(push_rc "$S2" "refs/heads/main $s2_head refs/heads/main $ZERO" "refs/heads/other $s2_other refs/heads/other $ZERO")"
+s2_ok="$(push_rc "$S2" "refs/heads/main $s2_head refs/heads/main $ZERO" "refs/heads/dup $s2_head refs/heads/dup $ZERO")"
+if [ "$s2_rc" -ne 0 ] && [ "$s2_ok" -eq 0 ]; then
+  pass "S2: EVERY ref in a multi-ref push is checked, not just the first — reviewed+unreviewed blocks, reviewed+reviewed passes"
+else
+  fail_ "S2" "reviewed+unreviewed rc=$s2_rc (want non-zero), reviewed+reviewed rc=$s2_ok (want 0)"
+fi
+
+# S3. D1 pins `block` and E1 pins `minor_concerns` passing; the BOUNDARY between
+# them was unpinned, so moving major_concerns into the passing case survived.
+S3="$(newtmp)"; mk "$S3"
+( cd "$S3" && bash "$RECORD" --verdict major_concerns >/dev/null 2>&1 )
+s3_out="$(run "$S3")"; s3_rc="$(rc_of "$S3")"
+if [ "$s3_rc" -ne 0 ] && printf '%s' "$s3_out" | grep -q "major_concerns"; then
+  pass "S3: major_concerns BLOCKS and is named — the rubric's boundary is 'major_concerns and above', and the gate has to agree with it"
+else
+  fail_ "S3" "rc=$s3_rc out: $(printf '%s' "$s3_out" | grep BLOCKED | head -1)"
+fi
+
+echo ""
+echo "=== T. an annotated tag is not a commit (BL-149) ==="
+
+# `git tag -a v1.0.0 && git push origin v1.0.0` hands the hook the TAG OBJECT's
+# sha, which can never equal a recorded COMMIT sha — and the recorder peels
+# `^{commit}`, so no honest record could ever satisfy it. That made a standard
+# release flow permanently attestation-only: a gate people cannot satisfy
+# honestly, which `## BL-149:` says gets deleted.
+T="$(newtmp)"; mk "$T"
+( cd "$T" && bash "$RECORD" --verdict approve >/dev/null 2>&1
+  git tag -a v1.0.0 -m "release" >/dev/null 2>&1 )
+t_reviewed="$( cd "$T" && git rev-parse HEAD )"
+t_tag="$( cd "$T" && git rev-parse v1.0.0 )"
+t1_rc="$(push_rc "$T" "refs/tags/v1.0.0 $t_tag refs/tags/v1.0.0 $ZERO")"
+if [ "$t_tag" != "$t_reviewed" ] && [ "$t1_rc" -eq 0 ]; then
+  pass "T1: an annotated tag OF the reviewed commit passes — the tag object sha differs from the commit sha, and refusing it forever was a gate nobody could satisfy"
+else
+  fail_ "T1" "tag=$t_tag reviewed=$t_reviewed rc=$t1_rc (annotated tag must differ and must pass)"
+fi
+
+( cd "$T" && git checkout -q -b unrev && echo q > q.txt && git add q.txt >/dev/null 2>&1 \
+  && git commit -qm "feat: unreviewed" >/dev/null 2>&1 && git tag -a v2.0.0 -m "bad" >/dev/null 2>&1 && git checkout -q main )
+t_badtag="$( cd "$T" && git rev-parse v2.0.0 )"
+t2_rc="$(push_rc "$T" "refs/tags/v2.0.0 $t_badtag refs/tags/v2.0.0 $ZERO")"
+if [ "$t2_rc" -ne 0 ]; then
+  pass "T2: an annotated tag of an UNREVIEWED commit still blocks — peeling resolves what the tag actually ships, it does not wave tags through"
+else
+  fail_ "T2" "a tag of an unreviewed commit was allowed through (rc=$t2_rc)"
+fi
+
+# T3. WHAT THE GATE CANNOT RESOLVE, IT MUST NOT WAVE THROUGH. The peel's first
+# cut fell back to the raw sha when `^{commit}` failed — so "I could not work
+# out what this ships" was answered by comparing the unresolvable thing. A
+# mutation returning the RECORDED sha from that fallback passed all 29
+# assertions, which is the definition of an unpinned arm.
+t3_rc="$(push_rc "$T" "refs/heads/ghost 1234567890abcdef1234567890abcdef12345678 refs/heads/ghost $ZERO")"
+t3_out="$(push_out "$T" "refs/heads/ghost 1234567890abcdef1234567890abcdef12345678 refs/heads/ghost $ZERO")"
+if [ "$t3_rc" -ne 0 ] && printf '%s' "$t3_out" | grep -q 'does not resolve to a commit'; then
+  pass "T3: a ref the gate cannot resolve to a commit BLOCKS and says so — could-not-check is never nothing-to-check"
+else
+  fail_ "T3" "rc=$t3_rc out: $(printf '%s' "$t3_out" | grep BLOCKED | head -1)"
 fi
 
 echo ""

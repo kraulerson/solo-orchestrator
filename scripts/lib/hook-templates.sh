@@ -1920,6 +1920,35 @@ EXITEOF
 #   soif_precommit_region_body directly to refresh just the managed region of an
 #   already-marked hook, preserving anything the operator (or
 #   install-filesystem-gates.sh) put outside the markers.
+# ── Pre-push adversarial-review gate ───────────────────────────────────────
+# soif_write_prepush_hook <path> — the delegating hook. Thin ON PURPOSE: the
+# logic lives in scripts/check-pr-review.sh, which can be run and tested in
+# isolation, while a heredoc cannot.
+#
+# IT DEGRADES OPEN, AND LOUDLY. Open because a project never given the gate has
+# not failed it and refusing every push on a missing file is `## BL-149:`'s
+# deleted-gate shape. Loudly because a deleted or non-executable script must
+# never look identical to a clean pass — `# BL-112-SAST-NOTRUN`: could-not-check
+# is never nothing-to-check. That `-x` test is the whole feature's hinge: both
+# scripts once shipped 100644 and every push everywhere went ungated.
+soif_write_prepush_hook() {
+  local hook="$1"
+  cat > "$hook" <<'SOIF_PREPUSH'
+#!/usr/bin/env bash
+# Solo Orchestrator — adversarial review gate. Delegates to the shipped script.
+# Managed by scripts/lib/hook-templates.sh :: soif_write_prepush_hook
+if [ ! -x scripts/check-pr-review.sh ]; then
+  printf '%s
+' "[WARN] pre-push: scripts/check-pr-review.sh is absent or not executable — PUSHING UNGATED." >&2
+  printf '%s
+' "       This is not a clean review; nothing was checked. Run scripts/verify-install.sh --auto-fix." >&2
+  exit 0
+fi
+exec bash scripts/check-pr-review.sh
+SOIF_PREPUSH
+  chmod +x "$hook"
+}
+
 soif_write_precommit_hook() {
   local hook="$1"
   printf '%s\n' '#!/usr/bin/env bash' > "$hook"

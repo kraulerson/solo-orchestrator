@@ -1529,7 +1529,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host-errors.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh scripts/check-pr-review.sh scripts/record-pr-review.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -2834,24 +2834,10 @@ install_precommit_hook() {
   # The hook is a thin delegator on purpose: the logic lives in a shipped,
   # testable script rather than in a heredoc nobody can run in isolation.
   if [ ! -f ".git/hooks/pre-push" ]; then
-    cat > ".git/hooks/pre-push" <<'PREPUSH'
-#!/usr/bin/env bash
-# Solo Orchestrator — adversarial review gate. Delegates to the shipped script.
-# Degrades OPEN if the script is absent: a project that has not been given the
-# gate has not failed it, and refusing every push on a missing file would be a
-# gate nobody could satisfy (`## BL-149:`). But it degrades LOUDLY — a deleted
-# or chmod -x'd script must not look identical to a clean pass, which is
-# `# BL-112-SAST-NOTRUN`'s posture: could-not-check is never nothing-to-check.
-# verify-install reports this hook and both scripts; that is what makes the
-# absence visible rather than merely announced here.
-if [ ! -x scripts/check-pr-review.sh ]; then
-  printf '%s\n' "[WARN] pre-push: scripts/check-pr-review.sh is absent or not executable — PUSHING UNGATED." >&2
-  printf '%s\n' "       This is not a clean review; nothing was checked. Run scripts/verify-install.sh --auto-fix." >&2
-  exit 0
-fi
-exec bash scripts/check-pr-review.sh
-PREPUSH
-    chmod +x ".git/hooks/pre-push"
+    # BL-PRGATE-HOOK-TEMPLATE: emitted from the ONE owner of hook bodies, not a
+    # second copy here. A heredoc-only body is how this repo's own hand-installed
+    # hook became a silent stale version while the shipped one was loud.
+    soif_write_prepush_hook ".git/hooks/pre-push"
     print_ok "Pre-push review gate installed (scripts/check-pr-review.sh)"
   else
     # BL-PRGATE-INSTALL-SKIP-LOUD: never clobber a hook the operator wrote —

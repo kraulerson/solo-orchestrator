@@ -47,8 +47,8 @@ _refuse() {
   _say ""
   _say "  ── Plain English ──────────────────────────────────────────────"
   _say "  What happened: this project requires an adversarial code review before"
-  _say "  code leaves your machine, and there is no review on record for exactly"
-  _say "  the commit you are pushing."
+  _say "  code leaves your machine, and the review record on file does not clear"
+  _say "  the commit you are pushing. The headline above says which way."
   _say ""
   _say "  What it means for you: nothing is lost and nothing is broken. Your"
   _say "  commits are safe locally. The push is what is paused."
@@ -131,6 +131,7 @@ if [ "${SOLO_PR_REVIEW_ATTESTED:-}" = "1" ]; then
     exit 1
   fi
   if command -v jq >/dev/null 2>&1; then
+    mkdir -p "$(dirname "$STATE")" 2>/dev/null || true
     [ -f "$STATE" ] || printf '{}\n' > "$STATE" 2>/dev/null || true
     _ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     _by="$(git config user.name 2>/dev/null || printf 'unknown')"
@@ -193,8 +194,26 @@ fi
 # record holds ONE verdict for ONE sha, so a multi-ref push at differing shas
 # blocks by construction — correctly, because two branches are two reviews. The
 # attested escape is checked ABOVE this and covers the whole push.
+set -f   # a sha is never a glob; do not let a crafted one become one
 for _t in $_targets; do
-  if [ "$_rec_head" != "$_t" ]; then
+  # FAIL CLOSED WHEN THE PEEL FAILS. The first cut fell back to the raw sha,
+  # which meant "I could not work out what this ref ships" was answered by
+  # comparing the thing I could not resolve — and a mutation proved nothing
+  # pinned that behaviour. `# BL-112-SAST-NOTRUN`: could-not-check is never
+  # nothing-to-check. git only pushes objects it holds, so this is unreachable
+  # in ordinary use; a ref tip that is not a commit (a tag of a blob) reaches it,
+  # and blocking is the honest answer. The attested escape is checked above.
+  _tc="$(git rev-parse --verify "${_t}^{commit}" 2>/dev/null || printf '')"
+  if [ -z "$_tc" ]; then
+    set +f
+    _refuse "a ref in this push does not resolve to a commit, so the gate cannot tell what it ships"
+    _say "  Could not resolve: $_t"
+    _say "  This is not a review failure — it is the gate refusing to guess. Attest if"
+    _say "  the push is deliberate."
+    exit 1
+  fi
+  if [ "$_rec_head" != "$_tc" ]; then
+    set +f
     _refuse "the review on record does not cover what you are pushing"
     _say "  Recorded against: $_rec_head"
     _say "  This push ships:  $_targets"
@@ -203,6 +222,7 @@ for _t in $_targets; do
     exit 1
   fi
 done
+set +f
 
 case "$_rec_verdict" in
   approve|minor_concerns)
