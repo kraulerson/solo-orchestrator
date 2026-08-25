@@ -12753,9 +12753,12 @@ All three now carry a RECORDED DECISION — which is not the same as settled, an
 an earlier version of this line said "all three are now settled" while the
 design document recorded two open sub-questions about them (D2's tier scope, and
 whether D3 reaches `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md`) — D2's tier scope
-has since been answered, and the D2 question still open is the AXIS reading. Both
-current questions are in the
-asks list below. **None is built**; what changed is that each has an
+has since been answered, and the D2 question still open FROM THAT PAIR is the
+AXIS reading. **Three questions live in the asks list below, not two** — those
+two, plus a third that descends from D2 and post-dates the design document:
+whether `tool-unavailable` admits the acknowledged escape or is a hard refusal
+with none. *(This sentence said "both current questions", which undercounts the
+entry's own open set on any reading but the narrowest.)* **None is built**; what changed is that each has an
 answer, so "the adoption feature is finished" becomes a statement someone can
 check rather than one nobody can evaluate. Recorded here because none of the
 three is recoverable from the code.
@@ -13058,7 +13061,7 @@ same standard as code rather than waved through as "docs-only".
    templates"*, and `§7.5` settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as
    *"If present, treated as theirs: kept, and reconciled by the interview rather
    than overwritten"* — calling that *"a direct inversion of `create_project()`'s
-   CURRENT unconditional `cp`"*. Whether D3 reaches those three is undecided. A
+   CURRENT [emphasis added] unconditional `cp`"*. Whether D3 reaches those three is undecided. A
    SECOND-ORDER question rides on D2's answer and is also undecided: `§6.3`
    phrases the tiering as "strict / personal", mixing `enforcement_level` with
    `deployment`, and Karl's ruling names only the latter.

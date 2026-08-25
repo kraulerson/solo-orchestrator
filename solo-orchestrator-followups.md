@@ -226,7 +226,8 @@ docs note; (b) accept — the failure is loud and self-explanatory.
 2026-08-01 — zero `brownfield` mentions in the backlog. `init.sh` refuses
 existing directories, so the framework cannot onboard an existing codebase.
 **Status:** Resolved 2026-08-23 — filed as a backlog entry sourced from this
-repository's own surfaces (what the `**Options:**` block, removed below, called
+repository's own surfaces (what the `**Options:**` block this entry used to
+carry, deleted in the same change, called
 option (a)), at Karl's direction.
 
 **Superseded by `## BL-242:`. Take every question about brownfield adoption
