@@ -212,7 +212,7 @@ else
 fi
 
 echo ""
-echo "=== K. a push does not have to push HEAD (BL-PRGATE-PUSHED-REFS) ==="
+echo "=== K. a push does not have to push HEAD (BL-243-PUSHED-REFS) ==="
 
 # K1 IS THE REGRESSION PIN FOR A REAL FAIL-OPEN. The first cut read only
 # `git rev-parse HEAD`, so with an approve on record for HEAD, pushing ANY other
@@ -270,7 +270,7 @@ else
 fi
 
 echo ""
-echo "=== L. the guard that could not fire (BL-PRGATE-REVPARSE-VERIFY) ==="
+echo "=== L. the guard that could not fire (BL-243-REVPARSE-VERIFY) ==="
 
 # BARE `git rev-parse HEAD` ON AN UNBORN BRANCH ECHOES THE LITERAL STRING
 # "HEAD" TO STDOUT and exits 128, so `|| printf ''` never fires and the
@@ -411,6 +411,109 @@ if [ "$t3_rc" -ne 0 ] && printf '%s' "$t3_out" | grep -q 'does not resolve to a 
   pass "T3: a ref the gate cannot resolve to a commit BLOCKS and says so — could-not-check is never nothing-to-check"
 else
   fail_ "T3" "rc=$t3_rc out: $(printf '%s' "$t3_out" | grep BLOCKED | head -1)"
+fi
+
+echo ""
+echo "=== W. the emitted hook — delegation and loud degrade are BEHAVIOUR, not presence ==="
+
+# THE ONE LINE THE WHOLE FEATURE HANGS ON HAD NOTHING WATCHING IT. Round three
+# deleted both WARN printfs from the template (silent-open) and replaced the
+# `exec` with `exit 0` (feature off in every future install), and BOTH mutants
+# passed the ENTIRE PR-blocking check set. `tests/test-bl239-contributor-hooks.sh`
+# already states the rule this violates: presence checks cannot distinguish a
+# no-op hook, so drive the EMITTED hook the way git does.
+W="$(newtmp)"; mk "$W"
+( cd "$W" && mkdir -p scripts && cp "$CHECK" scripts/check-pr-review.sh && chmod +x scripts/check-pr-review.sh )
+( . "$REPO_ROOT/scripts/lib/hook-templates.sh" && soif_write_prepush_hook "$W/.git/hooks/pre-push" )
+# STDIN FROM A FILE, NOT A PIPE. The degrade arms exit 0 without draining stdin,
+# so the writing `printf` takes SIGPIPE — and this suite runs under
+# `set -o pipefail`, which then promotes 141 over the hook's real 0 and the
+# assertion measures the harness instead of the hook. git itself writes the ref
+# list into the hook's stdin and does not care that it goes unread.
+printf '%s\n' "refs/heads/main $( cd "$W" && git rev-parse HEAD ) refs/heads/main $ZERO" > "$W/refline"
+w_line(){ ( cd "$W" && .git/hooks/pre-push < refline 2>&1 ); }
+w_rc(){   ( cd "$W" && .git/hooks/pre-push < refline >/dev/null 2>&1 ); echo $?; }
+
+if [ -x "$W/.git/hooks/pre-push" ]; then
+  pass "W0: the emitter produces an EXECUTABLE hook — git silently ignores a non-executable one"
+else
+  fail_ "W0" "the emitted hook is not executable; git would ignore it and every push would be ungated"
+fi
+
+w1_out="$(w_line)"; w1_rc="$(w_rc)"
+if [ "$w1_rc" -ne 0 ] && printf '%s' "$w1_out" | grep -q 'no review has ever been recorded'; then
+  pass "W1: the EMITTED hook DELEGATES — an unreviewed push driven through the hook itself is blocked by the gate, not waved through"
+else
+  fail_ "W1" "rc=$w1_rc out: $(printf '%s' "$w1_out" | head -1)"
+fi
+
+( cd "$W" && chmod -x scripts/check-pr-review.sh )
+w2_out="$(w_line)"; w2_rc="$(w_rc)"
+if [ "$w2_rc" -eq 0 ] && printf '%s' "$w2_out" | grep -q 'PUSHING UNGATED'; then
+  pass "W2: script present but unusable -> the hook degrades OPEN and SAYS SO — silent-open is exactly what shipped to this repo and went unnoticed"
+else
+  fail_ "W2" "rc=$w2_rc out: $(printf '%s' "$w2_out" | head -1)"
+fi
+
+( cd "$W" && rm -f scripts/check-pr-review.sh )
+w3_out="$(w_line)"; w3_rc="$(w_rc)"
+if [ "$w3_rc" -eq 0 ] && printf '%s' "$w3_out" | grep -q 'PUSHING UNGATED'; then
+  pass "W3: script ABSENT -> degrades open and says so too — could-not-check is never nothing-to-check"
+else
+  fail_ "W3" "rc=$w3_rc out: $(printf '%s' "$w3_out" | head -1)"
+fi
+
+echo ""
+echo "=== N. arms a THIRD mutation battery found unpinned ==="
+
+# Every fixture's `mk` pre-creates `.claude/`, so round two's "the attest arm can
+# now create it" fix was pinned by nothing — deleting the mkdir passed 30/30.
+N1="$(newtmp)"
+( cd "$N1" && unset GITHUB_BASE_REF && git init -q -b main . >/dev/null 2>&1
+  git config user.email t@e.x; git config user.name "T O"
+  echo x > a.txt; git add -A >/dev/null 2>&1; git commit -qm "feat: a" >/dev/null 2>&1 )
+n1_rc="$( cd "$N1" && SOLO_PR_REVIEW_ATTESTED=1 SOLO_PR_REVIEW_ATTESTED_REASON="no .claude yet" bash "$CHECK" </dev/null >/dev/null 2>&1; echo $? )"
+if [ "$n1_rc" -eq 0 ] && [ -f "$N1/.claude/process-state.json" ]; then
+  pass "N1: an attestation in a project with no .claude/ yet is RECORDED, not misdiagnosed as a missing tool"
+else
+  fail_ "N1" "rc=$n1_rc state-file-exists=$([ -f "$N1/.claude/process-state.json" ] && echo yes || echo no)"
+fi
+
+N2="$(newtmp)"
+( cd "$N2" && unset GITHUB_BASE_REF && git init -q -b main . >/dev/null 2>&1
+  git config user.email t@e.x; git config user.name "T O"
+  echo x > a.txt; git add -A >/dev/null 2>&1; git commit -qm "feat: a" >/dev/null 2>&1 )
+n2_rc="$( cd "$N2" && bash "$RECORD" --verdict approve >/dev/null 2>&1; echo $? )"
+if [ "$n2_rc" -eq 0 ] && [ -f "$N2/.claude/process-state.json" ]; then
+  pass "N2: the recorder creates .claude/ too — the first review of a fresh project must not need a directory made by hand"
+else
+  fail_ "N2" "rc=$n2_rc state-file-exists=$([ -f "$N2/.claude/process-state.json" ] && echo yes || echo no)"
+fi
+
+# I2 pins the BACKSLASH half of the sanitizer. Narrowing `tr -d '\000-\037\\'`
+# to drop only the backslash passed 30/30 — the control-character half, which is
+# what a raw newline forgery actually needs, was unpinned.
+N4="$(newtmp)"; mk "$N4"
+printf 'line one\033[2K\007  [OK] FORGED\n' > "$N4/sum.txt"
+( cd "$N4" && bash "$RECORD" --verdict approve --summary-file sum.txt >/dev/null 2>&1 )
+n4_sum="$( cd "$N4" && jq -r '.pr_review.summary // ""' .claude/process-state.json 2>/dev/null )"
+case "$n4_sum" in
+  "") fail_ "N4" "the summary was not recorded at all, so the strip proves nothing" ;;
+  *[[:cntrl:]]*) fail_ "N4" "a control character survived into the record" ;;
+  *) pass "N4: CONTROL CHARACTERS are stripped at ingest as well as backslashes — the half a terminal-forgery actually needs" ;;
+esac
+
+# Deleting the unparsable-state arm silently reclassifies a corrupt file as
+# "never reviewed" — still blocking, but the wrong remedy, which is the exact
+# message-collapse this gate legislates against everywhere else.
+N6="$(newtmp)"; mk "$N6"
+( cd "$N6" && printf 'not json at all {{{' > .claude/process-state.json )
+n6_out="$(run "$N6")"; n6_rc="$(rc_of "$N6")"
+if [ "$n6_rc" -ne 0 ] && printf '%s' "$n6_out" | grep -q 'does not parse' \
+   && ! printf '%s' "$n6_out" | grep -q 'no review has ever been recorded'; then
+  pass "N6: a CORRUPT state file is named as unreadable, not as never-reviewed — the remedy is to fix the file, not to run a review"
+else
+  fail_ "N6" "rc=$n6_rc out: $(printf '%s' "$n6_out" | grep BLOCKED | head -1)"
 fi
 
 echo ""

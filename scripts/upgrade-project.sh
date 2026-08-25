@@ -996,6 +996,26 @@ _bl131_ensure_domsinks_ruleset() {
   fi
 }
 
+# BL-243-SYNC-SKIP-LOUD: report, never install. The sync delivers
+# check-pr-review.sh and record-pr-review.sh automatically, so an upgraded
+# project holds the gate's logic while nothing invokes it — and before this arm
+# the run said nothing at all. Deliberately a notice rather than an install arm:
+# writing a push-blocking hook into a project mid-upgrade is the direction
+# `## BL-149:` warns about, and verify-install carries the detectable row.
+_bl099_sync_prepush_notice() {
+  print_step "pre-push review gate hook"
+  if [ -e "$PROJECT_ROOT/.git/hooks/pre-push" ] \
+     && grep -qF 'check-pr-review.sh' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null; then
+    print_ok "  pre-push review gate hook present."
+    return 0
+  fi
+  print_warn "  NOT installed — pushes from this project are not gated by adversarial review."
+  print_warn "  The scripts ship with this sync; the hook does not, because installing a"
+  print_warn "  push-blocking hook during an upgrade is not this tool's call."
+  print_warn "  To enable: .git/hooks/pre-push delegating to scripts/check-pr-review.sh"
+  print_warn "  (scripts/verify-install.sh reports this row and names the remedy)."
+}
+
 _bl099_sync_precommit_hook() {
   local hook="$PROJECT_ROOT/.git/hooks/pre-commit" want current
   print_step "pre-commit fallback hook"
@@ -1446,6 +1466,7 @@ _run_sync_framework() {
   _bl099_sync_scripts        # BL-099-SYNC
   _bl099_sync_commitmsg_hook
   _bl099_sync_precommit_hook
+  _bl099_sync_prepush_notice   # BL-243-SYNC-SKIP-LOUD
   _bl099_doc_drift
   _postmvp_policy_notice
   if [ "$DRY_RUN" = true ]; then

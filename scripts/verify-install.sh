@@ -377,7 +377,7 @@ check_scripts() {
     "scripts/pending-approval.sh"
     "scripts/lint-uat-scenarios.sh"
     "scripts/escalate-to-user.sh"
-    # BL-PRGATE-VERIFY-MANIFEST: the push-time review gate. Listing these is what
+    # BL-243-VERIFY-MANIFEST: the push-time review gate. Listing these is what
     # makes the pre-push hook's "its absence is loud in verify-install" true —
     # it was not, and an unlisted script also gives pre-gate projects no
     # `--auto-fix` backfill path, so the gate reached ONLY projects initialized
@@ -672,7 +672,7 @@ check_git() {
   fi
   # BL-141-COMMITMSG-VERIFY-END
 
-  # BL-PRGATE-VERIFY-HOOK: the pre-push review gate. Reported, not auto-fixed:
+  # BL-243-VERIFY-HOOK: the pre-push review gate. Reported, not auto-fixed:
   # the hook body is init.sh's to write, and silently materializing a
   # push-blocking hook under someone's feet is the wrong direction for a gate
   # whose own doctrine is `## BL-149:` (a gate people cannot satisfy honestly
@@ -682,6 +682,10 @@ check_git() {
   if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
      && grep -qF 'check-pr-review.sh' "$_hooksdir/pre-push" 2>/dev/null; then
     register_pass "Pre-push review gate hook installed ($_hooksdir/pre-push)"
+  elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ] && [ ! -x "$_hooksdir/pre-push" ] \
+     && grep -qF 'check-pr-review.sh' "$_hooksdir/pre-push" 2>/dev/null; then
+    register_manual "Pre-push review gate hook present but NOT executable — git ignores it silently, so pushes are NOT gated" \
+      "chmod +x $_hooksdir/pre-push"
   elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ]; then
     register_manual "Pre-push hook exists but does not delegate to the review gate" \
       "init.sh never clobbers an existing pre-push hook. Add: [ -x scripts/check-pr-review.sh ] || exit 0; exec bash scripts/check-pr-review.sh"

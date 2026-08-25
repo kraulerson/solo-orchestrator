@@ -28,7 +28,7 @@ REVIEWER="pr-reviewer"
 while [ $# -gt 0 ]; do
   case "$1" in
     --verdict)      VERDICT="${2:-}"; shift 2 ;;
-    # BL-PRGATE-REVIEWED-HEAD: a review takes minutes, and a commit landing
+    # BL-243-REVIEWED-HEAD: a review takes minutes, and a commit landing
     # DURING one would otherwise be laundered under its verdict — the recorder
     # binds to HEAD-at-record-time. The reviewer knows what it actually read, so
     # let it say so; a mismatch with push-time HEAD then trips the stale arm,
@@ -51,8 +51,8 @@ command -v jq >/dev/null 2>&1 || { echo "record-pr-review: jq is required" >&2; 
 command -v git >/dev/null 2>&1 || { echo "record-pr-review: git is required" >&2; exit 2; }
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "record-pr-review: not a git repository" >&2; exit 2; }
 
-HEAD_SHA="$(git rev-parse --verify HEAD 2>/dev/null || printf '')"   # BL-PRGATE-REVPARSE-VERIFY
-# BL-PRGATE-REVIEWED-HEAD: --head lets the caller name the sha that was
+HEAD_SHA="$(git rev-parse --verify HEAD 2>/dev/null || printf '')"   # BL-243-REVPARSE-VERIFY
+# BL-243-REVIEWED-HEAD: --head lets the caller name the sha that was
 # ACTUALLY reviewed. Resolved through `--verify` so a typo or a sha that is not
 # in this repository is refused here rather than becoming an unmatchable record
 # that reads as a stale review later.

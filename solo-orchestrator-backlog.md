@@ -12566,6 +12566,90 @@ work whose PR this was blocking).
 
 ---
 
+## BL-243: The push-time adversarial review gate — mandatory before push, and three rounds of it being switched off
+
+ **Status:** Open
+ **Filed:** 2026-08-25
+ **Owner:** unassigned
+
+**Karl's decision, 2026-08-23:** the adversarial PR review is **mandatory before
+a push**, dispatched as a subagent on the most capable model at maximum effort,
+and if it finds issues it stops the PR and reports in the messaging standard's
+format. Recorded here because none of it is recoverable from the code, and
+because this feature shipped for two days with no backlog entry at all — the
+same gap `## BL-242:` exists to close for brownfield.
+
+**Why push and not commit.** A git hook is a shell script and cannot invoke a
+model-driven reviewer, so the check is a RECORD of a verdict rather than the
+review itself. Six measured reviews in one session ran 11-39 minutes; commits
+land every few minutes, and `## BL-149:` is the standing rule that a gate people
+cannot satisfy honestly gets deleted.
+
+**What it verifies, stated plainly because the name overpromises:** that a
+verdict is on record for exactly the commits being pushed. Not that a review
+happened. An agent that writes the record dishonestly defeats it —
+`# BL-112-SAST-NOTRUN` is this repo's settled posture for that class. What it
+buys is that bypassing becomes an ACT with a name and a date on it.
+
+**Markers:** `# BL-243-PUSHED-REFS`, `-REVPARSE-VERIFY`, `-REVIEWED-HEAD`,
+`-VERIFY-MANIFEST`, `-VERIFY-HOOK`, `-INSTALL-SKIP-LOUD`, `-SYNC-SKIP-LOUD`,
+`-HOOK-TEMPLATE`, `-CONTRIB-PREPUSH`. They were `# BL-PRGATE-*` for three review
+rounds, which made them **structurally invisible to
+`scripts/lint-bl-markers.sh`** — its extractor requires `BL-[0-9]+` — so BL-196's
+marker-integrity checking could never validate them and a typo'd prose citation
+could never go red. Renumbered into this entry.
+
+**THE FEATURE WAS SWITCHED OFF THREE TIMES WHILE ITS TESTS WERE GREEN.** This is
+the entry's real content, because the pattern is the finding:
+
+1. **Round one — it only looked at HEAD.** git hands a pre-push hook the refs on
+   stdin and a push need not push HEAD, so with an approve on record,
+   `git push origin <other-branch>` shipped never-reviewed commits while the gate
+   printed `[OK]`. Ordinary usage, no dishonesty, no trace.
+2. **Round two — the executable bit.** Both scripts sat at `100644`, and the hook
+   degrades open on `! -x`. Every generated project pushed ungated; THIS repo
+   pushed ungated *silently*, because its hand-installed hook predated the loud
+   degrade. **Cause, measured:** the round-one mutation harness restored files
+   with `shutil.copyfile` + `shutil.move` — `copyfile` copies content only and
+   creates the backup at `0644`, and the move renamed it back. *The tool proving
+   the gate could not be silently switched off is what silently switched it off.*
+   Carry the lesson: **a mutation harness must restore MODE, not just bytes.**
+3. **Round three — the emitted hook had nothing watching it.** Deleting both WARN
+   printfs (silent-open) and replacing the `exec` with `exit 0` (feature off in
+   every future install) each passed the ENTIRE PR-blocking check set. Pinned now
+   by `W0`-`W3`, which drive the emitted hook the way git does.
+
+**Test suite:** `tests/test-pr-review-gate.sh`, 11 -> 21 -> 30 -> 38 assertions
+across the three rounds. Every arm carries a mutation proof.
+
+**RESIDUALS — open, and none is a defect this entry claims to have fixed:**
+
+1. **The record is forgeable by whoever can write the state file.** Stated in the
+   script's own header. That honesty IS the design (`# BL-112-SAST-NOTRUN`); no
+   cheap hardening short of moving trust off-machine changes it.
+2. **`core.hooksPath` and an operator-replaced hook pass silently at push time** —
+   nothing of ours runs. Same class as `--no-verify`. Both are DETECTED by
+   `verify-install.sh`'s row; neither can speak at push time.
+3. **The verify-install wiring is pinned by no test** — nothing references
+   `check-pr-review` outside the gate suite, so the manifest rows, the fixer-loop
+   names and the hook row could all regress green. Worse, none of the three
+   `test-verify-install-*` suites is in the unit lane, so a pin added there would
+   be full-lane only.
+4. **The `scripts=(` manifest's "mirrors init.sh's chmod list exactly" invariant
+   is a hand-maintained comment** — no lint compares them, and this feature broke
+   it on arrival unnoticed. A derivation would end the class.
+5. **`soif_currency_hook_state` knows only pre-commit and commit-msg**, so
+   pre-push resolves `absent-unavailable` and hook-body drift has no staleness
+   detector. Mitigated by the thin-delegator design.
+6. **A jq-less machine cannot push at all** — the attestation needs jq to record,
+   and an unrecordable escape is refused by `## BL-072:`'s shape. Deliberate,
+   loud, remedy named; recorded because it is a hard stop.
+7. **`--mirror` is essentially always refused, and `--follow-tags` with an
+   ancestor tag is refused**, because the record holds ONE verdict for ONE sha.
+   The honest path is a `--head` re-record or an attestation.
+8. **The recorder's `--help` uses a line-number `sed` range**, brittle to edits
+   above it.
+
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
 
 **Status:** Open

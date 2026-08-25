@@ -2834,13 +2834,13 @@ install_precommit_hook() {
   # The hook is a thin delegator on purpose: the logic lives in a shipped,
   # testable script rather than in a heredoc nobody can run in isolation.
   if [ ! -f ".git/hooks/pre-push" ]; then
-    # BL-PRGATE-HOOK-TEMPLATE: emitted from the ONE owner of hook bodies, not a
+    # BL-243-HOOK-TEMPLATE: emitted from the ONE owner of hook bodies, not a
     # second copy here. A heredoc-only body is how this repo's own hand-installed
     # hook became a silent stale version while the shipped one was loud.
     soif_write_prepush_hook ".git/hooks/pre-push"
     print_ok "Pre-push review gate installed (scripts/check-pr-review.sh)"
   else
-    # BL-PRGATE-INSTALL-SKIP-LOUD: never clobber a hook the operator wrote —
+    # BL-243-INSTALL-SKIP-LOUD: never clobber a hook the operator wrote —
     # but never skip in silence either. Before this arm, a project whose
     # pre-push hook predated the framework got NO review gate and NO sentence
     # saying so, which is the same silent-omission class the gate exists to end.

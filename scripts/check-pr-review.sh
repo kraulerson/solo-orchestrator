@@ -77,7 +77,7 @@ _refuse() {
 command -v git >/dev/null 2>&1 || { _say "check-pr-review: git unavailable — cannot identify what is being pushed."; exit 1; }
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0   # not a repo: nothing to gate
 
-# BL-PRGATE-PUSHED-REFS: A PUSH DOES NOT HAVE TO PUSH HEAD, and the first cut of
+# BL-243-PUSHED-REFS: A PUSH DOES NOT HAVE TO PUSH HEAD, and the first cut of
 # this gate assumed it did — its only input was `git rev-parse HEAD`. With an
 # approve on record for HEAD, `git push origin <some-other-branch>` shipped
 # never-reviewed commits while this script printed [OK]: ordinary git usage, no
@@ -107,7 +107,7 @@ if [ "$_saw_refs" = "1" ] && [ -z "$_pushed_shas" ]; then
   exit 0
 fi
 
-# BL-PRGATE-REVPARSE-VERIFY: `--verify` is load-bearing. Bare `git rev-parse
+# BL-243-REVPARSE-VERIFY: `--verify` is load-bearing. Bare `git rev-parse
 # HEAD` on an unborn branch ECHOES THE LITERAL STRING "HEAD" to stdout and exits
 # 128, so `|| printf ''` never fires, the emptiness guard below could never fire
 # either, and a record could be written against the word "HEAD". Measured.

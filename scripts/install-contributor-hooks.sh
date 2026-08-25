@@ -82,7 +82,7 @@ else
 fi
 chmod +x "$CM"
 
-# BL-PRGATE-CONTRIB-PREPUSH: the framework repo had NO installation path for the
+# BL-243-CONTRIB-PREPUSH: the framework repo had NO installation path for the
 # push-time review gate, so the repo whose review record motivated the gate got
 # it only by hand — and the hand-installed copy went stale silently, degrading
 # open with no warning while the shipped body degraded loudly. Refreshed
@@ -90,7 +90,7 @@ chmod +x "$CM"
 # contributor's "make my hooks current" command, and a hook it declines to
 # refresh is the drift it exists to end. init.sh keeps its never-clobber rule,
 # because there the existing hook may be the operator's own.
-soif_write_prepush_hook "$ROOT/.git/hooks/pre-push"                    # BL-PRGATE-CONTRIB-PREPUSH
+soif_write_prepush_hook "$ROOT/.git/hooks/pre-push"                    # BL-243-CONTRIB-PREPUSH
 
 # VERIFY WHAT WAS INSTALLED, rather than reporting on what was intended. A hook
 # that is not executable, or that git will not run, is the defect this entry is
