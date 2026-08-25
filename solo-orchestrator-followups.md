@@ -227,24 +227,16 @@ docs note; (b) accept — the failure is loud and self-explanatory.
 existing directories, so the framework cannot onboard an existing codebase.
 **Status:** Resolved 2026-08-23 — option (a) taken, at Karl's direction.
 
-**Superseded by `## BL-242:`**, which carries the whole picture: the twelve
-merged PRs, the seven unbuilt capabilities (with a derivation recipe rather than
-a hand-maintained list — five announce on every run; the other two are
-conditional, and the secrets one announces BOTH when the scan found something
-AND when it did not run), the three that `§10` of the design assigns to
-**no work package at all** — all three now carrying a recorded decision (D1-D3,
-Karl, 2026-08-23) though none is yet built — and the five live defects. Take questions about
-brownfield adoption there.
+**Superseded by `## BL-242:`. Take every question about brownfield adoption
+there — the merged PRs, the unbuilt capabilities, the ownership decisions, the
+open questions and the defects are all recorded on that entry and are
+deliberately NOT restated here.** This row previously summarised them, and six
+adversarial review rounds found the summary drifting from the entry it
+summarised; the summary is gone rather than re-synchronised.
 
 **Worth keeping visible even though this row is now closed:** the gap this
-followup describes was closed in code — the framework HAS onboarded existing
-codebases since WP4 (PR #337, merged 2026-08-09) — while the row itself still
-read "still unfiled" and "awaiting decision" **fourteen days later**. (An
-earlier draft said ten, and a later one explained that as "no anchor yields ten"
-plus the three-day date error. Both halves were wrong: 2026-08-10 → 2026-08-20
-yields exactly ten, and that is the anchor the DESIGN DOC's contemporaneous
-sentence used — `9050a18` corrected that one to thirteen. The honest account is
-simply that this row copied the design doc's figure instead of computing from
-its own #337 anchor, which under the then-believed date would have given
-eleven.) A followup that outlives the thing it
-describes is how a half-built feature ends up with no tracker.
+followup describes was closed in CODE at PR #337 (merged 2026-08-09) while the
+row itself still read "still unfiled" and "awaiting decision" a fortnight later.
+A followup that outlives the thing it describes is how a half-built feature ends
+up with no tracker — which is the whole reason `## BL-242:` exists.
+

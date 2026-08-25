@@ -12570,8 +12570,9 @@ work whose PR this was blocking).
 
 **Status:** Open
 
-**Filed 2026-08-23 at Karl's direction.** The feature has existed in shippable
-form since 2026-08-10 and its only tracker until now was `## F-010:` in
+**Filed 2026-08-23 at Karl's direction.** The feature has been able to adopt an
+existing codebase since **PR #337 merged on 2026-08-09**; the last of the
+shipped work packages landed 2026-08-10 and its only tracker until now was `## F-010:` in
 `solo-orchestrator-followups.md` — an entry whose own title says *"still
 unfiled"* and whose status was *"Awaiting decision"*. A feature with twelve
 merged PRs, seven unbuilt capabilities and five live defects was being tracked
@@ -12746,12 +12747,14 @@ brownfield deliverable** — adjacency, not ownership:
 **Closed:** `## BL-221:` (PR #356), recorded so this is the whole set rather
 than the open subset.
 
-### THE THREE UNOWNED CAPABILITIES — DECIDED (Karl, 2026-08-23)
+### THE THREE UNOWNED CAPABILITIES — DECIDED (Karl, 2026-08-23; D2 refined 2026-08-25)
 
 All three now carry a RECORDED DECISION — which is not the same as settled, and
 an earlier version of this line said "all three are now settled" while the
 design document recorded two open sub-questions about them (D2's tier scope, and
-whether D3 reaches `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md`). Both are in the
+whether D3 reaches `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md`) — D2's tier scope
+has since been answered, and the D2 question still open is the AXIS reading. Both
+current questions are in the
 asks list below. **None is built**; what changed is that each has an
 answer, so "the adoption feature is finished" becomes a statement someone can
 check rather than one nobody can evaluate. Recorded here because none of the
@@ -12867,11 +12870,12 @@ purposes.**
 
 This settles the objection the current stub raises — *"a CLAUDE.md you already
 have would be a collision, not a gap"* — by making it an archive-and-replace,
-not a refusal. It also **extends WP6's collision archive to a third class**:
-that archive today covers AI-layer settings and git hooks, and
-`adopt_stub_project_docs` says in as many words that "documents are neither".
-Under D1 and D3 they are — documents and `scripts/` both become archive classes,
-which is one mechanism serving three cases rather than three mechanisms.
+not a refusal. It also **extends WP6's collision archive beyond the two
+classes it covers today**: that archive today covers AI-layer settings and git
+hooks, and `adopt_stub_project_docs` says in as many words that "documents are
+neither". Under D1 and D3 they are — `scripts/` and documents become the third
+and fourth archive classes, which is one mechanism serving four cases rather
+than four mechanisms.
 
 ### THE SHAPE OF ADOPTION ITSELF — DECIDED (Karl, 2026-08-23)
 
@@ -13005,7 +13009,8 @@ an assessment and a plan to record, not just a scenario and a rung.
 **The design document needs more than its status row.** D4 overturns `§4 — The
 two scenarios (D2)`, which `§0.1` lists among the settled decisions carried into
 the design, and **D1, D3, D5 and D6** redraw work-package boundaries — D3 says so
-in its own text (*"extends WP6's collision archive to a third class"*), which an
+in its own text (*"extends WP6's collision archive beyond the two classes it
+covers today"*), which an
 earlier version of this sentence named only D5/D6 despite. Every amendment BEFORE
 v1.2.2 could say *"No settled decision, decision table, or WP boundary changed"*;
 **v1.2.2, shipped in this PR, cannot**, and its §0.2 says so. That amendment is a
@@ -13029,10 +13034,15 @@ same standard as code rather than waved through as "docs-only".
 ### What this entry is asking for
 
 1. ~~**A decision on the three unowned capabilities**~~ — **DECIDED above
-   (D1-D3).** And the sub-question that was open there is now moot: adoption
-   runs **tool resolution** (D5, Act 2), which installs gitleaks as a
-   `required: true` matrix entry, so `tool-unavailable` becomes a backstop for
-   `scan-failed` rather than the primary case. It stays a hard refusal.
+   (D1-D3).** On the sub-question that was open there: adoption runs **tool
+   resolution** (D5, Act 2), which installs gitleaks as a `required: true`
+   matrix entry, so `tool-unavailable` becomes a rare backstop rather than the
+   primary case. **RARE IS NOT MOOT, and an earlier version of this item said
+   moot and answered the question itself** — while the D2 section four hundred
+   lines above deliberately left it open. Whether `tool-unavailable` admits the
+   acknowledged escape or is a hard refusal with none is STILL OPEN; the D2
+   section holds the reasoning, and this list defers to it rather than deciding
+   in a summary.
 2. ~~**Two sub-questions left open by D2 and D3**~~ — **D2's is ANSWERED**
    (Karl, 2026-08-25): tier-scoped, organizational stops and personal warns
    loudly, which confirms `§6.3` rather than overturning it. **One remains:**
@@ -13053,7 +13063,7 @@ same standard as code rather than waved through as "docs-only".
    value proposition is that it is safe to point at an existing repository.
 5. **WP5 re-cut or retired, then WP7** — see the consequences section; WP5 as
    specified no longer has a job.
-6. Two hygiene items: close `## BL-215:`, and correct the OWNER-STRING PAIR in
+6. Two hygiene items: close `## BL-215:`, and correct the FALSE COMMENT in
    `adopt-stubs.sh` AND `scripts/lib/adopt/adopt-test-debt.sh` — BOTH carry the
    false "§10 gives WP7 the commit-time hook" claim, and a fix naming one file
    fixes half of it. THE TWO SIT DIFFERENTLY, which an earlier version of this

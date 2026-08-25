@@ -10,7 +10,7 @@
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) the implementer of the work packages in §10 |
 | **Subject** | **Brownfield adoption** — bringing an existing codebase, with existing history, existing CI, and existing tooling, into Solo Orchestrator |
 | **Companion documents** | SOI-002-BUILD (`docs/builders-guide.md`) · SOI-003-GOV (`docs/governance-framework.md`) · SOI-004-INTAKE (`templates/project-intake.md`) · `docs/designs/2026-08-02-team-orchestrator-v1.md` (sibling fork design, same session) · the **delta track** design (in flight — see §0.3-C1) |
-| **Status of the thing described** | **HALF BUILT as of 2026-08-23 — WP0–WP4, WP5b, WP6 and WP8 have shipped; WP5 and WP7 have not, and THREE capabilities are assigned to no work package at all.** *(v1.2.2 correction: this row said "WP5, WP5b, WP6 and WP7 have not". WP5b merged as PR #344 and WP6 as PR #345 — **after that sentence was written** — so the row has overstated the gap since 2026-08-10. That is this row's THIRD correction (v1.2 replaced "Nothing is built", v1.2.1 replaced "WP0-WP3"), which is why the not-built set is no longer maintained by hand here: **ask the code.** The authoritative list is the `adopt_stub_*` functions actually CALLED — strip comments, skip `adopt-stubs.sh` where the definitions live, then `grep -ohE '\badopt_stub_[a-z_]+' | sort -u`; the recipe is spelled out in full on `## BL-242:`, where a first draft omitting BOTH exclusions returned **9** (either one alone returns 8) — seven today. FIVE emit a labelled `NOT DONE` block on every run; the other two (`adopt_stub_framework_script_collisions`, `adopt_stub_secrets_disposition`) are conditional via `[ "$n" -gt 0 ] || return 0`, so on a clean adoptee five blocks appear, not seven. The secrets one is conditional in ONE DIRECTION ONLY: an earlier unconditional arm fires when `status != "scanned"`, so on a host without gitleaks it announces and SIX blocks appear. The exclusion of `adopt-stubs.sh` removes `adopt_stub_notice`, the shared print helper — NOT a defined-but-uncalled capability, because that set is **empty**: 8 stubs are defined there and all 8 are called. An earlier version of this sentence said the sets "had already diverged" and cited `adopt_stub_test_debt_ledger`, which is not defined anywhere at all — it survives only as a comment in `adopt-state.sh`, so it could never have been an example of one. The comment-strip is load-bearing for a different reason: it stops that comment being counted as a call.)* **Built:** the severable-module contract and `scripts/lint-module-dependencies.sh` (WP0, PR #325); **Scout** (WP1, PR #329; WP2, PR #331); the **in-core enabling arms** (WP3, PR #335); the **adoption driver** — `scripts/adopt-project.sh` and `scripts/lib/adopt/` (WP4, PR #337); the **user-facing pages** `docs/scout.md` and `docs/adoption.md` (WP8, PR #343); the **test-debt ledger** (WP5b, PR #344); and the **collision archive** (WP6, PR #345). PR #346 pinned the **WP5b and WP6** suites to the `slow-misc` shard — its own subject reads *"pin both brownfield suites to slow-misc"* and its diff adds exactly those two. The brownfield suites are NOT all on one shard: `wp2-scout-sections` is pinned to `lint-scan`, `wp3-adoption-arms` and `wp4-driver` are unpinned and fall to `rest` by complement, and `wp3-regenerate-path` is not in the unit list at all (`unit-lane-exempt:init-sh-invoker`, full-lane only). **NOT built, each announced at run time:** the certification pass (**WP5**); the Adoption Record, audit rows and CI carve-out, plus provenance headers on reconstructed documents (**WP7**); and three capabilities that had **no owner until 2026-08-23 and now have a DECISION** (recorded as D1-D3 on `## BL-242:`; still unbuilt, but no longer unanswered): installing the framework's version of colliding scripts — **archive theirs, install the framework's, notice every archived path**, reversing today's skip-on-collision; the secrets disposition (§6.3) — **TIER-SCOPED (Karl, 2026-08-25): organizational projects STOP until every finding is acknowledged as corrected or accepted and recorded; casual personal projects get a loud warning**, which is §6.3's own "BLOCK at strict; BIG WARNING at personal" rather than a departure from it. `tool-unavailable` / `scan-failed` are not acceptable states at either tier; and the project's framework documents — **written to the framework's requirements, adapted from or replacing what exists, originals archived**. D1 and D3 make `scripts/` and documents two further classes for WP6's collision archive, which today covers only AI-layer settings and git hooks. The commit-time scanners are **WP7's** by Karl's recorded decision (`docs/adoption.md`: *"Read that 'Owner: nobody yet' against the decision, not instead of it"*); `adopt_stub_hooks`'s owner string says `nobody yet — §10 names no owner`, and **that string is ACCURATE about §10** — §10's WP7 scope row names no hook. The false line has TWO copies — the WP5b section comment in `adopt-stubs.sh` AND the header block of `scripts/lib/adopt/adopt-test-debt.sh`; a fix naming one fixes half of it. In `adopt-stubs.sh` claiming *"§10 gives WP7 the commit-time hook"* (which also asserts `adopt_stub_hooks` "already carries that sentence", when it carries the opposite). Correct the COMMENT; rewriting the string to say "WP7" would propagate a false §10 attribution. If the string is touched at all it should name the decision, not the section. The commit-time hook is a deliberate deferral (Karl's decision: installing it before the artifacts it reads exist would refuse every commit), not an oversight; the message gates are live from the adoption commit. **The feature now HAS a backlog entry — `## BL-242:` — filed 2026-08-23**; the unfiled `## F-010:` in `solo-orchestrator-followups.md` is superseded by it. **Scope of the caveat that follows, unchanged in force:** every "exists today" claim below is stamped **2026-08-02** and describes the **greenfield** product as it stood then. Those claims are *not* descriptions of the WP0–WP8 code, which post-dates every one of them — §13 is a log of what commands returned at that commit, not a standing property. Re-run a claim before quoting it. |
+| **Status of the thing described** | **HALF BUILT. `## BL-242:` OWNS THIS — go there, do not read the summary that used to live here.** **Shipped:** the severable-module contract and `scripts/lint-module-dependencies.sh` (WP0, PR #325); **Scout** (WP1 #329, WP2 #331); the in-core enabling arms (WP3, #335); the **adoption driver** `scripts/adopt-project.sh` + `scripts/lib/adopt/` (WP4, #337); the user-facing pages `docs/scout.md` and `docs/adoption.md` (WP8, #343); the test-debt ledger (WP5b, #344); the collision archive (WP6, #345). **Not shipped:** WP5 and WP7. **Everything else that used to be restated here — which capabilities are unbuilt and which announce themselves, who owns them, the decisions D1-D8, and every open question — lives on `## BL-242:` and is NOT duplicated.** *(This cell was 5,681 characters and restated that analysis. Six consecutive review rounds found stale twins in it: a claim corrected on `## BL-242:` and left standing here, including one where the correction and the claim it corrected sat ~900 characters apart INSIDE THIS CELL. Each round's fix produced the next round's mismatch. The cause was duplication, not carelessness, so the duplication is gone: one assertion, one home, everything else a pointer — the same rule this document already applies to counts.)* **Scope of the caveat that follows, unchanged in force:** every "exists today" claim below is stamped **2026-08-02** and describes the **greenfield** product as it stood then. Those claims are *not* descriptions of the WP0-WP8 code, which post-dates every one of them — §13 is a log of what commands returned at that commit, not a standing property. Re-run a claim before quoting it. |
 
 **Provenance.** Six architecture decisions were settled by Karl in a joint working session on
 **2026-08-02**. This document **transcribes** them and designs *within* them; it does not
@@ -121,103 +121,34 @@ author-proposed.
 
 ### §0.2 — Amendment changelog
 
-**v1.2.2 (2026-08-23) — the status row's third CORRECTION and its fourth
-REVISION, and the last one it
-should need.** **THIS AMENDMENT DOES CHANGE SETTLED THINGS, and saying
-otherwise here would be false.** (TWO certainly — D1 and D3. D2 is a third
-only under one reading of §6.3's tiering, which is undecided; see the D2 bullet
-below and `## BL-242:`'s D2 section.) Every prior amendment could honestly use that
-formula; this one cannot, and review caught it trying. `## BL-242:`'s D1, D2 and
-D3 are all folded into the status row above; **D1 and D3 contradict settled text
-this amendment leaves standing, and D2 no longer does** — Karl's 2026-08-25 tier
-ruling made it agree with §6.3. All three are listed, the withdrawn one struck,
-because an amendment that quietly drops an item it once claimed reads as though
-the item was never there:
+**v1.2.2 (2026-08-25) — the status row handed to `## BL-242:`, and this
+document's first amendment that changes settled things.**
 
-- ~~**D2 vs settled decision D4 and §6.3.**~~ **WITHDRAWN — Karl resolved it on
-  2026-08-25 and the resolution CONFIRMS the settled decision.** D2 is
-  tier-scoped: organizational projects stop, casual personal projects get a loud
-  warning — which is `§6.3`'s *"BLOCK at strict; BIG WARNING at personal"*, not
-  a departure from it — **read on the `deployment` axis.** An earlier recording of
-  D2 said adoption stops full stop, and that WOULD have overturned the tiering;
-  that contradiction was in the recording, not the decision.
-  **BUT THE WITHDRAWAL IS CONTINGENT, and this bullet asserted it flatly at
-  first.** §6.3's "strict / personal" names one value from each of two settings,
-  and they are COUPLED, not independent: organizational forces strict
-  (`# BL-030`), and the default personal project is also strict
-  (`# BL-180-ENFORCEMENT-DEFAULT`). For that default project both arms match and
-  disagree, and Karl's ruling picks the warning arm — so on the
-  `enforcement_level` reading D2 DOES overturn the BLOCK-at-strict arm, and the
-  count is three rather than two. The axis question decides it; it is open, and
-  `## BL-242:` D2 carries the full derivation.
-- **D3 vs §7.5, on TWO fronts — and the second is the sharper one.** §7.5
-  settles that adoption *"creates them when absent"* and is *"notice-only when
-  present"* for `CLAUDE.md` and `PROJECT_INTAKE.md`; D3 replaces and archives.
-  It also settles `FEATURES.md`, `BUGS.md` and `RELEASE_NOTES.md` as
-  ***"If present, treated as theirs**: kept, and reconciled by the interview
-  rather than overwritten"*, calling that *"a direct inversion of
-  `create_project()`'s current unconditional `cp`"*. D3's scope is
-  `adopt_stub_project_docs`, whose own text names *"CLAUDE.md, **the document
-  templates** and the reference docs"* — and `templates/generated/` holds
-  `features.tmpl`, `bugs.tmpl` and `release-notes.tmpl`. **So D3 plausibly
-  re-inverts the inversion §7.5 settled**, and `## BL-242:` carries the same open
-  question in its asks list. *(This clause said BL-242 "never mentions those
-  three files or §7.5 anywhere" — true when written, false one commit later when
-  BL-242 gained both. Corrected rather than deleted: it is the fourth instance of
-  a claim about a sibling file going stale because the sibling moved.)* Whether D3 reaches them is itself an open
-  question for the v2 supersession, not something this amendment decides.
-- **D1/D3 vs §7.1 and WP6's scope.** The status row states in as many words that
-  they make `scripts/` and documents two further classes for the collision
-  archive. That is a WP boundary change.
+**IT DOES CHANGE SETTLED THINGS, and every earlier amendment's formula ("no
+settled decision, decision table, or WP boundary changed") would be false here.**
+`## BL-242:`'s D1 and D3 contradict settled text this document leaves standing —
+§7.5's create-when-absent / notice-only rule, and WP6's scope. D2 may be a third,
+depending on an axis question that is open; `## BL-242:` D2 carries the
+derivation and the consequence for the count. **The enumeration lives there and
+is not repeated here.**
 
-`## BL-242:` flags D4 and D5/D6 as needing an amendment it deliberately does not
-attempt, and now also names D1 and D3 among the boundary-redrawing set. D1, D2
-and D3 are the three THIS revision has already written into the status row —
-which is why they are enumerated here rather than there. *(An earlier version of
-this sentence said BL-242 "missed" D1 and D3. It did, and then it was corrected
-and this sentence was not.)* The v2 supersession that entry requests is where all six belong — D7 and D8 are excluded deliberately: D7 scopes a verdict and D8 sets a presentation contract, and neither touches a settled decision, a decision-table row or a WP boundary in THIS document;
-until it lands, this row is the only place they appear and it says so.
-- *(On the count: v1.2.1's bullet below also says "the third time this row has
-  needed correcting", and both cannot be third. By this entry's own enumeration
-  — "Nothing is built" → WP0-WP3 → WP0-WP4 → this — v1.2.1 was the SECOND
-  correction and this is the third. The v1.2.1 wording is left as written; it is
-  noted here rather than silently edited.)*
-- The row read **"WP5, WP5b, WP6 and WP7 have not"** shipped. **WP5b merged as
-  PR #344 and WP6 as PR #345**, both AFTER that sentence was written (it rode in
-  on #343, 2026-08-10), so the row overstated the gap for thirteen days. Corrected to WP0–WP4, WP5b, WP6 and WP8 built;
-  WP5 and WP7 outstanding.
-- **The hand-maintained not-built list is retired.** Three wrong revisions of one
-  row is a pattern, not bad luck: a list of what is unbuilt, kept by a human in a
-  document, drifts every time a work package lands. The row now names the
-  DERIVATION — the `adopt_stub_*` functions actually CALLED — and the code
-  answers. The `adopt-stubs.sh` exclusion removes `adopt_stub_notice`, the shared
-  print helper — not a defined-but-uncalled capability, because that set is
-  EMPTY (8 defined there, all 8 called). An earlier version of this bullet said
-  the sets "had already diverged" and cited `adopt_stub_test_debt_ledger`, which
-  is not defined anywhere — it survives only as a comment, which is what the
-  comment-strip is actually load-bearing against.
-- **THREE capabilities are named as owned by nobody**, which no previous
-  revision of this row said. §10 assigns work to packages and gives these to
-  none: installing the framework's version of colliding scripts, the secrets
-  disposition (§6.3), and the project's framework documents. Finishing WP5 and
-  WP7 leaves all three exactly where they are. *(A first draft of this row said
-  FOUR, counting the commit-time scanners on the strength of
-  `adopt_stub_hooks`'s `Owner: nobody yet` string. `docs/adoption.md` refuses
-  that reading explicitly — the hook is WP7's by Karl's DECISION — and this
-  row's own v1.2.1 predecessor said so. **The corroboration this bullet used to
-  offer was backwards**: §10's WP7 scope row names no hook, so about §10 the
-  STRING is accurate and the WP5b section comment in `adopt-stubs.sh` claiming
-  "§10 gives WP7 the commit-time hook" is the false line — in BOTH `adopt-stubs.sh` (its WP5b section comment) and `scripts/lib/adopt/adopt-test-debt.sh` (its header block). Fix BOTH comments. A
-  hygiene item that rewrites the string to "WP7" would propagate a false §10
-  attribution — which is what an earlier version of this bullet instructed.)*
-- **Not every stub announces itself.** Two short-circuit when they have nothing
-  to report, so a clean adoptee sees five `NOT DONE` blocks, not seven — and the
-  secrets one is conditional in ONE DIRECTION ONLY: an earlier unconditional arm
-  fires when `status != "scanned"`, so on a host without gitleaks SIX appear. Stated
-  because "the driver announces every gap" is the reason to trust it.
-- **The feature is filed.** `## BL-242:` (2026-08-23) is now its tracker; the
-  unfiled `## F-010:` that this row previously named as "its only tracker" is
-  superseded.
+**WHY THE STATUS ROW SHRANK BY 4,000 CHARACTERS.** It restated `## BL-242:`'s
+analysis — which capabilities are unbuilt, which announce themselves, who owns
+them, what is open. Six consecutive adversarial review rounds found stale twins
+in it: a claim corrected on `## BL-242:` and left standing here. Round six found
+one where the correction and the claim it corrected sat about 900 characters
+apart **inside the same table cell**, and where the surviving half was one of the
+four errors that blocked the filing's first draft.
+
+The pattern was that each round's fix produced the next round's mismatch, so the
+cause was duplication rather than carelessness, and patching could not converge.
+**One assertion, one home, everything else a pointer** — the rule this document
+already applies to counts, now applied to prose. The correction history is kept
+on `## BL-242:` rather than mirrored here, for the same reason.
+
+Prior corrections to this row, retained as the record of why it is now a pointer:
+"Nothing is built" (true through v1.1) → WP0-WP3 (v1.2) → WP0-WP4 (v1.2.1) →
+WP0-WP4/WP5b/WP6/WP8 (v1.2.2). Three wrong revisions of one hand-maintained row.
 
 **v1.2.1 (2026-08-10) — one front-matter correction, from the WP8 documentation pass.** No settled
 decision, decision table, or WP boundary changes.
