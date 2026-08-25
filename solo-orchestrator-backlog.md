@@ -12753,12 +12753,16 @@ All three now carry a RECORDED DECISION — which is not the same as settled, an
 an earlier version of this line said "all three are now settled" while the
 design document recorded two open sub-questions about them (D2's tier scope, and
 whether D3 reaches `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md`) — D2's tier scope
-has since been answered, and the D2 question still open FROM THAT PAIR is the
-AXIS reading. **Three questions live in the asks list below, not two** — those
-two, plus a third that descends from D2 and post-dates the design document:
-whether `tool-unavailable` admits the acknowledged escape or is a hard refusal
-with none. *(This sentence said "both current questions", which undercounts the
-entry's own open set on any reading but the narrowest.)* **None is built**; what changed is that each has an
+has since been answered, and so has the AXIS reading that descended from it —
+**by derivation on 2026-08-25, not by a second ruling** (the D2 section carries
+it, and the answer is that D2 OVERTURNS `§6.3` as written, making the count of
+changed settled things THREE). **Two questions live in the asks list below**: D3's
+reach over `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md`, and — descending from D2
+and post-dating the design document — whether `tool-unavailable` admits the
+acknowledged escape or is a hard refusal with none. *(This sentence has been
+recounted twice: it said "both current questions" while three were open, then
+said three, and the axis one has since closed. The count is a MEASUREMENT of the
+asks list; read that list, do not trust this number.)* **None is built**; what changed is that each has an
 answer, so "the adoption feature is finished" becomes a statement someone can
 check rather than one nobody can evaluate. Recorded here because none of the
 three is recoverable from the code.
@@ -12800,10 +12804,13 @@ case: *"Why wouldn't the secrets scan run? That should never be an option."*
 Karl, 2026-08-25, resolving the sub-question review raised: *"Keep warn loudly
 for casual personal projects. Organizational projects are always a stop."*
 
-**WHETHER THIS CONFIRMS `§6.3` OR OVERTURNS IT DEPENDS ON A QUESTION NOBODY HAS
-ANSWERED, and an earlier version of this paragraph asserted the confirmation
-flatly while declaring the question undecided four lines below.** Both cannot
-stand. `§6.3` reads *"**BLOCK at strict**; **BIG WARNING at personal**"* — one
+**WHETHER THIS CONFIRMS `§6.3` OR OVERTURNS IT LOOKED LIKE AN OPEN QUESTION. IT
+WAS NOT ONE — RESOLVED BELOW, BY DERIVATION, 2026-08-25.** *(An earlier version
+of this paragraph asserted the confirmation flatly while declaring the question
+undecided four lines below; both could not stand. A later one left this head
+asserting "a question nobody has answered" in the present tense while the tail
+26 lines down said RESOLVED — the same defect again, in the commit whose whole
+subject was closing it.)* The fork it adjudicates: `§6.3` reads *"**BLOCK at strict**; **BIG WARNING at personal**"* — one
 value from each of two DIFFERENT settings:
 
 - `enforcement_level` ∈ `no` | `light` | `strict` (`scripts/lib/enforcement-level.sh`)
@@ -12825,11 +12832,31 @@ they say opposite things. Karl's ruling picks the warning arm.
 - Read on **`enforcement_level`**: D2 overturns `§6.3`'s BLOCK-at-strict arm for
   the default personal project, and the count is **three**.
 
-**The question is therefore not a tidy-up left for the supersession — it decides
-the count.** Recorded as open. What is NOT in doubt is the operational intent:
-organizational projects stop, casual personal projects warn loudly. Since
-organizational implies strict anyway, the two readings agree everywhere EXCEPT a
-personal project that kept the default level — which is most of them.
+**RESOLVED 2026-08-25 BY DERIVATION, NOT BY A SECOND RULING. The count is
+THREE.** Karl was asked which axis governs and answered that he had already
+answered — correctly. His ruling names `deployment` values and settles the
+BEHAVIOUR completely; there was never a product question here. What a ruling
+cannot settle by fiat is whether it agrees with `§6.3` AS WRITTEN, and that is
+derivable rather than decidable:
+
+`§6.3`'s BLOCK arm keys on `strict`; the ordinary personal project IS `strict`
+(`# BL-180-ENFORCEMENT-DEFAULT`); Karl's ruling sends that project to the warning
+arm. So the ruling contradicts `§6.3`'s literal BLOCK-at-strict for the
+commonest project there is. The only reading that rescues "confirms" is that
+`§6.3`'s `strict` was loose shorthand for `organizational` — plausible, since
+`# BL-030` forces one from the other, but the default personal project is a
+counterexample the shorthand cannot absorb.
+
+**`enforcement_level` carries no residue under the ruling**, which is what makes
+this a derivation and not a coin-toss between two defensible readings. A personal
+project wanting less enforcement sets `light` or `no` and still warns; one
+wanting a stop sets `deployment=organizational`. No combination is left over. The
+secrets tiering therefore reads on `deployment` alone, and `§6.3`'s mention of
+`strict` is wrong rather than ambiguous.
+
+**Operationally nothing changes** — organizational stops, casual personal warns
+loudly, exactly as ruled. What changes is the amendment record: D1, D2 and D3 all
+contradict settled text, so `v1.2.2` says THREE, not "two or three".
 
 `scout-secrets.sh` emits three statuses and only one of them is a result:
 
@@ -13046,25 +13073,26 @@ same standard as code rather than waved through as "docs-only".
    acknowledged escape or is a hard refusal with none is STILL OPEN; the D2
    section holds the reasoning, and this list defers to it rather than deciding
    in a summary.
-2. ~~**Two sub-questions left open by D2 and D3**~~ — **D2's is ANSWERED**
-   (Karl, 2026-08-25): tier-scoped, organizational stops and personal warns
-   loudly. **Whether that CONFIRMS `§6.3` or overturns its BLOCK-at-strict arm
-   is the axis question below — it is STILL OPEN, and the D2 section carries the
-   derivation.** *(This clause said "which confirms `§6.3` rather than
-   overturning it" — flatly, while the D2 section ~200 lines above said the
-   opposite, and while v1's Version row and §0.2 in this same PR both carried
-   the contingent version. Round seven of review caught it: the seventh
-   consecutive instance of correct-in-one-place, stale-in-the-sibling, and the
-   one the structural collapse did not reach because both copies live inside
-   this entry.)* **One further sub-question remains:**
+2. ~~**Two sub-questions left open by D2 and D3**~~ — **the two D2 sub-questions
+   THIS ITEM tracked are both closed** (a third, `tool-unavailable`'s escape,
+   descends from D2, lives in item 1 and stays open).
+   The tier scope was ruled by Karl on 2026-08-25 (organizational stops, casual
+   personal warns loudly), and the axis reading that descended from it was
+   **closed by DERIVATION on the same date, not by asking Karl a second time**:
+   D2 OVERTURNS `§6.3` as written, so the count is THREE. The D2 section carries
+   the derivation.
+   *(Two earlier versions of this clause were wrong in opposite directions: the
+   first asserted "confirms `§6.3`" flatly while the D2 section said the opposite,
+   and the second said the axis question was still open after it had been asked
+   and answered. Both were caught by review. The lesson is the entry's own: a
+   claim about a sibling section belongs in the sibling section.)*
+   **One sub-question remains, and it is D3's:**
    D3's scope is `adopt_stub_project_docs`, whose text names *"the document
    templates"*, and `§7.5` settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as
    *"If present, treated as theirs: kept, and reconciled by the interview rather
    than overwritten"* — calling that *"a direct inversion of `create_project()`'s
-   CURRENT [emphasis added] unconditional `cp`"*. Whether D3 reaches those three is undecided. A
-   SECOND-ORDER question rides on D2's answer and is also undecided: `§6.3`
-   phrases the tiering as "strict / personal", mixing `enforcement_level` with
-   `deployment`, and Karl's ruling names only the latter.
+   CURRENT [emphasis added] unconditional `cp`"*. Whether D3 reaches those three is undecided,
+   and is the ONLY question in this item.
 3. **A decision on whether to amend the design document or supersede it.** D4
    overturns a settled decision and D1/D3/D5/D6 redraw WP boundaries; no
    amendment before v1.2.2 had to say that. This filing does not attempt the
