@@ -188,8 +188,9 @@ check_project_structure() {
   # no init.sh to parse — so the list is a copy, and a copy drifts.
   #
   # It had drifted twice by 2026-08-23: uat-authoring-guide.md has shipped since
-  # BL-xxx and was never added, and messaging-standard.md was added to init.sh
-  # in the same commit as this comment. Both are below now, and
+  # the 2026-06-28 six-doc drift-cluster closer (`77c6517`) and was never added,
+  # and messaging-standard.md was added to init.sh earlier on this same branch.
+  # Both are below now, and
   # T-refdocs-verify-install-list in tests/test-scaffold-source-closure.sh
   # compares this list against the parser so the next drift goes RED in the
   # framework repo instead of silently costing a generated project its repair.

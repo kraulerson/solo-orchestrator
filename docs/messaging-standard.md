@@ -185,7 +185,7 @@ that design is the finding.
 
 **Not this:**
 
-> The accumulation gate is failing open on unmeasurable windows due to
+> The accumulation check is failing open on unmeasurable windows due to
 > approxidate resolution, so the phase gate may pass spuriously.
 
 **Its vocabulary is fine, and that is the point of using it here.** "phase gate"
@@ -250,24 +250,36 @@ boundaries (`grep -oE '(pre-commit|commit-time|commit|test|MCP|review|quality|pu
 
 | Surface | non-phase `gate` uses |
 |---|---|
-| `docs/builders-guide.md` (shipped to every project) | 28 |
+| `docs/builders-guide.md` (shipped to every project) | 27 |
 | `docs/user-guide.md` | 12 |
 | `README.md` | 11 |
-| `templates/generated/claude-md.tmpl` | 10 |
+| `templates/generated/claude-md.tmpl` | 9 |
 | `CLAUDE.md` | 6 |
 
 That is a floor, not a total — the pattern misses bare uses like "silence the
-gate". **Two of those files are the ones this standard was installed into**, so
+gate". *(Two of these rows shipped wrong: `28` and `10`, where the printed recipe
+returns 27 and 9 on every tree that has ever carried the table. Review caught it.
+A section headed "known, measured, and unfixed" publishing an unmeasured number
+is this document breaking its own first rule inside the paragraph that states
+it — recorded rather than quietly corrected, because that is the failure this
+whole standard exists to make visible.)* **Two of those files are the ones this standard was installed into**, so
 it contradicts itself on arrival for its own headline term. The cleanup is a
 separate, mechanical pass; until it runs, treat Part 2 as binding on new prose.
 
 **2. `track` has a second live sense this standard does not resolve.** Part 2
 fixes it to the ceremony level (light / standard / full). The **Delta Track** —
-the post-1.0 lifecycle — uses the same word throughout shipped prose, and in a
-generated project's own `CLAUDE.md` the *only* uses are the Delta-Track sense.
-So for this one term the standard does not remove an overload; it picks one of
-two live senses and contradicts the surface the agent reads first. Renaming one
-of them is the real fix and is not attempted here.
+the post-1.0 lifecycle — uses the same word throughout shipped prose, and a
+generated project's own `CLAUDE.md` carries BOTH senses: its header declares
+`**Track:** light|standard|full` and it has a `Track upgrade` line, while its
+post-1.0 section is titled *"the delta track"*. So for this one term the standard
+does not remove an overload; it picks one of two senses that are both live in the
+same file. Renaming one of them is the real fix and is not attempted here.
+*(An earlier version of this paragraph claimed the generated `CLAUDE.md` used
+*only* the Delta-Track sense and therefore that the standard "contradicts the
+surface the agent reads first". Both are the opposite of what that file contains
+— the first screen carries the ceremony sense, which is the one Part 2 picks.
+The phenomenon was real and the explanation was invented, which is the failure
+mode this repository records above all others.)*
 
 **3. `[WARN]` arms that block are defects by Part 2, and this does not file
 them.** `scripts/check-phase-gate.sh` emits 71 `[WARN]`s; those followed by

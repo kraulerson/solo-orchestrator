@@ -286,7 +286,7 @@ vi_file="$REPO_ROOT/scripts/verify-install.sh"
 vi_work="$(mktemp -d)"
 soif_parse_shipped_reference_docs "$INIT" | sed 's#^docs/reference/##' | sort -u > "$vi_work/shipped"
 # The array: quoted "<name>.md" entries between framework_docs=( and its ).
-awk '/framework_docs=\(/{f=1;next} f&&/^\s*\)/{exit} f' "$vi_file" \
+awk '/framework_docs=\(/{f=1;next} f&&/^[[:space:]]*\)/{exit} f' "$vi_file" \
   | grep -oE '"[A-Za-z0-9_.-]+\.md"' | tr -d '"' | sort -u > "$vi_work/detect"
 # The loop: bare <name> tokens, .md appended to compare like-for-like.
 grep -E '^for _doc in ' "$vi_file" | head -1 \
