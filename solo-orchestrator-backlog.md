@@ -12948,12 +12948,17 @@ read stdin and does not exit before it.
     a ghost: **run `tests/test-pr-review-gate.sh` alone.**
 14. **RE-DERIVE ANY COUNT YOU FIND IN THIS ENTRY'S COMMIT MESSAGES.** The entry
     is the record; the commit essays are not, and they cannot be amended once
-    pushed. Three bookkeeping claims in them failed reproduction during review —
-    two miscounts in one message, then "all eight siblings" (seven) and
-    "recorded as pre-existing" (recorded nowhere). The pattern is exact and
-    worth stating: **every claim on this branch that shipped with a derivation
-    recipe beside it held; the ones that shipped as bare prose are the ones that
-    failed.** Residual 12 models the fix — it carries its own `grep -c`.
+    pushed. Two claims in one of them failed reproduction during the approving
+    review — "all eight siblings" (seven) and "recorded as pre-existing"
+    (recorded nowhere) — after the entry's earlier correction cycle had already
+    logged two more of the same class (residual 3's parenthetical). The total is
+    derived by that enumeration, because the first draft of THIS residual said
+    "three" while listing four — the reviewer's own arithmetic, quoted
+    faithfully, caught only because this rule was applied to itself. The pattern
+    is exact and worth stating: **every claim on this branch that shipped with a
+    derivation recipe beside it held; the ones that shipped as bare prose are
+    the ones that failed.** Residual 12 models the fix — it carries its own
+    `grep -c`.
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
 
 **Status:** Open
