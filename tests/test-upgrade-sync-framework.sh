@@ -409,6 +409,83 @@ t_dry_run_mutates_nothing() {
 }
 
 # ── T-hook-refused-noninteractive-without-flag ──────────────────────────────
+# ── T-prepush-notice: the sync ships the gate's LOGIC and never its TRIGGER ──
+# `# BL-243-SYNC-SKIP-LOUD`. Deleting the notice call from _run_sync_framework
+# passed this whole suite 39/39 — the upgrade channel silently reverting to
+# shipping check-pr-review.sh while nothing invokes it, which is the state this
+# arm exists to announce. Three states, because the middle one is the mode this
+# feature's own history produced twice.
+t_prepush_notice() {
+  local T; T=$(mktemp -d)
+  [ -n "$T" ] && [ -d "$T" ] || { fail_ "T-prepush-notice" "mktemp -d failed; refusing to build fixtures in $PWD (## BL-244:)"; return; }
+  local P="$T/proj"; mk_project "$P" python
+  local out
+  out="$(run_sync "$P")"
+  if ! printf '%s' "$out" | grep -q 'NOT installed — pushes from this project are not gated'; then
+    fail_ "T-prepush-notice" "a project with no pre-push hook got no warning that the review gate is absent"; rm -rf "$T"; return
+  fi
+  # THE REMEDY TEXT IS A DELIVERABLE, NOT DECORATION. An earlier version was
+  # broken on all three surfaces at once — an embedded quote truncated it, `$?`
+  # pre-expanded to 0 so it printed the swallow-the-verdict shape, and nothing
+  # asserted any of it. These pins are RETARGETED, not relaxed: the remedy is now
+  # a pointer at the managed block rather than a pasteable one-liner, so the
+  # invariants that matter changed with it. The old "append ABOVE any exit line"
+  # caveat is gone because the block goes at the TOP — the hazard is designed out
+  # rather than warned about.
+  if ! printf '%s' "$out" | grep -q 'scripts/print-prepush-recipe.sh'; then
+    fail_ "T-prepush-notice" "the remedy does not name the recipe script, so an operator has nothing to run"; rm -rf "$T"; return
+  fi
+  if ! printf '%s' "$out" | grep -q 'TOP of'; then
+    fail_ "T-prepush-notice" "the remedy does not say the block goes at the TOP — position is the whole reason it is correct"; rm -rf "$T"; return
+  fi
+  if ! printf '%s' "$out" | grep -q 'NO edits'; then
+    fail_ "T-prepush-notice" "the remedy no longer says the operator's body needs no edits — hand-rewiring a hook body is what authored every new consumer spelling"; rm -rf "$T"; return
+  fi
+  if ! printf '%s' "$out" | grep -q 'SYNC SIBLINGS'; then
+    fail_ "T-prepush-notice" "the remedy lost its SYNC SIBLINGS marker — this text has three homes and drifted once already"; rm -rf "$T"; return
+  fi
+  if printf '%s' "$out" | grep -q 'exit \$?\|check-pr-review.sh || exit'; then
+    fail_ "T-prepush-notice" "the remedy teaches the swallow-the-verdict shape (|| exit), which disables the gate for whoever pastes it"; rm -rf "$T"; return
+  fi
+
+  # A COMMENTED-OUT delegation is not a delegation — Y5's rule, on THIS surface,
+  # which nothing was watching: replacing the comment filter with `cat` left this
+  # case green.
+  printf '#!/usr/bin/env bash\n# disabled: bash scripts/check-pr-review.sh --from-hook\nexit 0\n' > "$P/.git/hooks/pre-push"
+  chmod +x "$P/.git/hooks/pre-push"
+  out="$(run_sync "$P")"
+  if printf '%s' "$out" | grep -q 'pre-push review gate hook present'; then
+    fail_ "T-prepush-notice" "a commented-out delegation was reported as present"; rm -rf "$T"; return
+  fi
+
+  # A TRAILING mention is not a delegation either — this surface kept reading it
+  # as "present" after the installer check stopped, so the two audit surfaces
+  # disagreed about the same hook.
+  printf '#!/usr/bin/env bash\nexit 0  # TODO: wire up check-pr-review.sh here\n' > "$P/.git/hooks/pre-push"
+  chmod +x "$P/.git/hooks/pre-push"
+  out="$(run_sync "$P")"
+  if printf '%s' "$out" | grep -q 'pre-push review gate hook present'; then
+    fail_ "T-prepush-notice" "a hook that only MENTIONS the gate in a trailing comment was reported as present"; rm -rf "$T"; return
+  fi
+
+  # Restore a live delegating hook for the executability case below.
+  printf '#!/usr/bin/env bash\nexec bash scripts/check-pr-review.sh --from-hook\n' > "$P/.git/hooks/pre-push"
+  chmod +x "$P/.git/hooks/pre-push"
+
+  # Delegating but NOT executable -> git ignores it silently, so the sync must
+  # not reassure. This is the exact state the round-one mutation harness created.
+  chmod -x "$P/.git/hooks/pre-push"
+  out="$(run_sync "$P")"
+  if printf '%s' "$out" | grep -q 'pre-push review gate hook present\.'; then
+    fail_ "T-prepush-notice" "a NON-EXECUTABLE hook was reported as present; git ignores it and pushes go ungated"; rm -rf "$T"; return
+  fi
+  if ! printf '%s' "$out" | grep -q 'NOT executable'; then
+    fail_ "T-prepush-notice" "a non-executable hook produced neither the present-OK nor the not-executable warning"; rm -rf "$T"; return
+  fi
+  pass "T-prepush-notice: the sync announces an absent review gate, recognises a live one, and refuses to call a NON-EXECUTABLE hook present"
+  rm -rf "$T"
+}
+
 t_hook_refused_noninteractive_without_flag() {
   local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
   run_sync "$P" >/dev/null   # no --install-hooks
@@ -1732,6 +1809,7 @@ t_scriptsync_cp_failure_is_loud() {
 # the whole suite per mutation. Every function named here must exist; an unknown
 # name in BL099_ONLY is a hard error (a typo must not silently run zero tests).
 _ALL_TESTS="
+t_prepush_notice
 t_sync_refreshes_stale_script
 t_exec_bit_probe
 t_sync_self_copy_refused

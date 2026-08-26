@@ -996,6 +996,42 @@ _bl131_ensure_domsinks_ruleset() {
   fi
 }
 
+# BL-243-SYNC-SKIP-LOUD: report, never install. The sync delivers
+# check-pr-review.sh and record-pr-review.sh automatically, so an upgraded
+# project holds the gate's logic while nothing invokes it — and before this arm
+# the run said nothing at all. Deliberately a notice rather than an install arm:
+# writing a push-blocking hook into a project mid-upgrade is the direction
+# `## BL-149:` warns about, and verify-install carries the detectable row.
+_bl099_sync_prepush_notice() {
+  print_step "pre-push review gate hook"
+  # A commented-out delegation is not a delegation — same blind spot the
+  # verify-install row had (`# BL-243-VERIFY-HOOK-STDIN`).
+  if [ -x "$PROJECT_ROOT/.git/hooks/pre-push" ] \
+     && grep -v '^[[:space:]]*#' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null \
+        | sed 's/[[:space:]][[:space:]]*#.*$//' | grep -qF 'check-pr-review.sh'; then
+    print_ok "  pre-push review gate hook present."
+    return 0
+  fi
+  if [ -e "$PROJECT_ROOT/.git/hooks/pre-push" ] \
+     && grep -v '^[[:space:]]*#' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null \
+        | sed 's/[[:space:]][[:space:]]*#.*$//' | grep -qF 'check-pr-review.sh'; then
+    print_warn "  present but NOT executable — git ignores it silently, so pushes are NOT gated."
+    print_warn "  Remedy: chmod +x .git/hooks/pre-push (verify-install reports this row too)."
+    return 0
+  fi
+  print_warn "  NOT installed — pushes from this project are not gated by adversarial review."
+  print_warn "  The scripts ship with this sync; the hook does not, because installing a"
+  print_warn "  push-blocking hook during an upgrade is not this tool's call."
+  print_warn "  To enable — # BL-243-APPEND-RECIPE, SYNC SIBLINGS (init.sh, verify-install.sh):"
+  print_warn "    Run: bash scripts/print-prepush-recipe.sh — paste its output at the TOP of that hook. Your own hook body needs NO edits: the block captures git's ref list once, gives it to the gate, and re-feeds the original list to everything below it. Position is what makes it correct, so it is safe whatever your hook does with stdin."
+  print_warn "    if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi"
+  print_warn "  If that hook reads ANY of the ref list — even a single \`read\` — this checks"
+  print_warn "  the WRONG commit, and a PARTIAL read gets no warning at all. git's own"
+  print_warn "  pre-push.sample reads the list, so it needs the capture-and-replay recipe on"
+  print_warn "  \`## BL-243:\`, not just the append."
+  print_warn "  (scripts/verify-install.sh reports this row and names the same remedy.)"
+}
+
 _bl099_sync_precommit_hook() {
   local hook="$PROJECT_ROOT/.git/hooks/pre-commit" want current
   print_step "pre-commit fallback hook"
@@ -1446,6 +1482,7 @@ _run_sync_framework() {
   _bl099_sync_scripts        # BL-099-SYNC
   _bl099_sync_commitmsg_hook
   _bl099_sync_precommit_hook
+  _bl099_sync_prepush_notice   # BL-243-SYNC-SKIP-LOUD
   _bl099_doc_drift
   _postmvp_policy_notice
   if [ "$DRY_RUN" = true ]; then

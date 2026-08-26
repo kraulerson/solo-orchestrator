@@ -12566,6 +12566,399 @@ work whose PR this was blocking).
 
 ---
 
+## BL-244: almost every test suite can run its fixtures in the LAUNCH DIRECTORY when mktemp fails — and one of them did
+
+ **Status:** Open
+ **Filed:** 2026-08-26
+ **Owner:** unassigned
+
+**This is not hypothetical. It fired on 2026-08-26**, during the round-four
+adversarial review of `## BL-243:`. `mktemp -d` was denied under the reviewer's
+sandbox, and `tests/test-pr-review-gate.sh` ran its fixture `git init`,
+`git config`, `git add -A` and `git commit` **in the repository root it was
+launched from** — staging untracked files and **overwriting the operator's git
+identity** with the fixture's `t@e.x` / `T O`. It was caught, disclosed and
+restored, and verified restored independently (identity, reflog, no rogue
+commits, hooks byte-identical).
+
+**THE MECHANISM IS A BASH 3.2 BEHAVIOUR MOST GUARDS DO NOT ANTICIPATE.**
+The usual protection is `( cd "$d" || exit 1; … )`. It does not work:
+
+```
+$ d=""; cd "$d"; echo "rc=$? pwd=$(pwd)"
+rc=0 pwd=<UNCHANGED>
+```
+
+**`cd ""` returns 0 without changing directory.** So an empty fixture path does
+not abort the subshell — it silently runs every fixture command wherever the
+suite was launched. Suites that also `set -e` are no safer: nothing failed.
+
+**Derive the scope, never transcribe it.** The BL-243 fix commit said "62
+sibling suites" — a number inherited from a review report and never derived.
+It is wrong. The recipe, run 2026-08-26:
+
+```
+# suites using mktemp -d
+grep -rl 'mktemp -d' tests/test-*.sh | wc -l                       # 204
+# of those, ones that guard the result
+for f in $(grep -rl 'mktemp -d' tests/test-*.sh); do \
+  grep -qE '\[ -d "\$(TOPTMP|TMP|T)"|FATAL: mktemp' "$f" && echo "$f"; done | wc -l   # 1
+# the destructive shape: also git init AND git add -A
+for f in $(grep -rl 'mktemp -d' tests/test-*.sh); do \
+  grep -q 'git init' "$f" && grep -q 'git add -A' "$f" && echo "$f"; done | wc -l      # 46
+```
+
+**204 use it, 2 now guard it** (`tests/test-pr-review-gate.sh` and
+`tests/test-upgrade-sync-framework.sh`, both fixed under `## BL-243:`),
+**114 also `git init`**, and **46 also `git add -A`** — that last set is the
+shape that escaped, because it stages and commits rather than just creating
+files. *(The count was 1 when this entry was written and 2 by the end of the same
+PR. Re-run the recipe; do not read the number.)*
+
+**THE FIX IS THREE LINES PER SUITE**, and the pattern is already proven:
+
+1. Guard the top-level temp root at creation — `[ -n "$T" ] && [ -d "$T" ]` or
+   abort with a FATAL naming `$PWD`.
+2. Guard the per-case helper (`newtmp`-style) the same way.
+3. Guard the fixture-builder entry point, because `cd ""` will not.
+
+Prove it with a positive control rather than asserting it: a PATH stub whose
+`mktemp` always fails must make the suite exit non-zero with the FATAL message
+and leave the launch directory untouched. That control is `M-1` in
+`tests/test-pr-review-gate.sh`. *(This sentence claimed the control existed
+before it did — the guard was there, its proof was not, in the entry whose own
+rule is prove-don't-assert. Review caught it; `M-1` was written in response.)*
+
+**Why this is worth a sweep rather than opportunistic fixes.** The failure is
+silent, it is destructive, it targets whatever directory the developer happened
+to be in — usually this repository — and it only fires when `mktemp` fails,
+which is exactly when nobody is watching (a sandbox, a full disk, a locked-down
+CI runner). Every suite is one denied syscall away from it.
+
+**Not claimed:** that any suite other than the one measured has ever fired. The
+scope above is the exposure, not an incident count.
+
+## BL-243: The push-time adversarial review gate — mandatory before push, and three rounds of it being switched off
+
+ **Status:** Open
+ **Filed:** 2026-08-25
+ **Owner:** unassigned
+
+**Karl's decision, 2026-08-23:** the adversarial PR review is **mandatory before
+a push**, dispatched as a subagent on the most capable model at maximum effort,
+and if it finds issues it stops the PR and reports in the messaging standard's
+format. Recorded here because none of it is recoverable from the code, and
+because this feature shipped for two days with no backlog entry at all — the
+same gap `## BL-242:` exists to close for brownfield.
+
+**Why push and not commit.** A git hook is a shell script and cannot invoke a
+model-driven reviewer, so the check is a RECORD of a verdict rather than the
+review itself. Six measured reviews in one session ran 11-39 minutes; commits
+land every few minutes, and `## BL-149:` is the standing rule that a gate people
+cannot satisfy honestly gets deleted.
+
+**What it verifies, stated plainly because the name overpromises:** that a
+verdict is on record for exactly the commits being pushed. Not that a review
+happened. An agent that writes the record dishonestly defeats it —
+`# BL-112-SAST-NOTRUN` is this repo's settled posture for that class. What it
+buys is that bypassing becomes an ACT with a name and a date on it.
+
+**Markers:** `# BL-243-PUSHED-REFS`, `-REVPARSE-VERIFY`, `-REVIEWED-HEAD`,
+`-VERIFY-MANIFEST`, `-VERIFY-HOOK`, `-VERIFY-HOOK-STDIN`, `-INSTALL-SKIP-LOUD`,
+`-SYNC-SKIP-LOUD`, `-HOOK-TEMPLATE`, `-CONTRIB-PREPUSH`,
+`-HOOK-STDIN-DRAINED`. They were `# BL-PRGATE-*` for three review
+rounds, which made them **structurally invisible to
+`scripts/lint-bl-markers.sh`** — its extractor requires `BL-[0-9]+` — so BL-196's
+marker-integrity checking could never validate them and a typo'd prose citation
+could never go red. Renumbered into this entry.
+
+**THE FEATURE WAS SWITCHED OFF THREE TIMES WHILE ITS TESTS WERE GREEN.** This is
+the entry's real content, because the pattern is the finding:
+
+1. **Round one — it only looked at HEAD.** git hands a pre-push hook the refs on
+   stdin and a push need not push HEAD, so with an approve on record,
+   `git push origin <other-branch>` shipped never-reviewed commits while the gate
+   printed `[OK]`. Ordinary usage, no dishonesty, no trace.
+2. **Round two — the executable bit.** Both scripts sat at `100644`, and the hook
+   degrades open on `! -x`. Every generated project pushed ungated; THIS repo
+   pushed ungated *silently*, because its hand-installed hook predated the loud
+   degrade. **Cause, measured:** the round-one mutation harness restored files
+   with `shutil.copyfile` + `shutil.move` — `copyfile` copies content only and
+   creates the backup at `0644`, and the move renamed it back. *The tool proving
+   the gate could not be silently switched off is what silently switched it off.*
+   Carry the lesson: **a mutation harness must restore MODE, not just bytes.**
+3. **Round three — the emitted hook had nothing watching it.** Deleting both WARN
+   printfs (silent-open) and replacing the `exec` with `exit 0` (feature off in
+   every future install) each passed the ENTIRE PR-blocking check set. Pinned now
+   by `W0`-`W3`, which drive the emitted hook the way git does.
+
+**Test suite:** `tests/test-pr-review-gate.sh`, 11 -> 21 -> 30 -> 38 assertions
+across the three rounds. Every arm carries a mutation proof.
+
+### WIRING THE GATE INTO A PRE-PUSH HOOK YOU ALREADY HAVE
+
+`init.sh` never clobbers an existing hook, so operators are told to append the
+gate to theirs. **Two common hook shapes break that, and both were proven with
+real pushes during round six of review:**
+
+1. **A hook that ends in `exit 0`** — which git's own `pre-push.sample` does —
+   never reaches an appended line. Measured: unreviewed branch pushed, `rc=0`,
+   **zero lines of gate output**. Append ABOVE the exit, not at the very end.
+2. **A hook that reads ANY of the ref list from stdin** — and there are two
+   sub-cases, of which the second is worse:
+   - **Drains the WHOLE list.** The gate is left with empty stdin and falls back
+     to HEAD. Measured: with an approve on record for the branch you are standing
+     on, pushing a *different* unreviewed branch printed
+     `[OK] PR review on record for e998b15…: approve` and **the unreviewed branch
+     landed**. This one is now ANNOUNCED (the NOTE below).
+   - **Reads only PART of it** — a single `read` to peek at the first ref is a
+     common home-made shape. Then `_saw_refs` is 1, **no NOTE can ever fire**, and
+     the gate verifies only the lines that survived. Measured with a real push:
+     an operator hook consuming the `feature` line let the gate see only the
+     approved `main`, print `[OK]`, and **ship the unreviewed `feature` commit
+     with no warning of any kind**. Which ref occupies the consumed slot is
+     decided by git's ref ordering, not by the operator, so the three orderings
+     that happen to fail closed are luck rather than safety.
+
+   Both are fixed by the same capture-and-replay recipe below. Note that git's
+   own `pre-push.sample` READS THE REF LIST, so an operator who activates it and
+   follows only the append-above-the-exit advice lands squarely in this case.
+
+**The partial-read sub-case is undetectable AT RUN TIME** — a partly-consumed
+list is indistinguishable from a genuinely shorter one — but it IS detectable
+statically, and `scripts/verify-install.sh` now does so
+(`# BL-243-VERIFY-HOOK-STDIN`): a hook that both delegates to the gate AND reads
+stdin, without a capture-and-replay, is reported as unsafe with the recipe named.
+
+The gate now announces the drain sub-case rather than guessing silently
+(`# BL-243-HOOK-STDIN-DRAINED`). There is no ROBUST environment discriminator:
+git leaves `GIT_DIR` unset but exports **`GIT_PREFIX` set-to-EMPTY** into a
+pre-push hook. *(An earlier version of this sentence said git sets neither. That
+was a measurement error and review caught it: the probe used
+`${GIT_PREFIX:-unset}`, which reads an empty value as absent. Re-measured with
+`${GIT_PREFIX+SET}`: `GIT_PREFIX set? SET value=[]`.)* Set-ness alone is not
+something to hang a gate on — it is git-version- and context-fragile, and any
+git-spawned manual run inherits it — so the hook declares itself with
+`--from-hook`, and the gate speaks only when a ref list
+was DUE and none arrived. Warning on every manual run instead would be crying
+wolf, which is how an audit line gets ignored.
+
+**It NOTES rather than blocks, and the reason is measured, not assumed.** An
+**up-to-date push still runs the pre-push hook, with zero ref lines** — verified
+on this host:
+
+```
+$ git push origin main        # second time, nothing to push
+HOOK RAN: ref_lines=0
+Everything up-to-date
+```
+
+So an empty ref list is an ordinary, frequent, entirely benign event. Blocking on
+it would refuse every no-op push — `## BL-149:`'s deleted gate, earned in one
+afternoon. The two causes are indistinguishable from inside the gate, so the
+message names both and leads with the harmless one.
+
+**THE MANAGED BLOCK — `scripts/print-prepush-recipe.sh`, and it is the answer to
+this whole class.** Run that script and paste its output at the TOP of an
+existing hook. **The operator's body needs no edits at all**, which is the point:
+`exec < "$_soif_refs"` re-feeds the original ref list to everything below.
+
+Three review rounds were spent narrowing a static heuristic that tries to
+RECOGNISE stdin consumers in arbitrary shell, and each round found another
+ordinary spelling. That enumeration can never close — the detector's own residual
+says so. The block dissolves the problem instead: **correctness comes from
+POSITION, not from recognition.** Nothing runs before the capture, so it is safe
+for every body — consumers in functions, in sourced files, mid-pipeline, in dead
+code, and in spellings nobody has invented yet. It also converts stdin from a
+pipe into a SEEKABLE FILE for the whole body, which retires the 64 KB
+partial-read pathology in the table above. And "the block is first" is a
+DECIDABLE predicate, unlike a grammar over shell.
+
+Measured in front of four bodies — including the single-`read` byte-exact partial
+consumer no static check can see: the unreviewed sha is blocked every time, the
+reviewed one passes, and the untouched body still sees the full list (`Z1`). It
+fails closed and loudly if the capture itself fails (`Z2`).
+
+The earlier hand-wired form, kept because it explains what the block does:
+
+```sh
+#!/usr/bin/env bash
+refs="$(cat)"                       # drain ONCE, keep it
+
+printf '%s\n' "$refs" | while read -r lref lsha rref rsha; do
+  : # ... your existing logic ...
+done
+
+if [ -x scripts/check-pr-review.sh ]; then
+  printf '%s\n' "$refs" | bash scripts/check-pr-review.sh --from-hook || exit 1
+fi
+```
+
+The one-line remedy the tools print is correct **only** for a hook that does not
+read stdin and does not exit before it.
+
+**RESIDUALS — open, and none is a defect this entry claims to have fixed:**
+
+1. **The record is forgeable by whoever can write the state file.** Stated in the
+   script's own header. That honesty IS the design (`# BL-112-SAST-NOTRUN`); no
+   cheap hardening short of moving trust off-machine changes it.
+2. **`core.hooksPath` and an operator-replaced hook pass silently at push time** —
+   nothing of ours runs. Same class as `--no-verify`. Both are DETECTED by
+   `verify-install.sh`'s row; neither can speak at push time.
+   *(Until round eight the detection was weaker than that: a delegation that had
+   simply been COMMENTED OUT — the ordinary temporary-disable gesture — read as
+   `[OK] installed` on BOTH audit surfaces while pushes ran ungated. Whole-line
+   comments AND trailing comments are stripped before the delegation grep now, on
+   the verify-install row and the sync notice alike, pinned by `Y5` on one surface
+   and by `T-prepush-notice` on the other. An earlier version of this note said
+   trailing mentions "still slip through"; that became true of only ONE surface
+   when the strip landed on `verify-install` alone, so the note and the commit
+   claim were each right about a different half. Both surfaces carry both strips
+   now.)*
+3. **The verify-install wiring is only PARTLY pinned.** All **four** action-item
+   branches of the pre-push row are pinned from the unit lane (`Y1`, `Y5`,
+   `Y5b`, `Y5c`, which drive `verify-install.sh` directly), but the manifest
+   rows and the fixer-loop names still are not, so those could regress green.
+   *(This residual has now been one row too narrow TWICE. First it said the
+   branches were pinned when the pins were TEXT-DEEP — nothing read a row's
+   CLASS, and the class carries the exit code, because `register_manual` feeds
+   `MANUAL` and `MANUAL` is what makes `verify-install` exit non-zero. Flipping
+   the stdin-consumer row to `register_pass` with identical text survived all 63
+   assertions. Then the correction said "all three rows"; the block has FOUR,
+   and the same mutation on the not-executable row survived all 64. That is
+   `CLAUDE.md`'s `[WARN]` trap — read the effect, not the label — landing twice
+   on the same elif chain. Count the `register_manual` calls before trusting any
+   sentence in this paragraph.)*
+4. **The `scripts=(` manifest's "mirrors init.sh's chmod list exactly" invariant
+   is a hand-maintained comment, and it is FALSE TODAY BY SEVEN FILES** — no lint
+   compares the two lists. Measured during review: `check-maintenance.sh`,
+   `lint-backlog-references.sh`, `lint-counter-antipattern.sh`,
+   `lint-review-manifest.sh`, `session-cadence-check.sh`,
+   `session-freshness-check.sh` and `session-intake-check.sh` are installed and
+   chmod'd by `init.sh` and appear nowhere in `scripts/verify-install.sh`. This
+   feature broke the invariant on arrival unnoticed and was fixed; the invariant
+   was already broken at scale by unrelated drift. That makes the derivation the
+   fix, not vigilance. *(The comment also carries a bare `init.sh:1100` cite —
+   the chmod line is now ~430 lines away, which is the bare-`file:line` class the
+   citation rule bans. Pre-existing.)*
+5. **`soif_currency_hook_state` knows only pre-commit and commit-msg**, so
+   pre-push resolves `absent-unavailable` and hook-body drift has no staleness
+   detector. Mitigated by the thin-delegator design.
+6. **A jq-less machine cannot push any COMMITS** — the attestation needs jq to
+   record, and an unrecordable escape is refused by `## BL-072:`'s shape.
+   Deliberate, loud, remedy named; recorded because it is a hard stop.
+   *(This read "cannot push at all" until review measured it: a deletion-only
+   push PASSES on a jq-less host, because that arm exits before jq is involved.
+   Correct behaviour; the residual's wording was the defect.)*
+7. **`--mirror` is essentially always refused, and `--follow-tags` with an
+   ancestor tag is refused**, because the record holds ONE verdict for ONE sha.
+   The honest path is a `--head` re-record or an attestation.
+8. **The recorder's `--help` uses a line-number `sed` range**, brittle to edits
+   above it.
+9. **A hook that consumes PART of the ref list is undetectable at run time and
+   therefore unannounced.** The gate sees a shorter list and verifies only that;
+   which ref occupies the consumed slot is decided by git's ref ordering, not by
+   the operator. Proven with a real push in round seven: the unreviewed commit
+   shipped under an `[OK]` naming a different, approved sha, with no NOTE.
+   Mitigated but not closed, and the mitigation's LIMITS are the point:
+   `# BL-243-VERIFY-HOOK-STDIN` reports the unsafe composition statically **for
+   the shell `read` family at line start** — `read`, `while read`, `if read`,
+   `IFS= read`, `while IFS= read`, `mapfile`/`readarray` — with a
+   capture-and-replay exclusion. A consumer spelled some other way (inside a
+   function, in a sourced file, mid-pipeline) is **not** detected.
+   *(An earlier version of this sentence claimed the composition was visible
+   statically, full stop. Review wrote a hook in a third ordinary spelling,
+   shipped an unreviewed commit with no warning anywhere, and the checker called
+   that hook correctly installed. The regex covered two spellings; the claim
+   covered all of them.)*
+   **Buffered readers were briefly excluded on a claim that turned out to be
+   size-dependent, and that is worth keeping visible.** The reasoning was that
+   `head -1`/`sed 1q` drain the whole list, so the runtime NOTE announces them.
+   Measured, that holds only below the stdio buffer:
+
+   | refs (~114 B/line) | bytes | left ON A PIPE after `head -1` |
+   |---|---|---|
+   | 500 | ~57 KB | 0 |
+   | 1000 | ~114 KB | 424 |
+   | 3000 | ~346 KB | 2855 |
+
+   Above roughly 64 KB — one stdio buffer, and `git push --all` on a many-branch
+   repo clears it easily — buffered tools ARE byte-exact partial readers and
+   nothing announces them. **The 64 KB is the invariant; the refs column is
+   corpus-specific** (at 146 B/line the onset is 449 refs, not ~570). Three
+   further nuances, measured: this is PIPE behaviour — on a seekable file
+   redirect the same tools seek back after one buffer; `awk 'NR==1'` drains
+   fully but `awk 'NR==1{print;exit}'` is a 64 KB partial reader identical to
+   `head -1`, so the spelling decides it and the family covers `awk` either way;
+   and `dd bs=1` is a true byte-exact partial reader at any size.
+   So the static net covers every common stdin consumer at line start
+   (`read`/`mapfile`/`head`/`sed`/`awk`/`tail`/`cat`/`grep`/`cut`/`sort`/`uniq`/
+   `wc`/`tr`/`xargs`/`dd`/`python`/`perl`/`ruby`/`node`), excluding lines with an
+   input redirect, which read a file rather than the ref list.
+   **Recorded, not chased** — each is a hand-crafted or mid-line shape whose
+   closure would cost false positives in the nagging direction: a consumer in a
+   mid-line chain (`[ -t 0 ] || read`); a partial capture via command
+   substitution (`first=$(head -1)`); a non-comment `<` in a string ON the
+   consuming line, which still blinds the redirect filter; a `#` glued to code
+   with no preceding whitespace; and a consumer placed BEFORE a genuine
+   stdin-capture, since the excuse does not check ordering (a consumer AFTER a
+   real capture is harmless — it reads EOF, verified by construction: `rc=1`,
+   nothing consumed, and the replayed gate saw the full list). **And the excuse
+   is TEXTUAL, not semantic** — a capture in dead code (an uncalled function, an
+   unexecuted branch) or inside a string or heredoc body excuses a live consumer
+   exactly as a real one would. The enumeration can never close;
+   `ruby` and `node` are already behind `perl`. It is deliberately conservative: a false alarm costs
+   a sentence, a false negative ships unreviewed code in silence.
+   **The capture-and-replay recipe is the only correct wiring for any
+   stdin-reading hook, partial readers included.**
+
+10. **The managed preamble leaks its temp file in three corners**, all measured,
+    none affecting gate integrity (the file holds ref lines and the OS reaps it):
+    an operator body that installs its OWN `trap ... EXIT` replaces ours; a body
+    ending in `exec ...` never reaches the trap; and a body that reassigns
+    `_soif_refs` sends the exit trap to that path instead. POSIX trap semantics,
+    not a fixable defect.
+11. **Apple's `mktemp` ignores `TMPDIR` when called with no template** (measured:
+    it still lands in `/var/folders/.../T/`; the host man page says it behaves as
+    if `-t tmp` were supplied). Harmless here — but it means a harness that
+    "pins TMPDIR" does NOT redirect a suite's bare `TOPTMP="$(mktemp -d)"` on
+    this host, which is worth knowing before trusting that control in the
+    `## BL-244:` sweep.
+12. **`fix_lib_copy_*` writes through a dangling `scripts/lib/<name>.sh` symlink**
+    — measured on the no-consent `--auto-fix` surface: the `cp` created the file
+    at the far end of the link. All **SEVEN** siblings share the unguarded `cp`
+    (`enforcement-level`, `gate-principles`, `tdd-classify`, `phase2-state`,
+    `accumulation`, `hook-templates`, `cdf-refresh`); `# BL-145-SYMLINK-GUARD`'s
+    leaf refusal was applied to HOOK writes only, and `## BL-145:` is **Closed**
+    (PR #305), so a sweep across the lib copies is unowned. Raised by review on
+    this branch and deliberately not taken here — one instance was added, the
+    class was not.
+    *(The commit that deferred it said "all eight siblings … recorded as
+    pre-existing". Both halves were wrong: there are seven, and it was recorded
+    nowhere but that commit message, deferred into a closed entry. A residual
+    nobody wrote down is a residual nobody can sweep — which is the omission
+    shape this entry exists to end. This line is the recording.)*
+13. **`Z2b` FALSE-REDS UNDER CONCURRENCY, in the suite people re-run before
+    pushing this branch.** Its orphan check scans the SHARED
+    `${TMPDIR:-/tmp}` for fresh `tmp.*` entries, so any other mktemp-using suite
+    running at the same time manufactures a failure. Measured by the round-16
+    reviewer: two parallel runs read 68/69 with `Z2b` failing both times, and
+    69/69 twice when run alone. CI shards are isolated, so the lane is safe.
+    Recorded so the first person it bites reads a sentence instead of debugging
+    a ghost: **run `tests/test-pr-review-gate.sh` alone.**
+14. **RE-DERIVE ANY COUNT YOU FIND IN THIS ENTRY'S COMMIT MESSAGES.** The entry
+    is the record; the commit essays are not, and they cannot be amended once
+    pushed. Two claims in one of them failed reproduction during the approving
+    review — "all eight siblings" (seven) and "recorded as pre-existing"
+    (recorded nowhere) — after the entry's earlier correction cycle had already
+    logged two more of the same class (residual 3's parenthetical). The total is
+    derived by that enumeration, because the first draft of THIS residual said
+    "three" while listing four — the reviewer's own arithmetic, quoted
+    faithfully, caught only because this rule was applied to itself. The pattern
+    is exact and worth stating: **every claim on this branch that shipped with a
+    derivation recipe beside it held; the ones that shipped as bare prose are
+    the ones that failed.** Residual 12 models the fix — it carries its own
+    `grep -c`.
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
 
 **Status:** Open

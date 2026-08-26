@@ -1920,6 +1920,78 @@ EXITEOF
 #   soif_precommit_region_body directly to refresh just the managed region of an
 #   already-marked hook, preserving anything the operator (or
 #   install-filesystem-gates.sh) put outside the markers.
+# ── Pre-push capture-and-replay preamble ───────────────────────────────────
+# soif_emit_prepush_preamble — the managed block an operator pastes at the TOP
+# of a pre-push hook they already have.
+#
+# WHY THIS EXISTS, and why it is not another regex. git hands a pre-push hook the
+# ref list ON STDIN, once. If anything in the operator's hook reads that stream
+# before the gate does, the gate verifies a short list or an empty one — and a
+# PARTIAL read is invisible at run time, because a partly-consumed list is
+# indistinguishable from a genuinely shorter one. Three review rounds were spent
+# narrowing a static heuristic that tries to RECOGNISE consumers in arbitrary
+# shell; that enumeration can never close.
+#
+# This block dissolves the problem instead of detecting it. Correctness comes
+# from POSITION, not from recognising spellings: nothing runs before the capture,
+# so it is safe for every hook body — consumers in functions, in sourced files,
+# mid-pipeline, in dead code, and in spellings nobody has invented yet. The
+# `exec < "$_soif_refs"` re-feeds the ORIGINAL list to the rest of the hook, so
+# the operator's own logic needs no edits at all, which is what stops new
+# spellings being authored in the first place.
+#
+# It also converts stdin from a pipe to a SEEKABLE FILE for the whole body,
+# which retires the 64 KB partial-read pathology recorded on `## BL-243:`.
+#
+# Fails CLOSED and loudly if it cannot capture (`## BL-244:`'s posture), and
+# degrades open-but-loud if the gate script is missing (`## BL-149:`).
+# "First non-comment content of the hook" is a DECIDABLE predicate — unlike a
+# grammar over arbitrary shell — so it can be checked exactly.
+soif_emit_prepush_preamble() {
+  cat <<'SOIF_PREAMBLE'
+# >>> SOIF BL-243 capture-and-replay — managed block, KEEP FIRST in this hook
+_soif_refs="$(mktemp)" || { echo '[FAIL] pre-push: mktemp failed — cannot capture the ref list; refusing to guess.' >&2; exit 1; }
+trap 'rm -f "$_soif_refs"' EXIT
+cat > "$_soif_refs" || { echo '[FAIL] pre-push: could not capture the ref list.' >&2; exit 1; }
+if [ -x scripts/check-pr-review.sh ]; then
+  bash scripts/check-pr-review.sh --from-hook < "$_soif_refs" || exit 1
+else
+  echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2
+fi
+exec < "$_soif_refs"
+# <<< SOIF BL-243 capture-and-replay
+SOIF_PREAMBLE
+}
+
+# ── Pre-push adversarial-review gate ───────────────────────────────────────
+# soif_write_prepush_hook <path> — the delegating hook. Thin ON PURPOSE: the
+# logic lives in scripts/check-pr-review.sh, which can be run and tested in
+# isolation, while a heredoc cannot.
+#
+# IT DEGRADES OPEN, AND LOUDLY. Open because a project never given the gate has
+# not failed it and refusing every push on a missing file is `## BL-149:`'s
+# deleted-gate shape. Loudly because a deleted or non-executable script must
+# never look identical to a clean pass — `# BL-112-SAST-NOTRUN`: could-not-check
+# is never nothing-to-check. That `-x` test is the whole feature's hinge: both
+# scripts once shipped 100644 and every push everywhere went ungated.
+soif_write_prepush_hook() {
+  local hook="$1"
+  cat > "$hook" <<'SOIF_PREPUSH'
+#!/usr/bin/env bash
+# Solo Orchestrator — adversarial review gate. Delegates to the shipped script.
+# Managed by scripts/lib/hook-templates.sh :: soif_write_prepush_hook
+if [ ! -x scripts/check-pr-review.sh ]; then
+  printf '%s
+' "[WARN] pre-push: scripts/check-pr-review.sh is absent or not executable — PUSHING UNGATED." >&2
+  printf '%s
+' "       This is not a clean review; nothing was checked. Run scripts/verify-install.sh --auto-fix." >&2
+  exit 0
+fi
+exec bash scripts/check-pr-review.sh --from-hook
+SOIF_PREPUSH
+  chmod +x "$hook"
+}
+
 soif_write_precommit_hook() {
   local hook="$1"
   printf '%s\n' '#!/usr/bin/env bash' > "$hook"

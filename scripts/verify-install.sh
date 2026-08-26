@@ -377,6 +377,14 @@ check_scripts() {
     "scripts/pending-approval.sh"
     "scripts/lint-uat-scenarios.sh"
     "scripts/escalate-to-user.sh"
+    # BL-243-VERIFY-MANIFEST: the push-time review gate. Listing these is what
+    # makes the pre-push hook's "its absence is loud in verify-install" true —
+    # it was not, and an unlisted script also gives pre-gate projects no
+    # `--auto-fix` backfill path, so the gate reached ONLY projects initialized
+    # after it shipped.
+    "scripts/check-pr-review.sh"
+    "scripts/record-pr-review.sh"
+    "scripts/print-prepush-recipe.sh"
     "scripts/hooks/bypass-detector.sh"
     # BL-030 (post-PR #48): detector, installer, recorder hook, and
     # the fixture-envelope lint that gates the BL-029 hook schema.
@@ -417,6 +425,37 @@ check_scripts() {
       register_manual "$lib_name lib missing" "Copy from orchestrator $lib"
     fi
   done
+
+  # BL-243-LIB-VINTAGE: ONE FILE, ONE ROW — and PRESENCE IS NOT SUFFICIENCY.
+  # This lib is checked here rather than in the generic loop above, because that
+  # loop passes on `[ -f ]` and would print "[OK] present" beside this row's
+  # "predates" — two rows, two answers, about one file.
+  #
+  # `init.sh` has vendored hook-templates.sh into every generated project since
+  # 2026-07-11, so the COMMON state is not "absent" but "present at a vintage
+  # without `soif_emit_prepush_preamble`". Against that copy the backfilled
+  # scripts/print-prepush-recipe.sh exits 2 — and every remedy surface tells the
+  # operator to run exactly that script. A `[ -f ]` pass there is the label
+  # saying healthy while the effect is not.
+  _ht="scripts/lib/hook-templates.sh"
+  _ht_src_ok=0
+  if has_source && grep -q 'soif_emit_prepush_preamble' "$SOURCE_DIR/$_ht" 2>/dev/null; then _ht_src_ok=1; fi
+  if [ ! -f "$_ht" ]; then
+    if [ "$_ht_src_ok" = "1" ]; then
+      register_fixable "hook-templates lib missing (print-prepush-recipe.sh cannot run without it)" "fix_lib_copy_hook-templates"
+    else
+      register_manual "hook-templates lib missing (print-prepush-recipe.sh cannot run without it)" "Copy from orchestrator $_ht"
+    fi
+  elif ! grep -q 'soif_emit_prepush_preamble' "$_ht" 2>/dev/null; then
+    if [ "$_ht_src_ok" = "1" ]; then
+      register_fixable "hook-templates lib predates the pre-push recipe — scripts/print-prepush-recipe.sh exits 2 against it" "fix_lib_copy_hook-templates"
+    else
+      register_manual "hook-templates lib predates the pre-push recipe — scripts/print-prepush-recipe.sh exits 2 against it" \
+        "Refresh it: bash scripts/upgrade-project.sh --sync-framework, or copy scripts/lib/hook-templates.sh from the orchestrator"
+    fi
+  else
+    register_pass "hook-templates lib present and carries the pre-push recipe emitter"
+  fi
 
   for script in "${scripts[@]}"; do
     local name
@@ -664,6 +703,66 @@ check_git() {
     register_manual "Commit-msg TDD gate hook missing" "Initialize git first, then re-run verify"
   fi
   # BL-141-COMMITMSG-VERIFY-END
+
+  # BL-243-VERIFY-HOOK: the pre-push review gate. Reported, not auto-fixed:
+  # the hook body is init.sh's to write, and silently materializing a
+  # push-blocking hook under someone's feet is the wrong direction for a gate
+  # whose own doctrine is `## BL-149:` (a gate people cannot satisfy honestly
+  # gets deleted). Naming it is the whole point — before this row, a project
+  # with no gate, a deleted gate script, or a chmod -x'd one all looked
+  # identical to a project that had one.
+  # BL-243-VERIFY-HOOK-STDIN: the partial-drain fail-open is invisible at run
+  # time — a partly-consumed ref list looks exactly like a shorter one — but the
+  # unsafe COMPOSITION is visible here, before it costs anyone a shipped commit.
+  # A delegation that is COMMENTED OUT is not a delegation. Strip whole-line
+  # comments before believing any of these greps.
+  _bl243_live() { grep -v '^[[:space:]]*#' "$1" 2>/dev/null | sed 's/[[:space:]][[:space:]]*#.*$//'; }
+  # ANY stdin consumer at line start, not just the `read` family. The earlier
+  # cut excluded buffered tools on the reasoning that they drain the whole list
+  # so the runtime NOTE announces them. MEASURED, that is only true below the
+  # stdio buffer: at 500 refs `head -1` leaves nothing, but at 1000 refs
+  # (~114 KB) it leaves 424 lines and at 3000 it leaves 2855 — so above roughly
+  # 64 KB of ref list, reachable with `git push --all` on a many-branch repo,
+  # `head`/`sed`/`tail` ARE byte-exact partial readers and nothing announces
+  # them. Lines with an input redirect are excluded: those read a file, not the
+  # ref list. Conservative by design — the remedy text says a false alarm is
+  # possible, because the other direction ships unreviewed code in silence.
+  _bl243_reads_stdin='^[[:space:]]*[({]{0,1}[[:space:]]*(if[[:space:]]+|while[[:space:]]+|until[[:space:]]+)?(![[:space:]]+)?(command[[:space:]]+|builtin[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(read|mapfile|readarray|head|sed|awk|tail|cat|grep|cut|sort|uniq|wc|tr|xargs|dd|python|python3|perl|ruby|node)([[:space:]]|;|$)'
+  # Capture-and-replay, in any of its spellings — including the temp-file form.
+  # TWO EXCUSE FAMILIES, CHECKED DIFFERENTLY ON PURPOSE. The command-substitution
+  # spellings are precise. The temp-file spelling is a stdin capture only when
+  # nothing else feeds that cat — a heredoc or an input redirect on the line
+  # means it is reading NOT-stdin — and the left boundary keeps `concat >` and
+  # `netcat >` out.
+  _bl243_cap_subst='\$\(cat([[:space:]]+-|[[:space:]]+/dev/stdin)?[[:space:]]*\)'
+  _bl243_cap_file='(^|[^[:alnum:]_])cat[[:space:]]*>'
+  if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
+     && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh' \
+     && _bl243_live "$_hooksdir/pre-push" | sed 's,<[[:space:]]*/dev/stdin,,g' | grep -v '<' | grep -qE "$_bl243_reads_stdin" \
+     && ! { _bl243_live "$_hooksdir/pre-push" | grep -qE "$_bl243_cap_subst" \
+            || _bl243_live "$_hooksdir/pre-push" | sed 's,<[[:space:]]*/dev/stdin,,g' \
+               | grep -v '<' | grep -qE "$_bl243_cap_file"; }; then
+    register_manual "Pre-push hook delegates to the review gate BUT ALSO READS STDIN — the gate may verify the wrong commit and say [OK]" \
+      "git hands the ref list to the hook ONCE. A read here consumes lines the gate never sees, so a consumed ref ships unverified with no warning. Capture the list once and replay it to both consumers — recipe on ## BL-243:. This check is deliberately conservative: if your hook already captures and replays in a spelling it does not recognise, or the flagged line does not actually read the ref list, this row is a false alarm — the other direction ships unreviewed code in silence."
+  elif [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
+     && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh'; then
+    if grep -qF 'soif_write_prepush_hook' "$_hooksdir/pre-push" 2>/dev/null \
+       || grep -qF 'SOIF BL-243 capture-and-replay' "$_hooksdir/pre-push" 2>/dev/null; then
+      register_pass "Pre-push review gate hook installed ($_hooksdir/pre-push) — managed block, exactly recognised"
+    else
+      register_pass "Pre-push hook delegates to the review gate ($_hooksdir/pre-push); no stdin consumer recognised — textual best-effort, NOT proof of safe wiring (scripts/print-prepush-recipe.sh gives the managed block)"
+    fi
+  elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ] && [ ! -x "$_hooksdir/pre-push" ] \
+     && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh'; then
+    register_manual "Pre-push review gate hook present but NOT executable — git ignores it silently, so pushes are NOT gated" \
+      "chmod +x $_hooksdir/pre-push"
+  elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ]; then
+    register_manual "Pre-push hook exists but does not delegate to the review gate" \
+      "init.sh never clobbers an existing pre-push hook. # BL-243-APPEND-RECIPE, SYNC SIBLINGS (init.sh, upgrade-project.sh). Run: bash scripts/print-prepush-recipe.sh — paste its output at the TOP of that hook. Your own hook body needs NO edits: the block captures git's ref list once, gives it to the gate, and re-feeds the original list to everything below it. Position is what makes it correct, so it is safe whatever your hook does with stdin."
+  elif [ -d "$_hooksdir" ]; then
+    register_manual "Pre-push review gate hook missing — pushes are NOT gated by adversarial review" \
+      "Re-run init.sh, or write .git/hooks/pre-push delegating to scripts/check-pr-review.sh"
+  fi
 
   if git rev-parse HEAD &>/dev/null 2>&1; then
     register_pass "Initial commit exists"
@@ -1375,7 +1474,7 @@ fix_script() {
 }
 
 # Generate fix functions for each script
-for _s in validate check-phase-gate run-phase3-validation check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user detect-out-of-band-commits install-filesystem-gates lint-fixture-envelopes; do
+for _s in validate check-phase-gate run-phase3-validation check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user detect-out-of-band-commits install-filesystem-gates lint-fixture-envelopes check-pr-review record-pr-review print-prepush-recipe; do
   eval "fix_script_chmod_${_s}() { chmod +x 'scripts/${_s}.sh'; }"
   eval "fix_script_copy_${_s}() { fix_script '${_s}.sh'; }"
 done
@@ -1390,6 +1489,7 @@ fix_lib_copy_gate-principles()   { if has_source && [ -f "$SOURCE_DIR/scripts/li
 fix_lib_copy_tdd-classify()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/tdd-classify.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/tdd-classify.sh"      scripts/lib/; else return 1; fi; }
 fix_lib_copy_phase2-state()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/phase2-state.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/phase2-state.sh"      scripts/lib/; else return 1; fi; }
 fix_lib_copy_accumulation()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/accumulation.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/accumulation.sh"      scripts/lib/; else return 1; fi; }
+fix_lib_copy_hook-templates()    { if has_source && [ -f "$SOURCE_DIR/scripts/lib/hook-templates.sh" ];    then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/hook-templates.sh"    scripts/lib/; else return 1; fi; }
 fix_lib_copy_cdf-refresh()       { if has_source && [ -f "$SOURCE_DIR/scripts/lib/cdf-refresh.sh" ];       then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/cdf-refresh.sh"       scripts/lib/; else return 1; fi; }
 # Hooks live in a subdirectory; chmod + copy paths reflect that. The
 # basename of scripts/hooks/bypass-detector.sh is `bypass-detector`, so

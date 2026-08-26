@@ -1393,6 +1393,8 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/upgrade-project.sh" scripts/
   cp "$SCRIPT_DIR/scripts/reconfigure-project.sh" scripts/
   cp "$SCRIPT_DIR/scripts/verify-install.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/check-pr-review.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/record-pr-review.sh" scripts/
   cp "$SCRIPT_DIR/scripts/test-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-versions.sh" scripts/
   # BL-235-SHIP-PROBE: check-versions.sh above and resolve-tools.sh both run the
@@ -1439,6 +1441,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lint-backlog-references.sh" scripts/
   cp "$SCRIPT_DIR/scripts/lint-counter-antipattern.sh" scripts/
   cp "$SCRIPT_DIR/scripts/lint-review-manifest.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/print-prepush-recipe.sh" scripts/
   # BL-030: enforcement-level lib, gate-principles lib, filesystem-gate
   # installer, PostToolUse Claude-commit recorder, SessionStart out-of-
   # band detector. Required by reconfigure --enforcement-level and by
@@ -1527,7 +1530,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host-errors.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh scripts/check-pr-review.sh scripts/record-pr-review.sh scripts/print-prepush-recipe.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -2819,6 +2822,42 @@ install_precommit_hook() {
 
   soif_write_precommit_hook ".git/hooks/pre-commit"
   print_ok "Pre-commit hook installed (gitleaks + Semgrep + schema migration checks)"
+
+  # THE REVIEW GATE IS A PRE-PUSH HOOK, and the boundary is the decision.
+  # Karl, 2026-08-23: the adversarial review is mandatory before code leaves the
+  # machine. Not before each COMMIT — three reasons, and the first is decisive.
+  # A git hook is a shell script and cannot invoke a model-driven reviewer (the
+  # brownfield evaluators hit the same wall); measured reviews run 11-39 minutes
+  # against commits that land every few minutes, which is `## BL-149:`'s
+  # deleted-gate shape exactly; and the model this gate specifies is slow by
+  # design. Push is where the cost is affordable and the check has teeth.
+  #
+  # The hook is a thin delegator on purpose: the logic lives in a shipped,
+  # testable script rather than in a heredoc nobody can run in isolation.
+  # `-f` is FALSE for a dangling symlink, so the never-clobber promise wrote
+  # THROUGH the link and created a file at the far end — `# BL-145`'s class, in
+  # the arm that advertises never clobbering. `-e` plus `-L` covers both.
+  if [ ! -e ".git/hooks/pre-push" ] && [ ! -L ".git/hooks/pre-push" ]; then
+    # BL-243-HOOK-TEMPLATE: emitted from the ONE owner of hook bodies, not a
+    # second copy here. A heredoc-only body is how this repo's own hand-installed
+    # hook became a silent stale version while the shipped one was loud.
+    soif_write_prepush_hook ".git/hooks/pre-push"
+    print_ok "Pre-push review gate installed (scripts/check-pr-review.sh)"
+  else
+    # BL-243-INSTALL-SKIP-LOUD: never clobber a hook the operator wrote —
+    # but never skip in silence either. Before this arm, a project whose
+    # pre-push hook predated the framework got NO review gate and NO sentence
+    # saying so, which is the same silent-omission class the gate exists to end.
+    print_warn "Existing .git/hooks/pre-push left untouched — the review gate was NOT installed."
+    print_warn "  To enable it — # BL-243-APPEND-RECIPE, SYNC SIBLINGS (upgrade-project.sh,"
+    print_warn "  verify-install.sh); one owner, do not retype the block here:"
+    print_warn "    Run: bash scripts/print-prepush-recipe.sh — paste its output at the TOP of that hook. Your own hook body needs NO edits: the block captures git's ref list once, gives it to the gate, and re-feeds the original list to everything below it. Position is what makes it correct, so it is safe whatever your hook does with stdin."
+    print_warn "    if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi"
+    print_warn "  If your hook reads ANY of the ref list from stdin — even a single \`read\` —"
+    print_warn "  the line above checks the WRONG commit, and a partial read gets NO warning."
+    print_warn "  git's own pre-push.sample reads the list, so it needs the capture-and-replay"
+    print_warn "  recipe on \`## BL-243:\`, not just the append."
+  fi
 
   # BL-072 Phase C2 + BL-107: install the tier-keyed TDD-ordering gate as a
   # COMMIT-MSG hook -- the only git-hook point where .git/COMMIT_EDITMSG holds
