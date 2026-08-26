@@ -12566,6 +12566,74 @@ work whose PR this was blocking).
 
 ---
 
+## BL-244: 203 of 204 test suites can run their fixtures in the LAUNCH DIRECTORY when mktemp fails — and one of them did
+
+ **Status:** Open
+ **Filed:** 2026-08-26
+ **Owner:** unassigned
+
+**This is not hypothetical. It fired on 2026-08-26**, during the round-four
+adversarial review of `## BL-243:`. `mktemp -d` was denied under the reviewer's
+sandbox, and `tests/test-pr-review-gate.sh` ran its fixture `git init`,
+`git config`, `git add -A` and `git commit` **in the repository root it was
+launched from** — staging untracked files and **overwriting the operator's git
+identity** with the fixture's `t@e.x` / `T O`. It was caught, disclosed and
+restored, and verified restored independently (identity, reflog, no rogue
+commits, hooks byte-identical).
+
+**THE MECHANISM IS A BASH 3.2 BEHAVIOUR MOST GUARDS DO NOT ANTICIPATE.**
+The usual protection is `( cd "$d" || exit 1; … )`. It does not work:
+
+```
+$ d=""; cd "$d"; echo "rc=$? pwd=$(pwd)"
+rc=0 pwd=<UNCHANGED>
+```
+
+**`cd ""` returns 0 without changing directory.** So an empty fixture path does
+not abort the subshell — it silently runs every fixture command wherever the
+suite was launched. Suites that also `set -e` are no safer: nothing failed.
+
+**Derive the scope, never transcribe it.** The BL-243 fix commit said "62
+sibling suites" — a number inherited from a review report and never derived.
+It is wrong. The recipe, run 2026-08-26:
+
+```
+# suites using mktemp -d
+grep -rl 'mktemp -d' tests/test-*.sh | wc -l                       # 204
+# of those, ones that guard the result
+for f in $(grep -rl 'mktemp -d' tests/test-*.sh); do \
+  grep -qE '\[ -d "\$(TOPTMP|TMP|T)"|FATAL: mktemp' "$f" && echo "$f"; done | wc -l   # 1
+# the destructive shape: also git init AND git add -A
+for f in $(grep -rl 'mktemp -d' tests/test-*.sh); do \
+  grep -q 'git init' "$f" && grep -q 'git add -A' "$f" && echo "$f"; done | wc -l      # 46
+```
+
+**204 use it, 1 guards it** (`tests/test-pr-review-gate.sh`, fixed under
+`## BL-243:`), **114 also `git init`**, and **46 also `git add -A`** — that last
+set is the shape that escaped, because it stages and commits rather than just
+creating files.
+
+**THE FIX IS THREE LINES PER SUITE**, and the pattern is already proven:
+
+1. Guard the top-level temp root at creation — `[ -n "$T" ] && [ -d "$T" ]` or
+   abort with a FATAL naming `$PWD`.
+2. Guard the per-case helper (`newtmp`-style) the same way.
+3. Guard the fixture-builder entry point, because `cd ""` will not.
+
+Prove it with a positive control rather than asserting it: a PATH stub whose
+`mktemp` always fails must make the suite exit non-zero with the FATAL message
+and leave the launch directory untouched. That control is in
+`tests/test-pr-review-gate.sh` today.
+
+**Why this is worth a sweep rather than opportunistic fixes.** The failure is
+silent, it is destructive, it targets whatever directory the developer happened
+to be in — usually this repository — and it only fires when `mktemp` fails,
+which is exactly when nobody is watching (a sandbox, a full disk, a locked-down
+CI runner). Every suite is one denied syscall away from it.
+
+**Not claimed:** that any suite other than the one measured has ever fired. The
+scope above is the exposure, not an incident count.
+
 ## BL-243: The push-time adversarial review gate — mandatory before push, and three rounds of it being switched off
 
  **Status:** Open

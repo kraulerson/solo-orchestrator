@@ -422,6 +422,16 @@ t_prepush_notice() {
   if ! printf '%s' "$out" | grep -q 'NOT installed — pushes from this project are not gated'; then
     fail_ "T-prepush-notice" "a project with no pre-push hook got no warning that the review gate is absent"; rm -rf "$T"; return
   fi
+  # THE REMEDY TEXT IS A DELIVERABLE, NOT DECORATION. The previous version was
+  # broken on all three surfaces at once — an embedded quote truncated it, `$?`
+  # pre-expanded to 0 so it printed the swallow-the-verdict shape, and nothing
+  # asserted any of it. Pin that it arrives WHOLE and does not teach `|| exit`.
+  if ! printf '%s' "$out" | grep -q 'then if ! bash scripts/check-pr-review.sh; then exit 1; fi'; then
+    fail_ "T-prepush-notice" "the remedy line is truncated or altered — an operator pasting it gets broken shell"; rm -rf "$T"; return
+  fi
+  if printf '%s' "$out" | grep -q 'exit \$?\|bash scripts/check-pr-review.sh || exit'; then
+    fail_ "T-prepush-notice" "the remedy teaches the swallow-the-verdict shape (|| exit), which disables the gate for whoever pastes it"; rm -rf "$T"; return
+  fi
 
   # Delegating AND executable -> quiet OK.
   printf '#!/usr/bin/env bash\nexec bash scripts/check-pr-review.sh\n' > "$P/.git/hooks/pre-push"

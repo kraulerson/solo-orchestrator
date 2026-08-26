@@ -1018,7 +1018,8 @@ _bl099_sync_prepush_notice() {
   print_warn "  NOT installed — pushes from this project are not gated by adversarial review."
   print_warn "  The scripts ship with this sync; the hook does not, because installing a"
   print_warn "  push-blocking hook during an upgrade is not this tool's call."
-  print_warn "  To enable: Append to that hook (loud, composable, does not exec): if [ -x scripts/check-pr-review.sh ]; then bash scripts/check-pr-review.sh || exit $?; else echo "[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED." >&2; fi"
+  print_warn "  To enable: create .git/hooks/pre-push, or append at the END of an existing one:"
+  print_warn "    if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi"
   print_warn "  (scripts/verify-install.sh reports this row and names the same remedy.)"
 }
 

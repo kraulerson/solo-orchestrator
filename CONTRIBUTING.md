@@ -118,11 +118,19 @@ The framework lives in two repositories — both must be cloned for the test sui
    ```bash
    bash scripts/install-contributor-hooks.sh
    ```
-   Installs **two** hooks, generated from the same `scripts/lib/hook-templates.sh`
+   Installs **three** hooks, generated from the same `scripts/lib/hook-templates.sh`
    emitters `init.sh` uses, so contributor and generated-project hooks cannot
    drift: `.git/hooks/pre-commit` (gitleaks, SAST, test co-location,
-   blocked-commit ledger) and `.git/hooks/commit-msg` (BL-072 TDD ordering +
-   BL-006 Build-Loop message check). Re-run any time to refresh both.
+   blocked-commit ledger), `.git/hooks/commit-msg` (BL-072 TDD ordering +
+   BL-006 Build-Loop message check), and `.git/hooks/pre-push` — the
+   **BL-243 push-time review gate**, which delegates to
+   `scripts/check-pr-review.sh` and **refuses a push** when no review verdict is
+   on record for the commits being pushed. Re-run any time to refresh all three.
+
+   > **The pre-push hook blocks.** It is the one hook here that stops you rather
+   > than warning you. It verifies a RECORD, not that a review happened — see
+   > `## BL-243:` for why, and for the attested escape
+   > (`SOLO_PR_REVIEW_ATTESTED=1` with a mandatory, recorded reason).
 
    > **Do NOT `cp scripts/pre-commit-gate.sh .git/hooks/pre-commit`.** This line
    > used to say that was equivalent. It is not, and the difference is silent:
