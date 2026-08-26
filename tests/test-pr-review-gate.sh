@@ -635,10 +635,15 @@ y_row() {  # y_row <hook-body> — the pre-push row verify-install reports
 }
 
 y1="$(y_row "$(printf '#!/usr/bin/env bash\nread -r a b c d\nbash scripts/check-pr-review.sh --from-hook || exit 1\n')")"
-if printf '%s' "$y1" | grep -q 'ALSO READS STDIN'; then
-  pass "Y1: a hook that delegates AND reads stdin is reported as unsafe — the partial-read fail-open cannot be seen at run time, so it is caught here"
+# THE ROW'S CLASS IS THE POINT, NOT ITS WORDING. `register_manual` puts the row
+# in MANUAL, and MANUAL is what makes verify-install exit non-zero;
+# `register_pass` with identical text does not. That is CLAUDE.md's `[WARN]`
+# trap — read the effect, not the label — and flipping this one call survived
+# all 63 assertions while turning the auditor's own warning into a pass.
+if printf '%s' "$y1" | grep -q 'ALSO READS STDIN' && printf '%s' "$y1" | grep -qF '(manual)'; then
+  pass "Y1: a hook that delegates AND reads stdin is reported as unsafe AND AS AN ACTION ITEM — the row class is what carries verify-install's exit code, and the wording alone carries nothing"
 else
-  fail_ "Y1" "the unsafe composition was not reported: ${y1:-<no pre-push row>}"
+  fail_ "Y1" "the unsafe composition was not reported as an action item: ${y1:-<no pre-push row>}"
 fi
 
 y2="$(y_row "$(printf '#!/usr/bin/env bash\nrefs="$(cat)"\nprintf "%%s\\n" "$refs" | while read -r a b c d; do :; done\nprintf "%%s\\n" "$refs" | bash scripts/check-pr-review.sh --from-hook || exit 1\n')")"
@@ -759,6 +764,21 @@ else
   fail_ "Y9" "still blinded:$y9_missed"
 fi
 
+# Y5b. THE MISSING-HOOK ROW HAS ITS OWN CLASS TO KEEP. Y5's fixture HAS a hook,
+# so it exercises the does-not-delegate row; a project with no pre-push hook at
+# all takes a different branch, and flipping THAT one to a pass survived the
+# suite. A project with no gate must read as an action item, not as a pass.
+y5b_dir="$(newtmp)"; mkdir -p "$y5b_dir/scripts" "$y5b_dir/.claude"
+cp "$CHECK" "$y5b_dir/scripts/check-pr-review.sh"; chmod +x "$y5b_dir/scripts/check-pr-review.sh"
+( cd "$y5b_dir" && unset GITHUB_BASE_REF && git init -q -b main . ) >/dev/null 2>&1
+rm -f "$y5b_dir/.git/hooks/pre-push"
+y5b="$( cd "$y5b_dir" && SOURCE_DIR="$REPO_ROOT" bash "$VI" 2>&1 | grep -i 'pre-push' | head -1 )"
+if printf '%s' "$y5b" | grep -qF '(manual)' && printf '%s' "$y5b" | grep -q 'NOT gated'; then
+  pass "Y5b: a project with NO pre-push hook reads as an action item — 'pushes are NOT gated' as a pass would be the auditor lying about the thing it exists to report"
+else
+  fail_ "Y5b" "the missing-hook row was not an action item: ${y5b:-<no row>}"
+fi
+
 # Y6. BUFFERED READERS ARE PARTIAL READERS ONCE THE LIST IS BIG. An earlier cut
 # excluded them, reasoning that they drain everything so the runtime NOTE
 # announces them. Measured, that holds only below the stdio buffer: at 500 refs
@@ -780,7 +800,9 @@ fi
 # the ordinary way to disable something temporarily, and BOTH audit surfaces read
 # it as installed while pushes ran ungated.
 y5="$(y_row "$(printf '#!/usr/bin/env bash\n# temporarily disabled: bash scripts/check-pr-review.sh --from-hook\nexit 0\n')")"
-if ! printf '%s' "$y5" | grep -q 'gate hook installed'; then
+if ! printf '%s' "$y5" | grep -qF '(manual)'; then
+  fail_ "Y5" "a hook with no live delegation was not reported as an ACTION ITEM: ${y5:-<no row>}"
+elif ! printf '%s' "$y5" | grep -q 'gate hook installed'; then
   pass "Y5: a hook whose delegation is COMMENTED OUT is not reported as installed — an auditor must not say the gate is on while pushes run ungated"
 else
   fail_ "Y5" "a commented-out delegation was reported as installed: $y5"
@@ -858,8 +880,10 @@ z2b_out="$( cd "$Z" && printf 'refs/heads/x %s refs/heads/x %s\n' "$z_head" "$ZE
   && PATH="$z2b_stub:$PATH" .git/hooks/pre-push < zrl 2>&1 )"
 z2b_rc="$( cd "$Z" && printf 'refs/heads/x %s refs/heads/x %s\n' "$z_head" "$ZERO" > zrl \
   && PATH="$z2b_stub:$PATH" .git/hooks/pre-push < zrl >/dev/null 2>&1; echo $? )"
-if [ "$z2b_rc" -ne 0 ] && printf '%s' "$z2b_out" | grep -q 'could not capture the ref list'; then
-  pass "Z2b: a capture that REPORTS FAILURE stops the push — ignoring it would run the gate against an empty file and the body against nothing"
+z2b_orphans="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tmp.*' -newer "$Z/zrl" 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$z2b_rc" -ne 0 ] && printf '%s' "$z2b_out" | grep -q 'could not capture the ref list' \
+   && [ "$z2b_orphans" = "0" ]; then
+  pass "Z2b: a capture that REPORTS FAILURE stops the push AND leaves no orphaned temp file — the trap has to be armed before the capture, not after it"
 else
   fail_ "Z2b" "rc=$z2b_rc out: $(printf '%s' "$z2b_out" | head -1)"
 fi

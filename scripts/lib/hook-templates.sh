@@ -1951,8 +1951,8 @@ soif_emit_prepush_preamble() {
   cat <<'SOIF_PREAMBLE'
 # >>> SOIF BL-243 capture-and-replay — managed block, KEEP FIRST in this hook
 _soif_refs="$(mktemp)" || { echo '[FAIL] pre-push: mktemp failed — cannot capture the ref list; refusing to guess.' >&2; exit 1; }
-cat > "$_soif_refs" || { echo '[FAIL] pre-push: could not capture the ref list.' >&2; exit 1; }
 trap 'rm -f "$_soif_refs"' EXIT
+cat > "$_soif_refs" || { echo '[FAIL] pre-push: could not capture the ref list.' >&2; exit 1; }
 if [ -x scripts/check-pr-review.sh ]; then
   bash scripts/check-pr-review.sh --from-hook < "$_soif_refs" || exit 1
 else

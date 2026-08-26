@@ -12815,20 +12815,19 @@ read stdin and does not exit before it.
    when the strip landed on `verify-install` alone, so the note and the commit
    claim were each right about a different half. Both surfaces carry both strips
    now.)*
-3. **The verify-install wiring is only PARTLY pinned.** The hook row's warn and
-   pass branches are pinned from the unit lane now (`Y1`-`Y5`, which drive
-   `verify-install.sh` directly), but the manifest rows and the fixer-loop names
-   still are not, so those could regress green. Worse, none of the three
-   `test-verify-install-*` suites is in the unit lane, so a pin added there would
-   be full-lane only. **This residual originally named verify-install alone,
-   which under-scoped it by three channels.** Review deleted the sync notice and
-   the contributor installer's pre-push arm and both passed every PR-blocking
-   check; those two are now pinned (`T-prepush-notice`, and `A3`/`A4b`/`A5`).
-   **`init.sh`'s install arm remains unpinned in EVERY lane and cannot be pinned
-   in the PR-blocking one** — the lane predicate excludes init.sh-invoking tests
-   by construction, so a pin there would be full-lane only. Deleting
-   `# BL-243-HOOK-TEMPLATE`'s call means every future generated project ships
-   ungated with nothing going red.
+3. **The verify-install wiring is only PARTLY pinned.** The hook row's branches
+   are pinned from the unit lane (`Y1`-`Y5b`, which drive `verify-install.sh`
+   directly), but the manifest rows and the fixer-loop names still are not, so
+   those could regress green.
+   *(This residual drew its boundary one row too narrow. The pins were
+   TEXT-DEEP: they read each row's wording and nothing read its CLASS — and the
+   class carries the exit code, because `register_manual` feeds `MANUAL` and
+   `MANUAL` is what makes `verify-install` exit non-zero. Flipping the
+   stdin-consumer row's `register_manual` to `register_pass` with identical text
+   survived all 63 assertions and turned the auditor's own warning into a pass.
+   That is `CLAUDE.md`'s `[WARN]` trap verbatim — read the effect, not the label
+   — landing on the row this entry leans on four times as the partial-read
+   mitigation. All three rows now assert the action-item class.)*
 4. **The `scripts=(` manifest's "mirrors init.sh's chmod list exactly" invariant
    is a hand-maintained comment, and it is FALSE TODAY BY SEVEN FILES** — no lint
    compares the two lists. Measured during review: `check-maintenance.sh`,
@@ -12855,6 +12854,18 @@ read stdin and does not exit before it.
    The honest path is a `--head` re-record or an attestation.
 8. **The recorder's `--help` uses a line-number `sed` range**, brittle to edits
    above it.
+10. **The managed preamble leaks its temp file in three corners**, all measured,
+    none affecting gate integrity (the file holds ref lines and the OS reaps it):
+    an operator body that installs its OWN `trap ... EXIT` replaces ours; a body
+    ending in `exec ...` never reaches the trap; and a body that reassigns
+    `_soif_refs` sends the exit trap to that path instead. POSIX trap semantics,
+    not a fixable defect.
+11. **Apple's `mktemp` ignores `TMPDIR` when called with no template** (measured:
+    it still lands in `/var/folders/.../T/`; the host man page says it behaves as
+    if `-t tmp` were supplied). Harmless here — but it means a harness that
+    "pins TMPDIR" does NOT redirect a suite's bare `TOPTMP="$(mktemp -d)"` on
+    this host, which is worth knowing before trusting that control in the
+    `## BL-244:` sweep.
 9. **A hook that consumes PART of the ref list is undetectable at run time and
    therefore unannounced.** The gate sees a shorter list and verifies only that;
    which ref occupies the consumed slot is decided by git's ref ordering, not by
