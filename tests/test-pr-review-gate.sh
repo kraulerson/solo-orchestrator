@@ -810,7 +810,7 @@ printf '#!/usr/bin/env bash\nsoif_write_precommit_hook() { :; }\n' > "$y5d_dir/s
 ( cd "$y5d_dir" && unset GITHUB_BASE_REF && git init -q -b main . ) >/dev/null 2>&1
 # ALL hook-templates rows, not the first: one file must produce exactly one row,
 # and an [OK] alongside the warning would be the auditor answering twice.
-y5d_all="$( cd "$y5d_dir" && bash "$VI" 2>&1 )"
+y5d_all="$( cd "$y5d_dir" && HOME="$y5d_dir" bash "$VI" 2>&1 )"
 # STATUS lines only — the summary section echoes each row again, and the remedy
 # prints a third time, so a naive grep counts one row as three.
 y5d="$(printf '%s' "$y5d_all" | grep -E '^[[:space:]]*\[(OK|WARN|FAIL)\]' | grep -i 'hook-templates')"
@@ -820,7 +820,7 @@ y5d_rows="$(printf '%s' "$y5d" | grep -c .)"
 # identical wording passed until this conjunct was added. `(manual)` and
 # `(auto-fixable)` are the action-item suffixes; a bare `[OK]` is neither.
 if printf '%s' "$y5d" | grep -q 'predates the pre-push recipe' \
-   && printf '%s' "$y5d" | grep -qE '\((manual|auto-fixable)\)' \
+   && printf '%s' "$y5d" | grep -qF '(manual)' \
    && ! printf '%s' "$y5d" | grep -q 'lib present' \
    && [ "$y5d_rows" = "1" ]; then
   pass "Y5d: a hook-templates lib that PREDATES the recipe is reported — presence passed the [ -f ] check while the recipe it feeds exits 2, which is the auditor asserting health against its own broken remedy"
@@ -834,8 +834,8 @@ fi
 # absent-without-source; Y5d is stale-without-source, Y5e stale-with, Y5f
 # absent-with.
 rm -f "$y5d_dir/scripts/lib/hook-templates.sh"
-y5d2="$( cd "$y5d_dir" && bash "$VI" 2>&1 | grep -E '^[[:space:]]*\[(OK|WARN|FAIL)\]' | grep -i 'hook-templates' | head -1 )"
-if printf '%s' "$y5d2" | grep -qE '\((manual|auto-fixable)\)' \
+y5d2="$( cd "$y5d_dir" && HOME="$y5d_dir" bash "$VI" 2>&1 | grep -E '^[[:space:]]*\[(OK|WARN|FAIL)\]' | grep -i 'hook-templates' | head -1 )"
+if printf '%s' "$y5d2" | grep -qF '(manual)' \
    && printf '%s' "$y5d2" | grep -q 'missing'; then
   pass "Y5d2: an absent lib with NO reachable source is still an action item — unfixable is not the same as fine, and it is the arm a project cut off from its orchestrator lands on"
 else

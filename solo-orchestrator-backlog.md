@@ -12924,6 +12924,20 @@ read stdin and does not exit before it.
     "pins TMPDIR" does NOT redirect a suite's bare `TOPTMP="$(mktemp -d)"` on
     this host, which is worth knowing before trusting that control in the
     `## BL-244:` sweep.
+12. **`fix_lib_copy_*` writes through a dangling `scripts/lib/<name>.sh` symlink**
+    — measured on the no-consent `--auto-fix` surface: the `cp` created the file
+    at the far end of the link. All **SEVEN** siblings share the unguarded `cp`
+    (`enforcement-level`, `gate-principles`, `tdd-classify`, `phase2-state`,
+    `accumulation`, `hook-templates`, `cdf-refresh`); `# BL-145-SYMLINK-GUARD`'s
+    leaf refusal was applied to HOOK writes only, and `## BL-145:` is **Closed**
+    (PR #305), so a sweep across the lib copies is unowned. Raised by review on
+    this branch and deliberately not taken here — one instance was added, the
+    class was not.
+    *(The commit that deferred it said "all eight siblings … recorded as
+    pre-existing". Both halves were wrong: there are seven, and it was recorded
+    nowhere but that commit message, deferred into a closed entry. A residual
+    nobody wrote down is a residual nobody can sweep — which is the omission
+    shape this entry exists to end. This line is the recording.)*
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
 
 **Status:** Open
