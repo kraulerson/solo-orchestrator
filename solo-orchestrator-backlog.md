@@ -12566,6 +12566,149 @@ work whose PR this was blocking).
 
 ---
 
+## BL-245: the unit-lane membership lint scopes from a COMMENT, because the array-opening token appears above the array
+
+ **Status:** Open
+ **Filed:** 2026-08-26
+ **Owner:** unassigned
+ **Severity:** Low (latent — harmless today by coincidence, not by design)
+
+`CLAUDE.md` spells this trap out character-by-character and bans the literal
+array-opening token *below* the array. It appears **above** it, which the rule
+does not cover and which is the same defect from the other side.
+
+```
+grep -n 'tests=(' .github/workflows/tests.yml
+# 324:  # scopes with awk between `tests=(` and `)` and does not strip   <- a COMMENT
+# 349:  tests=(                                                          <- the array
+```
+
+`_build_unit_list_set` in `scripts/lint-tests-registered.sh` scopes with an
+UNANCHORED `awk '/tests=\(/'` and does not strip comments, so the scope opens at
+line 324 rather than 349 and folds lines 325-348 into the membership set. Any
+`tests/test-*.sh` path NAMED in that comment block therefore satisfies the lint
+without being in the array — i.e. without running.
+
+**Harmless today by coincidence:** the test the comment names is genuinely in the
+array too, so the set is the same either way. That is not a property anyone is
+maintaining.
+
+**Fix direction:** anchor the awk (`/^[[:space:]]*tests=\(/`) or strip comments
+before scoping — and extend the `CLAUDE.md` rule to say *anywhere else in that
+file*, not just *below*. Pre-existing on `main` — derived, not assumed:
+`git log --oneline -1 -S 'scopes with awk between' -- .github/workflows/tests.yml`
+returns `bb69806`, the BL-181-era docs commit, which predates this work.
+
+**The mutation proof has a trap in it, so specify the fixture:** plant the name
+of a **non-exempt** test — one whose executed lines never name `init.sh` — in the
+comment block, delete it from the array, and require the lint to go red. Using
+the test the comment already names does NOT discriminate: it carries
+`INIT="$REPO_ROOT/init.sh"` on an executed line, so `# BL-181-UNIT-LANE-PREDICATE`
+exempts it the moment it leaves the array and the probe stays green in both
+directions. Measured: a probe with that test was vacuous; the same probe with a
+non-exempt test went red on the control and green on the hole.
+
+**"Harmless today" is doubly coincidental**, which is worth saying because one
+coincidence sounds like a margin and two do not: the test the comment names is in
+the array AND would be exemption-masked if it were not.
+
+---
+
+## BL-246: the CI gitleaks download retries on failures that do not happen and not on the one that does
+
+ **Status:** Open
+ **Filed:** 2026-08-26
+ **Owner:** unassigned
+ **Severity:** Low (costs reruns; no correctness impact)
+
+`.github/workflows/tests.yml` fetches gitleaks at two sites with `--retry 3`:
+
+```
+grep -n 'curl -sSfL --retry' .github/workflows/tests.yml
+# 256:  curl -sSfL --retry 3 -o /tmp/gitleaks.tar.gz "$url"
+# 973:  curl -sSfL --retry 3 -o /tmp/gitleaks.tar.gz "$url"
+```
+
+**`--retry` does not cover the failure mode that actually occurs.** From
+`curl(1)` on this host, verbatim:
+
+> Transient error means either: a timeout, an FTP 4xx response code or an HTTP
+> 408, 429, 500, 502, 503 or 504 response code.
+
+A connection reset during the **TLS handshake** is not in that set, so the retry
+is inert for it. `curl(1)`'s exit-code table, verbatim: *"35 — SSL connect error.
+The SSL handshaking failed."* — no transfer ever began. **Measured 2026-08-25**, and pinned by run coordinates because the branch will
+be deleted and "a rerun passed" is otherwise checkable only from memory:
+`curl: (35) Recv failure: Connection reset by peer` failed the
+`unit-shard (lint-sweep)` leg of PR #364 in the *setup* step, before any test
+ran; the rerun passed. Run `32873055515`, attempt 1 job `97884420123`
+conclusion `failure`, latest attempt job `97888523823` conclusion `success` —
+re-derive with
+`gh api 'repos/kraulerson/solo-orchestrator/actions/runs/32873055515/attempts/1/jobs'`. The 135 ms between step start and failure corroborates
+that nothing was retried — a retried transient shows at least a 1 s backoff.
+
+**Fix direction:** `--retry-all-errors` alongside `--retry` (curl 7.71+). **NOT
+`--retry-connrefused`** — `curl(1)` says that option "consider[s] ECONNREFUSED as
+a transient error too", and the measured failure is a RESET during the handshake,
+which it would not retry; taking the narrower option ships a no-op for the one
+failure this entry documents, and the entry gets closed on it. `curl(1)`'s
+"sledgehammer" caveat about duplicated data does not bite here: `-o` writes a
+managed file and `scripts/ci-verify-sha256.sh` fail-closes on any corruption
+immediately after. Both sites, in sync.
+
+**Lane note:** the two sites are not equal. Line 256 is in `unit-shard`, which is
+PR-blocking; line 973 is in the `full` job, which is `workflow_dispatch`-only and
+never gates a PR. The rerun cost is real only at the first.
+
+---
+
+## BL-247: "no source files staged" is printed for commits that stage source — `.sh` is not in the classifier
+
+ **Status:** Open
+ **Filed:** 2026-08-26
+ **Owner:** unassigned
+ **Severity:** Low (a misleading receipt, not a missing gate)
+
+The BL-125 arm in `scripts/lib/hook-templates.sh` decides whether project tests
+are required by counting staged files against an extension list:
+
+```
+git diff --cached --name-only --diff-filter=ACMDRT \
+  | grep -cE '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|kts|swift|cs|dart|c|h|cc|cpp|hpp|php|scala|vue|svelte)$'
+```
+
+**27 extensions, and `.sh` is not among them.** So a commit staging shell source
+prints `[OK] BL-125: no source files staged — project tests not required for this
+commit.` — while source was staged. Derived across all 20 commits of the
+`## BL-243:` branch:
+
+```
+git diff-tree --no-commit-id --name-only --diff-filter=ACMDRT -r <sha> \
+  | grep -cE '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|kts|swift|cs|dart|c|h|cc|cpp|hpp|php|scala|vue|svelte)$'
+```
+
+returns **0 for all 20** — so the receipt fired on every one. (It is not that they
+staged `.sh` only: most also staged the backlog `.md`, and one staged
+`tests.yml`. What they have in common is staging no file the list matches.)
+
+**The gate's BEHAVIOUR is defensible**, and the reason is a property of the arm
+rather than a claim about the shell ecosystem (bats and shunit2 exist): the
+arm's DETECTION knows no shell runner — it reads `.claude/test-command`, then
+falls through package.json / pytest / Cargo / go.mod detection and nothing else —
+and when no command is found it degrades to `soif_tests_not_enforced`, a loud
+non-blocking WARN. **The RECEIPT is not:** it
+asserts something false about the commit, and a receipt that misdescribes what it
+measured is the failure class `# BL-112-SAST-NOTRUN` exists to name.
+
+**Fix direction:** say what is true — *"no source files this gate knows how to
+test"* — or add `sh`/`bash` to the list and let the existing
+no-command-detected arm handle it honestly. The second is better if any
+scaffolded project is shell-first; the first is a one-line correction either way.
+Needs the receipt pinned, per `## BL-243:` residual 3's lesson: assert the arm
+that fired, not the words it printed.
+
+---
+
 ## BL-244: almost every test suite can run its fixtures in the LAUNCH DIRECTORY when mktemp fails — and one of them did
 
  **Status:** Open
@@ -12829,6 +12972,14 @@ read stdin and does not exit before it.
    `CLAUDE.md`'s `[WARN]` trap — read the effect, not the label — landing twice
    on the same elif chain. Count the `register_manual` calls before trusting any
    sentence in this paragraph.)*
+   *(THE CHANNEL HALF, recorded here because commit `a5aa848` said "Recorded
+   rather than papered over" and no record existed — the omission shape residual
+   12 names, committed in the act of claiming otherwise. Of the install channels:
+   the contributor installer and the upgrade sync ARE pinned (`A3`/`A4b`/`A5`,
+   `T-prepush-notice`). **`init.sh`'s arm is unpinned in EVERY lane and cannot be
+   pinned in the PR-blocking one** — `# BL-181-UNIT-LANE-PREDICATE` excludes
+   init.sh-invoking tests by construction — so a regression there passes every
+   PR-blocking check by design. Only a full-lane pin can cover it.)*
 4. **The `scripts=(` manifest's "mirrors init.sh's chmod list exactly" invariant
    is a hand-maintained comment, and it is FALSE TODAY BY SEVEN FILES** — no lint
    compares the two lists. Measured during review: `check-maintenance.sh`,
