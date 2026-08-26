@@ -787,5 +787,98 @@ else
 fi
 
 echo ""
+echo "=== Z. the managed preamble — correctness by POSITION, not by recognition ==="
+
+# THREE ROUNDS WERE SPENT NARROWING A REGEX over arbitrary shell, and the
+# enumeration can never close. This block ends the class instead of chasing it:
+# nothing runs before the capture, so it is safe for ANY hook body — including
+# the byte-exact partial reader that no static check can see — and
+# `exec < "$_soif_refs"` re-feeds the original list, so the operator edits
+# nothing, which is what stops new spellings being authored at all.
+Z="$(newtmp)"; mk "$Z"
+( cd "$Z" && mkdir -p scripts && cp "$CHECK" scripts/check-pr-review.sh && chmod +x scripts/check-pr-review.sh )
+( cd "$Z" && bash "$RECORD" --verdict approve >/dev/null 2>&1 )
+z_head="$( cd "$Z" && git rev-parse HEAD )"
+( cd "$Z" && git checkout -q -b unrev && echo q > q.txt && git add q.txt \
+  && git commit -qm unreviewed >/dev/null 2>&1 && git checkout -q main )
+z_unrev="$( cd "$Z" && git rev-parse unrev )"
+
+z_hook() {   # z_hook <operator-body> — preamble + body, as the recipe instructs
+  { printf '#!/usr/bin/env bash\n'
+    bash "$REPO_ROOT/scripts/print-prepush-recipe.sh"
+    printf '%s\n' "$1"
+  } > "$Z/.git/hooks/pre-push"
+  chmod +x "$Z/.git/hooks/pre-push"
+}
+z_run() {    # z_run <sha> — drive the hook the way git does
+  ( cd "$Z" && printf 'refs/heads/x %s refs/heads/x %s\n' "$1" "$ZERO" > zrl \
+    && .git/hooks/pre-push < zrl 2>&1 ); }
+z_rc()  { ( cd "$Z" && printf 'refs/heads/x %s refs/heads/x %s\n' "$1" "$ZERO" > zrl \
+    && .git/hooks/pre-push < zrl >/dev/null 2>&1 ); echo $?; }
+
+z_bad=""
+for _body in 'read -r a b c d; echo "BODY-SAW $a"' \
+             'while read -r a b c d; do echo "BODY-SAW $a"; done' \
+             'peek() { read -r a b c d; echo "BODY-SAW $a"; }; peek' \
+             'head -1 | sed "s/^/BODY-SAW /"'; do
+  z_hook "$_body"
+  [ "$(z_rc "$z_unrev")" -ne 0 ] || z_bad="$z_bad [unreviewed-passed: ${_body%%;*}]"
+  [ "$(z_rc "$z_head")"  -eq 0 ] || z_bad="$z_bad [reviewed-blocked: ${_body%%;*}]"
+  printf '%s' "$(z_run "$z_head")" | grep -q 'BODY-SAW' || z_bad="$z_bad [body-starved: ${_body%%;*}]"
+done
+if [ -z "$z_bad" ]; then
+  pass "Z1: in front of four hook bodies — including a single-read partial consumer no static check can recognise — the preamble blocks the unreviewed sha, passes the reviewed one, AND the untouched body still sees the ref list"
+else
+  fail_ "Z1" "preamble failed for:$z_bad"
+fi
+
+# The preamble must fail CLOSED if it cannot capture — `## BL-244:`'s posture.
+z_stub="$Z/mkstub"; mkdir -p "$z_stub"
+printf '#!/bin/sh\nexit 1\n' > "$z_stub/mktemp"; chmod +x "$z_stub/mktemp"
+z_hook 'echo BODY-SAW'
+z2_out="$( cd "$Z" && printf 'refs/heads/x %s refs/heads/x %s\n' "$z_head" "$ZERO" > zrl \
+  && PATH="$z_stub:$PATH" .git/hooks/pre-push < zrl 2>&1 )"
+z2_rc="$( cd "$Z" && printf 'refs/heads/x %s refs/heads/x %s\n' "$z_head" "$ZERO" > zrl \
+  && PATH="$z_stub:$PATH" .git/hooks/pre-push < zrl >/dev/null 2>&1; echo $? )"
+if [ "$z2_rc" -ne 0 ] && printf '%s' "$z2_out" | grep -q 'cannot capture the ref list'; then
+  pass "Z2: if the capture itself fails the preamble REFUSES — a block that silently proceeds without the list is the gate switched off with extra steps"
+else
+  fail_ "Z2" "rc=$z2_rc out: $(printf '%s' "$z2_out" | head -1)"
+fi
+
+# Z2b. THE CAPTURE'S OWN FAILURE, NOT JUST mktemp'S. Z2 stubs `mktemp`, which
+# pins the first guard and leaves the second unwatched — making the `cat`
+# capture non-fatal passed all 62 assertions. A capture that reports failure and
+# is ignored means the gate runs against an EMPTY file and the body against
+# nothing, which is the gate switched off with extra steps.
+z2b_stub="$Z/catstub"; mkdir -p "$z2b_stub"
+printf '#!/bin/sh\nexit 1\n' > "$z2b_stub/cat"; chmod +x "$z2b_stub/cat"
+z_hook 'echo BODY-SAW'
+z2b_out="$( cd "$Z" && printf 'refs/heads/x %s refs/heads/x %s\n' "$z_head" "$ZERO" > zrl \
+  && PATH="$z2b_stub:$PATH" .git/hooks/pre-push < zrl 2>&1 )"
+z2b_rc="$( cd "$Z" && printf 'refs/heads/x %s refs/heads/x %s\n' "$z_head" "$ZERO" > zrl \
+  && PATH="$z2b_stub:$PATH" .git/hooks/pre-push < zrl >/dev/null 2>&1; echo $? )"
+if [ "$z2b_rc" -ne 0 ] && printf '%s' "$z2b_out" | grep -q 'could not capture the ref list'; then
+  pass "Z2b: a capture that REPORTS FAILURE stops the push — ignoring it would run the gate against an empty file and the body against nothing"
+else
+  fail_ "Z2b" "rc=$z2b_rc out: $(printf '%s' "$z2b_out" | head -1)"
+fi
+
+# Z3. A REF LINE WITH NO SHA IS A MANGLED LIST, NOT A DELETION. It set
+# _saw_refs=1, was skipped as fieldless, and an all-such list landed in the
+# deletion-only arm printing [OK] with no record read at all. githooks(5)
+# guarantees four fields, so git cannot send it — a hand-built replay that
+# rewrites fields can, and hand-built replays are what the remedies once asked
+# operators to write.
+Z3="$(newtmp)"; mk "$Z3"
+z3_out="$( cd "$Z3" && printf 'refs/heads/ghost\n' | bash "$CHECK" --from-hook 2>&1 )"
+z3_rc="$( cd "$Z3" && printf 'refs/heads/ghost\n' | bash "$CHECK" --from-hook >/dev/null 2>&1; echo $? )"
+if [ "$z3_rc" -ne 0 ] && printf '%s' "$z3_out" | grep -q 'NO sha'; then
+  pass "Z3: a ref line with no sha REFUSES as malformed — it used to land in the deletion-only arm and print [OK] without reading the record at all"
+else
+  fail_ "Z3" "rc=$z3_rc out: $(printf '%s' "$z3_out" | head -1)"
+fi
+
+echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

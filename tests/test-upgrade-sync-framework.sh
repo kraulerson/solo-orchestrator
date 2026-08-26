@@ -424,32 +424,28 @@ t_prepush_notice() {
   if ! printf '%s' "$out" | grep -q 'NOT installed — pushes from this project are not gated'; then
     fail_ "T-prepush-notice" "a project with no pre-push hook got no warning that the review gate is absent"; rm -rf "$T"; return
   fi
-  # THE REMEDY TEXT IS A DELIVERABLE, NOT DECORATION. The previous version was
+  # THE REMEDY TEXT IS A DELIVERABLE, NOT DECORATION. An earlier version was
   # broken on all three surfaces at once — an embedded quote truncated it, `$?`
   # pre-expanded to 0 so it printed the swallow-the-verdict shape, and nothing
-  # asserted any of it. Pin that it arrives WHOLE and does not teach `|| exit`.
-  if ! printf '%s' "$out" | grep -q 'then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi'; then
-    fail_ "T-prepush-notice" "the remedy line is truncated or altered — an operator pasting it gets broken shell"; rm -rf "$T"; return
+  # asserted any of it. These pins are RETARGETED, not relaxed: the remedy is now
+  # a pointer at the managed block rather than a pasteable one-liner, so the
+  # invariants that matter changed with it. The old "append ABOVE any exit line"
+  # caveat is gone because the block goes at the TOP — the hazard is designed out
+  # rather than warned about.
+  if ! printf '%s' "$out" | grep -q 'scripts/print-prepush-recipe.sh'; then
+    fail_ "T-prepush-notice" "the remedy does not name the recipe script, so an operator has nothing to run"; rm -rf "$T"; return
   fi
-  if ! printf '%s' "$out" | grep -qF "PUSHING UNGATED.' >&2; fi"; then
-    fail_ "T-prepush-notice" "the remedy lost its loud-open else arm — it teaches silent-open when the gate script is missing"; rm -rf "$T"; return
+  if ! printf '%s' "$out" | grep -q 'TOP of'; then
+    fail_ "T-prepush-notice" "the remedy does not say the block goes at the TOP — position is the whole reason it is correct"; rm -rf "$T"; return
   fi
-  if ! printf '%s' "$out" | grep -qF -- '--from-hook'; then
-    fail_ "T-prepush-notice" "the remedy omits --from-hook, so a hook whose stdin was drained would fall back to HEAD SILENTLY"; rm -rf "$T"; return
+  if ! printf '%s' "$out" | grep -q 'NO edits'; then
+    fail_ "T-prepush-notice" "the remedy no longer says the operator's body needs no edits — hand-rewiring a hook body is what authored every new consumer spelling"; rm -rf "$T"; return
   fi
-  if ! printf '%s' "$out" | grep -q 'ABOVE any'; then
-    fail_ "T-prepush-notice" "the remedy no longer warns to append above an exit line — git's own pre-push.sample ends in exit 0, so the advice would never run"; rm -rf "$T"; return
+  if ! printf '%s' "$out" | grep -q 'SYNC SIBLINGS'; then
+    fail_ "T-prepush-notice" "the remedy lost its SYNC SIBLINGS marker — this text has three homes and drifted once already"; rm -rf "$T"; return
   fi
-  if printf '%s' "$out" | grep -q 'exit \$?\|bash scripts/check-pr-review.sh || exit'; then
+  if printf '%s' "$out" | grep -q 'exit \$?\|check-pr-review.sh || exit'; then
     fail_ "T-prepush-notice" "the remedy teaches the swallow-the-verdict shape (|| exit), which disables the gate for whoever pastes it"; rm -rf "$T"; return
-  fi
-
-  # Delegating AND executable -> quiet OK.
-  printf '#!/usr/bin/env bash\nexec bash scripts/check-pr-review.sh\n' > "$P/.git/hooks/pre-push"
-  chmod +x "$P/.git/hooks/pre-push"
-  out="$(run_sync "$P")"
-  if ! printf '%s' "$out" | grep -q 'pre-push review gate hook present'; then
-    fail_ "T-prepush-notice" "a delegating executable hook was not recognised as present"; rm -rf "$T"; return
   fi
 
   # A COMMENTED-OUT delegation is not a delegation — Y5's rule, on THIS surface,

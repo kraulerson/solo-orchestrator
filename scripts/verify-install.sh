@@ -384,6 +384,7 @@ check_scripts() {
     # after it shipped.
     "scripts/check-pr-review.sh"
     "scripts/record-pr-review.sh"
+    "scripts/print-prepush-recipe.sh"
     "scripts/hooks/bypass-detector.sh"
     # BL-030 (post-PR #48): detector, installer, recorder hook, and
     # the fixture-envelope lint that gates the BL-029 hook schema.
@@ -714,14 +715,19 @@ check_git() {
       "git hands the ref list to the hook ONCE. A read here consumes lines the gate never sees, so a consumed ref ships unverified with no warning. Capture the list once and replay it to both consumers — recipe on ## BL-243:. This check is deliberately conservative: if your hook already captures and replays in a spelling it does not recognise, or the flagged line does not actually read the ref list, this row is a false alarm — the other direction ships unreviewed code in silence."
   elif [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
      && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh'; then
-    register_pass "Pre-push review gate hook installed ($_hooksdir/pre-push)"
+    if grep -qF 'soif_write_prepush_hook' "$_hooksdir/pre-push" 2>/dev/null \
+       || grep -qF 'SOIF BL-243 capture-and-replay' "$_hooksdir/pre-push" 2>/dev/null; then
+      register_pass "Pre-push review gate hook installed ($_hooksdir/pre-push) — managed block, exactly recognised"
+    else
+      register_pass "Pre-push hook delegates to the review gate ($_hooksdir/pre-push); no stdin consumer recognised — textual best-effort, NOT proof of safe wiring (scripts/print-prepush-recipe.sh gives the managed block)"
+    fi
   elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ] && [ ! -x "$_hooksdir/pre-push" ] \
      && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh'; then
     register_manual "Pre-push review gate hook present but NOT executable — git ignores it silently, so pushes are NOT gated" \
       "chmod +x $_hooksdir/pre-push"
   elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ]; then
     register_manual "Pre-push hook exists but does not delegate to the review gate" \
-      "init.sh never clobbers an existing pre-push hook. Append at the END of that hook, ABOVE any exit line (git's pre-push.sample ends in exit 0, which would skip it): if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi If that hook reads ANY of the ref list — even a single read, which git's own pre-push.sample does — capture and replay it instead; a partial read gets no warning at all. Recipe on ## BL-243:."
+      "init.sh never clobbers an existing pre-push hook. # BL-243-APPEND-RECIPE, SYNC SIBLINGS (init.sh, upgrade-project.sh). Run: bash scripts/print-prepush-recipe.sh — paste its output at the TOP of that hook. Your own hook body needs NO edits: the block captures git's ref list once, gives it to the gate, and re-feeds the original list to everything below it. Position is what makes it correct, so it is safe whatever your hook does with stdin."
   elif [ -d "$_hooksdir" ]; then
     register_manual "Pre-push review gate hook missing — pushes are NOT gated by adversarial review" \
       "Re-run init.sh, or write .git/hooks/pre-push delegating to scripts/check-pr-review.sh"
@@ -1437,7 +1443,7 @@ fix_script() {
 }
 
 # Generate fix functions for each script
-for _s in validate check-phase-gate run-phase3-validation check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user detect-out-of-band-commits install-filesystem-gates lint-fixture-envelopes check-pr-review record-pr-review; do
+for _s in validate check-phase-gate run-phase3-validation check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user detect-out-of-band-commits install-filesystem-gates lint-fixture-envelopes check-pr-review record-pr-review print-prepush-recipe; do
   eval "fix_script_chmod_${_s}() { chmod +x 'scripts/${_s}.sh'; }"
   eval "fix_script_copy_${_s}() { fix_script '${_s}.sh'; }"
 done

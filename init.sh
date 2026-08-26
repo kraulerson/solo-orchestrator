@@ -1441,6 +1441,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lint-backlog-references.sh" scripts/
   cp "$SCRIPT_DIR/scripts/lint-counter-antipattern.sh" scripts/
   cp "$SCRIPT_DIR/scripts/lint-review-manifest.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/print-prepush-recipe.sh" scripts/
   # BL-030: enforcement-level lib, gate-principles lib, filesystem-gate
   # installer, PostToolUse Claude-commit recorder, SessionStart out-of-
   # band detector. Required by reconfigure --enforcement-level and by
@@ -1529,7 +1530,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host-errors.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh scripts/check-pr-review.sh scripts/record-pr-review.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh scripts/check-pr-review.sh scripts/record-pr-review.sh scripts/print-prepush-recipe.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -2848,8 +2849,9 @@ install_precommit_hook() {
     # pre-push hook predated the framework got NO review gate and NO sentence
     # saying so, which is the same silent-omission class the gate exists to end.
     print_warn "Existing .git/hooks/pre-push left untouched — the review gate was NOT installed."
-    print_warn "  To enable it, append at the END of that hook — but ABOVE any \`exit\` line,"
-    print_warn "  or it will never run (git's own pre-push.sample ends in \`exit 0\`):"
+    print_warn "  To enable it — # BL-243-APPEND-RECIPE, SYNC SIBLINGS (upgrade-project.sh,"
+    print_warn "  verify-install.sh); one owner, do not retype the block here:"
+    print_warn "    Run: bash scripts/print-prepush-recipe.sh — paste its output at the TOP of that hook. Your own hook body needs NO edits: the block captures git's ref list once, gives it to the gate, and re-feeds the original list to everything below it. Position is what makes it correct, so it is safe whatever your hook does with stdin."
     print_warn "    if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi"
     print_warn "  If your hook reads ANY of the ref list from stdin — even a single \`read\` —"
     print_warn "  the line above checks the WRONG commit, and a partial read gets NO warning."

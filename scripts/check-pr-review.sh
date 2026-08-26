@@ -114,7 +114,14 @@ if [ ! -t 0 ]; then
   while read -r _lref _lsha _rref _rsha || [ -n "${_lref:-}" ]; do
     [ -n "${_lref:-}" ] || continue
     _saw_refs=1
-    [ -n "${_lsha:-}" ] || continue
+    # BL-243-REFLINE-SHAPE: could-not-check is never nothing-to-check.
+    if [ -z "${_lsha:-}" ]; then
+      _say "check-pr-review: the ref line for '$_lref' arrived with NO sha — the ref list is malformed."
+      _say "  githooks(5) guarantees four fields per line, so git did not send this. A"
+      _say "  capture-and-replay that rewrites fields is the usual cause. Refusing rather"
+      _say "  than guessing what was being pushed."
+      exit 1
+    fi
     # An all-zero local sha is a DELETION — nothing leaves the machine, so there
     # is nothing that could have been reviewed. Blocking those was fail-closed
     # for no gain.

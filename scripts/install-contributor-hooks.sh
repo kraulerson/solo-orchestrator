@@ -107,7 +107,7 @@ done
 echo ""
 echo "[OK] Contributor hooks installed from scripts/lib/hook-templates.sh —"
 echo "     the same emitters init.sh uses for generated projects."
-echo "     Re-run any time to refresh both to the current templates."
+echo "     Re-run any time to refresh all three to the current templates."
 echo ""
 
 # REPORT WHICH ARMS CAN ACTUALLY FIRE HERE, rather than listing the arms the

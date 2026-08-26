@@ -12758,8 +12758,28 @@ it would refuse every no-op push — `## BL-149:`'s deleted gate, earned in one
 afternoon. The two causes are indistinguishable from inside the gate, so the
 message names both and leads with the harmless one.
 
-**CAPTURE AND REPLAY — the correct wiring when your hook reads stdin.** Read the
-list once and feed both consumers:
+**THE MANAGED BLOCK — `scripts/print-prepush-recipe.sh`, and it is the answer to
+this whole class.** Run that script and paste its output at the TOP of an
+existing hook. **The operator's body needs no edits at all**, which is the point:
+`exec < "$_soif_refs"` re-feeds the original ref list to everything below.
+
+Three review rounds were spent narrowing a static heuristic that tries to
+RECOGNISE stdin consumers in arbitrary shell, and each round found another
+ordinary spelling. That enumeration can never close — the detector's own residual
+says so. The block dissolves the problem instead: **correctness comes from
+POSITION, not from recognition.** Nothing runs before the capture, so it is safe
+for every body — consumers in functions, in sourced files, mid-pipeline, in dead
+code, and in spellings nobody has invented yet. It also converts stdin from a
+pipe into a SEEKABLE FILE for the whole body, which retires the 64 KB
+partial-read pathology in the table above. And "the block is first" is a
+DECIDABLE predicate, unlike a grammar over shell.
+
+Measured in front of four bodies — including the single-`read` byte-exact partial
+consumer no static check can see: the unreviewed sha is blocked every time, the
+reviewed one passes, and the untouched body still sees the full list (`Z1`). It
+fails closed and loudly if the capture itself fails (`Z2`).
+
+The earlier hand-wired form, kept because it explains what the block does:
 
 ```sh
 #!/usr/bin/env bash
