@@ -695,9 +695,9 @@ check_git() {
   # them. Lines with an input redirect are excluded: those read a file, not the
   # ref list. Conservative by design — the remedy text says a false alarm is
   # possible, because the other direction ships unreviewed code in silence.
-  _bl243_reads_stdin='^[[:space:]]*[({]{0,1}[[:space:]]*(if[[:space:]]+|while[[:space:]]+|until[[:space:]]+)?(![[:space:]]+)?(command[[:space:]]+|builtin[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(read|mapfile|readarray|head|sed|awk|tail|cat|grep|cut|sort|uniq|wc|tr|xargs|dd|python|python3)([[:space:]]|;|$)'
+  _bl243_reads_stdin='^[[:space:]]*[({]{0,1}[[:space:]]*(if[[:space:]]+|while[[:space:]]+|until[[:space:]]+)?(![[:space:]]+)?(command[[:space:]]+|builtin[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(read|mapfile|readarray|head|sed|awk|tail|cat|grep|cut|sort|uniq|wc|tr|xargs|dd|python|python3|perl|ruby|node)([[:space:]]|;|$)'
   # Capture-and-replay, in any of its spellings — including the temp-file form.
-  _bl243_captures='\$\(cat[^)]*\)|cat[[:space:]]*>|</dev/stdin'
+  _bl243_captures='\$\(cat([[:space:]]+-|[[:space:]]+/dev/stdin)?[[:space:]]*\)|cat[[:space:]]*>'
   if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
      && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh' \
      && _bl243_live "$_hooksdir/pre-push" | sed 's,<[[:space:]]*/dev/stdin,,g' | grep -v '<' | grep -qE "$_bl243_reads_stdin" \

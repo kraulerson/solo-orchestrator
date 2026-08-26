@@ -12788,10 +12788,13 @@ read stdin and does not exit before it.
    *(Until round eight the detection was weaker than that: a delegation that had
    simply been COMMENTED OUT — the ordinary temporary-disable gesture — read as
    `[OK] installed` on BOTH audit surfaces while pushes ran ungated. Whole-line
-   comments are stripped before the delegation grep now, on the verify-install
-   row and the sync notice alike, and `Y5` pins it. A delegation mentioned in a
-   TRAILING comment on a live line still slips through — recorded rather than
-   chased.)*
+   comments AND trailing comments are stripped before the delegation grep now, on
+   the verify-install row and the sync notice alike, pinned by `Y5` on one surface
+   and by `T-prepush-notice` on the other. An earlier version of this note said
+   trailing mentions "still slip through"; that became true of only ONE surface
+   when the strip landed on `verify-install` alone, so the note and the commit
+   claim were each right about a different half. Both surfaces carry both strips
+   now.)*
 3. **The verify-install wiring is only PARTLY pinned.** The hook row's warn and
    pass branches are pinned from the unit lane now (`Y1`-`Y5`, which drive
    `verify-install.sh` directly), but the manifest rows and the fixer-loop names
@@ -12870,8 +12873,17 @@ read stdin and does not exit before it.
    and `dd bs=1` is a true byte-exact partial reader at any size.
    So the static net covers every common stdin consumer at line start
    (`read`/`mapfile`/`head`/`sed`/`awk`/`tail`/`cat`/`grep`/`cut`/`sort`/`uniq`/
-   `wc`/`tr`/`xargs`), excluding lines with an input redirect, which read a file
-   rather than the ref list. It is deliberately conservative: a false alarm costs
+   `wc`/`tr`/`xargs`/`dd`/`python`/`perl`/`ruby`/`node`), excluding lines with an
+   input redirect, which read a file rather than the ref list.
+   **Recorded, not chased** — each is a hand-crafted or mid-line shape whose
+   closure would cost false positives in the nagging direction: a consumer in a
+   mid-line chain (`[ -t 0 ] || read`); a partial capture via command
+   substitution (`first=$(head -1)`); a non-comment `<` in a string ON the
+   consuming line, which still blinds the redirect filter; a `#` glued to code
+   with no preceding whitespace; and a consumer placed BEFORE a genuine
+   stdin-capture, since the excuse does not check ordering (a consumer AFTER a
+   real capture is harmless — it reads EOF). The enumeration can never close;
+   `ruby` and `node` are already behind `perl`. It is deliberately conservative: a false alarm costs
    a sentence, a false negative ships unreviewed code in silence.
    **The capture-and-replay recipe is the only correct wiring for any
    stdin-reading hook, partial readers included.**

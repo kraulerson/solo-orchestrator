@@ -462,6 +462,16 @@ t_prepush_notice() {
     fail_ "T-prepush-notice" "a commented-out delegation was reported as present"; rm -rf "$T"; return
   fi
 
+  # A TRAILING mention is not a delegation either — this surface kept reading it
+  # as "present" after the installer check stopped, so the two audit surfaces
+  # disagreed about the same hook.
+  printf '#!/usr/bin/env bash\nexit 0  # TODO: wire up check-pr-review.sh here\n' > "$P/.git/hooks/pre-push"
+  chmod +x "$P/.git/hooks/pre-push"
+  out="$(run_sync "$P")"
+  if printf '%s' "$out" | grep -q 'pre-push review gate hook present'; then
+    fail_ "T-prepush-notice" "a hook that only MENTIONS the gate in a trailing comment was reported as present"; rm -rf "$T"; return
+  fi
+
   # Restore a live delegating hook for the executability case below.
   printf '#!/usr/bin/env bash\nexec bash scripts/check-pr-review.sh --from-hook\n' > "$P/.git/hooks/pre-push"
   chmod +x "$P/.git/hooks/pre-push"

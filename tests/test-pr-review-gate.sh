@@ -678,6 +678,24 @@ else
   fail_ "Y4" "undetected stdin-consuming spellings:$y4_missed"
 fi
 
+y10="$(y_row "$(printf '#!/usr/bin/env bash\nread -r a b c d\nbanner="$(cat /etc/hosts)"\n: "$banner"\nbash scripts/check-pr-review.sh --from-hook || exit 1\n')")"
+if printf '%s' "$y10" | grep -q 'ALSO READS STDIN'; then
+  pass "Y10: an unrelated \$(cat FILE) does NOT excuse a consumer — the exclusion is about capturing STDIN, and hook-wide excuse-matching let one everyday line disarm the whole check"
+else
+  fail_ "Y10" "a file-cat disarmed the consumer detector: ${y10:-<no row>}"
+fi
+
+y11_missed=""
+for _body in 'while read -r a b c d; do :; done </dev/stdin' 'perl -ne "print; last"'; do
+  _y="$(y_row "$(printf '#!/usr/bin/env bash\n%s\nbash scripts/check-pr-review.sh --from-hook || exit 1\n' "$_body")")"
+  printf '%s' "$_y" | grep -q 'ALSO READS STDIN' || y11_missed="$y11_missed [$_body]"
+done
+if [ -z "$y11_missed" ]; then
+  pass "Y11: the no-space '</dev/stdin' spelling and perl are seen — the spaced twin was already pinned, and perl is the same partial-reader class as dd and python"
+else
+  fail_ "Y11" "still undetected:$y11_missed"
+fi
+
 # Y7. THE CAPTURE EXCLUSION, PINNED ON A SHAPE THE REDIRECT FILTER DOES NOT
 # TOUCH. Y3's read line carries `<<EOF`, so the redirect filter drops it and the
 # capture conjunct is never reached — deleting that conjunct passed the whole
