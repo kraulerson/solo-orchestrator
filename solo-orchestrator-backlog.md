@@ -12938,6 +12938,22 @@ read stdin and does not exit before it.
     nowhere but that commit message, deferred into a closed entry. A residual
     nobody wrote down is a residual nobody can sweep — which is the omission
     shape this entry exists to end. This line is the recording.)*
+13. **`Z2b` FALSE-REDS UNDER CONCURRENCY, in the suite people re-run before
+    pushing this branch.** Its orphan check scans the SHARED
+    `${TMPDIR:-/tmp}` for fresh `tmp.*` entries, so any other mktemp-using suite
+    running at the same time manufactures a failure. Measured by the round-16
+    reviewer: two parallel runs read 68/69 with `Z2b` failing both times, and
+    69/69 twice when run alone. CI shards are isolated, so the lane is safe.
+    Recorded so the first person it bites reads a sentence instead of debugging
+    a ghost: **run `tests/test-pr-review-gate.sh` alone.**
+14. **RE-DERIVE ANY COUNT YOU FIND IN THIS ENTRY'S COMMIT MESSAGES.** The entry
+    is the record; the commit essays are not, and they cannot be amended once
+    pushed. Three bookkeeping claims in them failed reproduction during review —
+    two miscounts in one message, then "all eight siblings" (seven) and
+    "recorded as pre-existing" (recorded nowhere). The pattern is exact and
+    worth stating: **every claim on this branch that shipped with a derivation
+    recipe beside it held; the ones that shipped as bare prose are the ones that
+    failed.** Residual 12 models the fix — it carries its own `grep -c`.
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
 
 **Status:** Open
