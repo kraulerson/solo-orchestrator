@@ -678,6 +678,40 @@ else
   fail_ "Y4" "undetected stdin-consuming spellings:$y4_missed"
 fi
 
+# Y7. THE CAPTURE EXCLUSION, PINNED ON A SHAPE THE REDIRECT FILTER DOES NOT
+# TOUCH. Y3's read line carries `<<EOF`, so the redirect filter drops it and the
+# capture conjunct is never reached — deleting that conjunct passed the whole
+# suite. This shape has no `<` on the consuming line.
+y7="$(y_row "$(printf '#!/usr/bin/env bash\nt=$(mktemp)\ncat > "$t"\nbash scripts/check-pr-review.sh --from-hook < "$t" || exit 1\n')")"
+if ! printf '%s' "$y7" | grep -q 'ALSO READS STDIN'; then
+  pass "Y7: the temp-file capture-and-replay recipe stays quiet — the capture exclusion is load-bearing again, on a line the redirect filter cannot mask"
+else
+  fail_ "Y7" "the temp-file recipe was flagged unsafe: $y7"
+fi
+
+# Y8. THE REDIRECT EXCLUSION, PINNED ON ITS OWN. A read redirected from a FILE
+# reads that file, not the ref list.
+y8="$(y_row "$(printf '#!/usr/bin/env bash\nwhile read -r l; do :; done < .git/config\nbash scripts/check-pr-review.sh --from-hook || exit 1\n')")"
+if ! printf '%s' "$y8" | grep -q 'ALSO READS STDIN'; then
+  pass "Y8: a file-redirected read is not flagged — the redirect exclusion is load-bearing, and nagging a correct wiring is how a real warning gets tuned out"
+else
+  fail_ "Y8" "a file-redirected read was flagged as consuming the ref list: $y8"
+fi
+
+# Y9. THE TWO SHAPES THE REDIRECT FILTER BLINDED. A trailing comment carrying
+# git's own field description — `<local ref> <local sha> …` — is the natural
+# thing to paste beside a read, and `done < /dev/stdin` IS the ref list.
+y9_missed=""
+for _body in 'read -r a b c d # fields: <lref> <lsha> <rref> <rsha>' 'while read -r a b c d; do :; done < /dev/stdin'; do
+  _y="$(y_row "$(printf '#!/usr/bin/env bash\n%s\nbash scripts/check-pr-review.sh --from-hook || exit 1\n' "$_body")")"
+  printf '%s' "$_y" | grep -q 'ALSO READS STDIN' || y9_missed="$y9_missed [$_body]"
+done
+if [ -z "$y9_missed" ]; then
+  pass "Y9: a trailing comment containing '<', and an explicit '< /dev/stdin', do not blind the detector — the crude '-v <' filter regressed both"
+else
+  fail_ "Y9" "still blinded:$y9_missed"
+fi
+
 # Y6. BUFFERED READERS ARE PARTIAL READERS ONCE THE LIST IS BIG. An earlier cut
 # excluded them, reasoning that they drain everything so the runtime NOTE
 # announces them. Measured, that holds only below the stdio buffer: at 500 refs

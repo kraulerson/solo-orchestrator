@@ -77,6 +77,14 @@ _refuse() {
 command -v git >/dev/null 2>&1 || { _say "check-pr-review: git unavailable — cannot identify what is being pushed."; exit 1; }
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0   # not a repo: nothing to gate
 
+# BL-243-TOPLEVEL: STATE IS PROJECT-ROOT-RELATIVE. Run from a subdirectory, this
+# read a `.claude/` that is not the project's and reported "no review has ever
+# been recorded" — false — while the suggested remedy wrote a stray state file
+# the hook would never read. git runs hooks at the toplevel, so this only bites
+# manual invocations; it bites them silently.
+_top="$(git rev-parse --show-toplevel 2>/dev/null || printf '')"
+[ -n "$_top" ] && cd "$_top"
+
 # BL-243-PUSHED-REFS: A PUSH DOES NOT HAVE TO PUSH HEAD, and the first cut of
 # this gate assumed it did — its only input was `git rev-parse HEAD`. With an
 # approve on record for HEAD, `git push origin <some-other-branch>` shipped

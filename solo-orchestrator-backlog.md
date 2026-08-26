@@ -12853,14 +12853,21 @@ read stdin and does not exit before it.
    `head -1`/`sed 1q` drain the whole list, so the runtime NOTE announces them.
    Measured, that holds only below the stdio buffer:
 
-   | refs | bytes | left on stdin after `head -1` |
+   | refs (~114 B/line) | bytes | left ON A PIPE after `head -1` |
    |---|---|---|
    | 500 | ~57 KB | 0 |
    | 1000 | ~114 KB | 424 |
    | 3000 | ~346 KB | 2855 |
 
-   Above roughly 64 KB — `git push --all` on a many-branch repo clears it easily
-   — buffered tools ARE byte-exact partial readers and nothing announces them.
+   Above roughly 64 KB — one stdio buffer, and `git push --all` on a many-branch
+   repo clears it easily — buffered tools ARE byte-exact partial readers and
+   nothing announces them. **The 64 KB is the invariant; the refs column is
+   corpus-specific** (at 146 B/line the onset is 449 refs, not ~570). Three
+   further nuances, measured: this is PIPE behaviour — on a seekable file
+   redirect the same tools seek back after one buffer; `awk 'NR==1'` drains
+   fully but `awk 'NR==1{print;exit}'` is a 64 KB partial reader identical to
+   `head -1`, so the spelling decides it and the family covers `awk` either way;
+   and `dd bs=1` is a true byte-exact partial reader at any size.
    So the static net covers every common stdin consumer at line start
    (`read`/`mapfile`/`head`/`sed`/`awk`/`tail`/`cat`/`grep`/`cut`/`sort`/`uniq`/
    `wc`/`tr`/`xargs`), excluding lines with an input redirect, which read a file

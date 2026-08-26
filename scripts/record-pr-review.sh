@@ -51,6 +51,14 @@ command -v jq >/dev/null 2>&1 || { echo "record-pr-review: jq is required" >&2; 
 command -v git >/dev/null 2>&1 || { echo "record-pr-review: git is required" >&2; exit 2; }
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "record-pr-review: not a git repository" >&2; exit 2; }
 
+# BL-243-TOPLEVEL: STATE IS PROJECT-ROOT-RELATIVE. Run from a subdirectory, this
+# read a `.claude/` that is not the project's and reported "no review has ever
+# been recorded" — false — while the suggested remedy wrote a stray state file
+# the hook would never read. git runs hooks at the toplevel, so this only bites
+# manual invocations; it bites them silently.
+_top="$(git rev-parse --show-toplevel 2>/dev/null || printf '')"
+[ -n "$_top" ] && cd "$_top"
+
 HEAD_SHA="$(git rev-parse --verify HEAD 2>/dev/null || printf '')"   # BL-243-REVPARSE-VERIFY
 # BL-243-REVIEWED-HEAD: --head lets the caller name the sha that was
 # ACTUALLY reviewed. Resolved through `--verify` so a typo or a sha that is not
