@@ -1004,16 +1004,22 @@ _bl131_ensure_domsinks_ruleset() {
 # `## BL-149:` warns about, and verify-install carries the detectable row.
 _bl099_sync_prepush_notice() {
   print_step "pre-push review gate hook"
-  if [ -e "$PROJECT_ROOT/.git/hooks/pre-push" ] \
+  if [ -x "$PROJECT_ROOT/.git/hooks/pre-push" ] \
      && grep -qF 'check-pr-review.sh' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null; then
     print_ok "  pre-push review gate hook present."
+    return 0
+  fi
+  if [ -e "$PROJECT_ROOT/.git/hooks/pre-push" ] \
+     && grep -qF 'check-pr-review.sh' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null; then
+    print_warn "  present but NOT executable — git ignores it silently, so pushes are NOT gated."
+    print_warn "  Remedy: chmod +x .git/hooks/pre-push (verify-install reports this row too)."
     return 0
   fi
   print_warn "  NOT installed — pushes from this project are not gated by adversarial review."
   print_warn "  The scripts ship with this sync; the hook does not, because installing a"
   print_warn "  push-blocking hook during an upgrade is not this tool's call."
-  print_warn "  To enable: .git/hooks/pre-push delegating to scripts/check-pr-review.sh"
-  print_warn "  (scripts/verify-install.sh reports this row and names the remedy)."
+  print_warn "  To enable: Append to that hook (loud, composable, does not exec): if [ -x scripts/check-pr-review.sh ]; then bash scripts/check-pr-review.sh || exit $?; else echo "[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED." >&2; fi"
+  print_warn "  (scripts/verify-install.sh reports this row and names the same remedy.)"
 }
 
 _bl099_sync_precommit_hook() {

@@ -105,17 +105,32 @@ fi
 # ordering gate and the BL-006 Build-Loop message check live — was never
 # installed for contributors at all, only for generated projects.
 A3="$(newtmp)"; mk_repo "$A3"
-( cd "$A3" && bash "$INSTALLER" >/dev/null 2>&1 ) || true
+a3_out="$( cd "$A3" && bash "$INSTALLER" 2>&1 )" || true
 a3_missing=""
-for h in pre-commit commit-msg; do
+for h in pre-commit commit-msg pre-push; do
   [ -x "$A3/.git/hooks/$h" ] || a3_missing="$a3_missing $h"
 done
 a3_tdd=0
 grep -qF 'SOIF BL-072 TDD gate' "$A3/.git/hooks/commit-msg" 2>/dev/null && a3_tdd=1
 if [ -z "$a3_missing" ] && [ "$a3_tdd" -eq 1 ]; then
-  pass "A3: both hooks land executable, and commit-msg carries the BL-072 TDD block — the half that generated projects always got and contributors never did"
+  pass "A3: all THREE hooks land executable, and commit-msg carries the BL-072 TDD block — pre-push is the framework repo's only channel to the review gate, and its hand-installed copy is what went stale silently"
 else
   fail_ "A3" "missing/not-executable:$a3_missing tdd_block_present=$a3_tdd (want 1)"
+fi
+
+# A4b. THE INSTALLER'S OWN SELF-VERIFY LOOP IS ITS ERROR PATH. A3 checks the
+# hook FILES independently, so dropping `pre-push` from that loop passed the
+# suite untouched — and a contributor whose pre-push write failed would then get
+# a clean [OK] and a zero exit. Assert the self-report names all three, which is
+# the line the mutation removes.
+a4b_missing=""
+for h in pre-commit commit-msg pre-push; do
+  printf '%s' "$a3_out" | grep -q "\.git/hooks/$h installed" || a4b_missing="$a4b_missing $h"
+done
+if [ -z "$a4b_missing" ]; then
+  pass "A4b: the installer VERIFIES AND REPORTS all three hooks it writes — its self-check is what makes a failed write exit non-zero instead of printing success"
+else
+  fail_ "A4b" "the installer's self-verify never reported:$a4b_missing"
 fi
 
 # ── A4: idempotent. Re-running must refresh, not append a second TDD block.
@@ -153,6 +168,24 @@ if [ "$m1_changed" -eq 1 ] && [ "$m1_parses" -eq 1 ] && [ "$m1_n" -eq 0 ]; then
   pass "M1: with the old \`cp the gate\` line restored, the same commit falls back to ZERO lines of gate output — A2 is measuring that the hook RUNS, not that a file exists (changed=$m1_changed parses=$m1_parses)"
 else
   fail_ "M1" "changed=$m1_changed (want 1 — 0 means the mutation never applied and this proves nothing) parses=$m1_parses (want 1) arm_lines=$m1_n (want 0)"
+fi
+
+# A5. PRESENCE IS NOT BEHAVIOUR — this suite's own founding lesson (A1/A2),
+# applied to the hook it just gained. A pre-push hook that exists, is
+# executable, and does nothing passes every check above.
+A5="$(newtmp)"; mk_repo "$A5"
+( cd "$A5" && bash "$INSTALLER" >/dev/null 2>&1 ) || true
+mkdir -p "$A5/scripts"
+cp "$REPO_ROOT/scripts/check-pr-review.sh" "$A5/scripts/check-pr-review.sh" 2>/dev/null
+chmod +x "$A5/scripts/check-pr-review.sh" 2>/dev/null
+printf 'refs/heads/main %s refs/heads/main 0000000000000000000000000000000000000000
+'   "$( cd "$A5" && git rev-parse HEAD 2>/dev/null )" > "$A5/refline"
+a5_out="$( cd "$A5" && .git/hooks/pre-push < refline 2>&1 )"
+a5_rc="$( cd "$A5" && .git/hooks/pre-push < refline >/dev/null 2>&1; echo $? )"
+if [ "$a5_rc" -ne 0 ] && printf '%s' "$a5_out" | grep -q 'no review has ever been recorded'; then
+  pass "A5: the installed pre-push hook DELEGATES — an unreviewed push driven through it is refused by the gate, not waved through by a hook that merely exists"
+else
+  fail_ "A5" "rc=$a5_rc (want non-zero) out: $(printf '%s' "$a5_out" | head -1)"
 fi
 
 echo ""

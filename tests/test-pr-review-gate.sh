@@ -26,8 +26,14 @@ pass()  { echo "  [PASS] $1"; PASSED=$((PASSED + 1)); }
 fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 
 TOPTMP="$(mktemp -d)"
+[ -n "$TOPTMP" ] && [ -d "$TOPTMP" ] || {
+  echo "FATAL: mktemp -d failed — refusing to create fixtures in $PWD." >&2
+  echo "  bash 3.2's \`cd \"\"\` returns 0 WITHOUT changing directory, so an unguarded" >&2
+  echo "  fixture path runs git init/add/commit in the launch directory. Measured." >&2
+  exit 1
+}
 trap 'chmod -R u+rwX "$TOPTMP" 2>/dev/null; rm -rf "$TOPTMP"' EXIT INT TERM
-newtmp() { mktemp -d "$TOPTMP/gXXXXXX"; }
+newtmp() { local _d; _d="$(mktemp -d "$TOPTMP/gXXXXXX")"; [ -n "$_d" ] && [ -d "$_d" ] || { echo "FATAL: newtmp failed" >&2; exit 1; }; printf '%s' "$_d"; }
 
 for f in "$CHECK" "$RECORD"; do
   [ -f "$f" ] || { echo "missing $f"; exit 1; }
@@ -43,7 +49,9 @@ for f in "$CHECK" "$RECORD"; do
 done
 
 mk() {   # mk DIR — a project with one commit
-  local d="$1"; mkdir -p "$d/.claude"
+  local d="$1"
+  [ -n "$d" ] && [ -d "$d" ] || { echo "FATAL: mk called with an empty or missing dir ('$d')" >&2; exit 1; }
+  mkdir -p "$d/.claude"
   ( cd "$d" || exit 1
     unset GITHUB_BASE_REF
     git init -q -b main . >/dev/null 2>&1

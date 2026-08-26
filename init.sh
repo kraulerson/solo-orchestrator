@@ -2845,7 +2845,7 @@ install_precommit_hook() {
     # pre-push hook predated the framework got NO review gate and NO sentence
     # saying so, which is the same silent-omission class the gate exists to end.
     print_warn "Existing .git/hooks/pre-push left untouched — the review gate was NOT installed."
-    print_warn "  To enable it, add to that hook: exec bash scripts/check-pr-review.sh"
+    print_warn "  To enable it: Append to that hook (loud, composable, does not exec): if [ -x scripts/check-pr-review.sh ]; then bash scripts/check-pr-review.sh || exit $?; else echo "[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED." >&2; fi"
   fi
 
   # BL-072 Phase C2 + BL-107: install the tier-keyed TDD-ordering gate as a

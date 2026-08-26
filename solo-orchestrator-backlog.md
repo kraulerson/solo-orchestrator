@@ -12634,16 +12634,36 @@ across the three rounds. Every arm carries a mutation proof.
    `check-pr-review` outside the gate suite, so the manifest rows, the fixer-loop
    names and the hook row could all regress green. Worse, none of the three
    `test-verify-install-*` suites is in the unit lane, so a pin added there would
-   be full-lane only.
+   be full-lane only. **This residual originally named verify-install alone,
+   which under-scoped it by three channels.** Review deleted the sync notice and
+   the contributor installer's pre-push arm and both passed every PR-blocking
+   check; those two are now pinned (`T-prepush-notice`, and `A3`/`A4b`/`A5`).
+   **`init.sh`'s install arm remains unpinned in EVERY lane and cannot be pinned
+   in the PR-blocking one** — the lane predicate excludes init.sh-invoking tests
+   by construction, so a pin there would be full-lane only. Deleting
+   `# BL-243-HOOK-TEMPLATE`'s call means every future generated project ships
+   ungated with nothing going red.
 4. **The `scripts=(` manifest's "mirrors init.sh's chmod list exactly" invariant
-   is a hand-maintained comment** — no lint compares them, and this feature broke
-   it on arrival unnoticed. A derivation would end the class.
+   is a hand-maintained comment, and it is FALSE TODAY BY SEVEN FILES** — no lint
+   compares the two lists. Measured during review: `check-maintenance.sh`,
+   `lint-backlog-references.sh`, `lint-counter-antipattern.sh`,
+   `lint-review-manifest.sh`, `session-cadence-check.sh`,
+   `session-freshness-check.sh` and `session-intake-check.sh` are installed and
+   chmod'd by `init.sh` and appear nowhere in `scripts/verify-install.sh`. This
+   feature broke the invariant on arrival unnoticed and was fixed; the invariant
+   was already broken at scale by unrelated drift. That makes the derivation the
+   fix, not vigilance. *(The comment also carries a bare `init.sh:1100` cite —
+   the chmod line is now ~430 lines away, which is the bare-`file:line` class the
+   citation rule bans. Pre-existing.)*
 5. **`soif_currency_hook_state` knows only pre-commit and commit-msg**, so
    pre-push resolves `absent-unavailable` and hook-body drift has no staleness
    detector. Mitigated by the thin-delegator design.
-6. **A jq-less machine cannot push at all** — the attestation needs jq to record,
-   and an unrecordable escape is refused by `## BL-072:`'s shape. Deliberate,
-   loud, remedy named; recorded because it is a hard stop.
+6. **A jq-less machine cannot push any COMMITS** — the attestation needs jq to
+   record, and an unrecordable escape is refused by `## BL-072:`'s shape.
+   Deliberate, loud, remedy named; recorded because it is a hard stop.
+   *(This read "cannot push at all" until review measured it: a deletion-only
+   push PASSES on a jq-less host, because that arm exits before jq is involved.
+   Correct behaviour; the residual's wording was the defect.)*
 7. **`--mirror` is essentially always refused, and `--follow-tags` with an
    ancestor tag is refused**, because the record holds ONE verdict for ONE sha.
    The honest path is a `--head` re-record or an attestation.

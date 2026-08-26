@@ -409,6 +409,42 @@ t_dry_run_mutates_nothing() {
 }
 
 # ── T-hook-refused-noninteractive-without-flag ──────────────────────────────
+# ── T-prepush-notice: the sync ships the gate's LOGIC and never its TRIGGER ──
+# `# BL-243-SYNC-SKIP-LOUD`. Deleting the notice call from _run_sync_framework
+# passed this whole suite 39/39 — the upgrade channel silently reverting to
+# shipping check-pr-review.sh while nothing invokes it, which is the state this
+# arm exists to announce. Three states, because the middle one is the mode this
+# feature's own history produced twice.
+t_prepush_notice() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  local out
+  out="$(run_sync "$P")"
+  if ! printf '%s' "$out" | grep -q 'NOT installed — pushes from this project are not gated'; then
+    fail_ "T-prepush-notice" "a project with no pre-push hook got no warning that the review gate is absent"; rm -rf "$T"; return
+  fi
+
+  # Delegating AND executable -> quiet OK.
+  printf '#!/usr/bin/env bash\nexec bash scripts/check-pr-review.sh\n' > "$P/.git/hooks/pre-push"
+  chmod +x "$P/.git/hooks/pre-push"
+  out="$(run_sync "$P")"
+  if ! printf '%s' "$out" | grep -q 'pre-push review gate hook present'; then
+    fail_ "T-prepush-notice" "a delegating executable hook was not recognised as present"; rm -rf "$T"; return
+  fi
+
+  # Delegating but NOT executable -> git ignores it silently, so the sync must
+  # not reassure. This is the exact state the round-one mutation harness created.
+  chmod -x "$P/.git/hooks/pre-push"
+  out="$(run_sync "$P")"
+  if printf '%s' "$out" | grep -q 'pre-push review gate hook present\.'; then
+    fail_ "T-prepush-notice" "a NON-EXECUTABLE hook was reported as present; git ignores it and pushes go ungated"; rm -rf "$T"; return
+  fi
+  if ! printf '%s' "$out" | grep -q 'NOT executable'; then
+    fail_ "T-prepush-notice" "a non-executable hook produced neither the present-OK nor the not-executable warning"; rm -rf "$T"; return
+  fi
+  pass "T-prepush-notice: the sync announces an absent review gate, recognises a live one, and refuses to call a NON-EXECUTABLE hook present"
+  rm -rf "$T"
+}
+
 t_hook_refused_noninteractive_without_flag() {
   local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
   run_sync "$P" >/dev/null   # no --install-hooks
@@ -1732,6 +1768,7 @@ t_scriptsync_cp_failure_is_loud() {
 # the whole suite per mutation. Every function named here must exist; an unknown
 # name in BL099_ONLY is a hard error (a typo must not silently run zero tests).
 _ALL_TESTS="
+t_prepush_notice
 t_sync_refreshes_stale_script
 t_exec_bit_probe
 t_sync_self_copy_refused
