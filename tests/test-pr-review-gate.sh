@@ -696,6 +696,35 @@ else
   fail_ "Y11" "still undetected:$y11_missed"
 fi
 
+# Y12. A HEREDOC-FED CAT IS NOT A STDIN CAPTURE. `cat > f <<EOF` is the everyday
+# file-write idiom — this repo's shipped scripts use it 26 times, including
+# `soif_write_prepush_hook` itself — and it matched the temp-file excuse while
+# consuming nothing, disarming the consumer detector hook-wide. The round-ten
+# finding's class, inside the round-ten fix.
+y12_missed=""
+for _body in 'cat > .git/push-note <<NOTE
+pushed
+NOTE' 'cat > .git/copy < .git/config' 'concat > .git/merged'; do
+  _y="$(y_row "$(printf '#!/usr/bin/env bash\nread -r a b c d\n%s\nbash scripts/check-pr-review.sh --from-hook || exit 1\n' "$_body")")"
+  printf '%s' "$_y" | grep -q 'ALSO READS STDIN' || y12_missed="$y12_missed [${_body%%$'\n'*}]"
+done
+if [ -z "$y12_missed" ]; then
+  pass "Y12: a heredoc-fed cat, a file-fed cat, and 'concat' do NOT excuse a consumer — the excuse is about capturing STDIN, and only that"
+else
+  fail_ "Y12" "these excused a live consumer while capturing nothing:$y12_missed"
+fi
+
+# Y13. THE EXCUSE SIDE READS THE STRIPPED HOOK. Replacing `_bl243_live` with a
+# raw grep on the excuse conjunct survived the entire PR-blocking set — so a
+# capture living only in a COMMENT would excuse a live consumer, with nothing
+# red. The consumer side's strip was pinned; this half was not.
+y13="$(y_row "$(printf '#!/usr/bin/env bash\nread -r a b c d\n# capture disabled: refs="$(cat)"\nbash scripts/check-pr-review.sh --from-hook || exit 1\n')")"
+if printf '%s' "$y13" | grep -q 'ALSO READS STDIN'; then
+  pass "Y13: a capture that lives only in a COMMENT does not excuse — the excuse conjunct reads the stripped hook, and nothing pinned that half"
+else
+  fail_ "Y13" "a commented-out capture excused a live consumer: ${y13:-<no row>}"
+fi
+
 # Y7. THE CAPTURE EXCLUSION, PINNED ON A SHAPE THE REDIRECT FILTER DOES NOT
 # TOUCH. Y3's read line carries `<<EOF`, so the redirect filter drops it and the
 # capture conjunct is never reached — deleting that conjunct passed the whole

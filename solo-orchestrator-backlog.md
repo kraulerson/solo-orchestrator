@@ -12882,7 +12882,11 @@ read stdin and does not exit before it.
    consuming line, which still blinds the redirect filter; a `#` glued to code
    with no preceding whitespace; and a consumer placed BEFORE a genuine
    stdin-capture, since the excuse does not check ordering (a consumer AFTER a
-   real capture is harmless — it reads EOF). The enumeration can never close;
+   real capture is harmless — it reads EOF, verified by construction: `rc=1`,
+   nothing consumed, and the replayed gate saw the full list). **And the excuse
+   is TEXTUAL, not semantic** — a capture in dead code (an uncalled function, an
+   unexecuted branch) or inside a string or heredoc body excuses a live consumer
+   exactly as a real one would. The enumeration can never close;
    `ruby` and `node` are already behind `perl`. It is deliberately conservative: a false alarm costs
    a sentence, a false negative ships unreviewed code in silence.
    **The capture-and-replay recipe is the only correct wiring for any

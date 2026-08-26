@@ -697,11 +697,19 @@ check_git() {
   # possible, because the other direction ships unreviewed code in silence.
   _bl243_reads_stdin='^[[:space:]]*[({]{0,1}[[:space:]]*(if[[:space:]]+|while[[:space:]]+|until[[:space:]]+)?(![[:space:]]+)?(command[[:space:]]+|builtin[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(read|mapfile|readarray|head|sed|awk|tail|cat|grep|cut|sort|uniq|wc|tr|xargs|dd|python|python3|perl|ruby|node)([[:space:]]|;|$)'
   # Capture-and-replay, in any of its spellings — including the temp-file form.
-  _bl243_captures='\$\(cat([[:space:]]+-|[[:space:]]+/dev/stdin)?[[:space:]]*\)|cat[[:space:]]*>'
+  # TWO EXCUSE FAMILIES, CHECKED DIFFERENTLY ON PURPOSE. The command-substitution
+  # spellings are precise. The temp-file spelling is a stdin capture only when
+  # nothing else feeds that cat — a heredoc or an input redirect on the line
+  # means it is reading NOT-stdin — and the left boundary keeps `concat >` and
+  # `netcat >` out.
+  _bl243_cap_subst='\$\(cat([[:space:]]+-|[[:space:]]+/dev/stdin)?[[:space:]]*\)'
+  _bl243_cap_file='(^|[^[:alnum:]_])cat[[:space:]]*>'
   if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
      && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh' \
      && _bl243_live "$_hooksdir/pre-push" | sed 's,<[[:space:]]*/dev/stdin,,g' | grep -v '<' | grep -qE "$_bl243_reads_stdin" \
-     && ! _bl243_live "$_hooksdir/pre-push" | grep -qE "$_bl243_captures"; then
+     && ! { _bl243_live "$_hooksdir/pre-push" | grep -qE "$_bl243_cap_subst" \
+            || _bl243_live "$_hooksdir/pre-push" | sed 's,<[[:space:]]*/dev/stdin,,g' \
+               | grep -v '<' | grep -qE "$_bl243_cap_file"; }; then
     register_manual "Pre-push hook delegates to the review gate BUT ALSO READS STDIN — the gate may verify the wrong commit and say [OK]" \
       "git hands the ref list to the hook ONCE. A read here consumes lines the gate never sees, so a consumed ref ships unverified with no warning. Capture the list once and replay it to both consumers — recipe on ## BL-243:. This check is deliberately conservative: if your hook already captures and replays in a spelling it does not recognise, or the flagged line does not actually read the ref list, this row is a false alarm — the other direction ships unreviewed code in silence."
   elif [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
