@@ -12690,6 +12690,63 @@ the entry's real content, because the pattern is the finding:
 **Test suite:** `tests/test-pr-review-gate.sh`, 11 -> 21 -> 30 -> 38 assertions
 across the three rounds. Every arm carries a mutation proof.
 
+### WIRING THE GATE INTO A PRE-PUSH HOOK YOU ALREADY HAVE
+
+`init.sh` never clobbers an existing hook, so operators are told to append the
+gate to theirs. **Two common hook shapes break that, and both were proven with
+real pushes during round six of review:**
+
+1. **A hook that ends in `exit 0`** — which git's own `pre-push.sample` does —
+   never reaches an appended line. Measured: unreviewed branch pushed, `rc=0`,
+   **zero lines of gate output**. Append ABOVE the exit, not at the very end.
+2. **A hook that READS THE REF LIST** leaves the gate with empty stdin, so it
+   falls back to HEAD. Measured, and this is the dangerous one: with an approve
+   on record for the branch you are standing on, pushing a *different*
+   unreviewed branch printed
+   `[OK] PR review on record for e998b15…: approve` and **the unreviewed branch
+   landed**. A green light on a fail-open.
+
+The gate now announces case 2 rather than guessing silently
+(`# BL-243-HOOK-STDIN-DRAINED`). It cannot detect it from the environment — git
+sets neither `GIT_DIR` nor `GIT_PREFIX` for pre-push hooks (measured) — so the
+hook declares itself with `--from-hook`, and the gate speaks only when a ref list
+was DUE and none arrived. Warning on every manual run instead would be crying
+wolf, which is how an audit line gets ignored.
+
+**It NOTES rather than blocks, and the reason is measured, not assumed.** An
+**up-to-date push still runs the pre-push hook, with zero ref lines** — verified
+on this host:
+
+```
+$ git push origin main        # second time, nothing to push
+HOOK RAN: ref_lines=0
+Everything up-to-date
+```
+
+So an empty ref list is an ordinary, frequent, entirely benign event. Blocking on
+it would refuse every no-op push — `## BL-149:`'s deleted gate, earned in one
+afternoon. The two causes are indistinguishable from inside the gate, so the
+message names both and leads with the harmless one.
+
+**CAPTURE AND REPLAY — the correct wiring when your hook reads stdin.** Read the
+list once and feed both consumers:
+
+```sh
+#!/usr/bin/env bash
+refs="$(cat)"                       # drain ONCE, keep it
+
+printf '%s\n' "$refs" | while read -r lref lsha rref rsha; do
+  : # ... your existing logic ...
+done
+
+if [ -x scripts/check-pr-review.sh ]; then
+  printf '%s\n' "$refs" | bash scripts/check-pr-review.sh --from-hook || exit 1
+fi
+```
+
+The one-line remedy the tools print is correct **only** for a hook that does not
+read stdin and does not exit before it.
+
 **RESIDUALS — open, and none is a defect this entry claims to have fixed:**
 
 1. **The record is forgeable by whoever can write the state file.** Stated in the

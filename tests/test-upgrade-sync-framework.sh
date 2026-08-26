@@ -416,7 +416,9 @@ t_dry_run_mutates_nothing() {
 # arm exists to announce. Three states, because the middle one is the mode this
 # feature's own history produced twice.
 t_prepush_notice() {
-  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  local T; T=$(mktemp -d)
+  [ -n "$T" ] && [ -d "$T" ] || { fail_ "T-prepush-notice" "mktemp -d failed; refusing to build fixtures in $PWD (## BL-244:)"; return; }
+  local P="$T/proj"; mk_project "$P" python
   local out
   out="$(run_sync "$P")"
   if ! printf '%s' "$out" | grep -q 'NOT installed — pushes from this project are not gated'; then
@@ -426,8 +428,17 @@ t_prepush_notice() {
   # broken on all three surfaces at once — an embedded quote truncated it, `$?`
   # pre-expanded to 0 so it printed the swallow-the-verdict shape, and nothing
   # asserted any of it. Pin that it arrives WHOLE and does not teach `|| exit`.
-  if ! printf '%s' "$out" | grep -q 'then if ! bash scripts/check-pr-review.sh; then exit 1; fi'; then
+  if ! printf '%s' "$out" | grep -q 'then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi'; then
     fail_ "T-prepush-notice" "the remedy line is truncated or altered — an operator pasting it gets broken shell"; rm -rf "$T"; return
+  fi
+  if ! printf '%s' "$out" | grep -qF "PUSHING UNGATED.' >&2; fi"; then
+    fail_ "T-prepush-notice" "the remedy lost its loud-open else arm — it teaches silent-open when the gate script is missing"; rm -rf "$T"; return
+  fi
+  if ! printf '%s' "$out" | grep -qF -- '--from-hook'; then
+    fail_ "T-prepush-notice" "the remedy omits --from-hook, so a hook whose stdin was drained would fall back to HEAD SILENTLY"; rm -rf "$T"; return
+  fi
+  if ! printf '%s' "$out" | grep -q 'ABOVE any'; then
+    fail_ "T-prepush-notice" "the remedy no longer warns to append above an exit line — git's own pre-push.sample ends in exit 0, so the advice would never run"; rm -rf "$T"; return
   fi
   if printf '%s' "$out" | grep -q 'exit \$?\|bash scripts/check-pr-review.sh || exit'; then
     fail_ "T-prepush-notice" "the remedy teaches the swallow-the-verdict shape (|| exit), which disables the gate for whoever pastes it"; rm -rf "$T"; return

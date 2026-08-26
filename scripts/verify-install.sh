@@ -688,7 +688,7 @@ check_git() {
       "chmod +x $_hooksdir/pre-push"
   elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ]; then
     register_manual "Pre-push hook exists but does not delegate to the review gate" \
-      "init.sh never clobbers an existing pre-push hook. Append at the END of that hook: if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi"
+      "init.sh never clobbers an existing pre-push hook. Append at the END of that hook, ABOVE any exit line (git's pre-push.sample ends in exit 0, which would skip it): if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi If that hook reads the ref list from stdin, capture and replay it instead — recipe on ## BL-243:."
   elif [ -d "$_hooksdir" ]; then
     register_manual "Pre-push review gate hook missing — pushes are NOT gated by adversarial review" \
       "Re-run init.sh, or write .git/hooks/pre-push delegating to scripts/check-pr-review.sh"

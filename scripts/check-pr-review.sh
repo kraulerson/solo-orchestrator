@@ -85,6 +85,13 @@ git rev-parse --git-dir >/dev/null 2>&1 || exit 0   # not a repo: nothing to gat
 # STDIN, one line each: `<local-ref> <local-sha> <remote-ref> <remote-sha>`.
 # `[ -t 0 ]` separates the hook (stdin is a pipe) from a human running this by
 # hand (stdin is a tty), where a read would block forever.
+# --from-hook is passed by the emitted hook and by the documented remedy line.
+# It means "a pre-push hook is running me, so a ref list was DUE on stdin".
+_from_hook=0
+for _a in "$@"; do
+  case "$_a" in --from-hook) _from_hook=1 ;; esac
+done
+
 _pushed_shas=""
 _saw_refs=0
 if [ ! -t 0 ]; then
@@ -105,6 +112,26 @@ fi
 if [ "$_saw_refs" = "1" ] && [ -z "$_pushed_shas" ]; then
   printf '%s\n' "${GRN}[OK]${NC} deletion-only push — no commits leave the machine, nothing to review." >&2
   exit 0
+fi
+
+# BL-243-HOOK-STDIN-DRAINED: a ref list was due and none arrived. Something
+# earlier in the operator's hook consumed stdin. Falling back to HEAD is not
+# wrong — it is unmeasured, and this gate's whole posture
+# (`# BL-112-SAST-NOTRUN`) is that could-not-check must never look like a clean
+# check. Loud, not blocking: HEAD is frequently the right answer, and blocking
+# every such hook would be `## BL-149:`'s deleted gate.
+if [ "$_from_hook" = "1" ] && [ "$_saw_refs" = "0" ]; then
+  _say ""
+  _say "${YEL}[NOTE]${NC} check-pr-review: no refs arrived on stdin — checked HEAD instead."
+  _say "  Two causes, and they are indistinguishable from here:"
+  _say "    1. Nothing was being pushed (an up-to-date push still runs this hook with an"
+  _say "       empty ref list). Harmless — nothing shipped."
+  _say "    2. An earlier line in your pre-push hook CONSUMED the list. Then the commit"
+  _say "       verified below may not be the one being pushed, and a pass here would be"
+  _say "       a pass for the wrong tree."
+  _say "  If your hook reads stdin, capture the list once and replay it to both"
+  _say "  consumers — recipe on \`## BL-243:\`."
+  _say ""
 fi
 
 # BL-243-REVPARSE-VERIFY: `--verify` is load-bearing. Bare `git rev-parse
@@ -223,6 +250,14 @@ for _t in $_targets; do
   fi
 done
 set +f
+
+if [ -z "$_rec_verdict" ]; then
+  _refuse "the review record is INCOMPLETE — a commit with no verdict"
+  _say "  Recorded against: $_rec_head, with no verdict."
+  _say "  This is the mirror of the verdict-with-no-commit case, and it gets the same"
+  _say "  answer: re-record with scripts/record-pr-review.sh, or attest."
+  exit 1
+fi
 
 case "$_rec_verdict" in
   approve|minor_concerns)

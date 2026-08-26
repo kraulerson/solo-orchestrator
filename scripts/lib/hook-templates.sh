@@ -1944,7 +1944,7 @@ if [ ! -x scripts/check-pr-review.sh ]; then
 ' "       This is not a clean review; nothing was checked. Run scripts/verify-install.sh --auto-fix." >&2
   exit 0
 fi
-exec bash scripts/check-pr-review.sh
+exec bash scripts/check-pr-review.sh --from-hook
 SOIF_PREPUSH
   chmod +x "$hook"
 }

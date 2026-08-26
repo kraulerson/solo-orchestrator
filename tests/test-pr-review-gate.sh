@@ -525,5 +525,61 @@ else
 fi
 
 echo ""
+echo "=== X. an operator hook that drains stdin (BL-243-HOOK-STDIN-DRAINED) ==="
+
+# PROVEN WITH REAL PUSHES IN ROUND SIX: appending the gate to an existing hook
+# that READS the ref list leaves this gate with empty stdin. It falls back to
+# HEAD — and with an approve on record for the branch you are standing on, it
+# printed a GREEN [OK] while a DIFFERENT unreviewed branch shipped.
+X="$(newtmp)"; mk "$X"
+( cd "$X" && bash "$RECORD" --verdict approve >/dev/null 2>&1 )
+x_out="$( cd "$X" && bash "$CHECK" --from-hook < /dev/null 2>&1 )"
+x_rc="$( cd "$X" && bash "$CHECK" --from-hook < /dev/null >/dev/null 2>&1; echo $? )"
+if printf '%s' "$x_out" | grep -q 'no refs arrived on stdin' \
+   && printf '%s' "$x_out" | grep -q 'up-to-date push still runs this hook' \
+   && printf '%s' "$x_out" | grep -q 'CONSUMED the list'; then
+  pass "X1: invoked from a hook with NO ref list, the gate SAYS it fell back to HEAD and names BOTH causes — an up-to-date push (harmless) and a drained stdin (a pass for the wrong tree)"
+else
+  fail_ "X1" "rc=$x_rc — the fallback to HEAD was silent: $(printf '%s' "$x_out" | head -1)"
+fi
+
+# It must stay a WARN, not a block: HEAD is frequently the right answer and
+# refusing every such hook is `## BL-149:`'s deleted gate.
+if [ "$x_rc" -eq 0 ]; then
+  pass "X2: the warning does not block — HEAD is usually right, and refusing every stdin-reading hook would be a gate people route around"
+else
+  fail_ "X2" "the fallback warning turned into a refusal (rc=$x_rc)"
+fi
+
+# A HAND RUN MUST STAY QUIET. Warning on every manual invocation is how an audit
+# line gets ignored — the gate warns only when a ref list was DUE.
+x3_out="$( cd "$X" && bash "$CHECK" < /dev/null 2>&1 )"
+if ! printf '%s' "$x3_out" | grep -q 'no refs arrived on stdin'; then
+  pass "X3: without --from-hook the same invocation is SILENT — the warning fires only when a ref list was actually due"
+else
+  fail_ "X3" "a plain manual run cried wolf about missing refs"
+fi
+
+# The emitted hook must actually pass the flag, or X1 can never fire in the field.
+( . "$REPO_ROOT/scripts/lib/hook-templates.sh" && soif_write_prepush_hook "$X/emitted-hook" )
+if grep -qF -- '--from-hook' "$X/emitted-hook"; then
+  pass "X4: the emitted hook declares itself with --from-hook, so the drained-stdin warning can fire where it matters"
+else
+  fail_ "X4" "the emitted hook does not pass --from-hook; the X1 warning would never fire in a real hook"
+fi
+
+# R-GATE6-3: the mirror of S1b. A sha with no verdict is INCOMPLETE, not an
+# alien verdict — the message-collapse class this gate legislates against.
+X5="$(newtmp)"; mk "$X5"
+( cd "$X5" && printf '{"pr_review":{"head":"%s"}}' "$(git rev-parse HEAD)" > .claude/process-state.json )
+x5_out="$(run "$X5")"; x5_rc="$(rc_of "$X5")"
+if [ "$x5_rc" -ne 0 ] && printf '%s' "$x5_out" | grep -q 'INCOMPLETE' \
+   && ! printf '%s' "$x5_out" | grep -q 'not one this gate understands'; then
+  pass "X5: a commit with NO verdict reads as INCOMPLETE, not as an unrecognised verdict — the mirror of S1b, same remedy"
+else
+  fail_ "X5" "rc=$x5_rc out: $(printf '%s' "$x5_out" | grep BLOCKED | head -1)"
+fi
+
+echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
