@@ -12848,11 +12848,25 @@ read stdin and does not exit before it.
    shipped an unreviewed commit with no warning anywhere, and the checker called
    that hook correctly installed. The regex covered two spellings; the claim
    covered all of them.)*
-   **Buffered readers are deliberately out of the static net and are not a
-   gap:** measured, `head -1`, `sed 1q` and `awk 'NR==1'` consume the WHOLE small
-   ref list, so the runtime NOTE announces them. Shell `read` is the only
-   byte-exact partial reader — which is exactly why its family is the static
-   target. **The capture-and-replay recipe is the only correct wiring for any
+   **Buffered readers were briefly excluded on a claim that turned out to be
+   size-dependent, and that is worth keeping visible.** The reasoning was that
+   `head -1`/`sed 1q` drain the whole list, so the runtime NOTE announces them.
+   Measured, that holds only below the stdio buffer:
+
+   | refs | bytes | left on stdin after `head -1` |
+   |---|---|---|
+   | 500 | ~57 KB | 0 |
+   | 1000 | ~114 KB | 424 |
+   | 3000 | ~346 KB | 2855 |
+
+   Above roughly 64 KB — `git push --all` on a many-branch repo clears it easily
+   — buffered tools ARE byte-exact partial readers and nothing announces them.
+   So the static net covers every common stdin consumer at line start
+   (`read`/`mapfile`/`head`/`sed`/`awk`/`tail`/`cat`/`grep`/`cut`/`sort`/`uniq`/
+   `wc`/`tr`/`xargs`), excluding lines with an input redirect, which read a file
+   rather than the ref list. It is deliberately conservative: a false alarm costs
+   a sentence, a false negative ships unreviewed code in silence.
+   **The capture-and-replay recipe is the only correct wiring for any
    stdin-reading hook, partial readers included.**
 
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)

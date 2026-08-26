@@ -678,6 +678,23 @@ else
   fail_ "Y4" "undetected stdin-consuming spellings:$y4_missed"
 fi
 
+# Y6. BUFFERED READERS ARE PARTIAL READERS ONCE THE LIST IS BIG. An earlier cut
+# excluded them, reasoning that they drain everything so the runtime NOTE
+# announces them. Measured, that holds only below the stdio buffer: at 500 refs
+# `head -1` leaves nothing, at 1000 (~114 KB) it leaves 424 lines, at 3000 it
+# leaves 2855. `git push --all` on a many-branch repo clears that easily, and
+# there nothing announces them at all.
+y6_missed=""
+for _spell in 'head -1 >/dev/null' 'sed 1q >/dev/null' 'tail -1 >/dev/null'; do
+  _y="$(y_row "$(printf '#!/usr/bin/env bash\n%s\nbash scripts/check-pr-review.sh --from-hook || exit 1\n' "$_spell")")"
+  printf '%s' "$_y" | grep -q 'ALSO READS STDIN' || y6_missed="$y6_missed [$_spell]"
+done
+if [ -z "$y6_missed" ]; then
+  pass "Y6: buffered consumers are flagged too — above ~64 KB of ref list they stop draining and become byte-exact partial readers, which nothing announces"
+else
+  fail_ "Y6" "undetected buffered consumers:$y6_missed"
+fi
+
 # Y5. A COMMENTED-OUT DELEGATION IS NOT A DELEGATION. Commenting the line out is
 # the ordinary way to disable something temporarily, and BOTH audit surfaces read
 # it as installed while pushes ran ungated.

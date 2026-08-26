@@ -685,17 +685,25 @@ check_git() {
   # A delegation that is COMMENTED OUT is not a delegation. Strip whole-line
   # comments before believing any of these greps.
   _bl243_live() { grep -v '^[[:space:]]*#' "$1" 2>/dev/null; }
-  # The read FAMILY, not two spellings of it: `read`, `while read`, `if read`,
-  # `IFS= read`, `while IFS= read`, and `mapfile`, at line start.
-  _bl243_reads_stdin='^[[:space:]]*(if[[:space:]]+|while[[:space:]]+|until[[:space:]]+)?(IFS=[^[:space:]]*[[:space:]]+)?(read|mapfile|readarray)([[:space:]]|;|$)'
+  # ANY stdin consumer at line start, not just the `read` family. The earlier
+  # cut excluded buffered tools on the reasoning that they drain the whole list
+  # so the runtime NOTE announces them. MEASURED, that is only true below the
+  # stdio buffer: at 500 refs `head -1` leaves nothing, but at 1000 refs
+  # (~114 KB) it leaves 424 lines and at 3000 it leaves 2855 — so above roughly
+  # 64 KB of ref list, reachable with `git push --all` on a many-branch repo,
+  # `head`/`sed`/`tail` ARE byte-exact partial readers and nothing announces
+  # them. Lines with an input redirect are excluded: those read a file, not the
+  # ref list. Conservative by design — the remedy text says a false alarm is
+  # possible, because the other direction ships unreviewed code in silence.
+  _bl243_reads_stdin='^[[:space:]]*(if[[:space:]]+|while[[:space:]]+|until[[:space:]]+)?(IFS=[^[:space:]]*[[:space:]]+)?(read|mapfile|readarray|head|sed|awk|tail|cat|grep|cut|sort|uniq|wc|tr|xargs)([[:space:]]|;|$)'
   # Capture-and-replay, in any of its spellings — including the temp-file form.
   _bl243_captures='\$\(cat[^)]*\)|cat[[:space:]]*>|</dev/stdin'
   if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
      && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh' \
-     && _bl243_live "$_hooksdir/pre-push" | grep -qE "$_bl243_reads_stdin" \
+     && _bl243_live "$_hooksdir/pre-push" | grep -v '<' | grep -qE "$_bl243_reads_stdin" \
      && ! _bl243_live "$_hooksdir/pre-push" | grep -qE "$_bl243_captures"; then
     register_manual "Pre-push hook delegates to the review gate BUT ALSO READS STDIN — the gate may verify the wrong commit and say [OK]" \
-      "git hands the ref list to the hook ONCE. A read here consumes lines the gate never sees, so a consumed ref ships unverified with no warning. Capture the list once and replay it to both consumers — recipe on ## BL-243:. If your hook ALREADY captures and replays in a spelling this check does not recognise, this row is a false alarm."
+      "git hands the ref list to the hook ONCE. A read here consumes lines the gate never sees, so a consumed ref ships unverified with no warning. Capture the list once and replay it to both consumers — recipe on ## BL-243:. This check is deliberately conservative: if your hook already captures and replays in a spelling it does not recognise, or the flagged line does not actually read the ref list, this row is a false alarm — the other direction ships unreviewed code in silence."
   elif [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
      && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh'; then
     register_pass "Pre-push review gate hook installed ($_hooksdir/pre-push)"
