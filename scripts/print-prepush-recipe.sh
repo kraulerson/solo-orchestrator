@@ -18,7 +18,10 @@ _lib="$_dir/lib/hook-templates.sh"
 # shellcheck source=./lib/hook-templates.sh
 . "$_lib"
 command -v soif_emit_prepush_preamble >/dev/null 2>&1 || {
-  echo "print-prepush-recipe: hook-templates.sh does not provide soif_emit_prepush_preamble" >&2
+  echo "print-prepush-recipe: hook-templates.sh does not provide soif_emit_prepush_preamble." >&2
+  echo "  That library predates the pre-push recipe. Refresh it:" >&2
+  echo "    bash scripts/upgrade-project.sh --sync-framework" >&2
+  echo "  or copy scripts/lib/hook-templates.sh from the orchestrator checkout." >&2
   exit 2
 }
 soif_emit_prepush_preamble

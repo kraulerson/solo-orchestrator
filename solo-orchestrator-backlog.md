@@ -12855,18 +12855,6 @@ read stdin and does not exit before it.
    The honest path is a `--head` re-record or an attestation.
 8. **The recorder's `--help` uses a line-number `sed` range**, brittle to edits
    above it.
-10. **The managed preamble leaks its temp file in three corners**, all measured,
-    none affecting gate integrity (the file holds ref lines and the OS reaps it):
-    an operator body that installs its OWN `trap ... EXIT` replaces ours; a body
-    ending in `exec ...` never reaches the trap; and a body that reassigns
-    `_soif_refs` sends the exit trap to that path instead. POSIX trap semantics,
-    not a fixable defect.
-11. **Apple's `mktemp` ignores `TMPDIR` when called with no template** (measured:
-    it still lands in `/var/folders/.../T/`; the host man page says it behaves as
-    if `-t tmp` were supplied). Harmless here — but it means a harness that
-    "pins TMPDIR" does NOT redirect a suite's bare `TOPTMP="$(mktemp -d)"` on
-    this host, which is worth knowing before trusting that control in the
-    `## BL-244:` sweep.
 9. **A hook that consumes PART of the ref list is undetectable at run time and
    therefore unannounced.** The gate sees a shorter list and verifies only that;
    which ref occupies the consumed slot is decided by git's ref ordering, not by
@@ -12924,6 +12912,18 @@ read stdin and does not exit before it.
    **The capture-and-replay recipe is the only correct wiring for any
    stdin-reading hook, partial readers included.**
 
+10. **The managed preamble leaks its temp file in three corners**, all measured,
+    none affecting gate integrity (the file holds ref lines and the OS reaps it):
+    an operator body that installs its OWN `trap ... EXIT` replaces ours; a body
+    ending in `exec ...` never reaches the trap; and a body that reassigns
+    `_soif_refs` sends the exit trap to that path instead. POSIX trap semantics,
+    not a fixable defect.
+11. **Apple's `mktemp` ignores `TMPDIR` when called with no template** (measured:
+    it still lands in `/var/folders/.../T/`; the host man page says it behaves as
+    if `-t tmp` were supplied). Harmless here — but it means a harness that
+    "pins TMPDIR" does NOT redirect a suite's bare `TOPTMP="$(mktemp -d)"` on
+    this host, which is worth knowing before trusting that control in the
+    `## BL-244:` sweep.
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
 
 **Status:** Open

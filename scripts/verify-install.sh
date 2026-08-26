@@ -413,10 +413,6 @@ check_scripts() {
     # and pre-commit-gate.sh's warning no-ops — and without this row
     # verify-install reported a healthy install with the enforcement lib gone.
     "scripts/lib/accumulation.sh"
-    # BL-243: the runtime dependency of print-prepush-recipe.sh. Backfilling the
-    # recipe without it ships a script whose only function exits 2 — and every
-    # remedy surface tells operators to run that script.
-    "scripts/lib/hook-templates.sh"
   )
   local lib_name
   for lib in "${libs[@]}"; do
@@ -429,6 +425,37 @@ check_scripts() {
       register_manual "$lib_name lib missing" "Copy from orchestrator $lib"
     fi
   done
+
+  # BL-243-LIB-VINTAGE: ONE FILE, ONE ROW — and PRESENCE IS NOT SUFFICIENCY.
+  # This lib is checked here rather than in the generic loop above, because that
+  # loop passes on `[ -f ]` and would print "[OK] present" beside this row's
+  # "predates" — two rows, two answers, about one file.
+  #
+  # `init.sh` has vendored hook-templates.sh into every generated project since
+  # 2026-07-11, so the COMMON state is not "absent" but "present at a vintage
+  # without `soif_emit_prepush_preamble`". Against that copy the backfilled
+  # scripts/print-prepush-recipe.sh exits 2 — and every remedy surface tells the
+  # operator to run exactly that script. A `[ -f ]` pass there is the label
+  # saying healthy while the effect is not.
+  _ht="scripts/lib/hook-templates.sh"
+  _ht_src_ok=0
+  if has_source && grep -q 'soif_emit_prepush_preamble' "$SOURCE_DIR/$_ht" 2>/dev/null; then _ht_src_ok=1; fi
+  if [ ! -f "$_ht" ]; then
+    if [ "$_ht_src_ok" = "1" ]; then
+      register_fixable "hook-templates lib missing (print-prepush-recipe.sh cannot run without it)" "fix_lib_copy_hook-templates"
+    else
+      register_manual "hook-templates lib missing (print-prepush-recipe.sh cannot run without it)" "Copy from orchestrator $_ht"
+    fi
+  elif ! grep -q 'soif_emit_prepush_preamble' "$_ht" 2>/dev/null; then
+    if [ "$_ht_src_ok" = "1" ]; then
+      register_fixable "hook-templates lib predates the pre-push recipe — scripts/print-prepush-recipe.sh exits 2 against it" "fix_lib_copy_hook-templates"
+    else
+      register_manual "hook-templates lib predates the pre-push recipe — scripts/print-prepush-recipe.sh exits 2 against it" \
+        "Refresh it: bash scripts/upgrade-project.sh --sync-framework, or copy scripts/lib/hook-templates.sh from the orchestrator"
+    fi
+  else
+    register_pass "hook-templates lib present and carries the pre-push recipe emitter"
+  fi
 
   for script in "${scripts[@]}"; do
     local name

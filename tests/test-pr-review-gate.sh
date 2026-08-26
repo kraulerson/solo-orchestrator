@@ -796,6 +796,90 @@ else
   fail_ "Y5c" "the not-executable row was not an action item: ${y5c:-<no row>}"
 fi
 
+# Y5d. PRESENCE IS NOT SUFFICIENCY. The libs loop passes on `[ -f ]`, and
+# init.sh has vendored hook-templates.sh into every generated project since
+# 2026-07-11 — so the COMMON state is not "absent" but "present at a vintage
+# without soif_emit_prepush_preamble". The lib-absent half was fixed one round
+# ago; against a stale copy the backfilled recipe still exits 2 while the row
+# read `[OK] hook-templates lib present`.
+y5d_dir="$(newtmp)"; mkdir -p "$y5d_dir/scripts/lib" "$y5d_dir/.claude" "$y5d_dir/docs/reference"
+printf '%s\n' '{"track":"light","deployment":"personal","poc_mode":null,"current_phase":1,"phases":{}}' > "$y5d_dir/.claude/phase-state.json"
+printf '%s\n' '{"frameworkVersion":"1.0.0","host":"github","mode":"personal","deployment":"personal","poc_mode":null,"enforcement_level":"strict"}' > "$y5d_dir/.claude/manifest.json"
+# A lib that exists but predates the recipe — the vendored vintage, in one line.
+printf '#!/usr/bin/env bash\nsoif_write_precommit_hook() { :; }\n' > "$y5d_dir/scripts/lib/hook-templates.sh"
+( cd "$y5d_dir" && unset GITHUB_BASE_REF && git init -q -b main . ) >/dev/null 2>&1
+# ALL hook-templates rows, not the first: one file must produce exactly one row,
+# and an [OK] alongside the warning would be the auditor answering twice.
+y5d_all="$( cd "$y5d_dir" && bash "$VI" 2>&1 )"
+# STATUS lines only — the summary section echoes each row again, and the remedy
+# prints a third time, so a naive grep counts one row as three.
+y5d="$(printf '%s' "$y5d_all" | grep -E '^[[:space:]]*\[(OK|WARN|FAIL)\]' | grep -i 'hook-templates')"
+y5d_rows="$(printf '%s' "$y5d" | grep -c .)"
+# THE CLASS, NOT THE TEXT — the lesson from Y1/Y5b/Y5c, applied here because I
+# made the same mistake a third time: demoting this row to `register_pass` with
+# identical wording passed until this conjunct was added. `(manual)` and
+# `(auto-fixable)` are the action-item suffixes; a bare `[OK]` is neither.
+if printf '%s' "$y5d" | grep -q 'predates the pre-push recipe' \
+   && printf '%s' "$y5d" | grep -qE '\((manual|auto-fixable)\)' \
+   && ! printf '%s' "$y5d" | grep -q 'lib present' \
+   && [ "$y5d_rows" = "1" ]; then
+  pass "Y5d: a hook-templates lib that PREDATES the recipe is reported — presence passed the [ -f ] check while the recipe it feeds exits 2, which is the auditor asserting health against its own broken remedy"
+else
+  fail_ "Y5d" "stale lib rows=$y5d_rows (want exactly 1, as an ACTION ITEM): ${y5d:-<no row>}"
+fi
+
+# Y5d2. THE FOURTH ARM: ABSENT AND UNFIXABLE. The decision has four outcomes —
+# {absent, stale} x {source reachable, not} — and each needed its own fixture,
+# because a mutant can only die where its arm actually executes. This one is
+# absent-without-source; Y5d is stale-without-source, Y5e stale-with, Y5f
+# absent-with.
+rm -f "$y5d_dir/scripts/lib/hook-templates.sh"
+y5d2="$( cd "$y5d_dir" && bash "$VI" 2>&1 | grep -E '^[[:space:]]*\[(OK|WARN|FAIL)\]' | grep -i 'hook-templates' | head -1 )"
+if printf '%s' "$y5d2" | grep -qE '\((manual|auto-fixable)\)' \
+   && printf '%s' "$y5d2" | grep -q 'missing'; then
+  pass "Y5d2: an absent lib with NO reachable source is still an action item — unfixable is not the same as fine, and it is the arm a project cut off from its orchestrator lands on"
+else
+  fail_ "Y5d2" "absent-unfixable lib was not an action item: ${y5d2:-<no row>}"
+fi
+
+# Y5e. THE FIXABLE ARM, AND THE REPAIR IT PROMISES. Y5d's fixture has no
+# reachable source, so it can only ever take the manual arm — demoting the
+# FIXABLE arm to a pass survived it. This fixture points at a real source, so
+# the row must be an action item AND `--auto-fix` must actually leave a lib the
+# recipe can run: a repair row that does not repair is the auditor's own remedy
+# failing where it says it will work.
+y5e_dir="$(newtmp)"; mkdir -p "$y5e_dir/scripts/lib" "$y5e_dir/.claude" "$y5e_dir/docs/reference"
+printf '%s\n' '{"track":"light","deployment":"personal","poc_mode":null,"current_phase":1,"phases":{}}' > "$y5e_dir/.claude/phase-state.json"
+printf '%s\n' '{"frameworkVersion":"1.0.0","host":"github","mode":"personal","deployment":"personal","poc_mode":null,"enforcement_level":"strict"}' > "$y5e_dir/.claude/manifest.json"
+printf '{"source_dir":"%s"}\n' "$REPO_ROOT" > "$y5e_dir/.claude/orchestrator-source.json"
+printf '#!/usr/bin/env bash\nsoif_write_precommit_hook() { :; }\n' > "$y5e_dir/scripts/lib/hook-templates.sh"
+cp "$REPO_ROOT/scripts/print-prepush-recipe.sh" "$y5e_dir/scripts/"; chmod +x "$y5e_dir/scripts/print-prepush-recipe.sh"
+( cd "$y5e_dir" && unset GITHUB_BASE_REF && git init -q -b main . ) >/dev/null 2>&1
+
+y5e_row="$( cd "$y5e_dir" && bash "$VI" 2>&1 | grep -E '^[[:space:]]*\[(OK|WARN|FAIL)\]' | grep -i 'hook-templates' | head -1 )"
+( cd "$y5e_dir" && bash "$VI" --auto-fix >/dev/null 2>&1 )
+y5e_has="$(grep -c 'soif_emit_prepush_preamble' "$y5e_dir/scripts/lib/hook-templates.sh" 2>/dev/null || printf '0')"
+y5e_rc="$( cd "$y5e_dir" && bash scripts/print-prepush-recipe.sh >/dev/null 2>&1; echo $? )"
+if printf '%s' "$y5e_row" | grep -qE '\((manual|auto-fixable)\)' \
+   && [ "$y5e_has" != "0" ] && [ "$y5e_rc" -eq 0 ]; then
+  pass "Y5e: with a reachable source the stale lib is an action item AND --auto-fix genuinely repairs it — the refreshed lib carries the emitter and the recipe exits 0"
+else
+  fail_ "Y5e" "row='$y5e_row' emitter_after_fix=$y5e_has (want non-zero) recipe_rc=$y5e_rc (want 0)"
+fi
+
+# Y5f. THE ABSENT-WITH-SOURCE ARM. Y5d covers absent-without-source and Y5e
+# covers stale-with-source; nothing covered absent-WITH-source, so demoting that
+# arm to a pass survived. Same fixture, lib removed.
+rm -f "$y5e_dir/scripts/lib/hook-templates.sh"
+y5f_row="$( cd "$y5e_dir" && bash "$VI" 2>&1 | grep -E '^[[:space:]]*\[(OK|WARN|FAIL)\]' | grep -i 'hook-templates' | head -1 )"
+( cd "$y5e_dir" && bash "$VI" --auto-fix >/dev/null 2>&1 )
+y5f_has="$(grep -c 'soif_emit_prepush_preamble' "$y5e_dir/scripts/lib/hook-templates.sh" 2>/dev/null || printf '0')"
+if printf '%s' "$y5f_row" | grep -qE '\((manual|auto-fixable)\)' && [ "$y5f_has" != "0" ]; then
+  pass "Y5f: an ABSENT lib with a reachable source is an action item and is genuinely delivered — the third arm of one decision, and the only one nothing was watching"
+else
+  fail_ "Y5f" "row='$y5f_row' emitter_after_fix=$y5f_has (want non-zero)"
+fi
+
 # Y6. BUFFERED READERS ARE PARTIAL READERS ONCE THE LIST IS BIG. An earlier cut
 # excluded them, reasoning that they drain everything so the runtime NOTE
 # announces them. Measured, that holds only below the stdio buffer: at 500 refs
