@@ -158,7 +158,7 @@ if [ -n "$_pushed_shas" ]; then _targets="$_pushed_shas"; else _targets="$HEAD_S
 # shape, reused by `## BL-233:`: an escape that leaves no trace is not an escape,
 # it is the gate being off. Refused outright if it cannot be written down.
 if [ "${SOLO_PR_REVIEW_ATTESTED:-}" = "1" ]; then
-  _reason="$(printf '%s' "${SOLO_PR_REVIEW_ATTESTED_REASON:-}" | LC_ALL=C tr -d '\000-\037\\' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  _reason="$(printf '%s' "${SOLO_PR_REVIEW_ATTESTED_REASON:-}" | LC_ALL=C tr -d '\000-\037\177\\' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   if [ -z "$_reason" ]; then
     _say "${RED}[BLOCKED]${NC} SOLO_PR_REVIEW_ATTESTED=1 was set with no reason."
     _say "  An attestation without a justification is the gate switched off with extra steps."

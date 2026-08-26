@@ -12785,9 +12785,17 @@ read stdin and does not exit before it.
 2. **`core.hooksPath` and an operator-replaced hook pass silently at push time** —
    nothing of ours runs. Same class as `--no-verify`. Both are DETECTED by
    `verify-install.sh`'s row; neither can speak at push time.
-3. **The verify-install wiring is pinned by no test** — nothing references
-   `check-pr-review` outside the gate suite, so the manifest rows, the fixer-loop
-   names and the hook row could all regress green. Worse, none of the three
+   *(Until round eight the detection was weaker than that: a delegation that had
+   simply been COMMENTED OUT — the ordinary temporary-disable gesture — read as
+   `[OK] installed` on BOTH audit surfaces while pushes ran ungated. Whole-line
+   comments are stripped before the delegation grep now, on the verify-install
+   row and the sync notice alike, and `Y5` pins it. A delegation mentioned in a
+   TRAILING comment on a live line still slips through — recorded rather than
+   chased.)*
+3. **The verify-install wiring is only PARTLY pinned.** The hook row's warn and
+   pass branches are pinned from the unit lane now (`Y1`-`Y5`, which drive
+   `verify-install.sh` directly), but the manifest rows and the fixer-loop names
+   still are not, so those could regress green. Worse, none of the three
    `test-verify-install-*` suites is in the unit lane, so a pin added there would
    be full-lane only. **This residual originally named verify-install alone,
    which under-scoped it by three channels.** Review deleted the sync notice and
@@ -12829,9 +12837,22 @@ read stdin and does not exit before it.
    which ref occupies the consumed slot is decided by git's ref ordering, not by
    the operator. Proven with a real push in round seven: the unreviewed commit
    shipped under an `[OK]` naming a different, approved sha, with no NOTE.
-   Mitigated but not closed — `# BL-243-VERIFY-HOOK-STDIN` reports the unsafe
-   COMPOSITION statically, and the instructions now say "reads ANY of the ref
-   list". **The capture-and-replay recipe is the only correct wiring for any
+   Mitigated but not closed, and the mitigation's LIMITS are the point:
+   `# BL-243-VERIFY-HOOK-STDIN` reports the unsafe composition statically **for
+   the shell `read` family at line start** — `read`, `while read`, `if read`,
+   `IFS= read`, `while IFS= read`, `mapfile`/`readarray` — with a
+   capture-and-replay exclusion. A consumer spelled some other way (inside a
+   function, in a sourced file, mid-pipeline) is **not** detected.
+   *(An earlier version of this sentence claimed the composition was visible
+   statically, full stop. Review wrote a hook in a third ordinary spelling,
+   shipped an unreviewed commit with no warning anywhere, and the checker called
+   that hook correctly installed. The regex covered two spellings; the claim
+   covered all of them.)*
+   **Buffered readers are deliberately out of the static net and are not a
+   gap:** measured, `head -1`, `sed 1q` and `awk 'NR==1'` consume the WHOLE small
+   ref list, so the runtime NOTE announces them. Shell `read` is the only
+   byte-exact partial reader — which is exactly why its family is the static
+   target. **The capture-and-replay recipe is the only correct wiring for any
    stdin-reading hook, partial readers included.**
 
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)

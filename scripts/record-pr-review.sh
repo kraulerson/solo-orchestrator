@@ -72,9 +72,9 @@ fi
 SUMMARY=""
 if [ -n "$SUMMARY_FILE" ]; then
   [ -f "$SUMMARY_FILE" ] || { echo "record-pr-review: --summary-file '$SUMMARY_FILE' does not exist" >&2; exit 2; }
-  SUMMARY="$(LC_ALL=C tr -d '\000-\037\\' < "$SUMMARY_FILE" | cut -c1-2000)"
+  SUMMARY="$(LC_ALL=C tr -d '\000-\037\177\\' < "$SUMMARY_FILE" | LC_ALL=C cut -c1-2000)"
 fi
-REVIEWER="$(printf '%s' "$REVIEWER" | LC_ALL=C tr -d '\000-\037\\' | cut -c1-120)"
+REVIEWER="$(printf '%s' "$REVIEWER" | LC_ALL=C tr -d '\000-\037\177\\' | LC_ALL=C cut -c1-120)"
 
 mkdir -p "$(dirname "$STATE")" 2>/dev/null || true
 [ -f "$STATE" ] || printf '{}\n' > "$STATE"

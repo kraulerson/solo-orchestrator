@@ -682,17 +682,25 @@ check_git() {
   # BL-243-VERIFY-HOOK-STDIN: the partial-drain fail-open is invisible at run
   # time — a partly-consumed ref list looks exactly like a shorter one — but the
   # unsafe COMPOSITION is visible here, before it costs anyone a shipped commit.
+  # A delegation that is COMMENTED OUT is not a delegation. Strip whole-line
+  # comments before believing any of these greps.
+  _bl243_live() { grep -v '^[[:space:]]*#' "$1" 2>/dev/null; }
+  # The read FAMILY, not two spellings of it: `read`, `while read`, `if read`,
+  # `IFS= read`, `while IFS= read`, and `mapfile`, at line start.
+  _bl243_reads_stdin='^[[:space:]]*(if[[:space:]]+|while[[:space:]]+|until[[:space:]]+)?(IFS=[^[:space:]]*[[:space:]]+)?(read|mapfile|readarray)([[:space:]]|;|$)'
+  # Capture-and-replay, in any of its spellings — including the temp-file form.
+  _bl243_captures='\$\(cat[^)]*\)|cat[[:space:]]*>|</dev/stdin'
   if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
-     && grep -qF 'check-pr-review.sh' "$_hooksdir/pre-push" 2>/dev/null \
-     && grep -qE '^[[:space:]]*(read|while[[:space:]]+read)[[:space:]]' "$_hooksdir/pre-push" 2>/dev/null \
-     && ! grep -qE 'refs="?\$\(cat\)|\$\(cat\)' "$_hooksdir/pre-push" 2>/dev/null; then
+     && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh' \
+     && _bl243_live "$_hooksdir/pre-push" | grep -qE "$_bl243_reads_stdin" \
+     && ! _bl243_live "$_hooksdir/pre-push" | grep -qE "$_bl243_captures"; then
     register_manual "Pre-push hook delegates to the review gate BUT ALSO READS STDIN — the gate may verify the wrong commit and say [OK]" \
-      "git hands the ref list to the hook ONCE. A read here consumes lines the gate never sees, so a consumed ref ships unverified with no warning. Capture the list once and replay it to both consumers — recipe on ## BL-243:."
+      "git hands the ref list to the hook ONCE. A read here consumes lines the gate never sees, so a consumed ref ships unverified with no warning. Capture the list once and replay it to both consumers — recipe on ## BL-243:. If your hook ALREADY captures and replays in a spelling this check does not recognise, this row is a false alarm."
   elif [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
-     && grep -qF 'check-pr-review.sh' "$_hooksdir/pre-push" 2>/dev/null; then
+     && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh'; then
     register_pass "Pre-push review gate hook installed ($_hooksdir/pre-push)"
   elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ] && [ ! -x "$_hooksdir/pre-push" ] \
-     && grep -qF 'check-pr-review.sh' "$_hooksdir/pre-push" 2>/dev/null; then
+     && _bl243_live "$_hooksdir/pre-push" | grep -qF 'check-pr-review.sh'; then
     register_manual "Pre-push review gate hook present but NOT executable — git ignores it silently, so pushes are NOT gated" \
       "chmod +x $_hooksdir/pre-push"
   elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ]; then

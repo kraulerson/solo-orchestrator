@@ -519,7 +519,7 @@ fi
 # to drop only the backslash passed 30/30 — the control-character half, which is
 # what a raw newline forgery actually needs, was unpinned.
 N4="$(newtmp)"; mk "$N4"
-printf 'line one\033[2K\007  [OK] FORGED\n' > "$N4/sum.txt"
+printf 'line one\033[2K\007\177  [OK] FORGED\n' > "$N4/sum.txt"
 ( cd "$N4" && bash "$RECORD" --verdict approve --summary-file sum.txt >/dev/null 2>&1 )
 n4_sum="$( cd "$N4" && jq -r '.pr_review.summary // ""' .claude/process-state.json 2>/dev/null )"
 case "$n4_sum" in
@@ -646,6 +646,46 @@ if ! printf '%s' "$y2" | grep -q 'ALSO READS STDIN'; then
   pass "Y2: the capture-and-replay wiring is NOT flagged — the detector must not nag the very shape the recipe tells people to build"
 else
   fail_ "Y2" "the correct wiring was reported as unsafe: $y2"
+fi
+
+# Y3. THE CAPTURE EXCLUSION MUST BE LOAD-BEARING. Deleting it left the whole
+# PR-blocking set green, because Y2's `while read`s sit mid-pipeline so the
+# anchored read-regex never fires and the exclusion is never consulted. This
+# shape has a LINE-ANCHORED read AND a capture, so only the exclusion keeps it
+# quiet.
+y3="$(y_row "$(printf '#!/usr/bin/env bash\nrefs="$(cat)"\nwhile read -r a b c d; do :; done <<EOF\n$refs\nEOF\nprintf "%%s\\n" "$refs" | bash scripts/check-pr-review.sh --from-hook\n')")"
+if ! printf '%s' "$y3" | grep -q 'ALSO READS STDIN'; then
+  pass "Y3: a line-anchored read that IS preceded by a capture stays quiet — the capture exclusion is load-bearing, not decoration"
+else
+  fail_ "Y3" "a correct capture-and-replay wiring was flagged unsafe: $y3"
+fi
+
+# Y4. THE READ FAMILY, NOT TWO SPELLINGS OF IT. `if read`, `IFS= read`,
+# `while IFS= read` and `mapfile` all walked past the first regex, and one of
+# them was proven to ship an unreviewed commit in silence. Buffered readers
+# (`head -1`, `sed 1q`, `awk NR==1`) are deliberately NOT here: measured, they
+# consume the WHOLE small ref list, so the runtime NOTE announces them. Shell
+# `read` is the only byte-exact partial reader, which is why its family is the
+# static target.
+y4_missed=""
+for _spell in 'if read -r a b c d; then :; fi' 'IFS= read -r line' 'while IFS= read -r l; do :; done' 'mapfile -t refs'; do
+  _y="$(y_row "$(printf '#!/usr/bin/env bash\n%s\nbash scripts/check-pr-review.sh --from-hook || exit 1\n' "$_spell")")"
+  printf '%s' "$_y" | grep -q 'ALSO READS STDIN' || y4_missed="$y4_missed [$_spell]"
+done
+if [ -z "$y4_missed" ]; then
+  pass "Y4: if-read, IFS=-read, while-IFS=-read and mapfile are all seen — two spellings was not the family"
+else
+  fail_ "Y4" "undetected stdin-consuming spellings:$y4_missed"
+fi
+
+# Y5. A COMMENTED-OUT DELEGATION IS NOT A DELEGATION. Commenting the line out is
+# the ordinary way to disable something temporarily, and BOTH audit surfaces read
+# it as installed while pushes ran ungated.
+y5="$(y_row "$(printf '#!/usr/bin/env bash\n# temporarily disabled: bash scripts/check-pr-review.sh --from-hook\nexit 0\n')")"
+if ! printf '%s' "$y5" | grep -q 'gate hook installed'; then
+  pass "Y5: a hook whose delegation is COMMENTED OUT is not reported as installed — an auditor must not say the gate is on while pushes run ungated"
+else
+  fail_ "Y5" "a commented-out delegation was reported as installed: $y5"
 fi
 
 echo ""

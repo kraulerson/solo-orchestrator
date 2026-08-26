@@ -1004,13 +1004,15 @@ _bl131_ensure_domsinks_ruleset() {
 # `## BL-149:` warns about, and verify-install carries the detectable row.
 _bl099_sync_prepush_notice() {
   print_step "pre-push review gate hook"
+  # A commented-out delegation is not a delegation — same blind spot the
+  # verify-install row had (`# BL-243-VERIFY-HOOK-STDIN`).
   if [ -x "$PROJECT_ROOT/.git/hooks/pre-push" ] \
-     && grep -qF 'check-pr-review.sh' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null; then
+     && grep -v '^[[:space:]]*#' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null | grep -qF 'check-pr-review.sh'; then
     print_ok "  pre-push review gate hook present."
     return 0
   fi
   if [ -e "$PROJECT_ROOT/.git/hooks/pre-push" ] \
-     && grep -qF 'check-pr-review.sh' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null; then
+     && grep -v '^[[:space:]]*#' "$PROJECT_ROOT/.git/hooks/pre-push" 2>/dev/null | grep -qF 'check-pr-review.sh'; then
     print_warn "  present but NOT executable — git ignores it silently, so pushes are NOT gated."
     print_warn "  Remedy: chmod +x .git/hooks/pre-push (verify-install reports this row too)."
     return 0

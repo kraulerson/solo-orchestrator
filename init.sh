@@ -2833,7 +2833,10 @@ install_precommit_hook() {
   #
   # The hook is a thin delegator on purpose: the logic lives in a shipped,
   # testable script rather than in a heredoc nobody can run in isolation.
-  if [ ! -f ".git/hooks/pre-push" ]; then
+  # `-f` is FALSE for a dangling symlink, so the never-clobber promise wrote
+  # THROUGH the link and created a file at the far end — `# BL-145`'s class, in
+  # the arm that advertises never clobbering. `-e` plus `-L` covers both.
+  if [ ! -e ".git/hooks/pre-push" ] && [ ! -L ".git/hooks/pre-push" ]; then
     # BL-243-HOOK-TEMPLATE: emitted from the ONE owner of hook bodies, not a
     # second copy here. A heredoc-only body is how this repo's own hand-installed
     # hook became a silent stale version while the shipped one was loud.
