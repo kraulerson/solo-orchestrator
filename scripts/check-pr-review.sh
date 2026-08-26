@@ -89,7 +89,15 @@ git rev-parse --git-dir >/dev/null 2>&1 || exit 0   # not a repo: nothing to gat
 # It means "a pre-push hook is running me, so a ref list was DUE on stdin".
 _from_hook=0
 for _a in "$@"; do
-  case "$_a" in --from-hook) _from_hook=1 ;; esac
+  case "$_a" in
+    --from-hook) _from_hook=1 ;;
+    # A pre-push hook is invoked with <remote-name> <remote-url>, so a wiring
+    # that forwards "$@" hands us two POSITIONAL words. Those are legitimate and
+    # must pass without a murmur — nagging about them is how a real warning gets
+    # tuned out. Only a FLAG-SHAPED argument can be a typo of --from-hook.
+    -*) _say "check-pr-review: NOTE — ignoring unrecognized option '$_a'. Only --from-hook is understood, and a typo there silences the drained-stdin warning." ;;
+    *) ;;
+  esac
 done
 
 _pushed_shas=""
@@ -244,6 +252,10 @@ for _t in $_targets; do
     _refuse "the review on record does not cover what you are pushing"
     _say "  Recorded against: $_rec_head"
     _say "  This push ships:  $_targets"
+    if [ "$_saw_refs" = "0" ]; then
+      _say "  (No ref list arrived, so HEAD was checked. If git then says 'Everything"
+      _say "   up-to-date', nothing was actually shipping and this refusal cost you nothing.)"
+    fi
     _say "  A review of a different tree is a review of something else. Re-review the"
     _say "  commit you are pushing, push the reviewed one, or attest."
     exit 1

@@ -1021,8 +1021,10 @@ _bl099_sync_prepush_notice() {
   print_warn "  To enable: create .git/hooks/pre-push, or append at the END of an existing"
   print_warn "  one — ABOVE any \`exit\` line, or it will never run:"
   print_warn "    if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi"
-  print_warn "  If that hook READS the ref list from stdin, this checks the WRONG commit;"
-  print_warn "  capture the list once and replay it — recipe on \`## BL-243:\`."
+  print_warn "  If that hook reads ANY of the ref list — even a single \`read\` — this checks"
+  print_warn "  the WRONG commit, and a PARTIAL read gets no warning at all. git's own"
+  print_warn "  pre-push.sample reads the list, so it needs the capture-and-replay recipe on"
+  print_warn "  \`## BL-243:\`, not just the append."
   print_warn "  (scripts/verify-install.sh reports this row and names the same remedy.)"
 }
 

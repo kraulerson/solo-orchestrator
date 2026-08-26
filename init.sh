@@ -2848,8 +2848,10 @@ install_precommit_hook() {
     print_warn "  To enable it, append at the END of that hook — but ABOVE any \`exit\` line,"
     print_warn "  or it will never run (git's own pre-push.sample ends in \`exit 0\`):"
     print_warn "    if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi"
-    print_warn "  If your hook READS the ref list from stdin, the line above will check the"
-    print_warn "  wrong commit. Capture the list once and replay it — recipe on \`## BL-243:\`."
+    print_warn "  If your hook reads ANY of the ref list from stdin — even a single \`read\` —"
+    print_warn "  the line above checks the WRONG commit, and a partial read gets NO warning."
+    print_warn "  git's own pre-push.sample reads the list, so it needs the capture-and-replay"
+    print_warn "  recipe on \`## BL-243:\`, not just the append."
   fi
 
   # BL-072 Phase C2 + BL-107: install the tier-keyed TDD-ordering gate as a

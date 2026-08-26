@@ -12566,7 +12566,7 @@ work whose PR this was blocking).
 
 ---
 
-## BL-244: 203 of 204 test suites can run their fixtures in the LAUNCH DIRECTORY when mktemp fails — and one of them did
+## BL-244: almost every test suite can run its fixtures in the LAUNCH DIRECTORY when mktemp fails — and one of them did
 
  **Status:** Open
  **Filed:** 2026-08-26
@@ -12608,10 +12608,12 @@ for f in $(grep -rl 'mktemp -d' tests/test-*.sh); do \
   grep -q 'git init' "$f" && grep -q 'git add -A' "$f" && echo "$f"; done | wc -l      # 46
 ```
 
-**204 use it, 1 guards it** (`tests/test-pr-review-gate.sh`, fixed under
-`## BL-243:`), **114 also `git init`**, and **46 also `git add -A`** — that last
-set is the shape that escaped, because it stages and commits rather than just
-creating files.
+**204 use it, 2 now guard it** (`tests/test-pr-review-gate.sh` and
+`tests/test-upgrade-sync-framework.sh`, both fixed under `## BL-243:`),
+**114 also `git init`**, and **46 also `git add -A`** — that last set is the
+shape that escaped, because it stages and commits rather than just creating
+files. *(The count was 1 when this entry was written and 2 by the end of the same
+PR. Re-run the recipe; do not read the number.)*
 
 **THE FIX IS THREE LINES PER SUITE**, and the pattern is already proven:
 
@@ -12622,8 +12624,10 @@ creating files.
 
 Prove it with a positive control rather than asserting it: a PATH stub whose
 `mktemp` always fails must make the suite exit non-zero with the FATAL message
-and leave the launch directory untouched. That control is in
-`tests/test-pr-review-gate.sh` today.
+and leave the launch directory untouched. That control is `M-1` in
+`tests/test-pr-review-gate.sh`. *(This sentence claimed the control existed
+before it did — the guard was there, its proof was not, in the entry whose own
+rule is prove-don't-assert. Review caught it; `M-1` was written in response.)*
 
 **Why this is worth a sweep rather than opportunistic fixes.** The failure is
 silent, it is destructive, it targets whatever directory the developer happened
@@ -12660,8 +12664,9 @@ happened. An agent that writes the record dishonestly defeats it —
 buys is that bypassing becomes an ACT with a name and a date on it.
 
 **Markers:** `# BL-243-PUSHED-REFS`, `-REVPARSE-VERIFY`, `-REVIEWED-HEAD`,
-`-VERIFY-MANIFEST`, `-VERIFY-HOOK`, `-INSTALL-SKIP-LOUD`, `-SYNC-SKIP-LOUD`,
-`-HOOK-TEMPLATE`, `-CONTRIB-PREPUSH`. They were `# BL-PRGATE-*` for three review
+`-VERIFY-MANIFEST`, `-VERIFY-HOOK`, `-VERIFY-HOOK-STDIN`, `-INSTALL-SKIP-LOUD`,
+`-SYNC-SKIP-LOUD`, `-HOOK-TEMPLATE`, `-CONTRIB-PREPUSH`,
+`-HOOK-STDIN-DRAINED`. They were `# BL-PRGATE-*` for three review
 rounds, which made them **structurally invisible to
 `scripts/lint-bl-markers.sh`** — its extractor requires `BL-[0-9]+` — so BL-196's
 marker-integrity checking could never validate them and a typo'd prose citation
@@ -12699,17 +12704,42 @@ real pushes during round six of review:**
 1. **A hook that ends in `exit 0`** — which git's own `pre-push.sample` does —
    never reaches an appended line. Measured: unreviewed branch pushed, `rc=0`,
    **zero lines of gate output**. Append ABOVE the exit, not at the very end.
-2. **A hook that READS THE REF LIST** leaves the gate with empty stdin, so it
-   falls back to HEAD. Measured, and this is the dangerous one: with an approve
-   on record for the branch you are standing on, pushing a *different*
-   unreviewed branch printed
-   `[OK] PR review on record for e998b15…: approve` and **the unreviewed branch
-   landed**. A green light on a fail-open.
+2. **A hook that reads ANY of the ref list from stdin** — and there are two
+   sub-cases, of which the second is worse:
+   - **Drains the WHOLE list.** The gate is left with empty stdin and falls back
+     to HEAD. Measured: with an approve on record for the branch you are standing
+     on, pushing a *different* unreviewed branch printed
+     `[OK] PR review on record for e998b15…: approve` and **the unreviewed branch
+     landed**. This one is now ANNOUNCED (the NOTE below).
+   - **Reads only PART of it** — a single `read` to peek at the first ref is a
+     common home-made shape. Then `_saw_refs` is 1, **no NOTE can ever fire**, and
+     the gate verifies only the lines that survived. Measured with a real push:
+     an operator hook consuming the `feature` line let the gate see only the
+     approved `main`, print `[OK]`, and **ship the unreviewed `feature` commit
+     with no warning of any kind**. Which ref occupies the consumed slot is
+     decided by git's ref ordering, not by the operator, so the three orderings
+     that happen to fail closed are luck rather than safety.
 
-The gate now announces case 2 rather than guessing silently
-(`# BL-243-HOOK-STDIN-DRAINED`). It cannot detect it from the environment — git
-sets neither `GIT_DIR` nor `GIT_PREFIX` for pre-push hooks (measured) — so the
-hook declares itself with `--from-hook`, and the gate speaks only when a ref list
+   Both are fixed by the same capture-and-replay recipe below. Note that git's
+   own `pre-push.sample` READS THE REF LIST, so an operator who activates it and
+   follows only the append-above-the-exit advice lands squarely in this case.
+
+**The partial-read sub-case is undetectable AT RUN TIME** — a partly-consumed
+list is indistinguishable from a genuinely shorter one — but it IS detectable
+statically, and `scripts/verify-install.sh` now does so
+(`# BL-243-VERIFY-HOOK-STDIN`): a hook that both delegates to the gate AND reads
+stdin, without a capture-and-replay, is reported as unsafe with the recipe named.
+
+The gate now announces the drain sub-case rather than guessing silently
+(`# BL-243-HOOK-STDIN-DRAINED`). There is no ROBUST environment discriminator:
+git leaves `GIT_DIR` unset but exports **`GIT_PREFIX` set-to-EMPTY** into a
+pre-push hook. *(An earlier version of this sentence said git sets neither. That
+was a measurement error and review caught it: the probe used
+`${GIT_PREFIX:-unset}`, which reads an empty value as absent. Re-measured with
+`${GIT_PREFIX+SET}`: `GIT_PREFIX set? SET value=[]`.)* Set-ness alone is not
+something to hang a gate on — it is git-version- and context-fragile, and any
+git-spawned manual run inherits it — so the hook declares itself with
+`--from-hook`, and the gate speaks only when a ref list
 was DUE and none arrived. Warning on every manual run instead would be crying
 wolf, which is how an audit line gets ignored.
 
@@ -12794,6 +12824,15 @@ read stdin and does not exit before it.
    The honest path is a `--head` re-record or an attestation.
 8. **The recorder's `--help` uses a line-number `sed` range**, brittle to edits
    above it.
+9. **A hook that consumes PART of the ref list is undetectable at run time and
+   therefore unannounced.** The gate sees a shorter list and verifies only that;
+   which ref occupies the consumed slot is decided by git's ref ordering, not by
+   the operator. Proven with a real push in round seven: the unreviewed commit
+   shipped under an `[OK]` naming a different, approved sha, with no NOTE.
+   Mitigated but not closed — `# BL-243-VERIFY-HOOK-STDIN` reports the unsafe
+   COMPOSITION statically, and the instructions now say "reads ANY of the ref
+   list". **The capture-and-replay recipe is the only correct wiring for any
+   stdin-reading hook, partial readers included.**
 
 ## BL-242: Brownfield adoption is HALF BUILT and has never had a backlog entry — seven capabilities unbuilt, and the feature's shape is now decided (D1-D8)
 

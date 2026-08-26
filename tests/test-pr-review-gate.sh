@@ -40,6 +40,23 @@ for f in "$CHECK" "$RECORD"; do
 done
 
 echo "=== M. the bit the whole feature hangs on ==="
+
+# M-1: THE BL-244 CONTROL, AUTOMATED. Re-invokes this suite with a PATH stub
+# whose mktemp always fails, from a canary directory, and requires the FATAL
+# refusal. `SOIF_MKTEMP_CONTROL` stops the child recursing.
+if [ -z "${SOIF_MKTEMP_CONTROL:-}" ]; then
+  _m1_stub="$TOPTMP/mkstub"; mkdir -p "$_m1_stub"
+  printf '#!/bin/sh\nexit 1\n' > "$_m1_stub/mktemp"; chmod +x "$_m1_stub/mktemp"
+  _m1_canary="$TOPTMP/canary"; mkdir -p "$_m1_canary"
+  _m1_out="$( cd "$_m1_canary" && SOIF_MKTEMP_CONTROL=1 PATH="$_m1_stub:$PATH" \
+                bash "$SCRIPT_DIR/$(basename "$0")" </dev/null 2>&1 )"
+  _m1_left="$(ls -A "$_m1_canary" 2>/dev/null | wc -l | tr -d ' ')"
+  if printf '%s' "$_m1_out" | grep -q 'FATAL: mktemp -d failed' && [ "$_m1_left" = "0" ]; then
+    pass "M-1: with mktemp denied the suite REFUSES and leaves the launch directory untouched — the ## BL-244: control, automated rather than asserted"
+  else
+    fail_ "M-1" "denied mktemp did not refuse cleanly (canary entries=$_m1_left): $(printf '%s' "$_m1_out" | head -1)"
+  fi
+fi
 for f in "$CHECK" "$RECORD"; do
   if [ -x "$f" ]; then
     pass "M0: $(basename "$f") ships EXECUTABLE — the hook degrades open on this bit, so 644 is every push silently ungated"
@@ -578,6 +595,57 @@ if [ "$x5_rc" -ne 0 ] && printf '%s' "$x5_out" | grep -q 'INCOMPLETE' \
   pass "X5: a commit with NO verdict reads as INCOMPLETE, not as an unrecognised verdict — the mirror of S1b, same remedy"
 else
   fail_ "X5" "rc=$x5_rc out: $(printf '%s' "$x5_out" | grep BLOCKED | head -1)"
+fi
+
+# X6. AN UNRECOGNISED ARGUMENT MUST SAY SO. It is warned, not rejected: a
+# legitimate wiring may forward git's <remote-name> <remote-url>, and refusing
+# those would be a gate people route around.
+X6="$(newtmp)"; mk "$X6"
+( cd "$X6" && bash "$RECORD" --verdict approve >/dev/null 2>&1 )
+x6_out="$( cd "$X6" && bash "$CHECK" --form-hook < /dev/null 2>&1 )"
+x6_rc="$( cd "$X6" && bash "$CHECK" --form-hook < /dev/null >/dev/null 2>&1; echo $? )"
+if printf '%s' "$x6_out" | grep -q "ignoring unrecognized option '--form-hook'" && [ "$x6_rc" -eq 0 ]; then
+  pass "X6: a typo'd flag is NAMED rather than swallowed — --form-hook silently disabled the drained-stdin warning, which is one keystroke from a green fail-open"
+else
+  fail_ "X6" "rc=$x6_rc out: $(printf '%s' "$x6_out" | head -1)"
+fi
+
+x7_out="$( cd "$X6" && bash "$CHECK" --from-hook origin "file:///tmp/x" < /dev/null 2>&1 )"
+if ! printf '%s' "$x7_out" | grep -q 'ignoring unrecognized option' \
+   && printf '%s' "$x7_out" | grep -q 'no refs arrived on stdin'; then
+  pass "X7: git's own <remote-name> <remote-url> arguments are accepted without complaint — a wiring that forwards \"\$@\" must not be nagged"
+else
+  fail_ "X7" "forwarded git args were treated as typos: $(printf '%s' "$x7_out" | head -1)"
+fi
+
+echo ""
+echo "=== Y. the unsafe COMPOSITION is invisible at run time and visible statically ==="
+
+# A partly-consumed ref list is indistinguishable from a genuinely shorter one,
+# so the gate cannot catch it while running. `# BL-243-VERIFY-HOOK-STDIN` catches
+# the COMPOSITION instead — before it costs anyone a shipped commit.
+VI="$REPO_ROOT/scripts/verify-install.sh"
+y_row() {  # y_row <hook-body> — the pre-push row verify-install reports
+  local body="$1" Q
+  Q="$(newtmp)"; mkdir -p "$Q/scripts" "$Q/.claude"
+  cp "$CHECK" "$Q/scripts/check-pr-review.sh"; chmod +x "$Q/scripts/check-pr-review.sh"
+  ( cd "$Q" && unset GITHUB_BASE_REF && git init -q -b main . ) >/dev/null 2>&1
+  printf '%s\n' "$body" > "$Q/.git/hooks/pre-push"; chmod +x "$Q/.git/hooks/pre-push"
+  ( cd "$Q" && SOURCE_DIR="$REPO_ROOT" bash "$VI" 2>&1 | grep -i 'pre-push' | head -1 )
+}
+
+y1="$(y_row "$(printf '#!/usr/bin/env bash\nread -r a b c d\nbash scripts/check-pr-review.sh --from-hook || exit 1\n')")"
+if printf '%s' "$y1" | grep -q 'ALSO READS STDIN'; then
+  pass "Y1: a hook that delegates AND reads stdin is reported as unsafe — the partial-read fail-open cannot be seen at run time, so it is caught here"
+else
+  fail_ "Y1" "the unsafe composition was not reported: ${y1:-<no pre-push row>}"
+fi
+
+y2="$(y_row "$(printf '#!/usr/bin/env bash\nrefs="$(cat)"\nprintf "%%s\\n" "$refs" | while read -r a b c d; do :; done\nprintf "%%s\\n" "$refs" | bash scripts/check-pr-review.sh --from-hook || exit 1\n')")"
+if ! printf '%s' "$y2" | grep -q 'ALSO READS STDIN'; then
+  pass "Y2: the capture-and-replay wiring is NOT flagged — the detector must not nag the very shape the recipe tells people to build"
+else
+  fail_ "Y2" "the correct wiring was reported as unsafe: $y2"
 fi
 
 echo ""

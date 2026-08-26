@@ -679,7 +679,16 @@ check_git() {
   # gets deleted). Naming it is the whole point — before this row, a project
   # with no gate, a deleted gate script, or a chmod -x'd one all looked
   # identical to a project that had one.
+  # BL-243-VERIFY-HOOK-STDIN: the partial-drain fail-open is invisible at run
+  # time — a partly-consumed ref list looks exactly like a shorter one — but the
+  # unsafe COMPOSITION is visible here, before it costs anyone a shipped commit.
   if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
+     && grep -qF 'check-pr-review.sh' "$_hooksdir/pre-push" 2>/dev/null \
+     && grep -qE '^[[:space:]]*(read|while[[:space:]]+read)[[:space:]]' "$_hooksdir/pre-push" 2>/dev/null \
+     && ! grep -qE 'refs="?\$\(cat\)|\$\(cat\)' "$_hooksdir/pre-push" 2>/dev/null; then
+    register_manual "Pre-push hook delegates to the review gate BUT ALSO READS STDIN — the gate may verify the wrong commit and say [OK]" \
+      "git hands the ref list to the hook ONCE. A read here consumes lines the gate never sees, so a consumed ref ships unverified with no warning. Capture the list once and replay it to both consumers — recipe on ## BL-243:."
+  elif [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-push" ] \
      && grep -qF 'check-pr-review.sh' "$_hooksdir/pre-push" 2>/dev/null; then
     register_pass "Pre-push review gate hook installed ($_hooksdir/pre-push)"
   elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ] && [ ! -x "$_hooksdir/pre-push" ] \
@@ -688,7 +697,7 @@ check_git() {
       "chmod +x $_hooksdir/pre-push"
   elif [ -n "$_hooksdir" ] && [ -e "$_hooksdir/pre-push" ]; then
     register_manual "Pre-push hook exists but does not delegate to the review gate" \
-      "init.sh never clobbers an existing pre-push hook. Append at the END of that hook, ABOVE any exit line (git's pre-push.sample ends in exit 0, which would skip it): if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi If that hook reads the ref list from stdin, capture and replay it instead — recipe on ## BL-243:."
+      "init.sh never clobbers an existing pre-push hook. Append at the END of that hook, ABOVE any exit line (git's pre-push.sample ends in exit 0, which would skip it): if [ -x scripts/check-pr-review.sh ]; then if ! bash scripts/check-pr-review.sh --from-hook; then exit 1; fi; else echo '[WARN] pre-push: review gate script missing or not executable — PUSHING UNGATED.' >&2; fi If that hook reads ANY of the ref list — even a single read, which git's own pre-push.sample does — capture and replay it instead; a partial read gets no warning at all. Recipe on ## BL-243:."
   elif [ -d "$_hooksdir" ]; then
     register_manual "Pre-push review gate hook missing — pushes are NOT gated by adversarial review" \
       "Re-run init.sh, or write .git/hooks/pre-push delegating to scripts/check-pr-review.sh"
