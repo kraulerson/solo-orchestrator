@@ -12815,19 +12815,20 @@ read stdin and does not exit before it.
    when the strip landed on `verify-install` alone, so the note and the commit
    claim were each right about a different half. Both surfaces carry both strips
    now.)*
-3. **The verify-install wiring is only PARTLY pinned.** The hook row's branches
-   are pinned from the unit lane (`Y1`-`Y5b`, which drive `verify-install.sh`
-   directly), but the manifest rows and the fixer-loop names still are not, so
-   those could regress green.
-   *(This residual drew its boundary one row too narrow. The pins were
-   TEXT-DEEP: they read each row's wording and nothing read its CLASS — and the
-   class carries the exit code, because `register_manual` feeds `MANUAL` and
-   `MANUAL` is what makes `verify-install` exit non-zero. Flipping the
-   stdin-consumer row's `register_manual` to `register_pass` with identical text
-   survived all 63 assertions and turned the auditor's own warning into a pass.
-   That is `CLAUDE.md`'s `[WARN]` trap verbatim — read the effect, not the label
-   — landing on the row this entry leans on four times as the partial-read
-   mitigation. All three rows now assert the action-item class.)*
+3. **The verify-install wiring is only PARTLY pinned.** All **four** action-item
+   branches of the pre-push row are pinned from the unit lane (`Y1`, `Y5`,
+   `Y5b`, `Y5c`, which drive `verify-install.sh` directly), but the manifest
+   rows and the fixer-loop names still are not, so those could regress green.
+   *(This residual has now been one row too narrow TWICE. First it said the
+   branches were pinned when the pins were TEXT-DEEP — nothing read a row's
+   CLASS, and the class carries the exit code, because `register_manual` feeds
+   `MANUAL` and `MANUAL` is what makes `verify-install` exit non-zero. Flipping
+   the stdin-consumer row to `register_pass` with identical text survived all 63
+   assertions. Then the correction said "all three rows"; the block has FOUR,
+   and the same mutation on the not-executable row survived all 64. That is
+   `CLAUDE.md`'s `[WARN]` trap — read the effect, not the label — landing twice
+   on the same elif chain. Count the `register_manual` calls before trusting any
+   sentence in this paragraph.)*
 4. **The `scripts=(` manifest's "mirrors init.sh's chmod list exactly" invariant
    is a hand-maintained comment, and it is FALSE TODAY BY SEVEN FILES** — no lint
    compares the two lists. Measured during review: `check-maintenance.sh`,

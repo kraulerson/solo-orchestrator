@@ -779,6 +779,23 @@ else
   fail_ "Y5b" "the missing-hook row was not an action item: ${y5b:-<no row>}"
 fi
 
+# Y5c. THE FOURTH MANUAL ROW. Round thirteen fixed three and said "all three";
+# the block has FOUR, so the correction was again one row short. This one covers
+# a delegating hook at mode 644 — exactly what the missing-hook row's own remedy
+# produces when the operator writes the hook and forgets chmod — and git ignores
+# a non-executable hook SILENTLY, which is why the row exists at all.
+y5c_dir="$(newtmp)"; mkdir -p "$y5c_dir/scripts" "$y5c_dir/.claude"
+cp "$CHECK" "$y5c_dir/scripts/check-pr-review.sh"; chmod +x "$y5c_dir/scripts/check-pr-review.sh"
+( cd "$y5c_dir" && unset GITHUB_BASE_REF && git init -q -b main . ) >/dev/null 2>&1
+printf '#!/usr/bin/env bash\nexec bash scripts/check-pr-review.sh --from-hook\n' > "$y5c_dir/.git/hooks/pre-push"
+chmod 644 "$y5c_dir/.git/hooks/pre-push"
+y5c="$( cd "$y5c_dir" && SOURCE_DIR="$REPO_ROOT" bash "$VI" 2>&1 | grep -i 'pre-push' | head -1 )"
+if printf '%s' "$y5c" | grep -qF '(manual)' && printf '%s' "$y5c" | grep -q 'NOT executable'; then
+  pass "Y5c: a delegating hook git will not run reads as an action item — 'git ignores it silently' printed as a pass is the [WARN] trap on the fourth row"
+else
+  fail_ "Y5c" "the not-executable row was not an action item: ${y5c:-<no row>}"
+fi
+
 # Y6. BUFFERED READERS ARE PARTIAL READERS ONCE THE LIST IS BIG. An earlier cut
 # excluded them, reasoning that they drain everything so the runtime NOTE
 # announces them. Measured, that holds only below the stdio buffer: at 500 refs

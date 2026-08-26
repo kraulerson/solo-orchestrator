@@ -413,6 +413,10 @@ check_scripts() {
     # and pre-commit-gate.sh's warning no-ops — and without this row
     # verify-install reported a healthy install with the enforcement lib gone.
     "scripts/lib/accumulation.sh"
+    # BL-243: the runtime dependency of print-prepush-recipe.sh. Backfilling the
+    # recipe without it ships a script whose only function exits 2 — and every
+    # remedy surface tells operators to run that script.
+    "scripts/lib/hook-templates.sh"
   )
   local lib_name
   for lib in "${libs[@]}"; do
@@ -1458,6 +1462,7 @@ fix_lib_copy_gate-principles()   { if has_source && [ -f "$SOURCE_DIR/scripts/li
 fix_lib_copy_tdd-classify()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/tdd-classify.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/tdd-classify.sh"      scripts/lib/; else return 1; fi; }
 fix_lib_copy_phase2-state()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/phase2-state.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/phase2-state.sh"      scripts/lib/; else return 1; fi; }
 fix_lib_copy_accumulation()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/accumulation.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/accumulation.sh"      scripts/lib/; else return 1; fi; }
+fix_lib_copy_hook-templates()    { if has_source && [ -f "$SOURCE_DIR/scripts/lib/hook-templates.sh" ];    then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/hook-templates.sh"    scripts/lib/; else return 1; fi; }
 fix_lib_copy_cdf-refresh()       { if has_source && [ -f "$SOURCE_DIR/scripts/lib/cdf-refresh.sh" ];       then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/cdf-refresh.sh"       scripts/lib/; else return 1; fi; }
 # Hooks live in a subdirectory; chmod + copy paths reflect that. The
 # basename of scripts/hooks/bypass-detector.sh is `bypass-detector`, so
