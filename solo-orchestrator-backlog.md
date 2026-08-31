@@ -13341,8 +13341,8 @@ Two consequences this entry owns rather than discovers later:
   every archived path, not a count.
 
 **D2 — SECRETS: TIER-SCOPED. Organizational projects STOP; casual personal
-projects get a loud warning. A scan that did not run is not an acceptable state
-either way.** Karl, first pass: *"Stop adoption until acknowledged with a reply
+projects get a loud warning. A scan that NEVER RAN is not an acceptable state at
+either tier; a scan that RAN AND BROKE is treated as if it ran.** Karl, first pass: *"Stop adoption until acknowledged with a reply
 of having been corrected or the risk is being accepted"*, and on the not-scanned
 case: *"Why wouldn't the secrets scan run? That should never be an option."*
 Karl, 2026-08-25, resolving the sub-question review raised: *"Keep warn loudly
@@ -13410,9 +13410,17 @@ contradict settled text, so `v1.2.2` says THREE, not "two or three".
 | `tool-unavailable` | **gitleaks is not installed on the host** |
 | `scan-failed` | gitleaks exited non-zero, **or** its report did not parse — "usually a full disk or a killed process" |
 
-So `tool-unavailable` and `scan-failed` block at BOTH tiers — a scan that did not
-run is not an acceptable state either way — while `scanned`-with-findings stops
-an organizational adoption and warns loudly on a casual personal one. Remedies:
+So **`tool-unavailable`** blocks at BOTH tiers — a scanner that was never there is
+not an acceptable state either way — while `scanned`-with-findings stops an
+organizational adoption and warns loudly on a casual personal one. **`scan-failed`
+follows `scanned`-with-findings, not `tool-unavailable`** (ruled 2026-08-31, below:
+*"action as if it ran"*): it stops an organizational adoption with no escape and
+warns loudly on a casual personal one. *(This sentence said "`tool-unavailable`
+and `scan-failed` block at BOTH tiers" until 2026-08-31 — true when written, and
+superseded by the `scan-failed` ruling further down this same D2 section. It is
+corrected here rather than left for a reader who stops at the summary. A line
+distance is deliberately not given: it drifts on the next edit, which is the
+same reason the citation rule forbids bare line numbers.)* Remedies:
 install the tool, re-run the scan, or disposition the findings. *(An earlier
 version of this sentence said "all three block", untiered, four paragraphs below
 the heading that tiers them.)* **Requiring gitleaks asks for nothing new** — a
@@ -13424,15 +13432,66 @@ BL-072's shape, which `## BL-233:` reused for `SOLO_MCP_ACCUM_ATTESTED`. An
 escape that leaves no trace is the advisory posture both of those entries exist
 to replace.
 
-**One distinction left OPEN for Karl, because it is the interesting half and
-this entry will not decide it silently:** "corrected, or the risk is accepted"
-is a coherent answer to a *known* finding. It is not obviously coherent for
-`tool-unavailable`, where the operator would be accepting the risk of
-credentials **nobody looked for**. The two readings are (a) `tool-unavailable`
-is a HARD REFUSAL with no escape at all — you cannot accept what was never
-measured — or (b) it takes the same acknowledged escape as everything else.
-This entry's author reads Karl's *"should never be an option"* as (a), and says
-so rather than assuming it.
+**RULED 2026-08-31 — KARL: THE ESCAPE IS TIER-SCOPED, LIKE EVERYTHING ELSE IN
+D2. "Yes on personal, no on organizational."** `tool-unavailable` still STOPS at
+both tiers — that half was never in question. What the ruling settles is whether
+the stop can be acknowledged past: on `deployment = personal` it can, through
+the same recorded *"the risk is being accepted"* that lifts an organizational
+stop on a known finding; on `deployment = organizational` it cannot, and there
+is no flag, no attestation and no escape.
+
+**THIS ENTRY GOT THE SHAPE OF THE QUESTION WRONG, AND THE CORRECTION IS KEPT
+VISIBLE.** It framed the fork as a global binary — *"(a) a HARD REFUSAL with no
+escape at all … or (b) it takes the same acknowledged escape as everything
+else"* — and recorded the author's reading of Karl's *"should never be an
+option"* as (a). **Neither arm was the answer**, because the entry had also
+written, four paragraphs above the fork, that the tier governs only
+`scanned`-with-findings and that the not-scanned statuses *"block at BOTH tiers
+… either way"*. That sentence is true of **`tool-unavailable`'s** stop only — the
+same over-generalisation reached `scan-failed`, which the 2026-08-31 ruling
+removes from the not-scanned family altogether — and it was wrongly carried into
+the ESCAPE: a two-valued question was posed where D2's own structure — one
+rule, two tiers — should have made a tiered answer the obvious third reading.
+**Karl's answer is that third reading, and he is right that his 2026-08-25
+ruling already implied it**: *"Organizational projects are always a stop"* is a
+statement about how organizational projects END, not about which status
+triggered it.
+
+**Operationally, at `tool-unavailable`:** organizational is a hard refusal;
+personal stops, prints what could not be measured, and proceeds only on a
+recorded acceptance carrying a named accepting person, a reason and a date —
+BL-072's shape, refused if it cannot be recorded, exactly as for a known
+finding.
+
+**`scan-failed` RULED 2026-08-31 — AND NOT AS THE AUTHOR RECOMMENDED.** Karl:
+*"So action as if it ran. Personal project, it can continue with large warning.
+Organizational, it cannot continue as it's required."* So `scan-failed` behaves
+like `scanned`-with-findings, NOT like `tool-unavailable`: **personal warns
+loudly and carries on with no recorded acceptance; organizational stops with no
+escape at all**, because a successful scan is a requirement there and the only
+remedy is to make it succeed.
+
+The author had recommended the opposite extension — giving `scan-failed`
+`tool-unavailable`'s stop-with-recorded-escape on personal — to remove the
+asymmetry where the MILDER problem (the tool ran and stumbled) was stricter than
+the graver one (the tool was never there). **The ruling removes that same
+asymmetry from the other end**, by loosening rather than tightening, and needs
+no new mechanism to do it. The principle it establishes is the reusable part and
+is worth stating because it predicts the next case: the ladder is keyed on
+**severity of what the FRAMEWORK failed to provide**, not on severity of what
+the operator ends up knowing. A `scan-failed` personal project and a
+`tool-unavailable` personal project end up equally ignorant; only the second is
+a failure of Act 2's own tool resolution, and only the second demands a
+signature.
+
+**Two mechanical consequences the implementer must not smooth over.** (1) A
+`scan-failed` warning has NO findings to print, so it must say that nothing is
+known about this history in those terms — rendering the findings template with
+an empty list reads like a clean result, which is the fail-open posture this
+whole decision refuses. (2) The two not-scanned statuses **agree on
+organizational and disagree on personal**, so they are not one code path; a
+fixture matrix that collapses them passes against an implementation that treats
+them as one.
 
 **D3 — PROJECT DOCUMENTS: write them, adapt or replace, archive the originals.**
 Karl's decision: an adopted project gets documents that **match the framework's
@@ -13441,6 +13500,22 @@ has, or written completely new where the reverse intake changes the architecture
 and feature set dramatically enough that merging would carry a false picture
 forward. **The old documents are archived in the project for historical
 purposes.**
+
+**REACH RULED 2026-08-31 — KARL: IT COVERS `FEATURES.md`, `BUGS.md` AND
+`RELEASE_NOTES.md` TOO, AND THE OPERATOR MUST BE TOLD.** In his words: *"All
+previous info is archived and the user informed so that they may retrieve or add
+to the new proper framework files."* The framework claims those three like any
+other framework-named document: originals archived, never deleted, and
+**adoption must NAME them to the operator with an explicit invitation to
+retrieve content from the archive and add it to the new files.** The informing
+is part of the requirement, not a courtesy — an archive nobody is told about is
+a deletion with extra steps.
+
+**This OVERTURNS `§7.5`, which settled those three the other way** (*"If
+present, treated as theirs: kept, and reconciled by the interview rather than
+overwritten"*). D3 was always the later ruling; what was genuinely undecided was
+whether it REACHED these three, and Karl's answer is that it does. **The asks
+list called this "the ONLY question in this item"; it is now closed** — item 2.
 
 This settles the objection the current stub raises — *"a CLAUDE.md you already
 have would be a collision, not a gap"* — by making it an archive-and-replace,
@@ -13484,6 +13559,91 @@ at three sites and has its own tests; `adopt_ask_scenario` and
 `adopt_ask_audience` go; `adopt_decide_placement` loses its "claimed" operand
 and derives from evidence alone. This is a deletion with a footprint, not a
 string edit.
+
+**THAT LINE OVER-REACHES ON `adopt_ask_audience`, AND THE CORRECTION IS KEPT
+VISIBLE RATHER THAN QUIETLY APPLIED** — the practice this entry set for itself
+in its own opening. Filed 2026-08-31, at Karl's direction, after he asked when
+he had ever said to stop asking the operator questions. **He had not.** The
+audience question entered this decision through the ENUMERATION above, not
+through the ruling, and the two are not the same kind of sentence. Three checks:
+
+- **What the two questions actually ask.** The chooser
+  (`# BF-ADOPT-CHOOSER-QUESTION`) asks *"Is the project built out and needs to
+  be able to be supported… or are you still in the process of building your
+  project?"* — a claim about maturity that evidence can contradict. The audience
+  question asks *"Who is this project for?"*, answered *"Just me, or me and a
+  few people I know"* or *"A company, a client, or people who are paying for
+  it"* — a fact the operator knows for certain and that NO amount of code
+  inspection can determine. Karl's reasoning is about *"trusting an end user to
+  know WHAT'S NEEDED"*; the selection-effect argument (the population asked is
+  the one least equipped to answer) is exactly what fails to apply here.
+- **D4's own text names the dropped set, and the audience question is not in
+  it** — the scenario chooser, plus the proposed *"was this built with Solo
+  Orchestrator or another SDLC framework?"*. *"Both are dropped"* is a count of
+  two, and it is not two of three.
+- **"Adoption assesses; it does not ask" is THIS ENTRY'S HEADLINE, not Karl's
+  words.** The entry marks his quote separately and says so — *"Karl's
+  reasoning, which is the load-bearing part and belongs verbatim"*. It cannot
+  be a general principle in any case, because **D7 — also Karl's — REQUIRES
+  asking**: *"It should be part of the interview to decide that and present the
+  reasoning to the user"*, over five axes. A blanket "does not ask" would
+  contradict the next decision in this very list.
+
+Do not trust this paragraph's reading of the record — check it:
+```
+grep -n 'adopt_ask_audience' solo-orchestrator-backlog.md
+```
+Read the hits rather than counting them. They are the blast-radius line above,
+this correction, and asks item 7; **none is inside a Karl quote**, which is the
+actual claim.
+A count is deliberately not printed here — this correction changes it, and a
+number that its own paragraph falsifies is the failure mode this entry exists
+to end.
+
+**THE CONSEQUENCE IS NOT COSMETIC — it is why this is filed rather than noted.**
+`adopt_ask_audience` is the ONLY writer of `ADOPT_DEPLOYMENT` in the shipped
+driver; the readers are `adopt_write_phase_state` and `adopt_write_manifest`
+(derive: `grep -rn 'ADOPT_DEPLOYMENT' scripts/` — five hits on `main` `9858a41`:
+one initialisation to `""` at the top of the variable block, two assignments both
+inside `adopt_ask_audience`, and one read in each of the two writers). So deleting
+it on the enumeration's authority:
+
+- leaves both state writers emitting an empty `deployment`, which
+  `assert_choosable` fail-closes on (`# BL-221-TIER-FAIL-CLOSED`) — **reopening
+  precisely what `# BL-221-ADOPT-TIER-KEYS` shipped to guarantee**, SIX days
+  after `## BL-221:` closed (PR #356 merged 2026-08-17, D4 decided 2026-08-23 —
+  derive it, do not quote it: `git log --merges --format='%h %cs %s' | grep 356`.
+  A first draft of this sentence said eight, from no measurement at all); and
+- removes the value **D2's tier-scoped secrets ruling reads**, since that
+  tiering keys on `deployment` (see D2's derivation).
+
+**RULED 2026-08-31 — KARL: KEEP THE AUDIENCE QUESTION AS A TIER QUESTION.** It
+survives D4. `ADOPT_CHOOSER_QUESTION`, `adopt_ask_scenario` and the `claimed`
+operand still go, exactly as D4 says. The question is **re-purposed, not merely
+spared**: it stops being an input to placement and becomes the sole producer of
+`deployment` — the value D2's secrets tiering reads, and the key
+`# BL-221-ADOPT-TIER-KEYS` requires an adopted manifest to carry. Recorded as
+**D9** in `docs/designs/2026-08-23-brownfield-adoption-v2.md` §0.1 rather than
+folded into D4, because D4 stands exactly as ruled and this is a separate ruling
+about a question D4 never reached.
+
+**It had never been ruled on; it was ENUMERATED — and the difference went
+unnoticed for eight days**, because an enumeration written beside a ruling reads
+like one. That is the transferable lesson, and it is why this correction is kept
+above the ruling rather than collapsed into it: **a blast-radius list is the
+author's inference about consequences, and every name in one is a claim that
+some decision reaches that far.** Check the names against the ruling's own
+words, not against the list's confidence.
+
+**The same line is wrong about the file, too** — a smaller error, recorded
+because it is the same error twice. It lists `adopt_ask_audience` beside
+`adopt_ask_scenario` as though they shared a home; they do not.
+`adopt_ask_scenario` and `adopt_ask_ladder` are in
+`scripts/lib/adopt/adopt-chooser.sh`, while `adopt_ask_audience` and
+`ADOPT_AUDIENCE_Q` are in `scripts/lib/adopt/adopt-state.sh`. Derive:
+```
+grep -rn '^adopt_ask_scenario()\|^adopt_ask_ladder()\|^adopt_ask_audience()\|^ADOPT_AUDIENCE_Q=' scripts/lib/adopt/
+```
 
 **D5 — FOUR ACTS, and the split is forced rather than chosen.** The evaluators
 are model-driven and the driver is shell, so adoption cannot be one process.
@@ -13613,13 +13773,20 @@ same standard as code rather than waved through as "docs-only".
    matrix entry, so `tool-unavailable` becomes a rare backstop rather than the
    primary case. **RARE IS NOT MOOT, and an earlier version of this item said
    moot and answered the question itself** — while the D2 section four hundred
-   lines above deliberately left it open. Whether `tool-unavailable` admits the
-   acknowledged escape or is a hard refusal with none is STILL OPEN; the D2
-   section holds the reasoning, and this list defers to it rather than deciding
-   in a summary.
+   lines above deliberately left it open. **RULED 2026-08-31 (Karl): the escape
+   is TIER-SCOPED — "Yes on personal, no on organizational."** The D2 section
+   carries the ruling and the correction: this entry posed a global binary where
+   D2's own one-rule-two-tiers structure made a tiered answer the obvious third
+   reading, and Karl is right that his 2026-08-25 ruling already implied it.
+   **`scan-failed` RULED the same day**, and not as the author recommended:
+   *"So action as if it ran. Personal project, it can continue with large
+   warning. Organizational, it cannot continue as it's required."* It behaves
+   like a scan that RAN, not like an absent scanner. **Every D2 question is now
+   closed.**
 2. ~~**Two sub-questions left open by D2 and D3**~~ — **the two D2 sub-questions
-   THIS ITEM tracked are both closed** (a third, `tool-unavailable`'s escape,
-   descends from D2, lives in item 1 and stays open).
+   THIS ITEM tracked are both closed** (a third and a fourth, `tool-unavailable`'s
+   and `scan-failed`'s escapes, descend from D2, live in item 1 and were both
+   ruled on 2026-08-31).
    The tier scope was ruled by Karl on 2026-08-25 (organizational stops, casual
    personal warns loudly), and the axis reading that descended from it was
    **closed by DERIVATION on the same date, not by asking Karl a second time**:
@@ -13630,13 +13797,13 @@ same standard as code rather than waved through as "docs-only".
    and the second said the axis question was still open after it had been asked
    and answered. Both were caught by review. The lesson is the entry's own: a
    claim about a sibling section belongs in the sibling section.)*
-   **One sub-question remains, and it is D3's:**
-   D3's scope is `adopt_stub_project_docs`, whose text names *"the document
-   templates"*, and `§7.5` settles `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md` as
-   *"If present, treated as theirs: kept, and reconciled by the interview rather
-   than overwritten"* — calling that *"a direct inversion of `create_project()`'s
-   CURRENT [emphasis added] unconditional `cp`"*. Whether D3 reaches those three is undecided,
-   and is the ONLY question in this item.
+   ~~**One sub-question remains, and it is D3's**~~ — **RULED 2026-08-31
+   (Karl): D3 DOES reach `FEATURES.md`/`BUGS.md`/`RELEASE_NOTES.md`; the
+   originals are archived and the operator is TOLD, so they can retrieve or
+   merge.** This OVERTURNS `§7.5`'s *"If present, treated as theirs: kept, and
+   reconciled by the interview rather than overwritten"* for those three. The D3
+   section carries the ruling and Karl's words. **Every question in this item is
+   now closed.**
 3. **A decision on whether to amend the design document or supersede it.** D4
    overturns a settled decision and D1/D3/D5/D6 redraw WP boundaries; no
    amendment before v1.2.2 had to say that. This filing does not attempt the
@@ -13660,6 +13827,23 @@ same standard as code rather than waved through as "docs-only".
    which does not assign it. `docs/adoption.md` also still says the driver's
    text "will say so once it is next touched", which reads as an instruction to
    write "WP7" plainly.
+7. ~~**A decision on whether `adopt_ask_audience` survives D4**~~ — **RULED
+   (Karl, 2026-08-31): it survives, re-purposed as a TIER question.** Recorded
+   as **D9** in `docs/designs/2026-08-23-brownfield-adoption-v2.md` §0.1 and
+   designed in its §6.5; the D4 correction above carries the reasoning and the
+   lesson. It had **never been asked** before this item existed — it reached D4
+   through the blast-radius ENUMERATION, not the ruling. What the ruling buys:
+   the only writer of `ADOPT_DEPLOYMENT` stays, so `# BL-221-ADOPT-TIER-KEYS`
+   is not reopened and D2's tiering has a value to key on.
+   **NO FALLBACK WAS ADOPTED, AND THE AUTHOR'S RECOMMENDATION OF ONE WAS
+   WITHDRAWN AS UNNECESSARY.** That recommendation ("fail closed to
+   `organizational` when the question cannot be asked") assumed a
+   non-interactive adoption path. **There is none**: the driver's flags are
+   `--root`, `--scan-report`, `--re-add`, `--version`, `-h/--help`, and an
+   unanswered mandatory question already REFUSES the whole run
+   (`ADOPT_MANDATORY_REFUSAL`, `scripts/lib/adopt/adopt-core.sh`) — which is
+   **stricter** than any default would have been. A fallback would have
+   weakened shipped behaviour to solve a case that cannot occur.
 
 **`## F-010:` is superseded by this entry** and now points here.
 
