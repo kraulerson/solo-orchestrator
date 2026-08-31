@@ -27,6 +27,7 @@ unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_COMMON_DIR
 # wraps it in 2>/dev/null scores the fatal as NOT IGNORED — fail-open. T5
 # pins that the product code refuses instead.
 unset GIT_LITERAL_PATHSPECS GIT_NOGLOB_PATHSPECS GIT_GLOB_PATHSPECS GIT_ICASE_PATHSPECS
+unset GITHUB_BASE_REF        # house rule: fixture git ops must not see the runner's base ref
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
@@ -37,7 +38,15 @@ chk()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (want '$3', got '$2')"; 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/bl225.XXXXXX")" || exit 1
 # BL-244: mktemp must not silently land in the launch directory.
 case "$WORK" in "$REPO_ROOT"*) echo "FATAL: fixture inside repo"; exit 1 ;; esac
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"' EXIT INT TERM
+# THE HEADER ABOVE CLAIMED THIS AND THE FIRST DRAFT NEVER DID IT. Review
+# reproduced the gap: with a global excludes file carrying `.claude/`, the suite
+# went 16 passed / 1 failed. GIT_CONFIG_GLOBAL does not cover the excludes file
+# — it is found by a PATH default — so this is the knob, exactly as the header
+# says. A header that describes a neutralization the file does not perform is
+# worse than no header.
+export XDG_CONFIG_HOME="$WORK/xdg"; mkdir -p "$XDG_CONFIG_HOME"
+export HOME="$WORK/home"; mkdir -p "$HOME"
 
 _adoptee() {                     # _adoptee DIR [ignore-line...]
   local d="$1"; shift
@@ -59,28 +68,58 @@ mkdir -p "$P/.claude"; printf 'a\n' > "$P/a.txt"; printf 'b\n' > "$P/b.txt"; pri
 chk "T1: git add on a mixed pathspec exits non-zero" "$([ "$rc" -ne 0 ] && echo yes || echo no)" "yes"
 chk "T1: and it staged the clean paths anyway (the half-staged tree)" "$(_staged "$P")" "2"
 
-echo "== T2 — adopt_paths_ignored names an ignored path and fails closed =="
+echo "== T0 — the TRACKED-path case: check-ignore says clean, git add refuses =="
+# This is review finding 1, and it is why the oracle changed. A path that is
+# TRACKED is invisible to `git check-ignore` (git-check-ignore(1): "tracked
+# files are not shown at all"), but `git add` still refuses on its ignored
+# leading directory — and stages the rest. The first fix keyed on check-ignore
+# and therefore let BL-225 through unchanged on exactly this shape.
+P0="$WORK/t0"; _adoptee "$P0"
+mkdir -p "$P0/.claude"; printf 'x\n' > "$P0/.claude/manifest.json"; printf 'y\n' > "$P0/PROJECT_INTAKE.md"
+( cd "$P0" && git add -A && git commit -q -m tracked && printf '.claude/\n' > .gitignore && git add .gitignore && git commit -q -m ign ) >/dev/null 2>&1
+printf 'z\n' >> "$P0/.claude/manifest.json"; printf 'w\n' >> "$P0/PROJECT_INTAKE.md"
+( cd "$P0" && printf '%s\n' ".claude/manifest.json" "PROJECT_INTAKE.md" | git check-ignore --stdin ) >/dev/null 2>&1
+chk "T0: check-ignore reports the tracked path as NOT ignored (rc 1)" "$?" "1"
+( cd "$P0" && git add --dry-run -- .claude/manifest.json PROJECT_INTAKE.md ) >/dev/null 2>&1
+chk "T0: git add --dry-run DOES refuse it (the oracle that matches ground truth)" "$?" "1"
+
+echo "== T2 — adopt_name_ignored_paths NAMES paths (it does not decide) =="
 . "$REPO_ROOT/scripts/lib/adopt/adopt-core.sh" 2>/dev/null
-if ! command -v adopt_paths_ignored >/dev/null 2>&1; then
-  bad "T2: adopt_paths_ignored is not defined (RED before the fix)"
+if ! command -v adopt_name_ignored_paths >/dev/null 2>&1; then
+  bad "T2: adopt_name_ignored_paths is not defined (RED before the fix)"
   bad "T2: (dependent assertions skipped)"; bad "T3: (skipped)"; bad "T4: (skipped)"; bad "T5: (skipped)"
 else
   P2="$WORK/t2"; _adoptee "$P2" '.claude/'
-  out="$(adopt_paths_ignored "$P2" ".claude/manifest.json" "README.md" 2>&1)"; rc=$?
+  out="$(adopt_name_ignored_paths "$P2" "README.md" ".claude/manifest.json" 2>&1)"; rc=$?
   chk "T2: reports rc=0 when at least one path is ignored" "$rc" "0"
   chk "T2: and names the ignored path" "$(printf '%s' "$out" | grep -c 'manifest.json')" "1"
   chk "T2: and does NOT name the clean one" "$(printf '%s' "$out" | grep -c 'README.md')" "0"
 
   P3="$WORK/t3"; _adoptee "$P3"
-  adopt_paths_ignored "$P3" ".claude/manifest.json" "README.md" >/dev/null 2>&1
+  adopt_name_ignored_paths "$P3" "README.md" ".claude/manifest.json" >/dev/null 2>&1
   chk "T3: rc=1 when nothing is ignored" "$?" "1"
 
   echo "== T5 — a check-ignore that CANNOT RUN is not 'nothing is ignored' =="
   P5="$WORK/t5"; _adoptee "$P5" 'sub/*.txt'
   # GIT_NOGLOB_PATHSPECS makes check-ignore FATAL. A 2>/dev/null probe scores
   # that as clean; this must fail CLOSED instead (rc 0 = treat as ignored).
-  GIT_NOGLOB_PATHSPECS=1 adopt_paths_ignored "$P5" "sub/a.txt" >/dev/null 2>&1
-  chk "T5: fails CLOSED when check-ignore cannot run" "$?" "0"
+  # THE DECIDER IS IMMUNE TO THE HAZARD THAT BROKE THE OLD ONE, and that is a
+  # stronger property than the fail-closed guard it replaced. `git check-ignore`
+  # DIES (rc 128) under every pathspec-magic variable — the hazard
+  # tests/test-brownfield-wp6-collision-archive.sh measured (R-WP6-18) — so any
+  # probe wrapping it in 2>/dev/null scores the fatal as "clean". `git add
+  # --dry-run` answers correctly under all three, so the fail-open class is
+  # ELIMINATED here rather than defended against. Asserted in both directions:
+  # the hazard must be real, or this case proves nothing.
+  t5_ci_dead=0; t5_dry_ok=0
+  for _v in GIT_NOGLOB_PATHSPECS GIT_LITERAL_PATHSPECS GIT_ICASE_PATHSPECS; do
+    ( cd "$P5" && env "$_v=1" git check-ignore -q -- "README.md" ) >/dev/null 2>&1
+    [ "$?" -eq 128 ] && t5_ci_dead=$((t5_ci_dead + 1))
+    ( cd "$P5" && env "$_v=1" git add --dry-run -- "README.md" ) >/dev/null 2>&1
+    [ "$?" -eq 0 ] && t5_dry_ok=$((t5_dry_ok + 1))
+  done
+  chk "T5: the hazard is REAL — check-ignore dies (128) under all 3 magic vars" "$t5_ci_dead" "3"
+  chk "T5: and the chosen oracle is IMMUNE — --dry-run answers under all 3"     "$t5_dry_ok"  "3"
 fi
 
 echo "== T4 — the staging guard: refuse whole, never half =="
@@ -134,41 +173,71 @@ chk "T6: and stages NOTHING (no half-staged tree)" "${t6staged:-x}" "0"
 chk "T6: refused via the PREFLIGHT, naming the ignored path" "$(printf '%s' "$t6err" | grep -c 'manifest.json')" "1"
 chk "T6: not via the empty-ledger arm"                       "$(printf '%s' "$t6err" | grep -c 'no file was recorded as written')" "0"
 
-echo "== M2 — the mutation that matters: neuter the preflight =="
+echo "== M — mutation proofs =="
 MUTLIB="$WORK/mutlib"; mkdir -p "$MUTLIB"
 cp "$REPO_ROOT/scripts/lib/adopt/adopt-core.sh" "$MUTLIB/adopt-core.sh"
-sed 's/^  if _ignored=$(adopt_paths_ignored "$root" "${FILES_TO_STAGE\[@\]}"); then$/  if false; then/' \
+
+# The TRACKED-path fixture: this is the shape finding 1 was found on, and the
+# shape a real adoptee takes once a `.claude/` rule is added after adoption.
+_tracked_fixture() {
+  local p="$1"
+  _adoptee "$p" || return 1
+  mkdir -p "$p/.claude"
+  printf 'x\n' > "$p/.claude/manifest.json"; printf 'y\n' > "$p/PROJECT_INTAKE.md"
+  ( cd "$p" && git add -A && git commit -q -m tracked \
+      && printf '.claude/\n' > .gitignore && git add .gitignore && git commit -q -m ign ) >/dev/null 2>&1 || return 1
+  printf 'z\n' >> "$p/.claude/manifest.json"; printf 'w\n' >> "$p/PROJECT_INTAKE.md"
+  printf '.claude/manifest.json\nPROJECT_INTAKE.md\n' > "$p/.ledger"
+}
+
+# M1 — THE ORACLE. Put the refuted oracle back and the tracked fixture
+# half-stages again. This is the mutation that pins review finding 1; the
+# suite's first version had no assertion that could see it.
+# Restore the refuted oracle WITH ITS ORIGINAL POLARITY: the first fix asked
+# "is anything ignored?" and refused on yes. On a TRACKED path check-ignore
+# answers no, so the mutant falls through to `git add` and half-stages — which
+# is the defect, reproduced on demand. (A first draft of this mutation kept the
+# `!` and so inverted the predicate instead of restoring it: the mutant refused
+# everything and "staged=0" looked like a pass. Restore the shape, not the tool.)
+sed 's|^  if ! _dry=$( cd "$root" && git add --dry-run -- "${FILES_TO_STAGE\[@\]}" 2>&1 >/dev/null ); then$|  if _ignored=$(adopt_name_ignored_paths "$root" "${FILES_TO_STAGE[@]}"); then|' \
   "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" > "$MUTLIB/adopt-state.sh"
-nchanged=$(diff "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" "$MUTLIB/adopt-state.sh" | grep -c '^<')
-if [ "$nchanged" -ne 1 ]; then
-  bad "M2: mutation did not apply cleanly (changed $nchanged line(s))"
-elif [ "$(_parses_ok "$MUTLIB/adopt-state.sh")" != "1" ]; then
-  bad "M2: mutant does not parse"
+n1=$(diff "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" "$MUTLIB/adopt-state.sh" | grep -c '^<')
+if [ "$n1" -ne 1 ]; then bad "M1: oracle mutation did not apply (changed $n1 line(s))"
+elif [ "$(_parses_ok "$MUTLIB/adopt-state.sh")" != "1" ]; then bad "M1: mutant does not parse"
 else
-  P7="$WORK/m2"; _stage_fixture "$P7"
-  IFS='|' read -r m2rc m2staged m2err <<<"$(_run_stage "$P7" "$MUTLIB")"
+  PM1="$WORK/m1"; _tracked_fixture "$PM1"
+  IFS='|' read -r m1rc m1staged m1err <<<"$(_run_stage "$PM1" "$MUTLIB")"
+  chk "M1: with check-ignore as the oracle the TRACKED fixture half-stages (RED)" \
+    "$([ "${m1staged:-0}" -gt 0 ] && echo half-staged || echo "staged=${m1staged}")" "half-staged"
+fi
+
+# M2 — THE GUARD ITSELF. Remove the preflight entirely; the same fixture
+# half-stages. Distinct from M1: M1 proves the ORACLE matters, M2 proves the
+# GUARD does.
+sed 's|^  if ! _dry=$( cd "$root" && git add --dry-run -- "${FILES_TO_STAGE\[@\]}" 2>&1 >/dev/null ); then$|  if false; then|' \
+  "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" > "$MUTLIB/adopt-state2.sh"
+n2=$(diff "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" "$MUTLIB/adopt-state2.sh" | grep -c '^<')
+if [ "$n2" -ne 1 ]; then bad "M2: guard mutation did not apply (changed $n2 line(s))"
+elif [ "$(_parses_ok "$MUTLIB/adopt-state2.sh")" != "1" ]; then bad "M2: mutant does not parse"
+else
+  cp "$MUTLIB/adopt-state2.sh" "$MUTLIB/adopt-state.sh"
+  PM2="$WORK/m2"; _stage_fixture "$PM2"
+  IFS='|' read -r m2rc m2staged m2err <<<"$(_run_stage "$PM2" "$MUTLIB")"
   chk "M2: without the preflight the SAME fixture HALF-STAGES (RED)" \
     "$([ "${m2staged:-0}" -gt 0 ] && echo half-staged || echo "staged=${m2staged} err=${m2err}")" "half-staged"
   chk "M2: and the mutant reached git add, not the empty-ledger arm" \
     "$(printf '%s' "$m2err" | grep -c 'no file was recorded as written')" "0"
 fi
 
-echo "== M — mutation proofs =="
-MUT="$WORK/mut"; mkdir -p "$MUT"
-cp "$REPO_ROOT/scripts/lib/adopt/adopt-core.sh" "$MUT/core.orig"
-if command -v adopt_paths_ignored >/dev/null 2>&1; then
-  # M1: neuter the fail-closed arm -> a fatal check-ignore scores as clean.
-  sed 's/return 0  # BL-225-IGNORE-FAILCLOSED/return 1/' "$MUT/core.orig" > "$MUT/core.mut"
-  n=$(diff "$MUT/core.orig" "$MUT/core.mut" | grep -c '^<')
-  if [ "$n" -ne 1 ]; then bad "M1: mutation did not apply (changed $n line(s))"; else
-    ( set +e; unset -f adopt_paths_ignored; . "$MUT/core.mut" 2>/dev/null
-      P="$WORK/m1"; mkdir -p "$P" && ( cd "$P" && git init -q -b main . && git config user.email t@e && git config user.name T \
-        && printf 'x\n' > R.md && printf 'sub/*.txt\n' > .gitignore && git add -A && git commit -q -m b ) >/dev/null 2>&1
-      GIT_NOGLOB_PATHSPECS=1 adopt_paths_ignored "$P" "sub/a.txt" >/dev/null 2>&1
-      echo "$?" > "$WORK/m1.rc" )
-    chk "M1: with the fail-closed arm neutered, a FATAL probe reports 'clean' (RED)" "$(cat "$WORK/m1.rc" 2>/dev/null)" "1"
-  fi
-fi
+# T7 — the real code on the tracked fixture: refuses, stages nothing.
+PT7="$WORK/t7"; _tracked_fixture "$PT7"
+IFS='|' read -r t7rc t7staged t7err <<<"$(_run_stage "$PT7" "$REPO_ROOT/scripts/lib/adopt")"
+chk "T7: the TRACKED case now refuses (rc != 0)"     "$([ "${t7rc:-0}" -ne 0 ] && echo yes || echo no)" "yes"
+chk "T7: and stages NOTHING — BL-225 no longer reproduces" "${t7staged:-x}" "0"
+chk "T7: labelled BLOCKED, not REFUSED (files were written)" "$(printf '%s' "$t7err" | grep -c 'BLOCKED')" "1"
+chk "T7: and it does not promise plain \`git status\` lists them" \
+  "$(printf '%s' "$t7err" | grep -c 'git status --ignored --untracked-files=all')" "1"
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

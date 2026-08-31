@@ -308,28 +308,40 @@ STAGE_SET
     adopt_refuse "there is nothing to commit — no file was recorded as written"
     return 1
   fi
-  # BL-225-STAGE-PREFLIGHT: ask BEFORE adding, and refuse WHOLE.
+  # BL-225-STAGE-PREFLIGHT: ask BEFORE adding, and stop WHOLE.
   #
   # `git add` on a mixed pathspec STAGES THE CLEAN PATHS AND EXITS 1 — measured,
-  # not assumed (BL-225: 78 written, 64 staged, rc 1; reproduced as T1 of
-  # tests/test-bl225-staging-preflight.sh). The old code discovered that from
-  # `git add`'s exit status, by which point the index was already half-written
-  # and the refusal below could only ask a question about it. This asks first,
-  # so the index is never touched on the failing path.
+  # not assumed (T1 of tests/test-bl225-staging-preflight.sh). The old code
+  # learned that from `git add`'s exit status, by which point the index was
+  # already half-written.
   #
-  # The check runs over FILES_TO_STAGE, which is COMPLETE BY CONSTRUCTION: it
-  # is exactly the set the `git add` would receive, so nothing can reach the
-  # index unexamined regardless of which writer recorded it.
-  local _ignored
-  if _ignored=$(adopt_paths_ignored "$root" "${FILES_TO_STAGE[@]}"); then
-    adopt_refuse "your project's own ignore rules exclude file(s) this adoption must commit"
+  # THE ORACLE IS `git add --dry-run`, AND THAT CHOICE IS THE FIX. The first
+  # version asked `git check-ignore`, which is INDEX-AWARE and reports nothing
+  # for a TRACKED path — so a tracked `.claude/manifest.json` under a
+  # later-added `.claude/` rule passed the preflight and half-staged exactly as
+  # before. Measured against `git add` as ground truth across a directory rule,
+  # a file rule and a glob, `--dry-run` is the only oracle that agrees in all
+  # three; `check-ignore --no-index` swaps the false-clean for a FALSE REFUSAL
+  # on projects that work today. `--dry-run` writes nothing: `.git/` hashes
+  # byte-identical before and after, so the promise below holds by construction.
+  #
+  # The set checked is FILES_TO_STAGE, complete by construction: it is exactly
+  # what the `git add` would receive.
+  local _dry _ignored
+  if ! _dry=$( cd "$root" && git add --dry-run -- "${FILES_TO_STAGE[@]}" 2>&1 >/dev/null ); then
+    # --dry-run names the PATTERN that matched; the helper names the PATHS.
+    # Keep git's own diagnostic as the fallback, so a cause this code did not
+    # anticipate (a pathspec-magic fatal, say) is REPORTED rather than
+    # misdiagnosed as an ignore rule.
+    _ignored=$(adopt_name_ignored_paths "$root" "${FILES_TO_STAGE[@]}") || _ignored=""
+    [ -n "$_ignored" ] || _ignored="$_dry"
+    adopt_refuse "git will not stage every file this adoption must commit"
     {
       printf '          NOTHING WAS STAGED — your index is exactly as you left it.\n'
-      printf '          The path(s) in question:\n'
+      printf '          git says:\n'
       printf '%s\n' "$_ignored" | sed 's/^/            /'
       printf '          These are framework files the adoption needs tracked, so they cannot be\n'
       printf '          quietly skipped: an install missing them is broken rather than reduced.\n'
-      printf '          Un-ignore them in .gitignore and run adoption again.\n'
     } >&2
     return 1
   fi
@@ -344,6 +356,7 @@ STAGE_SET
     adopt_refuse "the adoption commit did not succeed — your own hooks or git identity may have refused it"
     return 1
   }
+  ADOPT_COMMITTED=1   # BL-225-REFUSE-HONEST: derived, so a later refusal tells the truth
   return 0
 }
 

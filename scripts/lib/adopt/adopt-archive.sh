@@ -717,7 +717,15 @@ STAGEABLE
 _adopt_record_if_stageable() {
   local root="$1" rel="$2"
   [ -e "$root/$rel" ] || return 0
-  if ( cd "$root" && git check-ignore -q -- "$rel" ) 2>/dev/null; then
+  # BL-225-ORACLE-SYNC: `git add --dry-run`, not `git check-ignore`. The same
+  # oracle error BL-225 fixed one directory over lived here too, and it is a
+  # WRONG ANSWER rather than the rc-128 fail-open below it: check-ignore is
+  # index-aware and reports nothing for a TRACKED path, so a tracked
+  # `.claude/bypass-audit.json` under a later-added `.claude/` rule was recorded
+  # for staging — withholding nothing, disclosing nothing — and `git add` then
+  # refused it. Two contradictory oracles ten files apart is how the next reader
+  # copies the refuted one.
+  if ! ( cd "$root" && git add --dry-run -- "$rel" ) >/dev/null 2>&1; then
     adopt_note "Your .gitignore excludes $rel, so it stays out of the commit — it is on disk."
     return 0
   fi

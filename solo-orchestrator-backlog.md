@@ -9496,6 +9496,39 @@ git names the culprit) but the adoptee is left half-written with no way back
 except by hand.
 **Status:** Open
 
+**PARTIALLY CLOSED 2026-08-31 — the STAGING half. The BEFORE-ANY-WRITE half is
+still open, and this entry stays Open for it.** What shipped: a preflight in
+`adopt_stage_and_commit` (`# BL-225-STAGE-PREFLIGHT`) that asks
+`git add --dry-run` before it stages and stops WHOLE, so the index is never
+half-written; an honest refusal (`# BL-225-REFUSE-HONEST`) that derives the
+written count and labels the two cases apart; and the same oracle correction in
+`_adopt_record_if_stageable` (`# BL-225-ORACLE-SYNC`).
+
+**THE NARROWING IS DELIBERATE AND IS RECORDED RATHER THAN LEFT TO A DIFF.** This
+entry's title asks for a preflight, and the natural reading is *before anything
+is written*. What shipped runs before **staging** — by which point ~78 files are
+already on disk. The index is protected; the disk is not. Closing that half needs
+a planned-path set derived before the first write, which is a different piece of
+work and is not attempted here.
+
+**THE FIRST FIX FOR THIS ENTRY WAS WRONG, AND THE REASON IS WORTH KEEPING.** It
+asked `git check-ignore`, which is INDEX-AWARE — git-check-ignore(1): *"tracked
+files are not shown at all since they are not subject to exclude rules"* — while
+`git add` is not. So on a TRACKED `.claude/manifest.json` under a later-added
+`.claude/` rule, check-ignore reported *nothing ignored* and the preflight said
+proceed, and `git add` then refused **and staged anyway**: this defect,
+unchanged, through the guard written to stop it. Adversarial review caught it.
+Measured against `git add` as ground truth across a directory rule, a file rule
+and a glob, `git add --dry-run` is the only oracle that agrees in all three;
+`check-ignore --no-index` swaps the false-clean for a FALSE REFUSAL on projects
+that work today. A second benefit fell out: `--dry-run` is immune to the
+pathspec-magic variables that make `check-ignore` exit 128, so the fail-open
+class the first fix's fail-closed arm was written to defend against is
+**eliminated** rather than guarded — and that arm, with its marker, is gone. (It
+is described here rather than cited: the marker no longer exists, and citing a
+withdrawn marker is what `scripts/lint-bl-markers.sh` exists to catch. It caught
+this paragraph.)
+
 **What happens.** `scripts/adopt-project.sh` stages every recorded path in ONE
 `git add`, and `git add` on a gitignored path FAILS. WP6 fixed this for the
 paths it owns — the collision archive's entries, both MANIFESTs and the audit
