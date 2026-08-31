@@ -77,19 +77,34 @@ adopt_refuse() {
   local _n
   _n=$(adopt_written_paths 2>/dev/null | grep -c .) || _n=0
   case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
-  if [ "$_n" -gt 0 ]; then
+  # BL-225-TOUCHED-DISK: THE LEDGER IS NOT THE DISK, and the first fix read one
+  # while claiming the other. `adopt_archive_write` copies in one loop and
+  # records ~110 lines later, so through the whole copy phase the ledger is
+  # empty while an archive directory and copied files exist — and the refusal
+  # said "nothing was written". Same class as the claim it replaced. The flag is
+  # set by every writer the moment it has touched the tree, so this reads a fact
+  # rather than a proxy for one.
+  if [ "$_n" -gt 0 ] || [ "${ADOPT_TOUCHED_DISK:-0}" -eq 1 ]; then
     printf '\n[BLOCKED] %s\n' "$1" >&2
     if [ "${ADOPT_COMMITTED:-0}" -eq 1 ]; then
       printf '          The adoption commit HAD already landed; a later step did not complete.\n' >&2
       printf '          %s file(s) were written and committed.\n' "$_n" >&2
-    else
+    elif [ "$_n" -gt 0 ]; then
       printf '          Nothing was committed. %s file(s) were already written into this project.\n' "$_n" >&2
+      # No promise about the index: adopt_refuse does not know the adoptee's
+      # root and will not claim a state it cannot read. Callers that DO know
+      # say so. The hint is in THIS arm only — after a commit the files are
+      # tracked and clean, so it would name a command showing nothing.
+      printf '          Some may be invisible to plain `git status` if your own ignore rules\n' >&2
+      printf '          cover them. This shows those too:\n' >&2
+      printf '            git status --ignored --untracked-files=all\n' >&2
+    else
+      # Touched the tree before anything reached the ledger — the archive's copy
+      # phase is the reachable case. Say exactly that, and no count.
+      printf '          Nothing was committed, and no file is recorded as written — but adoption\n' >&2
+      printf '          had already begun changing this project. Check `.claude/adoption-archive/`\n' >&2
+      printf '          and `git status --ignored --untracked-files=all` before re-running.\n' >&2
     fi
-    # No promise about the index: adopt_refuse does not know the adoptee's root
-    # and will not claim a state it cannot read. Callers that DO know say so.
-    printf '          Some may be invisible to plain `git status` if your own ignore rules\n' >&2
-    printf '          cover them. This shows those too:\n' >&2
-    printf '            git status --ignored --untracked-files=all\n' >&2
   else
     printf '\n[REFUSED] %s\n' "$1" >&2
     printf '          Adoption did not begin. Nothing was committed and nothing was written.\n' >&2
@@ -263,6 +278,10 @@ ADOPT_WRITTEN_LEDGER=""
 # succeeds, so adopt_refuse can state the truth about a refusal that arrives
 # AFTER the commit (adopt_install_hooks runs there). Derived, never assumed.
 ADOPT_COMMITTED=0
+# BL-225-TOUCHED-DISK: 1 as soon as ANY writer has changed the adoptee's tree,
+# including before the write is recorded. adopt_refuse reads it so it can never
+# again say "nothing was written" over files that exist.
+ADOPT_TOUCHED_DISK=0
 
 adopt_ledger_init() {
   ADOPT_WRITTEN_LEDGER="$1"
@@ -318,6 +337,7 @@ adopt_write_file() {
   local root="$1" rel="$2" dir
   dir="$(dirname "$root/$rel")"
   mkdir -p "$dir" 2>/dev/null || { adopt_refuse "could not create $dir"; return 1; }
+  ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
   cat > "$root/$rel" || { adopt_refuse "could not write $rel"; return 1; }
   adopt_record_write "$rel"
   return 0

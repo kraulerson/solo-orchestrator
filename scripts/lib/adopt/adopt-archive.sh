@@ -526,6 +526,9 @@ adopt_archive_write() {
   arc_rel="$(adopt_archive_dir_new "$root")"
   arc_abs="$root/$arc_rel"
   mkdir -p "$arc_abs" 2>/dev/null || { adopt_refuse "could not create the collision archive at $arc_rel"; return 1; }
+  ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK: the copy loop below runs ~110 lines
+                         # before adopt_record_write, so the ledger is empty for
+                         # the whole copy phase while these files exist.
 
   while IFS="$(printf '\t')" read -r rel class arel; do
     [ -n "$rel" ] || continue
@@ -726,7 +729,17 @@ _adopt_record_if_stageable() {
   # refused it. Two contradictory oracles ten files apart is how the next reader
   # copies the refuted one.
   if ! ( cd "$root" && git add --dry-run -- "$rel" ) >/dev/null 2>&1; then
-    adopt_note "Your .gitignore excludes $rel, so it stays out of the commit — it is on disk."
+    # BL-225-ORACLE-SYNC (second half): `git add --dry-run` fails for ANY
+    # reason, not only an ignore rule — an unreadable file fails it too. Ask the
+    # namer whether an ignore rule is actually the cause before naming one; the
+    # first draft of this arm attributed every failure to `.gitignore`, which is
+    # a broken install disclosed with the wrong reason.
+    if adopt_name_ignored_paths "$root" "$rel" >/dev/null 2>&1; then
+      adopt_note "Your .gitignore excludes $rel, so it stays out of the commit — it is on disk."
+    else
+      adopt_note "git will not stage $rel, so it stays out of the commit — it is on disk. git says:"
+      ( cd "$root" && git add --dry-run -- "$rel" ) 2>&1 >/dev/null | grep -v '^hint:' | sed 's/^/    /'
+    fi
     return 0
   fi
   adopt_record_write "$rel"

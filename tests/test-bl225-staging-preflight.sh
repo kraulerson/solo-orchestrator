@@ -173,6 +173,33 @@ chk "T6: and stages NOTHING (no half-staged tree)" "${t6staged:-x}" "0"
 chk "T6: refused via the PREFLIGHT, naming the ignored path" "$(printf '%s' "$t6err" | grep -c 'manifest.json')" "1"
 chk "T6: not via the empty-ledger arm"                       "$(printf '%s' "$t6err" | grep -c 'no file was recorded as written')" "0"
 
+echo "== T8 — the ignored path is NOT first, at the DECIDER =="
+# Review finding 4 was fixed at the NAMER (T2/T3's argument order) — and the
+# namer is no longer the decider. Every other fixture here sorts `.claude/...`
+# to index 0, so a decider that examined only FILES_TO_STAGE[0] passed the whole
+# suite 24/24 while half-staging. This fixture puts the offending path at index
+# 2: `.gitignore` excludes PROJECT_INTAKE.md, and the ledger sorts to
+# `.claude/manifest.json`, `PROJECT_INTAKE.md`, `keep.txt`.
+P8="$WORK/t8"; _adoptee "$P8" 'PROJECT_INTAKE.md'
+mkdir -p "$P8/.claude"
+printf '{}\n'  > "$P8/.claude/manifest.json"
+printf 'i\n'   > "$P8/PROJECT_INTAKE.md"
+printf 'k\n'   > "$P8/keep.txt"
+printf '.claude/manifest.json\nPROJECT_INTAKE.md\nkeep.txt\n' > "$P8/.ledger"
+# DERIVE the index, never hardcode it: `sort` is LOCALE-DEPENDENT. On this host
+# the collation is case-insensitive and PROJECT_INTAKE.md lands at 3; under a
+# C-locale runner it lands at 2. Pinning either number makes the fixture pass on
+# one machine and fail on the other — the local-vs-CI divergence class CLAUDE.md
+# warns about. The PROPERTY this fixture needs is only "not first".
+t8_idx=$(cd "$P8" && sort -u .ledger | grep -n '^PROJECT_INTAKE.md$' | cut -d: -f1)
+chk "T8: the offending path is NOT at index 1 (derived: $t8_idx)" \
+  "$([ "${t8_idx:-1}" -gt 1 ] && echo not-first || echo first)" "not-first"
+IFS='|' read -r t8rc t8staged t8err <<<"$(_run_stage "$P8" "$REPO_ROOT/scripts/lib/adopt")"
+chk "T8: refuses"                                   "$([ "${t8rc:-0}" -ne 0 ] && echo yes || echo no)" "yes"
+chk "T8: and stages NOTHING — the decider sees the WHOLE set, not just [0]" "${t8staged:-x}" "0"
+chk "T8: git's force hint is never relayed"         "$(printf '%s' "$t8err" | grep -c 'really want to add them')" "0"
+chk "T8: and the remedy line is present"            "$(printf '%s' "$t8err" | grep -c 'Un-ignore them in .gitignore')" "1"
+
 echo "== M — mutation proofs =="
 MUTLIB="$WORK/mutlib"; mkdir -p "$MUTLIB"
 cp "$REPO_ROOT/scripts/lib/adopt/adopt-core.sh" "$MUTLIB/adopt-core.sh"
@@ -227,6 +254,24 @@ else
     "$([ "${m2staged:-0}" -gt 0 ] && echo half-staged || echo "staged=${m2staged} err=${m2err}")" "half-staged"
   chk "M2: and the mutant reached git add, not the empty-ledger arm" \
     "$(printf '%s' "$m2err" | grep -c 'no file was recorded as written')" "0"
+fi
+
+# M3 — THE DECIDER'S ARGUMENT SET. Feed the dry-run only the first path; the
+# M1/M2 sed anchors are left byte-identical so their guards do not fire instead.
+sed 's|git add --dry-run -- "${FILES_TO_STAGE\[@\]}" 2>&1 >/dev/null|git add --dry-run -- "${FILES_TO_STAGE[0]}" 2>\&1 >/dev/null|' \
+  "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" > "$MUTLIB/adopt-state3.sh"
+n3=$(diff "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" "$MUTLIB/adopt-state3.sh" | grep -c '^<')
+if [ "$n3" -ne 1 ]; then bad "M3: mutation did not apply (changed $n3 line(s))"
+elif [ "$(_parses_ok "$MUTLIB/adopt-state3.sh")" != "1" ]; then bad "M3: mutant does not parse"
+else
+  cp "$MUTLIB/adopt-state3.sh" "$MUTLIB/adopt-state.sh"
+  PM3="$WORK/m3"; _adoptee "$PM3" 'PROJECT_INTAKE.md'
+  mkdir -p "$PM3/.claude"; printf '{}\n' > "$PM3/.claude/manifest.json"
+  printf 'i\n' > "$PM3/PROJECT_INTAKE.md"; printf 'k\n' > "$PM3/keep.txt"
+  printf '.claude/manifest.json\nPROJECT_INTAKE.md\nkeep.txt\n' > "$PM3/.ledger"
+  IFS='|' read -r m3rc m3staged m3err <<<"$(_run_stage "$PM3" "$MUTLIB")"
+  chk "M3: a decider reading only FILES_TO_STAGE[0] half-stages (RED)" \
+    "$([ "${m3staged:-0}" -gt 0 ] && echo half-staged || echo "staged=${m3staged}")" "half-staged"
 fi
 
 # T7 — the real code on the tracked fixture: refuses, stages nothing.

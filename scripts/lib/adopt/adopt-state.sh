@@ -327,21 +327,34 @@ STAGE_SET
   #
   # The set checked is FILES_TO_STAGE, complete by construction: it is exactly
   # what the `git add` would receive.
-  local _dry _ignored
+  local _dry _ignored _named
   if ! _dry=$( cd "$root" && git add --dry-run -- "${FILES_TO_STAGE[@]}" 2>&1 >/dev/null ); then
     # --dry-run names the PATTERN that matched; the helper names the PATHS.
     # Keep git's own diagnostic as the fallback, so a cause this code did not
     # anticipate (a pathspec-magic fatal, say) is REPORTED rather than
     # misdiagnosed as an ignore rule.
-    _ignored=$(adopt_name_ignored_paths "$root" "${FILES_TO_STAGE[@]}") || _ignored=""
+    _named=$(adopt_name_ignored_paths "$root" "${FILES_TO_STAGE[@]}") || _named=""
+    _ignored="$_named"
     [ -n "$_ignored" ] || _ignored="$_dry"
     adopt_refuse "git will not stage every file this adoption must commit"
     {
       printf '          NOTHING WAS STAGED — your index is exactly as you left it.\n'
       printf '          git says:\n'
-      printf '%s\n' "$_ignored" | sed 's/^/            /'
+      # BL-225-NO-FORCE-HINT: strip git's `hint:` lines. git suggests `add -f`,
+      # and `docs/adoption.md` guarantees adoption NEVER commits a file the
+      # operator's .gitignore excludes — so relaying the hint would put two
+      # contradictory instructions three lines apart, and would make this
+      # message depend on the host's `advice.addIgnoredFile` setting.
+      printf '%s\n' "$_ignored" | grep -v '^hint:' | sed 's/^/            /'
       printf '          These are framework files the adoption needs tracked, so they cannot be\n'
       printf '          quietly skipped: an install missing them is broken rather than reduced.\n'
+      # The remedy, and ONLY when an ignore rule is the confirmed cause. The
+      # first fix deleted this line outright because it is wrong for an
+      # unmeasurable cause — which left the common case with no action at all,
+      # except git's `-f` hint, which is the wrong one.
+      if [ -n "$_named" ]; then
+        printf '          Un-ignore them in .gitignore and run adoption again.\n'
+      fi
     } >&2
     return 1
   fi
