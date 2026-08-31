@@ -9,14 +9,15 @@
 | **Supersedes — and overturns** | **This is the first document in this feature's history that overturns a settled decision, and it says so here rather than in a footnote.** v1's §0.1 lists the scenario chooser (v1-D2, Karl's verbatim question) among the decisions carried into that design; v1's every amendment was able to say *"no settled decision, decision table, or WP boundary changed."* **This document cannot say that and does not.** Karl's D4 (2026-08-23, recorded in `## BL-242:`) deletes the chooser outright — not demotes it — and D5/D6 redraw the work-package boundaries. §0.2 maps every v1 decision to its v2 disposition: carried, re-derived, or overturned. |
 | **Classification** | Product architecture — normative-once-reviewed for the build |
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) the implementer of the work packages in §10 |
-| **Subject** | **Brownfield adoption, second architecture** — an existing codebase enters Solo Orchestrator through four acts: a read-only survey, a deterministic shell preparation that lands the project at phase 0 provisionally, a model-driven assessment, and an evidence-derived placement with a presented plan. Adoption **assesses** rather than asking the operator to classify the project; it asks exactly one thing — who the project is for (D9). |
-| **Companion documents** | ADOPT-001-ARCH (superseded; kept as the record of the first build and of §-citations in shipped code — see §0.2) · `## BL-242:` in `solo-orchestrator-backlog.md` (the D1–D9 decision record this document designs from) · `docs/adoption.md`, `docs/scout.md` (the shipped user-facing pages, which describe the v1 build and must be revised by §10-WP12) · `docs/messaging-standard.md` (the presentation contract D8 makes binding) · `docs/module-contract.md` (M1–M5) · SOI-002-BUILD (`docs/builders-guide.md`) |
+| **Subject** | **Brownfield adoption, second architecture** — an existing codebase enters Solo Orchestrator through four acts: a read-only survey, a deterministic shell preparation that lands the project at phase 0, a model-driven assessment, and a documented plan the project proceeds from — **starting at the beginning, with no rung derived by anyone** (D10). Adoption **assesses** rather than asking the operator to classify the project; it asks exactly one thing — who the project is for (D9). |
+| **Companion documents** | ADOPT-001-ARCH (superseded; kept as the record of the first build and of §-citations in shipped code — see §0.2) · `## BL-242:` in `solo-orchestrator-backlog.md` (the D1–D10 decision record this document designs from) · `docs/adoption.md`, `docs/scout.md` (the shipped user-facing pages, which describe the v1 build and must be revised by §10-WP12) · `docs/messaging-standard.md` (the presentation contract D8 makes binding) · `docs/module-contract.md` (M1–M5) · SOI-002-BUILD (`docs/builders-guide.md`) |
 | **Status of the thing described** | **NOTHING OF v2 IS BUILT.** v1's status row was wrong three times because it was a hand-maintained list; this row is a **set of derivations** instead, each printed in §13 with its output on **2026-08-24**. (1) *What the v1 build left unbuilt* is the set of `adopt_stub_*` functions actually called — the recipe in §1.2 returns **7**. (2) *That the chooser still exists* — `# BF-ADOPT-CHOOSER-QUESTION` resolves in `scripts/lib/adopt/adopt-chooser.sh` (§13-V7). (3) *That adoption still runs no tool resolution* — `grep -c 'resolve-tools'` over the driver and its lib returns **0** in every file, against **7** mentions in `init.sh` (§13-V3). (4) *That `scripts/resume.sh` knows nothing of adoption* — `grep -c 'adopt' "scripts/resume.sh"` returns **0** (§13-V8). When any of those derivations stops returning what this row says, this row is stale — re-run them; do not quote them. **A caveat the derivations themselves taught:** the framework's install set measured **65** files on `main` and **67** on the branch this document was verified on, because two PR-review scripts joined the shipped set between the two — and **68** re-derived on 2026-08-31 against the `main` this document lands on (§13-V6). Three values in eight days. A count in this document is a measurement with a date and a branch, never a property. |
 
-**Provenance.** Nine architecture decisions — **D1 through D9** — are settled and recorded in
+**Provenance.** Ten architecture decisions — **D1 through D10** — are settled and recorded in
 `## BL-242:` in `solo-orchestrator-backlog.md`. **D1–D8** were settled **by Karl on 2026-08-23**
-(D2 refined 2026-08-25); **D9 on 2026-08-31**, ruling a question D4 had been wrongly read as
-already answering (§4.2). This document
+(D2 refined 2026-08-25); **D9 and D10 on 2026-08-31**, each ruling a question this document had
+wrongly read as already answered — D9 a deletion D4 never ordered (§4.2), D10 a placement
+mechanism D4 never asked for (§4.3). This document
 **transcribes** them and designs *within* them; it does not relitigate them. §0.1 attributes each
 decision. Implementation freedom inside a settled decision is the author's and is labelled
 **author-proposed** wherever it appears — a reviewer may attack an author-proposed mechanism
@@ -79,10 +80,13 @@ strictly depends on whether the project belongs to a company or is your own), an
 parked at the framework's starting stage — deliberately at the **bottom** of
 the ladder, so that if you stop here and never come back, your project is guarded more strictly
 than before, never less. Third, an **assessment**: an AI-driven interview and inspection, which is
-only possible because act two installed the machinery it runs on. Fourth, a **placement and a
-plan**: the project is moved to the stage its own evidence supports, its documents are written,
-and you are shown what remains — in exactly this two-layer form, a full technical account plus a
-plain-English half with options, pros and cons, and a recommendation with its reasoning.
+only possible because act two installed the machinery it runs on. Fourth, a **plan**: your
+project's documents are written and you are shown what remains — **starting from the beginning**,
+because working out how far along you already are is exactly the judgement this tool exists to
+make unnecessary. What the survey and the assessment learned is not thrown away: it fills in the
+opening questions rather than skipping them. All of it is presented in the same two-layer form, a full
+technical account plus a plain-English half with options, pros and cons, and a recommendation with
+its reasoning.
 
 One verdict the assessment can now return is **"this should be rebuilt."** That is a conclusion,
 not a chore adoption performs: it hands you into the framework's ordinary new-project path with
@@ -135,21 +139,22 @@ by a note asking whether it should be tracked.
 
 ### §0.1 — Settled decisions carried into this design
 
-Nine, all Karl's, all recorded in `## BL-242:` in `solo-orchestrator-backlog.md`: **D1–D8 on
-2026-08-23** (D2 refined 2026-08-25), **D9 on 2026-08-31**. This document designs **within** them. Each row names where the
+Ten, all Karl's, all recorded in `## BL-242:` in `solo-orchestrator-backlog.md`: **D1–D8 on
+2026-08-23** (D2 refined 2026-08-25), **D9 and D10 on 2026-08-31**. This document designs **within** them. Each row names where the
 design work lives and what remains author-proposed.
 
-| # | Settled decision (Karl — D1–D8 on 2026-08-23, D2 refined 2026-08-25, D9 on 2026-08-31) | Designed in | Author-proposed inside it |
+| # | Settled decision (Karl — D1–D8 on 2026-08-23, D2 refined 2026-08-25, D9 and D10 on 2026-08-31) | Designed in | Author-proposed inside it |
 |---|---|---|---|
 | **D1** | **Colliding scripts: archive theirs, install the framework's, say so.** REVERSES the shipped behaviour, where `adopt_install_framework` skips any path with `[ -e "$dst" ]` and the operator's file wins silently. The notice must name **every archived path, not a count**, plus a standing warning that **replacing a framework script with their own may break the framework**. `scripts/` becomes an archive class exactly as D3 makes documents one. | §7.1, §8.2 | The receipt check between archive and install; the notice's exact shape (§7.1) |
 | **D2** | **Secrets are TIER-SCOPED: an ORGANIZATIONAL adoption STOPS, a CASUAL PERSONAL one WARNS LOUDLY and carries on.** Karl, 2026-08-23: *"Stop adoption until acknowledged with a reply of having been corrected or the risk is being accepted"*; refined 2026-08-25: *"Keep warn loudly for casual personal projects. Organizational projects are always a stop."* The stop lifts only when every finding carries a recorded acknowledgement, and an acknowledgement that cannot be recorded is refused (BL-072's shape, reused by `## BL-233:` for `SOLO_MCP_ACCUM_ATTESTED`). The tiering axis is **`deployment`**, not `enforcement_level`, which **overturns v1 §6.3 as written** — derived on 2026-08-25, not ruled a second time (§6.1). A scan that never ran is **not an acceptable state at either tier**: Karl — *"Why wouldn't the secrets scan run? That should never be an option."* **The two not-scanned statuses were ruled apart on 2026-08-31, and they differ**: `tool-unavailable` is a hard refusal at `organizational` and escapable on a recorded acceptance at `personal` (*"Yes on personal, no on organizational"*); `scan-failed` is *"action as if it ran"* — a hard refusal at `organizational` (*"it cannot continue as it's required"*) and a **loud warning that carries on** at `personal`. §6.1's ladder and §6.4 carry the reasoning. | §6 | The disposition file's location and shape; the re-scan-after-install mechanic (§6.2); the warn arm's record |
 | **D3** | **Project documents: written to the framework's documentation requirements** — adapted or merged from what the project has, or written new where the assessment shows merging would carry a false picture forward. **Originals archived in the project for historical purposes.** With D1, this makes documents and `scripts/` the third and fourth classes of the collision archive — one mechanism serving four cases. **Reach ruled 2026-08-31: it covers `FEATURES.md`, `BUGS.md` and `RELEASE_NOTES.md` too — overturning v1 §7.5 — and the operator must be TOLD, by name, that content can be retrieved from the archive and added to the new files** (*"All previous info is archived and the user informed so that they may retrieve or add to the new proper framework files."*). | §7.2, §7.3 | The framework-document name set's derivation; the adapt-versus-replace criterion (§7.2); the notice's phrasing — its CONTENT is bound (§7.2) |
 | **D4** | **THE CHOOSER IS DELETED, NOT DEMOTED.** No completed/in-flight question, and no "was an SDLC framework used" question either — **those two, and no others.** Karl's reasoning, verbatim, which is the load-bearing part: ***"I think trusting an end user to know what's needed is a mistake considering they are using the orchestrator BECAUSE they are not already following a proper SDLC."*** This **overturns v1-D2**, which v1 §0.1 lists among its settled decisions — see §0.2. *(`## BL-242:` heads this decision **"Adoption assesses; it does not ask."** That is the entry's headline, **not Karl's words** — the entry marks his quote separately — and reading it as a general principle is what produced the error D9 corrects. D7, also Karl's, requires asking.)* | §4 | **Nothing about the two dropped questions.** The claim that stood here — *"the deletion's blast radius is enumerated, not chosen"* — was **false, and is exactly what D9 corrects**: the enumeration silently added a third question the ruling never reached (§4.2) |
-| **D5** | **FOUR ACTS**, and the split is **forced, not chosen**: the evaluators are model-driven and the driver is shell, so adoption cannot be one process. (1) **SURVEY** — Scout, read-only. (2) **PREPARE** — shell: tool resolution against the matrix; the secrets stop; the test-debt census **before** the install; the collision archive **before any writer**; install; **land at PHASE 0 PROVISIONALLY**; commit; hooks last. (3) **ASSESS** — Claude Code via `scripts/resume.sh`: the requirements interview and all evaluators. (4) **PLACE AND PROCEED** — rung from evidence, documents written, plan presented, Build Loop. **The provisional phase-0 landing is load-bearing**: it preserves the promise `adopt_main` already prints, so **a project cannot land high by abandonment** — the scheme cannot express that outcome. | §3, §8 | The act-boundary artifacts; the `resume.sh` branch predicate; the assessment brief's home (§8.5) |
+| **D5** | **FOUR ACTS**, and the split is **forced, not chosen**: the evaluators are model-driven and the driver is shell, so adoption cannot be one process. (1) **SURVEY** — Scout, read-only. (2) **PREPARE** — shell: tool resolution against the matrix; the secrets stop; the test-debt census **before** the install; the collision archive **before any writer**; install; **land at PHASE 0 PROVISIONALLY**; commit; hooks last. (3) **ASSESS** — Claude Code via `scripts/resume.sh`: the requirements interview and all evaluators. (4) **PROCEED** — documents written, plan presented, Build Loop, **from the beginning** (D10 corrects this step, which read "rung from evidence" and was never Karl's; D10 also drops the *provisionality* from step 2's landing — it is simply phase 0, because nothing was ever going to promote past it). **The provisional phase-0 landing is load-bearing**: it preserves the promise `adopt_main` already prints, so **a project cannot land high by abandonment** — the scheme cannot express that outcome. | §3, §8 | The act-boundary artifacts; the `resume.sh` branch predicate; the assessment brief's home (§8.5) |
 | **D6** | **"Rebuild" is a VERDICT adoption returns, not work adoption does.** A rebuild is a Phase 0 intake, an architecture phase, a Build Loop and gates — Solo Orchestrator's **ordinary path** — so the verdict **exits into machinery that already exists**, with the intake pre-filled from everything the assessment learned. Placement, not disagreement; a bounded feature, not an unbounded one. | §5.4 | The pre-fill mapping from assessment record to intake sections |
 | **D7** | **"Wrong technology" is only a finding RELATIVE TO STATED REQUIREMENTS**, and the requirements come from the interview: users, availability, exposure, scalability, data sensitivity. Karl: *"It should be part of the interview to decide that and present the reasoning to the user."* The guarded failure mode is specific: an evaluator with good taste reads the STACK and says "rebuild this in Python" without reading the REQUIREMENTS. | §5.2, §5.3 | The interview's question set beyond Karl's five; the fitness-verdict record shape |
 | **D8** | **The verdict's presentation is part of the requirement**: the full technical account AND the same content as plain English with **pros, cons, options, and a recommendation with reasoning**, so a non-developer can decide. This is the communication contract Karl already requires of agents in this repository, generalised into the product — and it is what makes D6 honest: *the reasoning IS the deliverable*; a rebuild delivered as an unexplained conclusion is indistinguishable from a refusal. Since v1, this contract has a shipped, binding spelling: **`docs/messaging-standard.md`** — Part 1's five-part format and Part 2's controlled vocabulary. | §5.5 | The verdict artifact's file shape and the check that pins its two halves |
 | **D9** | **THE AUDIENCE QUESTION SURVIVES D4, RE-PURPOSED AS A TIER QUESTION** (Karl, 2026-08-31). *"Who is this project for?"* — *"Just me, or me and a few people I know"* / *"A company, a client, or people who are paying for it"* — **stays**, verbatim, with its call site. `ADOPT_CHOOSER_QUESTION`, `adopt_ask_scenario` and the `claimed` operand still go, exactly as D4 says. What changes is its **job**: it stops being an input to placement and becomes the **sole producer of `deployment`** — the value D2's tiering reads (§6.1) and the key `# BL-221-ADOPT-TIER-KEYS` requires an adopted manifest to carry. **This rules on a question D4 never reached**, and is not a softening of D4: D4's reasoning is about self-reported *process maturity*, and who is paying is a fact **no evidence can determine**. | §6.5, §4.2, §8.2 | Nothing — the question text, both answers and the call all ship today and are kept verbatim |
+| **D10** | **AN ADOPTED PROJECT STARTS FROM THE BEGINNING. NO RUNG IS DERIVED, BY ANYONE** (Karl, 2026-08-31). *"The project gets ingested and starts from the beginning to ask the user about what it is and what it's supposed to do"*, restating D4's reason in his own words on the same day: *"we can't trust the user to know how to follow an SDLC because if they did, they wouldn't need the framework."* Every adopted project lands at **phase 0** and runs the ordinary SDLC forward — Phase 0 intake first. What Scout, the census and the assessment learn becomes **pre-fill for that intake**, never evidence for skipping past it; that is D6's shape generalised from the rebuild verdict to every adoption. **This CORRECTS this document, not v1.** D4 deleted the chooser; §4.3 read that as *replace the operator's claimed rung with a derived one* and was titled "placement from evidence alone". Karl never asked for a replacement — deleting a question whose answer cannot be trusted does not imply computing the answer another way. `## BL-242:`'s D5 carries the correction and the recipe that shows no Karl quote ever touched rung, ladder, placement or evidence. | §2, §3.1–§3.6, §4.3, §5.1, §5.4, §8.3, §8.5, §9, §12 — the removal is wide because the mechanism was | Nothing — this decision REMOVES machinery; §4.3 names what goes |
 
 ### §0.2 — What v1 settled: carried, re-derived, or overturned
 
@@ -170,10 +175,10 @@ Disposition of every v1 settled decision:
 |---|---|
 | **v1-D1** — shape: standalone read-only Scout; in-core enabling arms; severable driver module | **CARRIED.** The four acts change the driver's internal structure, not the three-homes split or the module contract (§3.7). Scout is Act 1 unchanged. |
 | **v1-D2** — two scenarios chosen by Karl's verbatim question | **OVERTURNED by D4.** The first settled decision this feature has ever reversed. The question, both canned answers and the *claimed* operand of placement are deleted (§4). **The audience question was listed with them in `## BL-242:`'s blast radius, is NOT covered by D4, and D9 keeps it** (§6.5). v1 §4's evidence table survives as input to the assessment — evidence was always the honest half of that section. |
-| **v1-D3** — the certification pass replacing grandfathering | **RE-DERIVED, and largely DISSOLVED into Act 3.** The *principle* — measured, recorded, failable, nothing grandfathered forward — is untouched and is D2/D5's backbone. The *mechanism* — a distinct pass certifying gates below a claimed rung — loses its object: with no claimed rung there is nothing to certify *against*; **the assessment IS the certification**, and the landing rung falls out of it (§5.1). WP5 as v1 specified it is retired (§10). |
+| **v1-D3** — the certification pass replacing grandfathering | **RE-DERIVED, and largely DISSOLVED into Act 3.** The *principle* — measured, recorded, failable, nothing grandfathered forward — is untouched and is D2/D5's backbone. The *mechanism* — a distinct pass certifying gates below a claimed rung — loses its object **twice over**: with no claimed rung there is nothing to certify *against*, and under **D10** there is no landed rung to certify *for* either — every adopted project starts at phase 0 and earns each boundary through the ordinary gates (§5.1). WP5 as v1 specified it is retired (§10). |
 | **v1-D4** — secrets: full-history scan, redaction projection, per-finding disposition, tiered loudness | **CARRIED AND RE-KEYED by D2 — and one of the THREE `## BL-242:` counts (below).** Carried verbatim: the redaction projection (v1 §6.2's field allowlist), the disposition vocabulary (v1 §6.3: rotated / false alarm / accepted risk), and the *shape* of v1's tiering — one arm stops, one arm warns loudly. What changes is the **axis those arms key on**. v1 §6.3 keys its BLOCK arm on `enforcement_level = strict`; `# BL-180-ENFORCEMENT-DEFAULT` resolves the ordinary personal project to `strict`; Karl's 2026-08-25 ruling sends that project to the **warning** arm. The ruling therefore contradicts v1 §6.3's literal BLOCK-at-strict for the commonest project there is, so **D2 overturns v1 §6.3 as written** — `strict` there is wrong rather than ambiguous. The derivation is §6.1's and it is `## BL-242:`'s, made by derivation on 2026-08-25 rather than by asking Karl twice. Also changed: a scanner that was never there (`tool-unavailable`) is a stop at **both** arms, not a shrug — while a scan that ran and broke (`scan-failed`) follows the findings row, warning at `personal` and stopping at `organizational` (ruled 2026-08-31). |
 | **v1-D5** — collision policy: archive AI-layer + git hooks; CI carve-out; project files kept | **CARRIED AND EXTENDED.** The archive mechanism and the CI carve-out stand. D1 and D3 add `scripts/` and framework-named documents as the third and fourth archive classes, which **partially reverses** v1-D5's "project files: keep theirs" cell for the framework-named subset (§7.2 states the boundary precisely). |
-| **v1-D6** — mechanics: separate driver, report sections, reverse intake, state order, explicit staging, stamp, Adoption Record | **CARRIED, with two amendments.** The state order (`# BF-ADOPT-STATE-ORDER`) and explicit staging survive. The stamp loses its `scenario` field and gains the provisional/assessed distinction (§8.3). The reverse intake splits: mechanical prefill stays in Act 2; judgment questions move to Act 3, where a model conducts them (§8.2, §5.2). |
+| **v1-D6** — mechanics: separate driver, report sections, reverse intake, state order, explicit staging, stamp, Adoption Record | **CARRIED, with two amendments.** The state order (`# BF-ADOPT-STATE-ORDER`) and explicit staging survive. The stamp loses its `scenario` and `landedPhase` fields; Act 4's assessment block is a separate additive merge, and carries no placement (§8.3). The reverse intake splits: mechanical prefill stays in Act 2; judgment questions move to Act 3, where a model conducts them (§8.2, §5.2). |
 
 ### §0.3 — Amendment changelog
 
@@ -268,6 +273,33 @@ the miscounts. The general rule that came out of all three, and the one to apply
 **describe, never total, and quote only what a grep can still find.** The yield across the three
 rounds fell thirteen, four, one, and every defect after the first round was in self-referential
 correction prose — which is now this document's only remaining defect surface.
+
+**2026-08-31, fifth pass — D10, and the largest correction this document has taken.** An
+adversarial architecture review — the first this design has had, and distinct in kind from the
+three rounds recorded in the fourth-pass entry below, which reviewed the DIFF rather than the
+architecture returned **block** on two structural findings, of which only the first is this decision's
+business: a project
+placed at a derived rung is illegible to `scripts/check-phase-gate.sh`, which is cumulative by its
+own contract and whose adoption arm reads the stamp for integrity only — so every adopted project
+landed above phase 0 would fail its next gate run, and §9's "no gate arms" forbade the fix. Karl
+then supplied the answer the design should have had from the start: **an adopted project starts
+from the beginning.** *"The project gets ingested and starts from the beginning to ask the user
+about what it is and what it's supposed to do."*
+
+**The finding dissolves rather than being remedied**, because §4.3's derived placement was never
+Karl's. D4 deleted the chooser; this document read that as *replace the operator's claimed rung
+with a derived one* and titled §4.3 "placement from evidence alone". No Karl quote in `## BL-242:`
+ever touched rung, ladder, placement or evidence — that entry's D5 now carries the correction and
+the recipe that shows it. **This is the third inference recorded as Karl's ruling across this document and `## BL-242:`**,
+after the `adopt_ask_audience` deletion (D9) and the *"Adoption assesses; it does not ask"*
+headline; all three are prose written beside a ruling, read back as part of it.
+
+What D10 removes: §4.3's placement mechanism and both operands of `# BF-ADOPT-FLOOR`; the
+assessment record's `landedPhase`; Act 4's `current_phase` write — the design's only write to
+phase-state outside Act 2 — and with it architect question 4 entirely; §5.1's "the assessment IS
+the certification" claim; and the sharpest half of §12's calibration residual. What it keeps: all
+four acts, the assessment, D6's rebuild verdict and D7's fitness finding, with the evidence
+re-aimed at **pre-filling the Phase 0 intake** rather than shortening the ladder.
 
 ### §0.4 — Verification posture, and the branch topology caveat
 
@@ -383,7 +415,9 @@ judgment in a model session, with a safe parked state between them.
 **Brownfield adoption is:** a second, first-class entry path into the *same* framework — the same
 phase gates, the same checks, the same tiers, the same audit trail — for a codebase that already
 exists. It **assesses** the project instead of asking the operator to classify it, and it lands
-every project at phase 0 provisionally before any judgment is made.
+every project at **phase 0** — not provisionally, and not pending a later promotion: that is
+where an adopted project begins, and it advances only by passing the same gates as any other
+project (D10).
 
 **Brownfield adoption is not:**
 
@@ -419,18 +453,20 @@ whole argument, and it is a constraint, not a preference.
 | Act | Name | Runs as | Writes |
 |---|---|---|---|
 | 1 | **SURVEY** | Scout — read-only shell, zero framework dependency | Nothing without `--out` (Scout's own contract); the driver consumes its JSON report |
-| 2 | **PREPARE** | `scripts/adopt-project.sh` — deterministic shell | Tools, the archive, the framework install, minimal state at **provisional phase 0**, one commit, hooks |
-| 3 | **ASSESS** | Claude Code, entered via `scripts/resume.sh`'s adoption branch | The assessment record: interview answers, evaluator findings, evidence per rung |
-| 4 | **PLACE AND PROCEED** | Claude Code continuing Act 3's session, plus one audited shell write | The placement, the documents (D3), the verdict artifact (D8), the plan; then the ordinary Build Loop |
+| 2 | **PREPARE** | `scripts/adopt-project.sh` — deterministic shell | Tools, the archive, the framework install, minimal state at **phase 0**, one commit, hooks |
+| 3 | **ASSESS** | Claude Code, entered via `scripts/resume.sh`'s adoption branch | The assessment record: interview answers, evaluator findings, the fitness verdict — **no rung** (D10) |
+| 4 | **PROCEED** | Claude Code continuing Act 3's session | The documents (D3), the verdict artifact (D8), the Phase 0 intake pre-filled from Acts 1–3, the plan; then the ordinary Build Loop |
 
 ### §3.2 — Act 1 — SURVEY
 
 Scout, unchanged. Its two properties — read-only, zero dependency — are the reason an operator can
 look before deciding anything, and nothing in v2 touches them. The report's seven sections
 (`stack`, `phaseMap`, `reality`, `secrets`, `collisions`, `testsBaseline`, `intakePrefill`) all
-remain consumed. What changes downstream: `phaseMap`'s reached rung (`# SCOUT-LADDER-MAX`) is no
-longer floored against a *claimed* rung — it becomes **evidence into Act 3's assessment** instead
-of an operand of a placement formula (§4.3).
+remain consumed. What changes downstream: `phaseMap`'s reached rung (`# SCOUT-LADDER-MAX`) stops being an operand
+of any placement arithmetic — under D10 there is no placement to compute. It survives as
+**context for the assessment and pre-fill for the Phase 0 intake**: knowing a project already has
+a test corpus and a deploy lane shapes what the interview asks and what the plan proposes. It
+never shortens the ladder (§4.3).
 
 ### §3.3 — Act 2 — PREPARE
 
@@ -459,13 +495,13 @@ order and each constraint's justification is §8.2; the summary:
    surfaces, git hooks, colliding `scripts/` (D1), colliding framework-named documents (D3).
 6. **The framework install** — framework-wins on script collisions (D1), with the archive receipt
    checked first (§7.1).
-7. **Minimal state, provisional phase 0** — `phase_state` → `intake` (mechanical prefill only) →
+7. **Minimal state, phase 0** — `phase_state` → `intake` (mechanical prefill only) →
    `manifest` with the v2 stamp (§8.3), the fail-safe order carried from v1 (§8.4).
 8. **The adoption commit** — explicit staging, never `git add -A`, unchanged.
 9. **Hooks last** — after the commit, as shipped (`adopt_install_hooks` runs after
    `adopt_stage_and_commit`, and the commit-msg block composes by `SOIF_TDD_OPEN` marker fence).
 
-Act 2 ends by printing where the project stands (phase 0, provisionally; assessment pending) and
+Act 2 ends by printing where the project stands (phase 0; assessment pending) and
 the exact next command: run `bash scripts/resume.sh` in the adoptee and paste the prompt into
 Claude Code.
 
@@ -478,24 +514,27 @@ containing **zero** mentions of adoption (§13-V8). WP12 adds the adoption branc
 `adopted: true` and the adoption block carries no completed assessment → emit the assessment
 prompt (§8.5). In the session: the **requirements interview** (D7's five axes plus data
 classification, §5.2) and **all evaluators** run against the installed tree. Act 3's output is a
-written **assessment record** — machine-readable findings plus the evidence for each rung claim —
-because Act 4's placement must be derivable from it, not from session vibes.
+written **assessment record** — machine-readable findings, the fitness verdict, and the
+interview's answers — because Act 4's documents and plan must be derivable from it, not from
+session vibes. **Under D10 the record carries no rung**, and nothing downstream reads one.
 
-### §3.5 — Act 4 — PLACE AND PROCEED
+### §3.5 — Act 4 — PROCEED
 
-The rung is derived from assessment evidence (§4.3); the framework documents are written per D3
-(§7.2); the verdict — including, possibly, *rebuild* (§5.4) — is presented per D8 (§5.5); the
-placement is written by one audited shell step (§8.3); and the project proceeds into the ordinary
-Build Loop at its landed phase. Act 4 is deliberately thin: everything expensive happened in Act
-3, and everything irreversible goes through the same recorded write discipline as Act 2.
+The framework documents are written per D3 (§7.2); the verdict — including, possibly, *rebuild*
+(§5.4) — is presented per D8 (§5.5); the **Phase 0 intake is filled in** from everything Acts 1–3
+learned; and the project proceeds into the ordinary Build Loop **from phase 0**. Act 4 writes no
+`current_phase`: under D10 there is nothing to place, and the project advances only by passing
+`scripts/check-phase-gate.sh` like any other. Act 4 is deliberately thin — everything expensive
+happened in Act 3, and it now has one less thing to do than the first draft of this section gave
+it.
 
-### §3.6 — The provisional phase-0 landing is the load-bearing choice
+### §3.6 — The phase-0 landing is the load-bearing choice
 
 `adopt_main` already prints the promise, and its `usage()` text repeats it: *"If you stop partway,
 this project ends up more strictly gated than it started, never less."* v1 kept that promise by
 write order within one process. **The four-act split threatens it** — an operator who runs Act 2
 and never opens Act 3 has a fully installed, stamped, committed project with no human judgment
-applied — **and the provisional landing is what keeps it**: that abandoned project sits at
+applied — **and the phase-0 landing is what keeps it**: that abandoned project sits at
 **phase 0** with everything ahead of it. The phase gate is live (phase-state exists), the
 commit-time checks are live from the next commit, and every phase boundary still lies between the
 project and any claim of maturity. **A project cannot land high by abandonment — the scheme
@@ -503,11 +542,20 @@ cannot express that outcome**, rather than defending against it. This is strictl
 v1, where an operator's `completed` answer landed the project at phase 4 in the same run that
 asked the question.
 
-Two corollaries worth stating. First, D6 becomes nearly free: a *rebuild* verdict is Act 4
-declining to raise a project that is **already at phase 0** and pre-filling the intake — placement
-by inaction plus a record (§5.4). Second, the "adoption did not complete" analysis of v1 §5.5
-carries over per act: a halt inside Act 2 leaves the v1-verified partial-state rows (§8.4), and a
-halt between acts leaves the provisional landing, which is the safe direction by construction.
+**D10 makes this section nearly vacuous, and that is the point.** When it was written, phase 0 was
+a *provisional* resting place and the argument had to establish that abandonment could not promote
+past it. Under D10 nothing promotes past it at all — an adopted project starts at phase 0 and
+advances only through the ordinary gates — so "cannot land high by abandonment" is true the way
+"cannot land high" is true. The argument is kept rather than deleted because it is the reason the
+four-act split was ever safe to propose, and a reader who meets the acts before the decision
+should find it.
+
+Two corollaries worth stating. First, **D6 becomes free**: a *rebuild* verdict is a verdict about
+what to build, delivered alongside a Phase 0 intake the project was going to fill in anyway — no
+placement is declined because none was ever offered (§5.4). Second, the "adoption did not
+complete" analysis of v1 §5.5 carries over per act: a halt inside Act 2 leaves the v1-verified
+partial-state rows (§8.4), and a halt between acts leaves the phase-0 landing, which is the safe
+direction by construction.
 
 ### §3.7 — Module shape under the four acts
 
@@ -578,45 +626,77 @@ D9 argument) —
 which bounds the deletion's search space and gives WP9 its completion check: after WP9, V7's
 grep returns nothing.
 
-### §4.3 — What replaces it: placement from evidence alone
+### §4.3 — What replaces it: nothing. The project starts from the beginning (D10)
 
-`adopt_apply_floor` (`# BF-ADOPT-FLOOR`) computes `min(scanned, claimed)`. With `claimed` deleted,
-Act 2 does not compute a placement at all — **every project lands at provisional phase 0**
-(§3.6). The real placement moves to Act 4 and is derived from the **assessment record**: the rung
-is the highest *reached* rung (v1's A-BF-1 correction, shipped as `# SCOUT-LADDER-MAX`, carries
-over as the ladder's semantics) **for which Act 3 verified the evidence** — Scout's artifact
-ladder is one input; the assessment's own findings (does the test corpus run, does the deploy lane
-exist, does the architecture documentation describe the system that is actually there) are the
-others. The floor rule's *spirit* survives in a stronger form: v1 let the interview lower a rung;
-v2 never had an operator-claimed rung to lower. No answer in the requirements interview can raise
-the placement — requirements determine what *fitness means* (D7), not how far along the work is.
+**This section said the opposite until 2026-08-31, and the correction is the most consequential
+in this document.** It was titled *"placement from evidence alone"* and specified that Act 4
+derived a landing rung from the assessment record. **Karl never asked for that.** D4 deleted the
+chooser because the operator cannot be trusted to know how far along a project is; this document
+read that as *compute the answer another way* and built a replacement mechanism. Deleting a
+question whose answer cannot be trusted does not imply the answer must be computed — it can
+equally mean the question does not need answering, and D10 says it does not:
+
+> *"The project gets ingested and starts from the beginning to ask the user about what it is and
+> what it's supposed to do."* — Karl, 2026-08-31
+
+**So: `adopt_apply_floor` (`# BF-ADOPT-FLOOR`) computes `min(scanned, claimed)`, and BOTH operands
+go.** `claimed` goes with the chooser (D4); `scanned` goes with D10. Act 2 computes no placement,
+Act 4 computes no placement, and **`current_phase` is `0` for every adopted project** until the
+ordinary gates move it. There is no landing rung, no placement formula, and no assessment-record
+field holding one.
+
+**What the evidence is FOR, since it is not for placement.** Scout's artifact ladder, the
+test-debt census, the reality probes and the assessment's own findings all survive and all matter
+— as **pre-fill for the Phase 0 intake and context for the plan**. A project that already has a
+test corpus, a deploy lane and architecture documentation gets an intake that says so and a plan
+that starts from there. What it does not get is a shortcut past a gate. This is D6's shape —
+*"the verdict EXITS into machinery that already exists, with the intake pre-filled from everything
+the assessment just learned"* — generalised from the rebuild verdict to every adoption.
+
+**Why this is the right answer and not merely the ordered one.** The gate script is cumulative by
+its own contract (`scripts/check-phase-gate.sh`: *"Each gate crossing implies all prior gates have
+been crossed"*), and its adoption arm reads the stamp for integrity only, adding *"no logic to any
+existing predicate"*. A project placed at phase 3 without per-boundary evidence is therefore
+**illegible to the gates it must live under** — an adversarial design review demonstrated exactly
+that against the superseded §4.3, blocking on it. D10 dissolves the finding rather than remedying
+it: with no placement, there is no illegible rung. The cheapest defect is the one the design stops
+creating.
 
 **Rejected alternative — infer the scenario and ask for confirmation.** v1 §4.2 already rejected
 this for the chooser (a guess presented as a default makes the most consequential answer the
-easiest to skim past), and D4 removes the question the guess would have fed. Rejected again here
-for the placement itself: presenting the derived rung for operator confirmation would reintroduce
-the claimed operand through the back door. The operator sees the placement *with its evidence and
-reasoning* (D8), and can dispute the evidence — not restate the number.
+easiest to skim past), and D4 removes the question the guess would have fed. Under D10 it is
+rejected twice over: there is no rung for the operator to confirm.
+
+**Rejected alternative — derive the rung from evidence and place the project there.** This
+document's own superseded §4.3, above. Rejected by D10.
 
 ---
 
-## §5 — The assessment is the certification (D6, D7, D8)
+## §5 — The assessment informs; the gates certify (D6, D7, D8, D10)
 
 ### §5.1 — WP5 dissolves, and what it dissolves into
 
 v1-WP5's job was to certify every gate **below a claimed rung** — the heavier the claim, the
-heavier the pass, with S1 the worst case (all four boundaries). Under D4/D5 there is **no claimed
-rung to certify against**: the project sits at provisional phase 0, and the only way up is
-evidence the assessment itself verifies. **The assessment IS the certification** — each rung the
-placement credits is credited *because* Act 3 produced today's evidence for it, and the phase
-boundaries above the landing are crossed the ordinary way, later, like any project's. What
-survives of v1 §5 and where it lands:
+heavier the pass, with S1 the worst case (all four boundaries). Under D4 there is no claimed rung
+to certify against, and **under D10 there is no landed rung to certify FOR**: the project starts
+at phase 0 and crosses every boundary the ordinary way, later, exactly like any other project.
+**So the certification pass has no object in either direction, and `scripts/check-phase-gate.sh`
+does the certifying — as it always did.**
+
+*(This section previously read "the assessment IS the certification", crediting each rung "because
+Act 3 produced today's evidence for it". That followed from the superseded §4.3 and does not
+survive D10: the assessment produces findings, requirements and a verdict, none of which is a gate
+approval. An adversarial review's blocking finding was aimed squarely here — that a rung credited
+by assessment is illegible to a cumulative gate — and D10 removes the credited rung rather than
+arguing with the gate.)*
+
+What survives of v1 §5 and where it lands:
 
 | v1 §5 element | v2 disposition |
 |---|---|
 | The three kinds (a/b/c) of certification | The *taxonomy* survives as the assessment record's honesty labels: fresh scans and produced docs are unmarked (kind a); reviews held now are real, with only the ordering fact marked (kind b); inherently historical facts keep `adopted-at` markers with forward equivalents (kind c). What is gone is the *pass* that iterated gates below a claim |
 | The test-debt ledger and ratchet (v1 §5.4) | **Shipped** (WP5b, `scripts/lib/adopt/adopt-test-debt.sh`); unchanged; remains kind (c)'s forward equivalent |
-| Certification can fail (v1 §5.5) | Restated per act: Act 2 fails on the secrets stop (§6) and on any refused write; Act 3/4 "fail" by *placing low* and by verdicts — including rebuild — because with no claim there is nothing to flunk, only evidence there is less of. Blocker-grade findings surface in the plan and, where they are secrets, in §6's stop |
+| Certification can fail (v1 §5.5) | Restated per act: Act 2 fails on the secrets check (§6) and on any refused write; Act 3/4 cannot "fail" by placing low — there is no placing (D10) — they surface findings and verdicts — including rebuild — because with no claim there is nothing to flunk, only evidence there is less of. Blocker-grade findings surface in the plan and, where they are secrets, in §6's stop |
 | Severity vocabulary (SEV-1..4, reused not invented) | Carried — the assessment record and the plan use it |
 
 **Retire WP5; do not re-cut it into a smaller version of itself.** A residual certification pass
@@ -630,10 +710,13 @@ Held in Act 3 by the model, recorded in the assessment record. Karl's five, verb
 `## BL-242:`: **how many people use it; whether it needs high availability; whether it is
 internet-facing; what scalability it needs; how sensitive the data is.** The fifth is the shipped
 seven-value data-classification taxonomy, and it keeps v1's non-skippable status with a
-mechanically different anchor: at provisional phase 0 the ZDR backstop (which fires at
-`current_phase >= 2`) is not yet in reach, so **Act 4's placement write refuses to run without a
-recorded classification** — the same fact, enforced at the moment it becomes load-bearing, and
-the shipped backstop remains the second line the moment any placement reaches phase 2. The
+mechanically different anchor: at phase 0 the ZDR backstop (which fires at `current_phase >= 2`)
+is not yet in reach, so **Act 4's Phase 0 intake write refuses to run without a recorded
+classification**, and the shipped backstop remains the second line from the moment the project
+reaches phase 2 by the ordinary route. *(This anchored on "Act 4's placement write" until D10
+removed that write. The intake write is the better anchor and was available all along: every
+adoption produces an intake, whereas the placement write only ever existed in the superseded
+§4.3.)* The
 interview also absorbs what `## BL-228:` records the reverse intake never asks — the system
 architecture, and a stack description that is not a single-select scalar — because D7's verdict is
 unreachable without both.
@@ -657,18 +740,19 @@ stamp — and under D8 the reasoning is presented, so an undressed opinion is al
 "Rebuild" is a **verdict adoption returns, not work adoption does.** A rebuild consists of a Phase
 0 intake, an architecture phase, a Build Loop and gates — Solo Orchestrator's ordinary path — so
 the verdict exits into machinery that already exists, with the intake pre-filled from everything
-the assessment learned. Mechanically, §3.6 makes this nearly free: the project is **already at
-phase 0**; Act 4 declines to raise it, records the verdict in the assessment record and the
+the assessment learned. Mechanically, §3.6 makes this **free**: the project is **already at
+phase 0** and was never going anywhere else; Act 4 records the verdict in the assessment record and the
 Adoption Record, pre-fills `PROJECT_INTAKE.md` from the assessment (the `# BL-204-PREFILL-READ`
 pattern — prefill facts, confirm, never prefill judgments), and hands the operator the ordinary
 intake path. The adopted-project state — stamp, archive, ledger, hooks — all remains valid: the
-rebuild is a *plan for what to build next*, not an un-adoption. This is placement, not
-disagreement, and it is the difference between a bounded feature and an unbounded one: "rebuild"
-adds almost nothing to what must be built.
+rebuild is a *plan for what to build next*, not an un-adoption. It is a **verdict delivered
+alongside an intake the project was going to fill in anyway** (D10), not a placement withheld —
+and that is the difference between a bounded feature and an unbounded one: "rebuild" adds almost
+nothing to what must be built.
 
 ### §5.5 — The presentation contract (D8) — binding, and already written down
 
-Every Act 4 output a human decides on — the placement, every fitness finding, above all a rebuild
+Every Act 4 output a human decides on — every fitness finding, the plan, above all a rebuild
 recommendation — is presented as **the full technical account AND the plain-English half**, per
 `docs/messaging-standard.md`: Part 1's five parts (what happened; what it means for you; options
 with pros and cons; a recommendation **with the reasoning**; what happens if you do nothing) and
@@ -785,7 +869,8 @@ either tier, on either arm.
 
 ### §6.2 — Tool resolution makes the scanner guaranteed
 
-Act 2's first step runs `scripts/resolve-tools.sh` against `templates/tool-matrix/` — the step the
+Act 2's **second** step runs `scripts/resolve-tools.sh` against `templates/tool-matrix/` (§8.2; the
+tier question is step 1 under D9) — the step the
 shipped driver never takes (§13-V3). `gitleaks` is already a `"required": true` entry in
 `templates/tool-matrix/common.json` (category `secret_detection`, `min_version` 8.18.0, install
 recipes for brew/apt/dnf/pacman — §13-V9), so **D2 demands nothing the framework does not already
@@ -1096,7 +1181,7 @@ reasons, all still true. Its M2 declared-core-dependency header gains
 `scripts/resolve-tools.sh` as a command, exactly as `init.sh` does, rather than sourcing new core
 libs — the smaller M2 delta). Exit codes keep their shipped meanings (0 completed; 1 did not
 complete — refusal, blocker, halt; 2 bad usage or unusable target), with "completed" now meaning
-**Act 2 completed**: the driver's final block says so, prints the provisional standing, and hands
+**Act 2 completed**: the driver's final block says so, prints the phase-0 standing, and hands
 off to `scripts/resume.sh`. Acts 3/4 are a Claude Code session, not a driver invocation; their
 completion is recorded in state (§8.3), which is what the `resume.sh` branch predicate reads.
 
@@ -1120,23 +1205,25 @@ The fail-safe order and its per-surface analysis carry from v1 §8.4 unchanged (
 means every interruption leaves the phase gate live and the tier reading strict — the safe
 direction on both surfaces v1 verified). What changes is content:
 
-- **`phase_state`**: `current_phase: 0` for every adoption — the provisional landing. No scenario,
-  no landed-rung arithmetic in Act 2.
+- **`phase_state`**: `current_phase: 0` for every adoption, and it **stays 0** until the ordinary
+  gates move it (D10). No scenario, and no landed-rung arithmetic in any act.
 - **The stamp** (`soif_adoption_stamp`, still one call site, still an additive `jq` merge into
   `.adoption`, still refusing a second stamp): loses `scenario` and `landedPhase` as Act 2 inputs;
   author-proposed v2 block: `{schemaVersion: 2, adopted: true, adoptedAt, adoptedAtCommit,
-  placement: "provisional", scannerReportSha256}`. The `adopted` accessor
+  scannerReportSha256}` — no `placement` key, because there is no placement to record (D10). The `adopted` accessor
   (`# BF-ADOPT-FLAG-READ`) and every gate arm reading it are untouched — the flag's meaning is
   "this project entered by adoption", which is true from Act 2 onward.
-- **Act 4's placement write** is a **separate additive merge, not a re-stamp**: a new one-call-site
-  writer (author-proposed name `soif_adoption_assess`) merges `.adoption.assessment =
-  {assessedAt, landedPhase, verdict, interviewRef, evidenceRef}` and advances
-  `.claude/phase-state.json`'s `current_phase` to the landed rung, writing an `adoption_event`
-  audit row. Stamp-once stays a property (the stamp writer still refuses when `adopted` is already
+- **Act 4's assessment write** is a **separate additive merge, not a re-stamp**: a new
+  one-call-site writer (author-proposed name `soif_adoption_assess`) merges
+  `.adoption.assessment = {assessedAt, verdict, interviewRef, evidenceRef}` and writes an
+  `adoption_event` audit row. **It does not touch `current_phase`** — under D10 there is no rung
+  to advance to, and `landedPhase` is gone from the record. This removes the design's only write
+  to `phase-state.json` outside Act 2, and with it the whole question of whether that write was
+  entitled to bypass the phase gate. Stamp-once stays a property (the stamp writer still refuses when `adopted` is already
   true); the assessment writer refuses when an assessment block already exists, for the same
   silent-move reason the stamp's own comment records about `adoptedAtCommit`.
 
-### §8.4 — Fail-safe order — carried, with the provisional row added
+### §8.4 — Fail-safe order — carried, with the between-acts row added
 
 v1 §8.4's two-row table (phase-state present/manifest absent = phase gate live + tier strict;
 manifest present/phase-state absent = no phase gate at all) is carried as verified-by-v1 and
@@ -1158,7 +1245,7 @@ beside the persisted `.claude/adoption/scout-report.json` the shipped writer alr
 0 — exactly the state the intake branch's blank-cell predicate (`# BL-202-INTAKE-PREDICATE`)
 matches — and an adopted-unassessed project must be offered the assessment, not the greenfield
 intake interview. After Act 4 writes the assessment block, the predicate goes false and `resume.sh`
-falls through to its ordinary branches at the landed phase.
+falls through to its ordinary branches for a phase-0 project — which, under D10, is every adopted project until the gates move it.
 
 ### §8.6 — The Adoption Record records an assessment and a plan (WP7, re-cut in content)
 
@@ -1166,7 +1253,7 @@ WP7 is **unchanged in need and changed in content** (`## BL-242:`'s words): the 
 now records the assessment and the plan, not a scenario and a rung. Its structural contract —
 v1 §8.8's eight clauses making the record unparseable as a gate approval, with the record lint
 pinning them — carries over **verbatim and unweakened**; nothing in the new content touches the
-eight readers those clauses defeat. Added content rows: the placement with its evidence summary,
+eight readers those clauses defeat. Added content rows: the assessment's findings and their evidence,
 the verdict (including rebuild, when returned), the interview's recorded answers by reference, the
 secrets dispositions by fingerprint (§6.3), the archived-path list by class (§7.3), and the plan's
 location. The audit-row design (one `adoption_event` type, `details.event` discriminator, five
@@ -1200,7 +1287,7 @@ applied one level down.
 
 | Kept | Anchor | Note |
 |---|---|---|
-| Every phase-gate predicate | `scripts/check-phase-gate.sh` | v2 adds no gate arms beyond WP3's shipped ones; Act 4's placement writes state the existing gates read |
+| Every phase-gate predicate | `scripts/check-phase-gate.sh` | v2 adds no gate arms beyond WP3's shipped ones, and under D10 it needs none: nothing writes `current_phase` outside Act 2's phase-0 landing, so every boundary is crossed by the ordinary route |
 | Scout, whole | `scripts/scout.sh`, `scripts/lib/scout/` | Act 1 is the shipped Scout. Candidate future section (`chooserEvidence`) dies with the chooser |
 | The in-core enabling arms | `scripts/lib/adoption-stamp.sh`, `# BF-ADOPT-FLAG-READ`, the TDD adoption-window arm | The `adopted` flag's meaning and every reader; the stamp's writer changes shape (§8.3), not home or discipline |
 | The test-debt ledger and ratchet | `scripts/lib/adopt/adopt-test-debt.sh` (WP5b, shipped) | Untouched; still kind (c)'s forward equivalent |
@@ -1231,10 +1318,10 @@ its fix.
 
 | WP | Scope and boundary | Proofs |
 |---|---|---|
-| **WP9 — Chooser deletion + act boundaries (D4, D5 skeleton)** | Delete `ADOPT_CHOOSER_QUESTION`, both answers, `adopt_ask_scenario`, `adopt_ask_ladder`, the claimed operand (`# BF-ADOPT-FLOOR`'s second input). **`adopt_ask_audience` is RETAINED and re-purposed (D9)** — it is not a deletion target, it moves to the head of Act 2 (§8.2 step 1), and its output stops feeding placement while continuing to feed `deployment`; re-shape `soif_adoption_stamp` per §8.3 (in-core — inherits WP3's dual-direction proof duty); Act 2 lands provisional phase 0 and prints the Act 3 handoff; the init-parity audit table (§8.7); drive-by: `adopt_stub_hooks`'s stale owner string → WP7. **Boundary: no tool resolution, no secrets stop, no archive classes — WP10/WP11's.** | The WP4 suite's `CHOOSER_LITERAL` pin is **re-aimed at absence**: the verbatim question occurring anywhere in `scripts/` fails. **Mutation:** restore `adopt_ask_scenario`'s call in `adopt_main` → RED. **D9 needs the opposite pin, and it is not optional** — a suite that only proves absence would go green on a WP9 that deleted both questions: assert the audience question is ASKED and that `deployment` lands non-empty in both written files → **mutation:** delete `adopt_ask_audience`'s call → the fixture's `manifest.json` and `phase-state.json` carry `deployment: ""` and `assert_choosable` fail-closes → RED. Assert on the **empty value and the exit code**, not on the refusal's wording. Stamp dual-direction: (i) a fixture adoption lands `current_phase` 0 with `placement: "provisional"` — mutate the landing to any other rung → RED via the fixture's phase-state; (ii) the second-stamp refusal still refuses (regression, exit-code-asserted) |
+| **WP9 — Chooser deletion + act boundaries (D4, D5 skeleton)** | Delete `ADOPT_CHOOSER_QUESTION`, both answers, `adopt_ask_scenario`, `adopt_ask_ladder`, the claimed operand (`# BF-ADOPT-FLOOR`'s second input). **`adopt_ask_audience` is RETAINED and re-purposed (D9)** — it is not a deletion target, it moves to the head of Act 2 (§8.2 step 1), and its output stops feeding placement while continuing to feed `deployment`; re-shape `soif_adoption_stamp` per §8.3 (in-core — inherits WP3's dual-direction proof duty); Act 2 lands phase 0 and prints the Act 3 handoff; the init-parity audit table (§8.7); drive-by: `adopt_stub_hooks`'s stale owner string → WP7. **Boundary: no tool resolution, no secrets stop, no archive classes — WP10/WP11's.** | The WP4 suite's `CHOOSER_LITERAL` pin is **re-aimed at absence**: the verbatim question occurring anywhere in `scripts/` fails. **Mutation:** restore `adopt_ask_scenario`'s call in `adopt_main` → RED. **D9 needs the opposite pin, and it is not optional** — a suite that only proves absence would go green on a WP9 that deleted both questions: assert the audience question is ASKED and that `deployment` lands non-empty in both written files → **mutation:** delete `adopt_ask_audience`'s call → the fixture's `manifest.json` and `phase-state.json` carry `deployment: ""` and `assert_choosable` fail-closes → RED. Assert on the **empty value and the exit code**, not on the refusal's wording. Stamp dual-direction: (i) a fixture adoption lands `current_phase` 0 — mutate the landing to any other rung → RED via the fixture's phase-state (the stamp carries no `placement` key to assert on: §8.3 removed it with D10); (ii) the second-stamp refusal still refuses (regression, exit-code-asserted) |
 | **WP10 — Act 2 completion: tool resolution + the tier-scoped secrets check (D2)** | Invoke `scripts/resolve-tools.sh` before any write; **§6.1's tier-scoped table, all four cases** — at `organizational` findings stop until dispositioned and both `tool-unavailable` and `scan-failed` stop with no escape; at `personal` findings and `scan-failed` warn loudly and carry on, while `tool-unavailable` stops unless an acceptance is recorded; the §6.3 disposition record via `bypass_audit_append`; the §6.2 re-scan-after-install mechanic; refusal-on-unrecordable. **Boundary: no archive or install changes — WP11's.** **Nothing blocks this package any more:** §6.5 is settled by D9 (it keys on `ADOPT_DEPLOYMENT`, produced at §8.2 step 1) and §6.4's escape is ruled — **hard refusal at `organizational`, recorded escape at `personal`**. `scan-failed` is ruled too: **hard refusal at `organizational`, loud warning that carries on at `personal`** — *"action as if it ran"*. **Nothing in §6 is unruled.** Note the two not-scanned statuses are NOT one code path: they share an organizational arm and differ on personal. | Fixtures per status **and per tier — eight cells, and all eight are specified**: a clean `scanned`/zero-findings fixture **completes at both tiers** → **mutation:** make the clean arm stop → RED at each tier (without those two the matrix says nothing about the regression that would block every well-behaved adoption). Then an `organizational` `scan-failed` report **stops Act 2 before any write** (tree-hash equal before/after, the Scout idempotency precedent) → **mutation:** neuter the `scan-failed` arm → the fixture adopts → RED; a `personal` `scan-failed` report **completes** and its warning **names the unknown** — assert the warning text does NOT render an empty findings list → **mutation:** reuse the findings template with zero findings → RED, and **mutation:** make the personal arm stop → RED. **The two not-scanned statuses must be pinned as separate paths**, because they agree on `organizational` and disagree on `personal`: a fixture matrix that collapses them passes against an implementation that treats `scan-failed` as `tool-unavailable` → assert a `personal` `scan-failed` needs **no** recorded acceptance while a `personal` `tool-unavailable` does → **mutation:** route both through one arm → RED whichever way it is routed. An `organizational` findings fixture with no disposition stops; with recorded dispositions completes, and each `accepted risk` appears as an `adoption_event` row in a fixture ledger **that contains it** (the dead-pin lesson of v1 §8.9). **Mutation:** accept without a signer → RED. A `personal` findings fixture **completes and prints every finding** → **mutation:** make the personal arm stop → RED; **converse mutation:** make the organizational arm warn → RED. **Both directions or one arm is vacuous** — a tiering pinned on one side passes against a table that ignores the tier. `tool-unavailable` stops at both tiers → **mutation:** add any proceed path → RED **at `organizational`**. At `personal` the tiered escape needs both directions or it is vacuous: a fixture with a recorded acceptance completes and the acceptance appears as an `adoption_event` row in a ledger that contains it → **mutation:** drop the signer → refuses → RED; and a fixture with NO acceptance stops → **mutation:** let it proceed unrecorded → RED. **The `organizational` hard refusal needs its own pin in the opposite direction:** feed it a validly recorded acceptance and assert it STILL refuses → **mutation:** wire the personal escape into the organizational arm → the fixture adopts → RED. That is the assertion that catches a tiering implemented as one shared code path |
 | **WP11 — Archive classes `script` and `document` (D1, D3 mechanics)** | Extend `adopt_archive_inventory` with both classes; framework-wins install with the receipt check; the every-path notice and the standing warning (string-pinned — it is a decision, not phrasing); **the archived-document disclosure per §7.2 — every archived document named with its archive path AND the explicit invitation to retrieve content into the new framework file** (D3's reach ruling, 2026-08-31); the framework-document set derived from `init.sh`'s writers; Act 2 archives colliding documents, replaces nothing (Act 4 replaces). **Boundary: no document *writing* — WP12's.** | A fixture with a colliding `scripts/validate.sh`: after Act 2 the framework's bytes are at the path, theirs are in the archive with a MANIFEST row and restore line, and the notice names the path. **Mutation A:** restore skip-on-collision → the framework's file absent at the path → RED. **Mutation B:** drop the receipt check → an unarchived colliding path is overwritten in a crafted fixture → RED. **Mutation C:** reduce the notice to a count → RED (path-presence assertion). `--re-add` on class `script` warns, restores byte-identically, records |
-| **WP12 — Acts 3 and 4: assessment, verdict, placement, documents (D4, D6, D7, D8)** | The `resume.sh` fifth branch (predicate §8.5, ordered before the intake branch); the assessment brief writer; the interview per §5.2 (data classification non-skippable at the placement write); the assessment record schema; `soif_adoption_assess` (§8.3); the D3 document writing with v1 §8.6 provenance headers and the §7.2 receipt rule, now **including `FEATURES.md`, `BUGS.md` and `RELEASE_NOTES.md`** and repeating the retrieve-from-archive invitation at each new file's creation (§7.2); the D6 rebuild exit with `# BL-204-PREFILL-READ`-pattern intake pre-fill; the D8 verdict artifact and its two-halves check; revise `docs/adoption.md` and `docs/scout.md` to describe v2. **Boundary: the model conducts the interview; every proof below is a shell-checkable edge, and the model's judgment quality is explicitly not provable by suite** (§12). | `resume.sh` on an adopted-unassessed fixture emits the assessment prompt; on an assessed one, the ordinary branch for its landed phase. **Mutation:** break the predicate's assessment half → an assessed project re-prompts for assessment → RED; break its order → an adopted-unassessed fixture with a blank-cell intake gets the intake prompt → RED. Placement without a recorded data classification refuses → **mutation:** default it → the fixture lands ≥2 and the shipped ZDR backstop fails the gate → RED. A fitness finding without a requirement pointer fails the verdict check → RED. The verdict artifact missing its plain half, or its recommendation missing reasoning, fails the two-halves check → RED. An Act 4 write to a pre-existing unarchived path refuses → RED |
+| **WP12 — Acts 3 and 4: assessment, verdict, documents, intake pre-fill (D4, D6, D7, D8, D10)** | The `resume.sh` fifth branch (predicate §8.5, ordered before the intake branch); the assessment brief writer; the interview per §5.2 (data classification non-skippable at the Phase 0 intake write); the assessment record schema; `soif_adoption_assess` (§8.3); the D3 document writing with v1 §8.6 provenance headers and the §7.2 receipt rule, now **including `FEATURES.md`, `BUGS.md` and `RELEASE_NOTES.md`** and repeating the retrieve-from-archive invitation at each new file's creation (§7.2); the D6 rebuild exit with `# BL-204-PREFILL-READ`-pattern intake pre-fill; the D8 verdict artifact and its two-halves check; revise `docs/adoption.md` and `docs/scout.md` to describe v2. **Boundary: the model conducts the interview; every proof below is a shell-checkable edge, and the model's judgment quality is explicitly not provable by suite** (§12). | `resume.sh` on an adopted-unassessed fixture emits the assessment prompt; on an assessed one, the ordinary phase-0 branch. **Mutation:** break the predicate's assessment half → an assessed project re-prompts for assessment → RED; break its order → an adopted-unassessed fixture with a blank-cell intake gets the intake prompt → RED. The Phase 0 intake write without a recorded data classification refuses → **mutation:** default it → the write succeeds → RED. **Assert on the refusal, not on a landed phase:** the first draft of this proof ended "the fixture lands ≥2 and the shipped ZDR backstop fails the gate", which under D10 can never happen — nothing lands ≥2 — so the mutation had no reachable RED. A fitness finding without a requirement pointer fails the verdict check → RED. The verdict artifact missing its plain half, or its recommendation missing reasoning, fails the two-halves check → RED. An Act 4 write to a pre-existing unarchived path refuses → RED |
 | **WP7 (re-cut) — Adoption Record + audit rows + CI carve-out + provenance lint + the commit-time hook** | v1-WP7's deliverables with §8.6's content re-cut: the record (eight clauses, record lint), `adoption_event` across all five enum surfaces with a fixture that contains it, the CI audit and keep-or-retire record, the provenance-header lint, and — **last, as Karl already decided** — the fallback pre-commit hook install, now that the artifacts it reads exist. | v1-WP7's re-aimed proofs carry: the record lint is the mutation target for clause 5; the joint-violation fixture is the labelled defense-in-depth proof. The hook installed on a completed fixture admits a compliant commit and blocks a non-compliant one **by exit code**; installed-before-artifacts is unreachable by construction (it is the last step of the last package) — assert the reachable half |
 
 Every new suite registers in **both** `tests/full-project-test-suite.sh` and the `tests.yml`
@@ -1264,8 +1351,8 @@ only, so WP9's stamp changes must add their pins to a PR-blocking suite, not tha
   already has.
 - **Landing at the scanned rung in Act 2, assessment optional** — rejected. It reintroduces
   land-high-by-abandonment through the evidence door: a project with impressive artifacts and no
-  verified assessment would rest above phase 0 with nobody having looked. Provisional phase 0 is
-  the only resting state the promise permits (§3.6).
+  verified assessment would rest above phase 0 with nobody having looked. Phase 0 is
+  the only resting state the promise permits — and under D10 the only one it can express (§3.6).
 - **Performing the rebuild inside adoption** — rejected by D6: unbounded, and duplicates the
   ordinary path that already exists.
 - **Stack-based fitness verdicts** — rejected by D7: an opinion wearing a certification stamp.
@@ -1316,9 +1403,10 @@ only, so WP9's stamp changes must add their pins to a PR-blocking suite, not tha
 
 **Cannot be known before a real adoption:**
 
-5. **Whether the assessment's placements are well-calibrated.** v1's least-certain mechanism was
-   the re-expressed artifact ladder; v2 moves that uncertainty into a model-driven judgment with
-   evidence requirements. The failure direction is preserved — an unassessed or badly-assessed
+5. **Whether the assessment's FINDINGS are well-calibrated.** Not its placements — under D10 it
+   makes none, which retires the sharpest half of this residual: a mis-calibrated assessment can
+   no longer put a project on a rung it has not earned, because it puts it on no rung at all. What
+   remains is whether the fitness verdict and the plan are sound. The failure direction is preserved — an unassessed or badly-assessed
    project rests at phase 0, which certifies too little, never too much — but calibration itself
    is only measurable on real projects.
 6. **Whether operators run Act 3 at all.** The scheme is safe under abandonment (§3.6); it is not
@@ -1623,8 +1711,8 @@ input; `## BL-242:`'s derivation reads `deployment` alone.
 
 - **Every commissioned element present?** Document Control with a derivation-based status row; the
   supersession-and-overturning statement in front matter, §0.2 and §4.1 rather than a footnote;
-  the plain-English overview in the messaging standard's five-part shape; §0.1's nine decisions
-  with Karl's D4 reasoning verbatim; the four acts with the provisional landing's load-bearing
+  the plain-English overview in the messaging standard's five-part shape; §0.1's ten decisions
+  with Karl's D4 reasoning verbatim; the four acts with the phase-0 landing's load-bearing
   argument (§3.6); the **tier-scoped** secrets check with all three statuses (§6.1), with
   both not-scanned statuses ruled and **deliberately different** (§6.1's severity ladder, §6.4) and
   the tier value's source settled by D9 (§6.5); the two new archive classes with the
@@ -1666,8 +1754,8 @@ input; `## BL-242:`'s derivation reads `deployment` alone.
   of them were derived. **The claim a self-review makes about its own rigour is the claim least
   likely to have been checked. Re-derive the numbers; do not read this bullet.**
 - **Biggest attack surface for the reviewer.** (1) §5's dissolution of certification into
-  assessment — the claim that "no claimed rung" removes the certification pass's object is the
-  deepest structural consequence drawn from D4, and a reviewer should try to construct a case
+  assessment — the claim that no rung — claimed or landed — leaves the certification pass without an object is the
+  deepest structural consequence drawn from D4 and D10, and a reviewer should try to construct a case
   where a project needs gate-by-gate certification that the assessment record does not subsume.
   (2) §8.7's admission that the skip set is unenumerated — the init-parity audit is scheduled, not
   done, and until it lands this design cannot claim Act 2 is complete. Both are flagged rather
@@ -1690,10 +1778,13 @@ part of this document's record. Nothing below is waiting on him; these are the r
 3. **The document-set boundary (§7.2).** The framework-required set is derived from `init.sh`'s
    writers. Is that the right universe, or should the phase gates' *readers* define it — the two
    derivations may not agree, and whichever is chosen, the other is a drift check WP11 could pin.
-4. **Act 4's placement authority (§8.3).** One audited shell write advances `current_phase` to the
-   landed rung, on assessment evidence, without passing through the phase-gate script per boundary.
-   Is the assessment record plus the Adoption Record enough of a paper trail, or should Act 4
-   replay each crossed boundary through `scripts/check-phase-gate.sh` for its side effects?
+4. ~~**Act 4's placement authority (§8.3).**~~ **Retired by D10** — Act 4 writes no
+   `current_phase`, so there is no bypass to justify. Kept struck because an adversarial review
+   blocked on precisely this question, and the answer was to remove the write rather than defend
+   it. *(The question this row used to ask — whether Act 4 should replay each crossed boundary
+   through `scripts/check-phase-gate.sh` — survived the strikethrough in the first draft of this
+   retirement, still posed as open, two lines under a note saying the write it referred to is
+   gone.)*
 5. **The interview's floor on maturity questions (§5.2).** v1's S1 interview asked operations
    questions when the operator claimed completion; v2 asks them when evidence shows maturity. If
    the evidence is wrong in the low direction, nobody is asked about incident response for a
