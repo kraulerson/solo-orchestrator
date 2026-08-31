@@ -59,7 +59,22 @@ adopt_blank() { printf '\n'; }
 # that does not exist.
 adopt_refuse() {
   printf '\n[REFUSED] %s\n' "$1" >&2
-  printf '          Adoption did not complete. Nothing has been committed.\n' >&2
+  # BL-225-REFUSE-HONEST: "Nothing has been committed" is TRUE of every refusal
+  # — adoption commits once, at the end — and it was the whole message, which
+  # made it read as "nothing happened". It does not follow: BL-225 measured a
+  # refusal arriving over 78 files already on disk. Say what is true of the
+  # DISK as well as of the history, and derive the count rather than implying
+  # one.
+  local _n
+  _n=$(adopt_written_paths 2>/dev/null | grep -c .) || _n=0
+  case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+  if [ "$_n" -gt 0 ]; then
+    printf '          Adoption did not complete and NOTHING WAS COMMITTED — but %s file(s) were\n' "$_n" >&2
+    printf '          already written into this project. They are on disk and unstaged; `git status`\n' >&2
+    printf '          lists them. Anything of yours that was moved aside was archived first.\n' >&2
+  else
+    printf '          Adoption did not complete. Nothing has been committed and nothing was written.\n' >&2
+  fi
   return 1
 }
 
@@ -243,6 +258,43 @@ adopt_written_paths() {
   [ -n "$ADOPT_WRITTEN_LEDGER" ] || return 0
   [ -f "$ADOPT_WRITTEN_LEDGER" ] || return 0
   sort -u "$ADOPT_WRITTEN_LEDGER"
+}
+
+# adopt_paths_ignored ROOT PATH... — do the adoptee's OWN ignore rules exclude
+# any of PATH...? Prints the excluded ones, one per line.
+#
+#   rc 0  -> DO NOT PROCEED. Either something is ignored (stdout names it), or
+#            the question could not be answered (stdout says so).
+#   rc 1  -> none of PATH... is ignored.
+#
+# WHY IT EXISTS (BL-225). `git add` on a MIXED pathspec stages the clean paths
+# and exits 1. The driver stages every recorded path in ONE `git add`, so a
+# single ignored entry left the adoptee HALF-STAGED under a refusal. Measured:
+# 78 written, 64 staged, rc 1. The only safe move is to ask BEFORE adding and
+# to refuse whole; withholding is not available here, because skipping
+# `.claude/manifest.json` produces a broken install rather than a disclosed
+# omission (that is `_adopt_record_if_stageable`'s job, for paths that CAN be
+# skipped).
+#
+# IT FAILS CLOSED, AND THAT IS THE LOAD-BEARING HALF. `git check-ignore` exits
+# 0 (some ignored), 1 (none) or 128 (fatal) — and it IS fatal under the
+# pathspec-magic environment variables, which
+# tests/test-brownfield-wp6-collision-archive.sh MEASURED rather than guessed
+# (its R-WP6-18). A probe that wraps the call in 2>/dev/null and tests only for
+# rc 0 scores that fatal as "nothing is ignored" and proceeds — the fail-open
+# this function refuses. "Could not measure" is never "nothing to measure".
+adopt_paths_ignored() {
+  local root="$1"; shift
+  [ "$#" -gt 0 ] || return 1
+  local out rc
+  out=$( cd "$root" 2>/dev/null && printf '%s\n' "$@" | git check-ignore --stdin 2>/dev/null )
+  rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$out"; return 0 ;;
+    1) return 1 ;;
+  esac
+  printf 'could not determine whether these paths are ignored (git check-ignore failed, rc %s)\n' "$rc"
+  return 0  # BL-225-IGNORE-FAILCLOSED
 }
 
 # ── Writes ──────────────────────────────────────────────────────────────────

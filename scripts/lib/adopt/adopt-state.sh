@@ -308,11 +308,36 @@ STAGE_SET
     adopt_refuse "there is nothing to commit — no file was recorded as written"
     return 1
   fi
+  # BL-225-STAGE-PREFLIGHT: ask BEFORE adding, and refuse WHOLE.
+  #
+  # `git add` on a mixed pathspec STAGES THE CLEAN PATHS AND EXITS 1 — measured,
+  # not assumed (BL-225: 78 written, 64 staged, rc 1; reproduced as T1 of
+  # tests/test-bl225-staging-preflight.sh). The old code discovered that from
+  # `git add`'s exit status, by which point the index was already half-written
+  # and the refusal below could only ask a question about it. This asks first,
+  # so the index is never touched on the failing path.
+  #
+  # The check runs over FILES_TO_STAGE, which is COMPLETE BY CONSTRUCTION: it
+  # is exactly the set the `git add` would receive, so nothing can reach the
+  # index unexamined regardless of which writer recorded it.
+  local _ignored
+  if _ignored=$(adopt_paths_ignored "$root" "${FILES_TO_STAGE[@]}"); then
+    adopt_refuse "your project's own ignore rules exclude file(s) this adoption must commit"
+    {
+      printf '          NOTHING WAS STAGED — your index is exactly as you left it.\n'
+      printf '          The path(s) in question:\n'
+      printf '%s\n' "$_ignored" | sed 's/^/            /'
+      printf '          These are framework files the adoption needs tracked, so they cannot be\n'
+      printf '          quietly skipped: an install missing them is broken rather than reduced.\n'
+      printf '          Un-ignore them in .gitignore and run adoption again.\n'
+    } >&2
+    return 1
+  fi
   adopt_head "Committing exactly what was written"
   adopt_note "$n file(s), named one by one. Anything else you had in progress stays"
   adopt_note "exactly as you left it — unstaged, uncommitted, untouched."
   ( cd "$root" && git add -- "${FILES_TO_STAGE[@]}" ) || {   # BF-ADOPT-STAGE-EXPLICIT
-    adopt_refuse "could not stage the adoption files (are any of them ignored by .gitignore?)"
+    adopt_refuse "could not stage the adoption files"
     return 1
   }
   ( cd "$root" && git commit -q -m "chore: adopt ${ADOPT_PROJECT_NAME:-this project} into the Solo Orchestrator framework" ) || {

@@ -770,6 +770,15 @@ run_child_suite "tests/test-brownfield-wp6-collision-archive.sh" \
   "Collision archive (layout, MANIFEST, disclosure, re-add audit, archive-secrets refusal)" \
   "Adoption WP6 collision-archive tests FAILED (run tests/test-brownfield-wp6-collision-archive.sh for details)"
 
+# BL-225: the staging preflight. T1 REPRODUCES the defect (a mixed `git add`
+# pathspec stages the clean paths and exits 1) rather than describing it, so a
+# git that ever changed that behaviour would be caught here rather than in a
+# half-staged adoptee. Sources the adopt libs directly; never invokes the
+# scaffolder -> both lanes.
+run_child_suite "tests/test-bl225-staging-preflight.sh" \
+  "Adoption staging preflight (refuse whole, never half-stage; fail-closed check-ignore)" \
+  "BL-225 staging-preflight tests FAILED (run tests/test-bl225-staging-preflight.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
