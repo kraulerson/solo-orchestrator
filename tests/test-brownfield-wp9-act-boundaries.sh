@@ -489,10 +489,20 @@ printf '{"host":"github"}\n' > "$E5/manifest.json"
 e5_rc=0; ( cd "$E5" && soif_adoption_stamp "manifest.json" "" ) || e5_rc=$?
 e5_written=0; jq -e '.adoption' "$E5/manifest.json" >/dev/null 2>&1 && e5_written=1
 e5_marker=$(_sites "$L_STAMP" 'BL-242-STAMP-SHA-REQUIRED')
-if [ "$e5_rc" -eq 1 ] && [ "$e5_written" -eq 0 ] && [ "$e5_marker" -eq 1 ]; then
-  pass "E5: an EMPTY evidence hash is refused by the stamp itself (rc $e5_rc, nothing written) — the durable record never claims a hash it does not have"
+# THE ORDERING IS THE PROPERTY, AND IT NEEDS A FIXTURE THAT CAN SEE IT. The
+# guard's comment says it sits BEFORE the jq/manifest no-op arms deliberately —
+# those return 0 for "this host cannot stamp" while this one returns 1 for
+# "this CALL is wrong", and a caller that cannot tell them apart treats a
+# malformed stamp as a host limitation. On the fixture above BOTH jq and a
+# manifest exist, so swapping the order changes nothing there. A MISSING
+# manifest discriminates: shipped refuses (rc 1), an order-swapped guard
+# no-ops (rc 0).
+e5_order=0
+( cd "$E5" && soif_adoption_stamp "no-such-manifest.json" "" ) || e5_order=1
+if [ "$e5_rc" -eq 1 ] && [ "$e5_written" -eq 0 ] && [ "$e5_marker" -eq 1 ] && [ "$e5_order" -eq 1 ]; then
+  pass "E5: an EMPTY evidence hash is refused by the stamp itself (rc $e5_rc, nothing written), and refused BEFORE the no-op arms — a missing manifest still yields a refusal rather than the rc 0 that means 'this host cannot stamp'"
 else
-  fail_ "E5: the stamp accepted an empty evidence hash" "rc=$e5_rc block-written=$e5_written marker-sites=$e5_marker"
+  fail_ "E5: the stamp accepted an empty evidence hash, or checked it too late" "rc=$e5_rc block-written=$e5_written marker-sites=$e5_marker refuses-before-the-no-op-arms=$e5_order (want 1)"
 fi
 
 echo "=== V — A6: the evidence block survives, re-worded ==="
@@ -639,6 +649,13 @@ r1_prompt="$TOPTMP/r1-resume"
 ( cd "$CTL/p" && bash scripts/resume.sh ) > "$r1_prompt" 2>&1 || true
 r1_fallback=1; grep -qF "Section 13 is your initialization prompt" "$r1_prompt" 2>/dev/null && r1_fallback=0
 r1_heading=$(grep -c '^## 13\.' "$CTL/p/PROJECT_INTAKE.md" 2>/dev/null); r1_heading=$(_num "$r1_heading")
+# ONE HEADING, COUNTED BY TITLE RATHER THAN BY NUMBER. Counting `^## 13\.`
+# reads 1 whether or not the ledger's own `## Agent Initialization Prompt` row
+# is also emitted five lines above it — which is the double-heading defect,
+# and restoring it was green until this line existed. The first of the two
+# headings was false twice over (it attributed the prompt to
+# `intake-wizard.sh`'s `run_section_13`, which never runs during an adoption).
+r1_titles=$(grep -c 'Agent Initialization Prompt' "$CTL/p/PROJECT_INTAKE.md" 2>/dev/null); r1_titles=$(_num "$r1_titles")
 
 # EVERY LOAD-BEARING SENTENCE OF THE PROMPT, NOT TWO OF THEM.
 #
@@ -705,15 +722,16 @@ WHAT YOU DO NOT HAVE
 Do not act as though a process reference is attached
 Do not infer them from
 Data classification is NOT OPTIONAL and has no default
+cross its Phase 1 to 2 gate without it, and adoption did not ask for it
 Then run Phase 0 as the framework defines it, from the beginning
 blank cells are open questions, not permissions
 Do not suggest that any gate be skipped
 That is the exact reasoning adoption exists to refuse
 R1PHRASES
-if [ -z "$r1_missing" ] && [ "$r1_fallback" -eq 1 ] && [ "$r1_heading" -eq 1 ]; then
+if [ -z "$r1_missing" ] && [ "$r1_fallback" -eq 1 ] && [ "$r1_heading" -eq 1 ] && [ "$r1_titles" -eq 1 ]; then
   pass "R1: scripts/resume.sh — the command Act 2's handoff prints — extracts a REAL prompt from the adopted intake's own '## 13.' section, and every load-bearing sentence of that prompt is pinned: adopted-not-scaffolded, phase 0 with no gate crossed, the blank cells, the survey's limit, the false-attachment disclaimer, the classification, and the anti-skip rule"
 else
-  fail_ "R1: the advertised route does not deliver the prompt it must" "missing-sentences:${r1_missing:- none} escaped-the-fallback=$r1_fallback section-13-headings=$r1_heading (want 1)"
+  fail_ "R1: the advertised route does not deliver the prompt it must" "missing-sentences:${r1_missing:- none} escaped-the-fallback=$r1_fallback section-13-headings=$r1_heading (want 1) prompt-titles=$r1_titles (want 1)"
 fi
 
 # R1b — the archive item is CONDITIONAL, asserted in BOTH directions, because a
@@ -745,10 +763,28 @@ for k in last_section project_name platform track deployment language descriptio
   jq -e --arg k "$k" 'has($k)' "$CTL/p/.claude/intake-progress.json" >/dev/null 2>&1 || r2_missing="$r2_missing $k"
 done
 r2_last=$(jq -r '.last_section // "MISSING"' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
-if [ -z "$r2_missing" ] && [ "$r2_last" = "0" ]; then
-  pass "R2: .claude/intake-progress.json carries all seven keys intake-wizard.sh's load_progress() subscripts, and last_section is 0 — so --resume starts at Section 1 and WALKS Section 5 instead of resuming past it"
+
+# `last_section` IS NOT THE ONLY SKIP MECHANISM, and pinning it alone left the
+# original defect reachable through a second door. `run_script_mode` also
+# consults `is_section_complete`, which reads **completed_sections** — so a
+# progress file with `last_section: 0` and `completed_sections: [1..13]`
+# resumes at Section 1 and then prints `[OK] Section 5 — already complete`
+# before reporting "Intake Complete!" at rc 0. That is the SAME failure §8.3a-A7
+# records against the pre-fix tree, reached by a key this case did not watch.
+r2_done=$(jq -r '.completed_sections | length' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
+r2_done=$(_num "$r2_done")
+
+# AND PRESENCE IS NOT VALUE. `jq -e 'has($k)'` is TRUE for an explicit null,
+# and python's `shlex.quote(None)` returns '' rather than raising, so a null
+# `project_name` resumes with a silently blanked name past every has()-check.
+# The one key adoption genuinely knows is asserted by VALUE; the four it cannot
+# know stay empty by design and are not.
+r2_pn=$(jq -r '.project_name // ""' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
+
+if [ -z "$r2_missing" ] && [ "$r2_last" = "0" ] && [ "$r2_done" -eq 0 ] && [ -n "$r2_pn" ]; then
+  pass "R2: .claude/intake-progress.json carries all seven keys intake-wizard.sh's load_progress() subscripts with a real project_name, last_section is 0 AND completed_sections is empty — so --resume starts at Section 1 and WALKS Section 5 rather than skipping it by either of the two mechanisms that can"
 else
-  fail_ "R2: the progress file cannot be resumed from" "missing-keys:${r2_missing:- none} last_section=$r2_last (want 0)"
+  fail_ "R2: the progress file cannot be resumed from" "missing-keys:${r2_missing:- none} last_section=$r2_last (want 0) completed_sections=$r2_done (want 0) project_name='$r2_pn' (want non-empty)"
 fi
 
 # R3 — THE ESCAPE HATCH, executed. `check-phase-gate.sh`'s Phase 1->2 ZDR block
@@ -833,6 +869,27 @@ if mk_mirror "$R5M/fw"; then
   r5_shipped_refuses=$(grep -c 'BL-242-ORCH-SOURCE$' "$L_STATE" 2>/dev/null); r5_shipped_refuses=$(_num "$r5_shipped_refuses")
   r5_shipped_spelling=0
   grep -E '^[[:space:]]*adopt_write_orchestrator_source "\$root" \|\| return 1[[:space:]]+# BL-242-ORCH-SOURCE$' "$L_STATE" >/dev/null 2>&1 && r5_shipped_spelling=1
+
+  # AND THE FUNCTION ITSELF MUST REFUSE — ASSERTED BY CALLING IT, NOT BY
+  # GREPPING IT. The line above pins the CALL SITE, and a swallow moved ONE
+  # LINE DOWN into the function's own writer (`| adopt_write_file … || true`)
+  # leaves that call site byte-identical: the adoption then completes at rc 0
+  # with a zero-byte hatch file and `reconfigure-project.sh` dead. There are
+  # TWO DOORS and a textual pin on one of them cannot stand in for the
+  # property, which is what a textual pin has now failed to do twice.
+  #
+  # So: source the lib in a subshell, stub `adopt_write_file` to fail, and
+  # require the function to return non-zero. Behaviour, not spelling.
+  r5_fn_refuses=0
+  (
+    # shellcheck source=/dev/null
+    . "$REPO_ROOT/scripts/lib/adopt/adopt-core.sh" >/dev/null 2>&1
+    # shellcheck source=/dev/null
+    . "$L_STATE" >/dev/null 2>&1
+    adopt_write_file() { return 1; }
+    ADOPT_FRAMEWORK_ROOT="$REPO_ROOT"
+    adopt_write_orchestrator_source "$R5M" >/dev/null 2>&1
+  ) || r5_fn_refuses=1
   cp -p "$R5M/fw/scripts/lib/adopt/adopt-state.sh" "$R5M/pre.sh"
   _sed_inplace "$R5M/fw/scripts/lib/adopt/adopt-state.sh" \
     's/^.*BL-242-ORCH-SOURCE$/  adopt_write_orchestrator_source "$root" || true   # BL-242-ORCH-SOURCE/'
@@ -849,11 +906,11 @@ if mk_mirror "$R5M/fw"; then
     r5_rc="$RUN_RC"
     r5_src=0; [ -s "$R5M/p/.claude/orchestrator-source.json" ] && r5_src=1
   fi
-  if [ "$r5_shipped_refuses" -eq 1 ] && [ "$r5_shipped_spelling" -eq 1 ] \
+  if [ "$r5_shipped_refuses" -eq 1 ] && [ "$r5_shipped_spelling" -eq 1 ] && [ "$r5_fn_refuses" -eq 1 ] \
      && [ "$r5_changed" -eq 2 ] && [ "$r5_parse" -eq 1 ] && [ "$r5_rc" = "0" ] && [ "$r5_src" = "0" ]; then
     pass "R5 (MUTATION): the SHIPPED call refuses on a failed hatch write (asserted positively, independent of this case's own edit), and with that failure swallowed the adoption COMPLETES at rc $r5_rc with the escape-hatch file ABSENT"
   else
-    fail_ "R5 (MUTATION): the shipped call does not refuse, or swallowing its failure produced no silent success" "shipped-marker-sites=$r5_shipped_refuses (want 1) shipped-refuses-on-failure=$r5_shipped_spelling (want 1) changed=$r5_changed parses=$r5_parse rc=$r5_rc (want 0) source-file-present=$r5_src (want 0)"
+    fail_ "R5 (MUTATION): the shipped call does not refuse, or swallowing its failure produced no silent success" "shipped-marker-sites=$r5_shipped_refuses (want 1) call-site-refuses=$r5_shipped_spelling (want 1) FUNCTION-refuses-when-its-write-fails=$r5_fn_refuses (want 1) changed=$r5_changed parses=$r5_parse rc=$r5_rc (want 0) source-file-present=$r5_src (want 0)"
   fi
 else
   fail_ "R5 (MUTATION): mirror setup" "mk_mirror failed"

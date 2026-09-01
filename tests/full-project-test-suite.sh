@@ -783,7 +783,11 @@ run_child_suite "tests/test-bl225-staging-preflight.sh" \
 # assertion in it is an ABSENCE (a question no longer asked, a field no longer
 # recorded, a stub no longer printed), so every one of them is paired with a
 # positive control in the same fixture — the run completed, the state exists,
-# the surviving half of the surface is present. Six mutants. Runs the driver
+# the surviving half of the surface is present. Eight mutants, and DERIVE that
+# rather than trusting this sentence — it said six for two rounds after R4 and
+# R5 landed:
+#   grep -c 'pass "[A-Z0-9]* (MUTATION)' tests/test-brownfield-wp9-act-boundaries.sh
+# A bare `grep -c '(MUTATION)'` returns 31; the string appears in prose too. Runs the driver
 # against fixtures and a scratch framework MIRROR; never invokes the
 # scaffolder -> both lanes.
 run_child_suite "tests/test-brownfield-wp9-act-boundaries.sh" \
