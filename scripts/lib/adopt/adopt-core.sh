@@ -307,7 +307,9 @@ ADOPT_COMMITTED=0
 # reachable to create it.
 adopt_touched_disk() {          # BL-225-TOUCHED-DISK
   [ -n "${ADOPT_WORK:-}" ] || return 0
-  : > "$ADOPT_WORK/touched" 2>/dev/null || true
+  # Braced: redirections apply left to right, so `: > X 2>/dev/null` lets the
+  # `>` failure print before the `2>` is in effect. The suppression was inert.
+  { : > "$ADOPT_WORK/touched"; } 2>/dev/null || true
   return 0
 }
 adopt_has_touched_disk() {      # BL-225-TOUCHED-DISK

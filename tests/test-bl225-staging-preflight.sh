@@ -201,7 +201,7 @@ chk "T8: and stages NOTHING — the decider sees the WHOLE set, not just [0]" "$
 chk "T8: git's force hint is never relayed"         "$(printf '%s' "$t8err" | grep -c 'really want to add them')" "0"
 chk "T8: and the remedy line is present"            "$(printf '%s' "$t8err" | grep -c 'Un-ignore them in .gitignore')" "1"
 
-echo "== T9 — every tree-writing site raises the touched marker (DENYLIST, not a list) =="
+echo "== T9 — a NET over the write shapes we know. Not a proof. =="
 # THE INVARIANT IS TESTED BECAUSE ASSERTING IT FAILED — TWICE, IN DIFFERENT WAYS.
 # First the flag's comment claimed "ANY writer" while it was set at two of
 # twelve sites. Then this check's own recipe was an ALLOWLIST of specific
@@ -273,7 +273,21 @@ _writers() {
 #                  it replaced, where an unrecognised target was silently absent
 #                  instead of loudly flagged.
 #
-# WHAT THIS IS AND IS NOT. It is a NET, not a proof. It catches a new writer
+# WHAT THIS IS AND IS NOT — AND THIS PARAGRAPH IS THE FINDING, NOT A CAVEAT.
+# This check has been rewritten twice and defeated twice, each rewrite opening a
+# new blind spot of the same shape. That is evidence about the APPROACH: **a
+# shell regex cannot decide "does this line write into the adoptee's tree",
+# because the answer depends on variable provenance the line does not carry.**
+# `printf x > "$root/f"` and `printf x > "$TD_TMP/f"` are the same shape and
+# opposite answers. So this stopped being rewritten, and is instead labelled
+# honestly and paired with a cross-check that does not depend on the recipe
+# being complete (T10). Known gaps, recorded on `## BL-225:` rather than
+# papered over: `printf … > file` and `echo … > file` (the output-function arm
+# removes them, and it must, or it removes nearly every real writer instead);
+# `tee`; a redirect with no space after `>`; and an exemption matching on the
+# READ side of a line whose write target is in the tree.
+#
+# It is a NET, not a proof. It catches a new writer
 # that uses any of the shapes above, which is how review defeated the previous
 # recipe — an ordinary new function writing to `"$dest"`. It does NOT verify
 # REACHABILITY: a marker call wrapped in a never-true condition would satisfy
@@ -281,7 +295,13 @@ _writers() {
 # rather than textual — the marker is a FILE, so a placed-but-unreachable call
 # creates nothing and the BEHAVIOURAL assertions (T7, and the archive probe)
 # fail instead. Recorded on `## BL-225:` as a residual rather than implied.
-_markers() { grep -rn 'adopt_touched_disk$\|adopt_touched_disk ' "$REPO_ROOT"/scripts/lib/adopt/*.sh | grep -v '^.*:[0-9]*: *#' | cut -d: -f1,2; }
+_marker_files() {   # files that call the marker, by basename
+  grep -rlE '(^|[^A-Za-z0-9_])adopt_touched_disk([^A-Za-z0-9_]|$)' "$REPO_ROOT"/scripts/lib/adopt/*.sh \
+    | xargs -n1 basename | sort -u
+}
+_writer_files() {   # files the recipe believes contain writers, by basename
+  _writers | cut -d: -f1 | xargs -n1 basename | sort -u
+}
 t9_w=$(_writers | wc -l | tr -d ' ')
 chk "T9: the recipe still matches tree-writing sites at all" \
   "$([ "${t9_w:-0}" -gt 0 ] && echo yes || echo no)" "yes"
@@ -302,6 +322,23 @@ done <<T9SET
 $(_writers)
 T9SET
 chk "T9: every tree-writing site is preceded by the marker (writers=$t9_w)" "$t9_missing" "0"
+
+echo "== T10 — the recipe cannot collapse silently (two independently derived sets) =="
+# T9's weakness is that it can only fail on writers it FINDS. Twice now the
+# recipe has silently stopped finding almost everything — once via a `/dev/null`
+# exclusion that matched `2>/dev/null` on nearly every writer, once via an
+# `adopt_refuse "` exclusion that matched their error tails — and T9 stayed
+# green over a collapsed set both times. `t9_w > 0` cannot see that.
+#
+# This compares two sets derived INDEPENDENTLY: files that call the marker, and
+# files the recipe believes contain writers. A file that raises the marker but
+# yields no writer means the recipe stopped seeing that file. No transcribed
+# number is involved, so it cannot rot.
+t10_bad=0
+for _mf in $(_marker_files); do
+  _writer_files | grep -qx "$_mf" || { t10_bad=$((t10_bad + 1)); echo "         (T10) $_mf calls the marker but the recipe finds no writer in it"; }
+done
+chk "T10: every file that raises the marker also yields a writer" "$t10_bad" "0"
 
 # ORDER-SENSITIVE: M2 and M3 each `cp` their own mutant over
 # "$MUTLIB/adopt-state.sh". Correct at the current ordering because each writes

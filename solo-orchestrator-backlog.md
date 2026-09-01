@@ -9519,13 +9519,27 @@ residual, all measured:
   a small, reasoned exemption list. Its first version was an ALLOWLIST of
   variable spellings; review defeated it in one attempt with an ordinary new
   function writing to `"$dest"`. The denylist catches that.
-- **RESIDUAL: T9 is a net, not a proof.** It verifies that a marker call
-  appears before the write inside the same function; it does NOT verify
-  REACHABILITY, and a call wrapped in a never-true condition would satisfy it.
-  That is not statically decidable here. The mitigation is structural rather
-  than textual — because the marker is a file, an unreachable call creates
-  nothing and the behavioural assertions fail instead. Recorded rather than
-  implied.
+- **RESIDUAL: the guard is a NET, not a proof, and this is a finding about the
+  APPROACH rather than about any one recipe.** It was rewritten twice and
+  defeated twice, each rewrite opening a new blind spot of the same shape,
+  because **a shell regex cannot decide "does this line write into the
+  adoptee's tree" — the answer depends on variable provenance the line does not
+  carry.** `printf x > "$root/f"` and `printf x > "$TD_TMP/f"` are the same
+  shape and opposite answers. It was therefore labelled honestly instead of
+  rewritten a third time. **Named gaps, each measured:** `printf … > file` and
+  `echo … > file` (the output-function filter removes them, and it must, or it
+  removes nearly every real writer instead — two real sites in this codebase sit
+  in that gap and both carry markers); `tee`; a redirect with no space after
+  `>`; an exemption matching on the READ side of a line whose write target is in
+  the tree; and REACHABILITY, which is not statically decidable — a marker call
+  inside a never-true condition satisfies the text check. Two mitigations, both
+  structural rather than textual: the marker is a FILE, so an unreachable call
+  creates nothing and the behavioural assertions fail instead; and **T10** cross-
+  checks two independently derived sets — every file that raises the marker must
+  also yield a writer — which catches the recipe silently collapsing. That
+  collapse happened twice (a `/dev/null` arm matching `2>/dev/null`, and an
+  `adopt_refuse "` arm matching error tails) and T9 stayed green through both;
+  T10 fails on it.
 
 **THE NARROWING IS DELIBERATE AND IS RECORDED RATHER THAN LEFT TO A DIFF.** This
 entry's title asks for a preflight, and the natural reading is *before anything

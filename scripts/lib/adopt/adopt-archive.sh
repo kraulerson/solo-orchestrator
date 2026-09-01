@@ -988,6 +988,20 @@ adopt_archive_readd() {
 # opinion.
 adopt_readd_main() {
   ADOPT_OPERATION="The re-add"   # BL-225-OPERATION: not an adoption run
+  # BL-225-TOUCHED-DISK: `--re-add` is dispatched BEFORE `adopt_main`, which is
+  # the only place `ADOPT_WORK` is ever assigned — so without this the marker
+  # writes nowhere and `adopt_has_touched_disk` answers "nothing touched" for
+  # this whole command. That regressed the audit-row contradiction one round
+  # after it was fixed: the refusal said "the audit row was already written"
+  # and then "nothing was written". A marker that is present, correctly placed
+  # and INERT is worse than an absent one, because the guard reads it as green.
+  if [ -z "${ADOPT_WORK:-}" ]; then
+    ADOPT_WORK="$(mktemp -d "${TMPDIR:-/tmp}/adopt-readd.XXXXXXXX" 2>/dev/null)" || {
+      echo "adopt-project: could not create a temporary working directory." >&2
+      return 2
+    }
+    trap 'rm -rf "$ADOPT_WORK"' EXIT INT TERM
+  fi
   local root="$1" want="$2"
   if ! command -v jq >/dev/null 2>&1; then
     echo "adopt-project: jq is required." >&2
