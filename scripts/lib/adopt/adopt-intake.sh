@@ -354,9 +354,19 @@ adopt_render_intake_progress() {
   # supposed to still ask it, and 13 was the number that guaranteed it never
   # would. Zero makes the wizard walk the whole intake.
   #
-  # The four values adoption cannot know are written EMPTY rather than guessed:
-  # an empty string satisfies the subscript and reads as unanswered, while a
-  # guessed platform or language would be a fact nobody supplied.
+  # ADOPTION KNOWS THREE OF THE SEVEN AND WRITES THE OTHER FOUR HONESTLY.
+  # Known: `project_name` (the directory), `deployment` (the tier question —
+  # its only source) and `track` ("full", the same value
+  # `adopt_write_phase_state` records, so the two files cannot disagree).
+  # Not known and therefore written EMPTY rather than guessed: `platform`,
+  # `language`, `description` — an empty string satisfies the subscript and
+  # reads as unanswered, while a guessed platform would be a fact nobody gave.
+  #
+  # *(This said "the four values adoption cannot know", and the paired sentence
+  # in the WP9a suite said "the one key adoption genuinely knows". Both were
+  # miscounts, and the second was the stated justification for pinning only
+  # `project_name` — which is why `deployment` and `track` could be blanked with
+  # every check green. A count in a comment can be load-bearing.)*
   jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson a "$answers_json" \
         --arg pn "$ADOPT_PROJECT_NAME" --arg dep "$ADOPT_DEPLOYMENT" \
     '{version: 1, started_at: $at, last_section: 0, completed_sections: [],
