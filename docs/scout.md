@@ -143,7 +143,7 @@ technical shape → a runnable test corpus → a deploy or release lane.
 ```text
 **Suggested starting point: 4.** The project is described, its shape is written down, it has runnable tests, and there is a way to get it out the door.
 
-This is a ceiling, not a verdict: maximum satisfied rung; the interview may only lower this
+This is a ceiling, not a verdict: maximum satisfied rung; evidence for the Phase 0 intake, never a placement
 
 | Step | Found? | What we looked at |
 |---|---|---|
@@ -154,9 +154,11 @@ This is a ceiling, not a verdict: maximum satisfied rung; the interview may only
 ```
 
 **The ladder stops at the first gap.** `suggestedPhase` is the highest
-*contiguously reached* rung, not the plain maximum — landing at phase N means
-certifying every gate below N, and that is a property of a prefix, not of a
-satisfied set with a hole in it. The plain maximum is published beside it as
+*contiguously reached* rung, not the plain maximum. The reason is unchanged by
+adoption landing everything at phase 0: reaching rung N is a claim about a
+PREFIX — every rung below it too — not about a satisfied set with a hole in it,
+and a ladder that skipped the hole would describe evidence the project does not
+have. The plain maximum is published beside it as
 `highestSatisfiedRung`, so the gap between the two is information rather than
 something thrown away.
 
@@ -172,7 +174,7 @@ Observed on a fixture whose rungs are yes / no / no / yes:
     { "rung": 3, "evidence": "a test command exists (`node test/run.js`) but no test corpus was found", "satisfied": false },
     { "rung": 4, "evidence": ".github/workflows/deploy.yml (a deploy or release lane)", "satisfied": true }
   ],
-  "note": "maximum satisfied rung; the interview may only lower this"
+  "note": "maximum satisfied rung; evidence for the Phase 0 intake, never a placement"
 }
 ```
 

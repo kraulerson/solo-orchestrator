@@ -668,8 +668,10 @@
       FAIL without it — a real failure, not a warning — and it fires whenever the project's phase reads 2 or
       more, <em>however it got there</em>. An adopted project starts at 0, below that gate. The gates are
       cumulative and keyed to evidence, so arriving at a rung without the evidence fails on the evidence
-      regardless of what moved you there. The run hands you <code>bash scripts/resume.sh</code>, whose kickoff
-      prompt names the classification as not optional.</p>
+      regardless of what moved you there. <strong>Today the gate refuses an adopted project earlier still</strong>,
+      on a missing <code>APPROVAL_LOG.md</code> that adoption does not yet write — a real refusal, but one that
+      names the approval log rather than the classification. The run hands you
+      <code>bash scripts/resume.sh</code>, whose kickoff prompt names the classification as not optional.</p>
     </div>
     <div class="mod-card">
       <h4>A halted run leaves you MORE enforced, never less</h4>
@@ -799,7 +801,7 @@
       pass and the schema-migration checks that normally run on every commit are <strong>not</strong> —
       installing that hook today would refuse every commit, because it expects artifacts an adoption does not
       yet produce. Run them by hand: <code>bash scripts/pre-commit-gate.sh --terminal-mode</code>.</li>
-      <li><strong>Your project's framework documents — unassigned.</strong> <code>CLAUDE.md</code>, the
+      <li><strong>Your project's framework documents — WP11 archives them, WP12b writes them (D3).</strong> <code>CLAUDE.md</code>, the
       document templates and the reference docs are not written. So an adopted project has working gates and
       <strong>no <code>CLAUDE.md</code></strong> — the file an agent reads at the start of every session.
       Write one by hand or copy <code>templates/generated/claude-md.tmpl</code> from the framework clone.</li>
@@ -810,13 +812,9 @@
       <li><strong>The per-finding secrets disposition — unassigned.</strong> Scout reports what is in your
       history (redacted); nothing collects a recorded decision — rotated / false alarm / accepted risk — for
       each finding. Read the scan report's secrets section before you trust the repo.</li>
-      <li><strong>The manifest's tier keys are not written</strong> (tracked as <code>## BL-221:</code>).
-      A scaffolded manifest carries <code>deployment</code>, <code>poc_mode</code> and
-      <code>enforcement_level</code>; an adopted one does not, and one tier reader
-      (<code>assert_choosable</code>) resolves an absent <code>deployment</code> to the <em>permissive</em>
-      default while its sibling <code>read_enforcement_level</code> fails closed to strict. The commit-time
-      gates are unaffected. <strong>If you adopt an organizational project, set those keys by hand before
-      anyone runs <code>reconfigure-project.sh</code>.</strong></li>
+      <li><strong>The per-capability owner strings, and this list itself.</strong> Each block above names the
+      work package that owes it. Read those against the design's build plan rather than instead of it — an
+      owner string is the driver's best guess at run time, and this feature has had to correct one.</li>
     </ul>
   </div>
 </section>

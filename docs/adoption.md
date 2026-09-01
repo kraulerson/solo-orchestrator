@@ -72,13 +72,25 @@ adopt-project — bring an existing project under the framework.
 
   --root DIR          the project to adopt (default: the current directory)
   --scan-report FILE  consume this Scout report instead of running a new scan
+  --re-add PATH       put one of YOUR archived files back, warned and recorded
   --version           print the driver's version and exit
   --help              print this and exit
 
+--re-add is the other half of the collision archive and it does NOT run an
+adoption. Point it at one of your own files as the archive MANIFEST names it
+(for example .git/hooks/pre-commit); it shows you what the framework thinks
+that trade costs, asks you to confirm, puts the file back exactly as it was,
+and records the choice in the audit trail. The framework's premise is
+opinionated enforcement, not confiscation — your files are yours.
+
 What it does, in order: reads the survey, offers what the survey found as
-EVIDENCE, asks you the one question the survey cannot answer, confirms the
-answers it already has and insists on the ones it does not, writes the
-project's state, records the adoption, and commits exactly the files it wrote.
+EVIDENCE, asks who the project is for, confirms the answers the survey already
+derived, writes the project's state at phase 0, records the adoption, and
+commits exactly the files it wrote.
+
+Your project starts at phase 0 whatever the survey found. Nothing is marked as
+already done and no shortcut is taken past any gate — the questions about what
+this project is and what it is for are asked afterwards, in Phase 0.
 
 If it stops partway — because you stopped it, or because a question had no
 answer — it stops in the SAFE direction: the project ends up more strictly
@@ -206,8 +218,10 @@ derivable, and only those.
 ```text
 ══ The interview
    Some of this the scan already answered — you will see the answer and where it
-   came from, and you can keep it or change it. The rest only you can answer, so
-   there is no default and no way to skip past it.
+   came from, and you can keep it or change it.
+   The rest is not asked here. Questions only a person can answer belong to the
+   assessment, which is a conversation with an agent rather than a form, and this
+   step leaves those cells blank for it.
 
 Project Identity
    The scan found: legacy-app
@@ -253,6 +267,18 @@ commands can advance the number (`scripts/process-checklist.sh` does, when it
 verifies your Phase 2 setup). What holds is that the gates are **cumulative and
 keyed to evidence** — arriving at a rung without the evidence fails the gate on
 the evidence, regardless of what moved you there.
+
+**Today the gate refuses an adopted project even earlier, and for a different
+reason.** Adoption does not yet write `APPROVAL_LOG.md`, and the gate checks for
+it before it reads the phase at all:
+
+```text
+[FAIL] APPROVAL_LOG.md not found but .claude/phase-state.json exists.
+```
+
+That is still a refusal, and still the safe direction — but it names the
+approval log rather than the classification, so do not expect the gate to point
+you at Route 3 until that file is written.
 
 **You will still be asked.** Three routes reach the question, and all three are
 exercised by the test suite rather than assumed:
@@ -817,11 +843,12 @@ hooks, which are the most important thing the archive holds.
 
 ```text
 NOT DONE — your project's framework documents
-   Owner: unassigned — §10 names no owner. This build does not do it, and does not pretend to.
+   Owner: WP11 archives them, WP12b writes them (D3). This build does not do it, and does not pretend to.
    CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the
    state are here, so the gates work; the reading material an agent picks up at the start
    of a session is not, and a CLAUDE.md you already have would be a collision, not a gap.
-   WP6's archive covers your AI-layer settings and your git hooks; documents are neither.
+   WP6's archive covers your AI-layer settings and your git hooks; documents are neither
+   YET — D3 makes them a fourth archive class, and WP11 is where that lands.
 ```
 
 So an adopted project has working gates and **no `CLAUDE.md`** — the file an
@@ -848,8 +875,7 @@ NOT DONE — the Adoption Record, the audit rows and the CI carve-out
    Owner: WP7. This build does not do it, and does not pretend to.
    APPROVAL_LOG.md is not written, so the phase gate will report it missing until WP7 lands.
    That is the safe direction — a blocked project, not a silently-approved one — but it
-   means this adoption (completed, phase 4) is recorded in the manifest and
-   nowhere else yet.
+   means this adoption is recorded in the manifest and nowhere else yet.
 ```
 
 **The consequence is immediate and you will hit it.** Observed on a

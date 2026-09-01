@@ -473,6 +473,55 @@ success. `BUG-010` gains a third defect on the same path: `intake-wizard.sh`'s a
 declares `def row(label; val)` and **`label` is a jq reserved keyword**, so the program does not
 compile and the table renders as a bare header under an `[OK]` line — confirmed against jq 1.7.1.
 
+**2026-09-01, fourth pass — round 3 returned BLOCK, and the sharpest finding was a proof that did
+not prove.** Round 3 wrote ten mutants against WP9a's own new code and **nine survived**.
+
+1. **R5 — added in the third pass specifically to kill round 2's escape-hatch survivor — was
+   VACUOUS.** Its only discriminator was `_changed_lines -eq 2` after its own `sed` rewrote the
+   marked line to a canonical `|| true`. Against a tree already carrying `|| true` in a DIFFERENT
+   SPELLING — one space before the comment instead of three — the sed still changed two lines, the
+   conjunct held, and the mutant's behavioural half is what the mutant produces anyway. **The
+   escape hatch was dead in the shipped tree at 29/0.** The rule that comes out of it is general
+   and belongs here rather than in a test comment: **a mutation proof whose only discriminator is
+   its own edit landing proves that `sed` works, not that the property holds.** R5 now asserts the
+   SHIPPED spelling positively, independent of its own edit.
+2. **Six more §13-prompt mutants survived R1's phrase list**, which the third pass had introduced
+   as the fix for exactly this. The sharpest inverted *"Then run Phase 0 … from the beginning"* to
+   *"run Phase 2 … from where the project already is"* — **this branch's own commit subject is
+   "phase 0 for everyone"** — at 29/0. Another inverted the grandfathering clause four words after
+   a sentence R1 did pin. The list is now per-sentence with each member's failure named, and it
+   matches against the NORMALISED prompt, because half the sentences wrap. **A per-sentence list
+   must be extended when the prompt gains a load-bearing sentence and nothing enforces that it
+   was** — said in the suite rather than assumed.
+3. **The mechanism claim was wrong for the THIRD CONSECUTIVE ROUND.** The ZDR backstop is
+   *unreachable* on an adopted project today: `check-phase-gate.sh` refuses on a missing
+   `APPROVAL_LOG.md` and `exit 1`s **six lines before `current_phase` is parsed**, and adoption
+   does not write that file until **A4 lands in WP9b**. Fail-closed survives (rc 1 either way) and
+   the refusal names the approval log rather than the classification. **This suite's own G section
+   documents that early exit and stubs around it** — the claim was written beside a fixture that
+   disproved it.
+4. **§8.7a's measured install set was stale, falsified by this package's own new writer**: 76
+   files and EIGHT non-`scripts/` paths, not 75 and seven, the eighth being
+   `.claude/orchestrator-source.json` — named twelve lines below by row 23. And the UNOWNED count
+   said twelve while §12-3, §0.3 and `docs/INDEX.md` said thirteen: row 23's split created row
+   **23a**, itself unowned, so the count never moved.
+5. **`workflow.html` told operators to hand-edit enforcement-tier keys the tool already writes** —
+   the row this branch had corrected in `docs/adoption.md` and left on the published page.
+6. **Three `docs/adoption.md` fenced transcripts were accurate on `main` and falsified by this
+   branch's own source edits**, including one contradicting a table twelve lines below it.
+
+Also fixed: Scout's `phaseMap` note still described the deleted floor rule (*"the interview may
+only lower this"*) in shipped operator-facing output — **§9's "Scout, whole, unchanged" is amended
+to that extent**, because nothing outside Scout reads `suggestedPhase` any more and the note's
+claim was simply false; two owner strings; §4.2's *"V7's grep returns nothing"*, which was false
+the moment the suite that must spell the sentence existed.
+
+**The pattern across all three rounds, stated once.** Every blocking finding has been a
+**plausible statement recorded as a verified one** — a mechanism, a count, a transcript, or a proof
+believed to discriminate. None was a defect in the shipped behaviour, which passed every functional
+probe all three times. The remedy that has actually worked is not more care: it is **re-running the
+measurement and re-writing the mutant** at the tip, every round.
+
 ### §0.4 — Verification posture, and the branch topology caveat
 
 Every claim marked *verified* was **executed on 2026-08-24**; §13 prints the commands and their
@@ -803,8 +852,13 @@ not by this enumeration. **Two further files carry deleted machinery without car
 RADIUS are different questions and only the first is checkable — the chooser lib, the docs page, the WP4 suite (§13-V7; the two design documents also
 carry it, v1 as the decision it settled and this one twice, in V7's printed command and in §6.5's
 D9 argument) —
-which bounds the deletion's search space and gives WP9 its completion check: after WP9, V7's
-grep returns nothing.
+which bounds the deletion's search space. **WP9's completion check is C2, NOT V7's grep, and the
+difference is not pedantry**: V7's printed command still returns
+`tests/test-brownfield-wp9-act-boundaries.sh`, because a suite that asserts a sentence's absence
+must spell the sentence. An unqualified "returns nothing" was therefore false the moment the
+suite existed. C2 is the check that carries the qualification — a whitespace-normalised sweep of
+every TRACKED file with two allowlisted carriers named and reasoned (the frozen v1 design and the
+suite itself).
 
 ### §4.3 — What replaces it: nothing. The project starts from the beginning (D10)
 
@@ -1467,7 +1521,7 @@ judgment call about an operator-facing surface rather than a derivation.
 |---|---|---|
 | **A5** | **`scripts/lib/adopt/adopt-chooser.sh` is RENAMED to `adopt-evidence.sh`.** After D4 and D10 the file's remaining content is §4.2's evidence block and nothing else. | *Keep the name* — a file called `chooser` containing no chooser is the stale-string class this repo has paid for repeatedly (`adopt_stub_hooks`' owner line, `adopt-stubs.sh`'s WP5b section comment, `## BL-215:`'s status line). The rename is cheap and bounded: the name occurs at **three** live sites — the `for _part in …` source loop in `adopt-project.sh` and two in the WP4 suite — and the module-dependency lint keys on directory, not filename. *Fold the evidence functions into `adopt-core.sh` and delete the file* — rejected: `adopt-core.sh` is the shared primitives (I/O, ledger, refusals) and the evidence block is a feature surface; merging them makes the M2 header's per-file account less legible, not more |
 | **A6** | **The §4.2 evidence block SURVIVES, with its framing re-worded.** The four evidence functions stay; the two sentences that point at the deleted question go, and the block ends by saying plainly that the project lands at phase 0 whatever the evidence says. | *Delete it with the chooser* — the tempting cut, and wrong twice. §4.3 says in as many words that Scout's ladder, the census and the probes **survive and matter**; and the block is the only place in Act 2 where an operator sees what the survey found about their own project. What is honestly lost is its *purpose*: it fed a decision and now feeds none, so the re-wording must not imply otherwise — a block that still reads as "weigh this before answering" would be inviting weight for a judgment nobody is asked to make. **The known defect is CARRIED, not fixed:** three of the four signals (tags, commit shape, changelog) are derived here from the adoptee's git rather than read from the report, which the file's own header calls "one fact derived in two places is two chances to disagree about it". That duplication is unchanged by WP9 |
-| **A7** | **Act 2's reverse intake stops asking JUDGMENT and NON-SKIPPABLE rows, data classification included; it asks only the scan-derived confirmations.** `adopt_judgment_question`, `adopt_ops_addendum` and `adopt_ask_data_classification` go with them; `adopt_persist_phase1_artifacts` is KEPT, uncalled, marked for Act 4, and its process-state *creation* half is split out and still runs in Act 2. | *Leave the judgment questions in Act 2* — §8.2 step 7 is normative ("the intake's judgment sections move to Act 3, so Act 2 writes the prefill-confirmed cells and leaves judgment cells blank"), and leaving them means WP12a's interview asks the same operator the same questions twice. **The classification is the load-bearing half, and its Act-2 mandate has LOST ITS OWN STATED REASON:** `adopt-intake.sh`'s header derives non-skippability from "an S1 adoption lands at 4, i.e. above [the ZDR] threshold on its FIRST commit" — under D10 nothing lands above 0, so the mechanical necessity that justified the guard is gone and §5.2 has already re-anchored it to Act 4's intake write. **The window is real and is stated rather than defended:** between WP9 and WP12a an adoption records no classification at all. It is fail-closed, and the mechanism is stated CORRECTLY here after being stated wrongly at first: the project rests at phase 0, and the ZDR backstop is a hard `[FAIL]` — a real `issues` increment, not a cosmetic `[WARN]` — at `current_phase >= 2` **however that value came to be 2**. The first version of this sentence said *"the only route to 2 crosses the 1→2 gate where that backstop lives"*, and that is **FALSE**: `scripts/process-checklist.sh`'s `_set_current_phase_min` writes `current_phase` at five call sites, an adoptee **receives that script**, and its `--complete-step` / `--verify-init` path reaches `_set_current_phase_min 2` with **no gate consult** — unlike `--start-phase1` (`# BL-114-START1-GATE-CONSULT-BEGIN`) and `--start-phase4` (`# BL-105-START4-GATE-CONSULT-BEGIN`), which do consult. A brownfield adoptee is exactly the population that already has a remote, CI, a lockfile and hooks, so that path is the expected one rather than a contrived one, and adversarial review executed it: `current_phase` 0 → 2 with the classification still absent. **The conclusion survives and is stronger without the false premise**: the gates are cumulative and evidence-keyed, so a rung reached by any writer without the evidence simply fails the gate — which does not depend on an enumeration of who can write the value. **THE SECOND CONJUNCT — that the operator still MEETS the question — WAS ASSERTED BY NOBODY AND WAS FALSE ON ALL THREE ROUTES**, which adversarial review found by executing them: `resume.sh`'s kickoff branch pointed at a `## 13.` section the adoption-rendered intake never wrote; `intake-wizard.sh --resume` raised a **swallowed** `KeyError` (its `load_progress()` subscripts seven keys adoption did not write) and then resumed at Section 14 — **past Section 5, the classification** — printing *"Intake Complete!"* at rc 0; and `reconfigure-project.sh`, **the hatch the ZDR block names in its own FAIL text**, died on a `.claude/orchestrator-source.json` adoption never wrote. All three are FIXED and each is now asserted by execution (§10-WP9's `R1`–`R4`): Act 2 renders a real §13 prompt that names the classification as non-optional, writes the seven keys with `last_section: 0` so `--resume` walks Section 5, and writes the source path. **Deferring a requirement is only honest if the route that re-asks it exists; three of them did not, and "fail-closed" was carrying the whole argument alone.** Two defects in `intake-wizard.sh` itself are OUT of this fix and filed rather than absorbed — a `KeyError` that is swallowed rather than fatal, and a choice prompt that loops forever on EOF. *Delete `adopt_persist_phase1_artifacts` and let WP12a re-extract it* — rejected: it is reuse-by-extraction of `intake-wizard.sh`'s own writer and re-deriving it is how two owners of one merge appear |
+| **A7** | **Act 2's reverse intake stops asking JUDGMENT and NON-SKIPPABLE rows, data classification included; it asks only the scan-derived confirmations.** `adopt_judgment_question`, `adopt_ops_addendum` and `adopt_ask_data_classification` go with them; `adopt_persist_phase1_artifacts` is KEPT, uncalled, marked for Act 4, and its process-state *creation* half is split out and still runs in Act 2. | *Leave the judgment questions in Act 2* — §8.2 step 7 is normative ("the intake's judgment sections move to Act 3, so Act 2 writes the prefill-confirmed cells and leaves judgment cells blank"), and leaving them means WP12a's interview asks the same operator the same questions twice. **The classification is the load-bearing half, and its Act-2 mandate has LOST ITS OWN STATED REASON:** `adopt-intake.sh`'s header derives non-skippability from "an S1 adoption lands at 4, i.e. above [the ZDR] threshold on its FIRST commit" — under D10 nothing lands above 0, so the mechanical necessity that justified the guard is gone and §5.2 has already re-anchored it to Act 4's intake write. **The window is real and is stated rather than defended:** between WP9 and WP12a an adoption records no classification at all. It is fail-closed, and the mechanism is stated CORRECTLY here after being stated wrongly at first: the project rests at phase 0, and the ZDR backstop is a hard `[FAIL]` — a real `issues` increment, not a cosmetic `[WARN]` — at `current_phase >= 2` **however that value came to be 2**. The first version of this sentence said *"the only route to 2 crosses the 1→2 gate where that backstop lives"*, and that is **FALSE**: `scripts/process-checklist.sh`'s `_set_current_phase_min` writes `current_phase` at five call sites, an adoptee **receives that script**, and its `--complete-step` / `--verify-init` path reaches `_set_current_phase_min 2` with **no gate consult** — unlike `--start-phase1` (`# BL-114-START1-GATE-CONSULT-BEGIN`) and `--start-phase4` (`# BL-105-START4-GATE-CONSULT-BEGIN`), which do consult. A brownfield adoptee is exactly the population that already has a remote, CI, a lockfile and hooks, so that path is the expected one rather than a contrived one, and adversarial review executed it: `current_phase` 0 → 2 with the classification still absent. **The conclusion survives and is stronger without the false premise**: the gates are cumulative and evidence-keyed, so a rung reached by any writer without the evidence simply fails the gate — which does not depend on an enumeration of who can write the value. **AND THE OPERATIVE GUARD TODAY IS NOT THAT ONE, WHICH IS THE THIRD CORRECTION THIS SENTENCE HAS TAKEN.** On an adopted tree as WP9a leaves it, `check-phase-gate.sh` refuses EARLIER still: its precondition block prints `[FAIL] APPROVAL_LOG.md not found but .claude/phase-state.json exists.` and `exit 1`s **six lines before `current_phase` is parsed at all**, and adoption does not write that file until **A4 lands in WP9b**. So the ZDR backstop is *unreachable* on an adopted project right now — the refusal is real and fail-closed (rc 1 either way), but it names `APPROVAL_LOG.md` and never mentions the classification or `reconfigure-project.sh`. Once A4 writes the log, the ZDR backstop becomes the operative guard and the paragraph above describes what executes. **This suite's own G section documents the early exit and stubs around it**, which is how the claim came to be written beside a fixture that disproved it. **THE SECOND CONJUNCT — that the operator still MEETS the question — WAS ASSERTED BY NOBODY AND WAS FALSE ON ALL THREE ROUTES**, which adversarial review found by executing them: `resume.sh`'s kickoff branch pointed at a `## 13.` section the adoption-rendered intake never wrote; `intake-wizard.sh --resume` raised a **swallowed** `KeyError` (its `load_progress()` subscripts seven keys adoption did not write) and then resumed at Section 14 — **past Section 5, the classification** — printing *"Intake Complete!"* at rc 0; and `reconfigure-project.sh`, **the hatch the ZDR block names in its own FAIL text**, died on a `.claude/orchestrator-source.json` adoption never wrote. All three are FIXED and each is now asserted by execution (§10-WP9's `R1`–`R4`): Act 2 renders a real §13 prompt that names the classification as non-optional, writes the seven keys with `last_section: 0` so `--resume` walks Section 5, and writes the source path. **Deferring a requirement is only honest if the route that re-asks it exists; three of them did not, and "fail-closed" was carrying the whole argument alone.** Two defects in `intake-wizard.sh` itself are OUT of this fix and filed rather than absorbed — a `KeyError` that is swallowed rather than fatal, and a choice prompt that loops forever on EOF. *Delete `adopt_persist_phase1_artifacts` and let WP12a re-extract it* — rejected: it is reuse-by-extraction of `intake-wizard.sh`'s own writer and re-deriving it is how two owners of one merge appear |
 | **A8** | **`scripts/check-phase-gate.sh`'s cosmetic `.adoption.scenario` read is retired with the field**, and the `[OK]` line stops naming a scenario. `adopt_stub_certification` is DELETED (WP5 is retired, §5.1) and `adopt_stub_project_docs`' owner string is corrected from *"unassigned — §10 names no owner"* to name D3/WP11+WP12b. `adopt_stub_hooks`' string is NOT touched — §10 routes it to WP7. | *Leave the gate read* — it would print `scenario: unknown` on every adopted project forever, and a gate that reports an unknown where the record is complete teaches operators to ignore it. **§4.2's blast-radius table does not list `check-phase-gate.sh` at all** — the same defect §4.2 itself names ("a blast-radius enumeration is the author's inference about consequences"), recurring inside the section that warns about it; the row is added below. *Leave `adopt_stub_certification`* — announcing a RETIRED package as not-yet-built is worse than silence: it tells an operator to expect something nobody will ever build. *Fix `adopt_stub_hooks` too* — rejected, and not on grounds of effort: `## BL-242:` establishes that the obvious rewrite ("WP7") would propagate a **false §10 attribution**, so that string needs the decision-naming spelling WP7 will give it |
 
 ### §8.4 — Fail-safe order — the between-acts row, and the Act 3/4 rows (A2)
@@ -1601,17 +1655,23 @@ A shipped adoption was run against a hermetic adoptee and the tree diffed before
 
 ```
 adopt rc=0
-total new files: 75   |  under scripts/: 68  |  under .claude/adoption-archive/: 0
+total new files: 76   |  under scripts/: 68  |  under .claude/adoption-archive/: 0
 ```
 
-The **seven** non-`scripts/` paths a completed adoption writes, in full — this is the whole of it,
+The **eight** non-`scripts/` paths a completed adoption writes, in full — this is the whole of it,
 and anything not on this list is skipped:
 
 ```
 .claude/adoption/scout-report.json   .claude/intake-progress.json   .claude/manifest.json
-.claude/phase-state.json             .claude/process-state.json     .claude/test-debt.json
-PROJECT_INTAKE.md
+.claude/orchestrator-source.json     .claude/phase-state.json       .claude/process-state.json
+.claude/test-debt.json               PROJECT_INTAKE.md
 ```
+
+*(**This block said 75 and seven until adversarial review re-ran it.** The eighth path is
+`.claude/orchestrator-source.json` — added by **this very package**, and named twelve lines below
+by row 23 — so the section contradicted itself. A measurement is only true of the tree it was taken
+on, and this one was taken before the branch that quotes it had finished changing that tree.
+**Re-run it after any package that adds a writer.**)*
 
 (plus `.git/hooks/commit-msg`, which a tree diff cannot see because `.git` is pruned, and a
 `.claude/adoption-archive/` tree whose size depends entirely on what the adoptee already had —
@@ -1667,10 +1727,12 @@ plus the writers whose target is inside a function body (`generate_claude_md`,
 | 30 | remote creation / protection, `local_only_acknowledged` | **UNOWNED** — the ack has no post-init writer anywhere |
 | 31 | `git init`, and BL-030's organizational⇒strict forcing | **COVERED** — the adoptee is already a repository; `enforcement_level` seeds `strict` in `adopt_write_manifest` |
 
-**Twelve rows are UNOWNED, one is UNSPECIFIED (17) and one is PARTIAL (16).** *(It was thirteen
-until adversarial review; row 23's `orchestrator-source.json` was split out and closed by WP9a for
-the reason that row now states, and the count is a MEASUREMENT of the table — read the rows, do
-not trust this number.)* That is the honest denominator §8.7 asked for, and it is larger than this
+**THIRTEEN rows are UNOWNED (18–22, 23a, 24–30), one is UNSPECIFIED (17) and one is PARTIAL (16),
+across 32 rows.** *(This said twelve, and twelve was wrong in a way worth keeping: WP9a closed row
+23 and the split created row **23a**, itself unowned, so the count never moved. §12-3, §0.3 and
+`docs/INDEX.md` all said thirteen while this line said twelve — the document contradicted itself
+for one round. **The count is a MEASUREMENT of the table: read the rows, do not trust this
+number** — which is exactly what nobody did.)* That is the honest denominator §8.7 asked for, and it is larger than this
 document's own §10 implies: the five work packages ahead of WP9 close rows 7–14 and **almost none
 of 16–30**. Row 18 is the sharpest — it
 makes D8 bind `docs/reference/messaging-standard.md` inside a project that never receives it — and
