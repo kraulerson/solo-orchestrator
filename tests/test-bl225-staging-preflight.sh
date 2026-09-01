@@ -297,10 +297,13 @@ _writers() {
 # fail instead. Recorded on `## BL-225:` as a residual rather than implied.
 _marker_files() {   # files that call the marker, by basename
   grep -rlE '(^|[^A-Za-z0-9_])adopt_touched_disk([^A-Za-z0-9_]|$)' "$REPO_ROOT"/scripts/lib/adopt/*.sh \
-    | xargs -n1 basename | sort -u
+    | sed 's|.*/||' | sort -u
 }
 _writer_files() {   # files the recipe believes contain writers, by basename
-  _writers | cut -d: -f1 | xargs -n1 basename | sort -u
+  # `sed 's|.*/||'`, NOT `xargs -n1 basename`: this repo's path contains a
+  # space, and xargs word-splits on it. Both sets picked up a spurious "Space"
+  # entry and T10 passed only because both derivations corrupted identically.
+  _writers | cut -d: -f1 | sed 's|.*/||' | sort -u
 }
 t9_w=$(_writers | wc -l | tr -d ' ')
 chk "T9: the recipe still matches tree-writing sites at all" \
@@ -321,9 +324,13 @@ while IFS=: read -r wf wl; do
 done <<T9SET
 $(_writers)
 T9SET
-chk "T9: every tree-writing site is preceded by the marker (writers=$t9_w)" "$t9_missing" "0"
+# NOTE the count is of RECIPE HITS, not of writers: at least one hit is a `cp `
+# inside a jq string literal (`restore: ("cp " + ...)`), which is not a write.
+# Harmless — a false positive can only demand a marker that is already there —
+# but do not read `writers=N` as N writers.
+chk "T9: every recipe hit is preceded by the marker (hits=$t9_w)" "$t9_missing" "0"
 
-echo "== T10 — the recipe cannot collapse silently (two independently derived sets) =="
+echo "== T10 — a whole-FILE collapse cannot pass silently (two derived sets) =="
 # T9's weakness is that it can only fail on writers it FINDS. Twice now the
 # recipe has silently stopped finding almost everything — once via a `/dev/null`
 # exclusion that matched `2>/dev/null` on nearly every writer, once via an
@@ -334,6 +341,15 @@ echo "== T10 — the recipe cannot collapse silently (two independently derived 
 # files the recipe believes contain writers. A file that raises the marker but
 # yields no writer means the recipe stopped seeing that file. No transcribed
 # number is involved, so it cannot rot.
+#
+# WHAT IT DOES NOT CATCH, measured rather than supposed: a collapse that removes
+# one FUNCTION's writers while another function in the same file still yields
+# some. The file stays "represented" and both checks stay green. Demonstrated by
+# review with a `$arc_abs` + `restore:` exemption pair plus deleting both
+# markers in `adopt_archive_write` — writers 16 -> 11, archive copy phase
+# unguarded, 35/35. A per-function variant would not catch it either: once the
+# markers are gone the function leaves the check's domain. Recorded on
+# `## BL-225:` rather than answered with a third guard.
 t10_bad=0
 for _mf in $(_marker_files); do
   _writer_files | grep -qx "$_mf" || { t10_bad=$((t10_bad + 1)); echo "         (T10) $_mf calls the marker but the recipe finds no writer in it"; }

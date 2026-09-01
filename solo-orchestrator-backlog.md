@@ -9536,10 +9536,22 @@ residual, all measured:
   structural rather than textual: the marker is a FILE, so an unreachable call
   creates nothing and the behavioural assertions fail instead; and **T10** cross-
   checks two independently derived sets — every file that raises the marker must
-  also yield a writer — which catches the recipe silently collapsing. That
-  collapse happened twice (a `/dev/null` arm matching `2>/dev/null`, and an
-  `adopt_refuse "` arm matching error tails) and T9 stayed green through both;
-  T10 fails on it.
+  also yield a writer — which catches a collapse that removes a whole FILE from
+  the recipe's view. That happened twice (a `/dev/null` arm matching
+  `2>/dev/null`, and an `adopt_refuse "` arm matching error tails); T9 stayed
+  green through both and T10 fails on it.
+- **RESIDUAL: T10 does NOT catch a whole-FUNCTION collapse.** Measured, not
+  supposed: a `$arc_abs` + `restore:` exemption pair — the second of which is a
+  *correct* cleanup of a jq string literal that is not a write — plus deleting
+  both markers in `adopt_archive_write` takes the recipe 16 hits to 11, leaves
+  the archive copy phase unguarded, and both checks stay green, 35/35. The file
+  stays "represented" because `adopt_archive_readd` still yields hits. A
+  per-function variant would not catch it either: once the markers are removed
+  the function leaves the check's domain, and the only thing that would catch it
+  is a coverage number pinned from outside the recipe — which rots. It needs two
+  independent mistakes to align, one of them a legitimate cleanup. Recorded
+  rather than answered with a third guard, because every guard added here has
+  itself had a hole.
 
 **THE NARROWING IS DELIBERATE AND IS RECORDED RATHER THAN LEFT TO A DIFF.** This
 entry's title asks for a preflight, and the natural reading is *before anything
