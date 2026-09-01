@@ -224,8 +224,78 @@ adopt_render_intake_doc() {
       printf '\n- **%s** (%s): %s\n' "$field" "$kind" "$value"
       [ -n "$prov" ] && printf '  - Source: %s\n' "$prov"
     done < "$ADOPT_ANSWERS"
+    adopt_render_section_13
     printf '\n'
   } | adopt_write_file "$root" "PROJECT_INTAKE.md"
+}
+
+# adopt_render_section_13 — the §13 kickoff prompt, AND IT IS RENDERED WITH THE
+# HEADING THE EXTRACTOR LOOKS FOR.
+#
+# WHY THIS EXISTS AT ALL. `scripts/resume.sh`'s kickoff branch is the route a
+# completed Act 2 hands the operator to, and it pulls the prompt out of the
+# project's own intake with `awk '/^## 13\./{f=1; next} … /^```/{c = !c…}'` — a
+# heading spelled `## 13.` followed by a FENCED block. Measured before this was
+# written: the adoption-rendered document had neither, so the extraction
+# returned empty and `resume.sh` printed its fallback — which told the operator
+# to *"read PROJECT_INTAKE.md — Section 13 is your initialization prompt"*
+# about a file with no section 13 in it. The handoff pointed at a section the
+# handoff's own writer had never rendered.
+#
+# WHAT IT DELIBERATELY DOES NOT SAY. The greenfield template's section 13 opens
+# with `ATTACHED: … Solo Orchestrator Builder's Guide … Platform Module`.
+# `init.sh` copies those into `docs/reference/`; **adoption does not** (§8.7a
+# row 18, UNOWNED). Copying that wording would hand the agent a list of
+# attachments that are not there, which is the false-attachment class — so this
+# prompt names only artifacts the adoptee actually has, and says plainly that
+# the process reference is missing rather than implying it is attached.
+adopt_render_section_13() {
+  cat <<'S13'
+
+## 13. Agent Initialization Prompt
+
+```
+You are the AI execution layer for a Solo Orchestrator project. I am the
+Orchestrator. I define intent, constraints, and validation. You provide
+architecture, code, and documentation within the constraints I set.
+
+THIS PROJECT WAS ADOPTED, NOT SCAFFOLDED. It existed before the framework did.
+It is at PHASE 0 and no gate has been crossed: nothing about it has been
+grandfathered, and nothing in this document may be treated as an approval.
+
+WHAT YOU HAVE:
+1. This intake. Cells marked "asked in the assessment" are DELIBERATELY BLANK —
+   they are the questions only a person can answer, and nobody has been asked
+   them yet. Ask them.
+2. .claude/adoption/scout-report.json — a read-only survey of this codebase
+   taken at adoption: its stack, its artifacts, its test baseline, its secrets
+   findings and its collisions. Use it as evidence about what EXISTS. It is not
+   evidence that anything was DONE PROPERLY.
+3. .claude/test-debt.json — the files that had no tests at adoption. It is a
+   baseline that must not grow, not a list of things to ignore.
+4. .claude/adoption-archive/ — anything of yours the adoption moved aside, with
+   a MANIFEST and a restore line for each.
+
+WHAT YOU DO NOT HAVE: the Solo Orchestrator Builder's Guide and the Platform
+Modules. A scaffolded project receives them in docs/reference/; an adopted one
+does not yet. Do not act as though a process reference is attached. Ask for it,
+or work from this framework's own scripts and their headers.
+
+START HERE, IN THIS ORDER:
+1. Fill in every blank cell in this intake by ASKING me. Do not infer them from
+   the code — the code is what the survey already read, and the questions that
+   are left are the ones it could not answer.
+2. Data classification is NOT OPTIONAL and has no default. This project cannot
+   cross its Phase 1 to 2 gate without it, and adoption did not ask for it.
+3. Then run Phase 0 as the framework defines it, from the beginning.
+
+RULES:
+- This intake is the governing constraint once it is filled in. Until then, its
+  blank cells are open questions, not permissions.
+- Do not suggest that any gate be skipped because the project is "already
+  built". That is the exact reasoning adoption exists to refuse.
+```
+S13
 }
 
 # adopt_render_intake_progress — .claude/intake-progress.json, in the shape
@@ -239,9 +309,32 @@ adopt_render_intake_progress() {
     [ -n "${field:-}" ] || continue
     answers_json="$(printf '%s' "$answers_json" | jq --arg k "$field" --arg v "$value" '. + {($k): $v}' 2>/dev/null)" || return 1
   done < "$ADOPT_ANSWERS"
+  # THE SEVEN KEYS BELOW ARE NOT DECORATION — THEY ARE WHAT MAKES THIS FILE'S
+  # OWN HEADER TRUE, and it was false until WP9a. `intake-wizard.sh`'s
+  # `load_progress()` SUBSCRIBES `last_section`, `project_name`, `platform`,
+  # `track`, `deployment`, `language` and `description` directly (a python
+  # `data['key']`, not a `.get`), so a progress file missing any of them raises
+  # `KeyError` — and the wizard swallows it: the traceback goes to stderr, the
+  # redirect eats the non-zero status, and `--resume` carries on. Adoption used
+  # to write six unrelated keys and none of these.
+  #
+  # AND `last_section` IS 0, NOT 13, WHICH IS THE HALF THAT MATTERS. The wizard
+  # resumes at `LAST_SECTION + 1`, so the old value sent it to Section 14 — past
+  # the END of the intake, and past **Section 5, the data classification**. With
+  # A7 moving that question out of Act 2, `--resume` was the route that was
+  # supposed to still ask it, and 13 was the number that guaranteed it never
+  # would. Zero makes the wizard walk the whole intake.
+  #
+  # The four values adoption cannot know are written EMPTY rather than guessed:
+  # an empty string satisfies the subscript and reads as unanswered, while a
+  # guessed platform or language would be a fact nobody supplied.
   jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson a "$answers_json" \
-    '{version: 1, started_at: $at, last_section: 13, completed_sections: [],
-      source: "adopt-project.sh", answers: $a}' \
+        --arg pn "$ADOPT_PROJECT_NAME" --arg dep "$ADOPT_DEPLOYMENT" \
+    '{version: 1, started_at: $at, last_section: 0, completed_sections: [],
+      source: "adopt-project.sh",
+      project_name: $pn, platform: "", track: "full", deployment: $dep,
+      language: "", description: "",
+      answers: $a}' \
     | adopt_write_file "$root" ".claude/intake-progress.json"
 }
 

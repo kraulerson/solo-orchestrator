@@ -142,7 +142,52 @@ INSTALL_SET
     adopt_refuse "no framework scripts could be installed and none were already there — is this a complete clone?"
     return 1
   fi
+  adopt_write_orchestrator_source "$root" || return 1   # BL-242-ORCH-SOURCE
   adopt_stub_framework_script_collisions "$n_collided" "$ADOPT_COLLISION_LIST"
+  return 0
+}
+
+# adopt_write_orchestrator_source ROOT — `.claude/orchestrator-source.json`,
+# `{source_dir}`, the framework clone this install came from. `init.sh` writes
+# it (one site, beside its own copy loop) and adoption never did.
+#
+# WHY THIS ONE INIT-PARITY ROW IS CLOSED HERE AND THE OTHER TWELVE ARE NOT.
+# It is not the cheapest and it is not the biggest; it is the one **A7's own
+# safety argument depends on**. A7 defers the data classification to Act 4, and
+# the thing that makes that acceptable is that the operator still meets the
+# question. The Phase 1->2 ZDR block names its escape hatch in its own FAIL
+# text — `reconfigure-project.sh` — and on an adopted project that hatch DIED
+# on a missing file:
+#
+#     [FAIL] Cannot find Solo Orchestrator source directory.
+#     [INFO] Expected path in .claude/orchestrator-source.json
+#
+# Three shipped scripts an adoptee RECEIVES read it — `reconfigure-project.sh`,
+# `verify-install.sh` and `check-versions.sh` — so the miss degraded three
+# tools, not one. Closing a block while leaving the escape hatch it advertises
+# unreachable is the pattern this repository has paid for before; the rest of
+# §8.7a's unowned set has no such dependency and stays recorded rather than
+# quietly absorbed here.
+#
+# It is written AFTER the install and BEFORE any state stage, because it is a
+# fact about the install rather than about the project's phase.
+#
+# YES, IT RECORDS AN ABSOLUTE HOST PATH, AND YES, IT IS COMMITTED — and both are
+# PARITY, not a new exposure this introduces. `init.sh` writes the same key from
+# `$SCRIPT_DIR` and sweeps it in with `git add -A`, and the generated
+# `.gitignore` excludes four `.claude/` paths (`cache/`, `last-checked-commit`
+# `.txt`, `last-gate-pass.txt`, `tool-usage.json`) of which this is NOT one. So
+# a scaffolded project already carries its author's clone path in history, and
+# an adopted one now carries it identically. Diverging here — writing it
+# unstaged, or ignoring it — would give the two birth paths different shapes for
+# the three readers that consume it, which is the drift `# BL-221-ADOPT-TIER-`
+# `KEYS` was filed about on a different key. If the exposure is ever judged
+# unacceptable it is `init.sh`'s to change first, and both paths follow.
+adopt_write_orchestrator_source() {
+  local root="$1"
+  command -v jq >/dev/null 2>&1 || return 0
+  jq -n --arg s "$ADOPT_FRAMEWORK_ROOT" '{source_dir: $s}' \
+    | adopt_write_file "$root" ".claude/orchestrator-source.json" || return 1
   return 0
 }
 
