@@ -222,7 +222,15 @@ fi
 #   • THIS SUITE, which must spell the sentence to search for it.
 # Untracked trees (worktrees, scratch) are excluded by using `git ls-files`,
 # not by a directory denylist that would need maintaining.
-_normalise() { tr -s '[:space:]' ' ' < "$1"; }
+# LC_ALL=C IS LOAD-BEARING, NOT DECORATION. Under a UTF-8 locale `tr` stops at
+# the first byte that is invalid in that locale and emits what it had — so a
+# file with any such byte is read PARTIALLY and the loop below records it as
+# clean, with no signal. Measured on a tracked `.DS_Store`: 3,131 bytes under
+# the ambient locale against 8,190 under LC_ALL=C, and a sentence planted past
+# the truncation point is found only by the second. "A search that structurally
+# cannot see part of its surface and reports clean" is verbatim the failure this
+# whole check exists to prevent, so it must not be the check's own behaviour.
+_normalise() { LC_ALL=C tr -s '[:space:]' ' ' < "$1"; }
 c2_hits=""
 while IFS= read -r f; do
   case "$f" in
@@ -629,14 +637,70 @@ echo "=== R — the three routes A7's deferral DEPENDS ON, each executed ==="
 # R1 — the route WP9a's own handoff advertises.
 r1_prompt="$TOPTMP/r1-resume"
 ( cd "$CTL/p" && bash scripts/resume.sh ) > "$r1_prompt" 2>&1 || true
-r1_adopted=0; grep -qF "THIS PROJECT WAS ADOPTED" "$r1_prompt" 2>/dev/null && r1_adopted=1
-r1_dc=0;      grep -qF "Data classification is NOT OPTIONAL" "$r1_prompt" 2>/dev/null && r1_dc=1
 r1_fallback=1; grep -qF "Section 13 is your initialization prompt" "$r1_prompt" 2>/dev/null && r1_fallback=0
 r1_heading=$(grep -c '^## 13\.' "$CTL/p/PROJECT_INTAKE.md" 2>/dev/null); r1_heading=$(_num "$r1_heading")
-if [ "$r1_adopted" -eq 1 ] && [ "$r1_dc" -eq 1 ] && [ "$r1_fallback" -eq 1 ] && [ "$r1_heading" -eq 1 ]; then
-  pass "R1: scripts/resume.sh — the command Act 2's handoff prints — extracts a REAL initialization prompt from the adopted intake's own '## 13.' section, and that prompt names the data classification as not optional. Not the generic fallback that used to point at a section nobody rendered"
+
+# EVERY LOAD-BEARING SENTENCE OF THE PROMPT, NOT TWO OF THEM.
+#
+# This block used to grep for two strings out of a ~50-line prompt that
+# adoption SHIPS INTO EVERY ADOPTED PROJECT as an agent's standing
+# instructions. Adversarial review inverted three of the unpinned ones — the
+# phase-0 statement to "PHASE 3 and three gates have been crossed", the
+# false-attachment disclaimer deleted outright, and the anti-skip rule flipped
+# to "Feel free to suggest that any gate be skipped" — and every PR-blocking
+# check stayed GREEN. The last of those is the exact reasoning the sentence
+# beside it says "adoption exists to refuse".
+#
+# So the pin is a SET, and each member is here because inverting it would ship
+# a specific untruth to an agent:
+#   the adoption statement      — or the agent treats it as scaffolded
+#   the phase-0 / no-gate line  — or D10's whole promise is reversed in prose
+#   the DELIBERATELY BLANK line — or the blank cells read as answered
+#   the "not evidence that anything was DONE PROPERLY" line — the survey's own limit
+#   WHAT YOU DO NOT HAVE       — the false-attachment guard
+#   the classification line     — the requirement A7 defers
+#   the anti-skip rule          — the one an inversion turns into permission
+# A digest over the whole heredoc was the alternative and is worse: it fails on
+# every innocent re-wording and tells a reader nothing about WHICH line matters.
+r1_missing=""
+while IFS= read -r phrase; do
+  [ -n "$phrase" ] || continue
+  grep -qF -- "$phrase" "$r1_prompt" 2>/dev/null || r1_missing="$r1_missing [$phrase]"
+done <<'R1PHRASES'
+THIS PROJECT WAS ADOPTED, NOT SCAFFOLDED
+It is at PHASE 0 and no gate has been crossed
+DELIBERATELY BLANK
+It is not
+evidence that anything was DONE PROPERLY
+WHAT YOU DO NOT HAVE
+Do not act as though a process reference is attached
+Data classification is NOT OPTIONAL and has no default
+Do not suggest that any gate be skipped
+That is the exact reasoning adoption exists to refuse
+R1PHRASES
+if [ -z "$r1_missing" ] && [ "$r1_fallback" -eq 1 ] && [ "$r1_heading" -eq 1 ]; then
+  pass "R1: scripts/resume.sh — the command Act 2's handoff prints — extracts a REAL prompt from the adopted intake's own '## 13.' section, and every load-bearing sentence of that prompt is pinned: adopted-not-scaffolded, phase 0 with no gate crossed, the blank cells, the survey's limit, the false-attachment disclaimer, the classification, and the anti-skip rule"
 else
-  fail_ "R1: the advertised route does not deliver a usable prompt" "adopted-prompt=$r1_adopted names-classification=$r1_dc escaped-the-fallback=$r1_fallback section-13-headings=$r1_heading (want 1)"
+  fail_ "R1: the advertised route does not deliver the prompt it must" "missing-sentences:${r1_missing:- none} escaped-the-fallback=$r1_fallback section-13-headings=$r1_heading (want 1)"
+fi
+
+# R1b — the archive item is CONDITIONAL, asserted in BOTH directions, because a
+# one-sided check passes against a writer that always omits it and against one
+# that always names it.
+R1BD="$(newtmp)"; mkdir -p "$R1BD/p"
+r1b_with="?"; r1b_without=$(grep -c 'adoption-archive/ — anything of yours' "$CTL/p/PROJECT_INTAKE.md" 2>/dev/null); r1b_without=$(_num "$r1b_without")
+if mk_adoptee "$R1BD/p"; then
+  mkdir -p "$R1BD/p/.claude"
+  printf '{"permissions":{}}\n' > "$R1BD/p/.claude/settings.json"
+  ( cd "$R1BD/p" && git add -A && git commit -q -m "chore: their ai layer" ) >/dev/null 2>&1
+  _ans 1 > "$R1BD/answers"
+  run_adopt "$R1BD/p" "$R1BD/answers" "$REPORT"
+  r1b_with=$(grep -c 'adoption-archive/ — anything of yours' "$R1BD/p/PROJECT_INTAKE.md" 2>/dev/null); r1b_with=$(_num "$r1b_with")
+fi
+if [ "$r1b_without" -eq 0 ] && [ "$r1b_with" = "1" ]; then
+  pass "R1b: the prompt names .claude/adoption-archive/ ONLY when the adoption actually created one — absent on a collision-free adoptee, present on one whose AI layer collided. Naming a directory that is not there is the false-attachment class the prompt's own disclaimer exists to avoid"
+else
+  fail_ "R1b: the archive item is not conditional in both directions" "collision-free=$r1b_without (want 0) collided=$r1b_with (want 1)"
 fi
 
 # R2 — the wizard's resume path. Asserted as the KEY SET load_progress()
@@ -706,6 +770,40 @@ if mk_mirror "$R4M/fw"; then
   fi
 else
   fail_ "R4 (MUTATION): mirror setup" "mk_mirror failed"
+fi
+
+# R5 (MUTATION) — A FAILED WRITE MUST NOT REPORT SUCCESS, and R4 does not
+# cover that. R4 removes the CALL; this degrades the call's error handling from
+# `|| return 1` to `|| true`, which is the shape a well-meaning "make it
+# non-fatal" edit takes. The adoption then COMPLETES (rc 0) while the escape
+# hatch is dead — adoption reporting success with the file the ZDR block's
+# remediation depends on missing, which is the exact silent-success state R3
+# and R4 exist to prevent, arriving by a door neither of them watches.
+R5M="$(newtmp)"
+if mk_mirror "$R5M/fw"; then
+  cp -p "$R5M/fw/scripts/lib/adopt/adopt-state.sh" "$R5M/pre.sh"
+  _sed_inplace "$R5M/fw/scripts/lib/adopt/adopt-state.sh" \
+    's/^.*BL-242-ORCH-SOURCE$/  adopt_write_orchestrator_source "$root" || true   # BL-242-ORCH-SOURCE/'
+  r5_changed=$(_changed_lines "$R5M/pre.sh" "$R5M/fw/scripts/lib/adopt/adopt-state.sh")
+  r5_parse=$(_parses "$R5M/fw/scripts/lib/adopt/adopt-state.sh")
+  # Make the write ITSELF fail, so the neutered handler is what decides the
+  # outcome: a read-only .claude/ defeats the writer without touching it.
+  mkdir -p "$R5M/p"; r5_rc="?"; r5_src="?"
+  if mk_adoptee "$R5M/p"; then
+    _ans 1 > "$R5M/answers"
+    _sed_inplace "$R5M/fw/scripts/lib/adopt/adopt-state.sh" \
+      "s|jq -n --arg s \"\$ADOPT_FRAMEWORK_ROOT\" '{source_dir: \$s}'|false|"
+    run_adopt "$R5M/p" "$R5M/answers" "$REPORT" "$R5M/fw"
+    r5_rc="$RUN_RC"
+    r5_src=0; [ -s "$R5M/p/.claude/orchestrator-source.json" ] && r5_src=1
+  fi
+  if [ "$r5_changed" -eq 2 ] && [ "$r5_parse" -eq 1 ] && [ "$r5_rc" = "0" ] && [ "$r5_src" = "0" ]; then
+    pass "R5 (MUTATION): with the hatch write's failure swallowed (`|| true`) and the write made to fail, the adoption COMPLETES at rc $r5_rc with the escape-hatch file ABSENT — which is why the shipped call refuses instead"
+  else
+    fail_ "R5 (MUTATION): swallowing the hatch write's failure did not produce a silent success" "changed=$r5_changed parses=$r5_parse rc=$r5_rc (want 0) source-file-present=$r5_src (want 0)"
+  fi
+else
+  fail_ "R5 (MUTATION): mirror setup" "mk_mirror failed"
 fi
 
 echo "=== G — A8: the gate stops naming a scenario it no longer records ==="
