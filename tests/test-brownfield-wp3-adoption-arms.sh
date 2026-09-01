@@ -343,7 +343,7 @@ mk_tdd_proj() {
 # the adoption commit has not landed yet).
 adopt_proj() {
   local d="$1"
-  ( cd "$d" && soif_adoption_stamp ".claude/manifest.json" "completed" 3 '[]' '[]' '["tdd-ordering"]' '[]' "sha" )
+  ( cd "$d" && soif_adoption_stamp ".claude/manifest.json" "sha" )
 }
 
 # stage_impl_only DIR — one implementation file, no test, staged.
@@ -656,7 +656,7 @@ D="$(newtmp)/p"
 if ! atk_base "$D"; then fail_ "T7g" "fixture setup failed"; else
   before=$( cd "$D" && jq -r '.adoption.adoptedAtCommit' .claude/manifest.json )
   restamp_rc=0
-  ( cd "$D" && soif_adoption_stamp ".claude/manifest.json" "completed" 3 '[]' '[]' '[]' '[]' "sha2" ) >/dev/null 2>&1 || restamp_rc=$?
+  ( cd "$D" && soif_adoption_stamp ".claude/manifest.json" "sha2" ) >/dev/null 2>&1 || restamp_rc=$?
   after=$( cd "$D" && jq -r '.adoption.adoptedAtCommit' .claude/manifest.json )
   atk_report "T7g [second adoption stamp]" "$D" blocked
   if [ "$restamp_rc" -ne 0 ] && [ "$before" = "$after" ]; then
@@ -783,7 +783,7 @@ if ! mk_gate_proj "$G1D"; then
   fail_ "G1" "fixture setup failed"
 else
   g1_base_out=$(run_gate "$G1D"); g1_base_rc=$?
-  ( cd "$G1D" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G1D" && soif_adoption_stamp ".claude/manifest.json" "sha" ) >/dev/null 2>&1
   ( cd "$G1D" && git add -A && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
   g1_out=$(run_gate "$G1D"); g1_rc=$?
   if [ "$g1_rc" -eq "$g1_base_rc" ] && [ "$g1_rc" -eq 0 ]; then
@@ -798,7 +798,7 @@ G2D="$(newtmp)/p"
 if ! mk_gate_proj "$G2D"; then
   fail_ "G2" "fixture setup failed"
 else
-  ( cd "$G2D" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G2D" && soif_adoption_stamp ".claude/manifest.json" "sha" ) >/dev/null 2>&1
   ( cd "$G2D" && git add -A && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
   # Simulate the wholesale regeneration: an upstream key set with no Solo keys.
   printf '%s\n' '{"frameworkVersion":"9","frameworkRepo":"kraulerson/claude-dev-framework","files":{}}' > "$G2D/.claude/manifest.json"
@@ -820,7 +820,7 @@ G3R="$(newtmp)"; G3D="$G3R/p"
 if ! mk_gate_proj "$G3D"; then
   fail_ "G3" "fixture setup failed"
 else
-  ( cd "$G3D" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G3D" && soif_adoption_stamp ".claude/manifest.json" "sha" ) >/dev/null 2>&1
   ( cd "$G3D" && git add -A && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
   printf '%s\n' '{"frameworkVersion":"9","frameworkRepo":"kraulerson/claude-dev-framework","files":{}}' > "$G3D/.claude/manifest.json"
   MUT3="$G3D/scripts/lib/adoption-stamp.sh"
@@ -848,7 +848,7 @@ if ! mk_gate_proj "$G4D"; then
   fail_ "G4" "fixture setup failed"
 else
   ( cd "$G4D" && git add -A && git commit -q -m "chore: their history" ) >/dev/null 2>&1
-  ( cd "$G4D" && soif_adoption_stamp ".claude/manifest.json" "in-flight" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G4D" && soif_adoption_stamp ".claude/manifest.json" "sha" ) >/dev/null 2>&1
   g4_out=$(run_gate "$G4D"); g4_rc=$?
   if [ "$g4_rc" -eq 0 ]; then
     pass "G4: a mid-adoption project (stamp written, not yet committed) raises NO loss finding — rc 0"
@@ -867,7 +867,7 @@ G5D="$(newtmp)/p"
 if ! mk_gate_proj "$G5D"; then
   fail_ "G5" "fixture setup failed"
 else
-  ( cd "$G5D" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G5D" && soif_adoption_stamp ".claude/manifest.json" "sha" ) >/dev/null 2>&1
   ( cd "$G5D" && git add -A && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
   mkdir -p "$G5D/src/deep"
   g5_root_lost=0

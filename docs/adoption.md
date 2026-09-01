@@ -192,9 +192,13 @@ gates are cumulative by contract, so each one assumes every earlier one really
 happened. Landing at 0 costs you the walk through Phase 0 and buys you a project
 whose recorded position is true.
 
-**What the scan learned is not thrown away.** The artifact ladder, the test-debt
-census, the reality probes and everything the assessment finds all become
-**pre-fill for the Phase 0 intake** and context for the plan. A project that
+**What the scan learned is not thrown away** — though be precise about where it
+goes. Scout's **intake-prefill table** is what becomes pre-fill: the cells the
+scan could derive are confirmed with you and written into `PROJECT_INTAKE.md`.
+The artifact ladder, the test-debt census and the reality probes become
+**context** — they are committed with the project (`.claude/adoption/`
+`scout-report.json`, `.claude/test-debt.json`) and the §13 prompt points an
+agent at both. What none of it becomes is a shortcut past a gate. A project that
 already has tests, a deploy lane and architecture docs gets an intake that says
 so. What it does not get is a shortcut past a gate.
 

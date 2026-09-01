@@ -415,5 +415,6 @@ Adoption Record. That page names each one.
 ## See also
 
 - [adoption.md](adoption.md) — the adoption driver, and the honest list of what it does not do yet.
-- [designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md) — the architecture design Scout is built from, including the report schema.
+- [designs/2026-08-23-brownfield-adoption-v2.md](designs/2026-08-23-brownfield-adoption-v2.md) — the **normative** architecture design: the four acts, and what Scout's survey is used for now that no rung is derived from it.
+- [designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md) — **superseded**, and the design Scout was originally built from, including the report schema it still emits.
 - [module-contract.md](module-contract.md) — the M1–M5 severable-module rules Scout is held to, including M5's zero-dependency arm.

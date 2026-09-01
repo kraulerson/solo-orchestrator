@@ -37,7 +37,11 @@
 # carries the skeleton, the TIER QUESTION, the reverse intake's confirmation
 # arm, the phase-0 landing, WP5b's test-debt ledger and WP6's collision archive
 # with its disclosure, recorded re-adds and archive-secrets refusal, plus WP9a's
-# act boundaries — with HONEST STUBS where WP10/WP11/WP12a/WP12b/WP7 will land.
+# act boundaries. HONEST STUBS name WP11, WP12a, WP12b and WP7 at run time.
+# WP10's absence — tool resolution and the tier-scoped secrets stop — is
+# announced by NOTHING, which is the design's own derivation 3 and not an
+# oversight of this comment: `grep -c 'resolve-tools'` over this driver and its
+# lib returns 0 in every file.
 #
 # THE CHOOSER AND PLACEMENT ARE GONE (v2 D4, D10) and this comment said they
 # were here for the whole of WP9a, because this file is not in that package's

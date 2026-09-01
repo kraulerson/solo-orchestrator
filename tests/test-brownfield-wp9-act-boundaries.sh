@@ -759,7 +759,7 @@ Do not suggest that any gate be skipped
 That is the exact reasoning adoption exists to refuse
 R1PHRASES
 if [ -z "$r1_missing" ] && [ "$r1_fallback" -eq 1 ] && [ "$r1_heading" -eq 1 ] && [ "$r1_titles" -eq 1 ]; then
-  pass "R1: scripts/resume.sh — the command Act 2's handoff prints — extracts a REAL prompt from the adopted intake's own '## 13.' section, and every load-bearing sentence of that prompt is pinned: adopted-not-scaffolded, phase 0 with no gate crossed, the blank cells, the survey's limit, the false-attachment disclaimer, the classification, and the anti-skip rule"
+  pass "R1: scripts/resume.sh — the command Act 2's handoff prints — extracts a REAL prompt from the adopted intake's own '## 13.' section, and the sentences pinned below are present: adopted-not-scaffolded, phase 0 with no gate crossed, the blank cells, the survey's limit, the false-attachment disclaimer, the classification, and the anti-skip rule"
 else
   fail_ "R1: the advertised route does not deliver the prompt it must" "missing-sentences:${r1_missing:- none} escaped-the-fallback=$r1_fallback section-13-headings=$r1_heading (want 1) prompt-titles=$r1_titles (want 1)"
 fi
@@ -808,6 +808,12 @@ r2_done=$(_num "$r2_done")
 # and python's `shlex.quote(None)` returns '' rather than raising, so a null
 # value resumes with a silently blanked field past every has()-check.
 #
+# NOTE THE ASYMMETRY, because the strings here used to overstate it:
+# `deployment` and `track` are compared to expected VALUES; `project_name` is
+# only checked NON-EMPTY, because it is the fixture directory's basename and
+# pinning it would couple this case to `newtmp`'s template. A mutant writing a
+# constant there survives — a known limit, stated, rather than a claim.
+#
 # ADOPTION KNOWS **THREE** OF THE SEVEN, NOT ONE, and the miscount here was
 # load-bearing: this comment said "the one key adoption genuinely knows", which
 # is why only `project_name` was asserted by value and why `deployment` and
@@ -819,7 +825,7 @@ r2_trk=$(jq -r '.track // ""' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
 
 if [ -z "$r2_missing" ] && [ "$r2_last" = "0" ] && [ "$r2_done" -eq 0 ] \
    && [ -n "$r2_pn" ] && [ "$r2_dep" = "personal" ] && [ "$r2_trk" = "full" ]; then
-  pass "R2: .claude/intake-progress.json carries all seven keys intake-wizard.sh's load_progress() subscripts with real values for the three it knows (project_name, deployment, track), last_section is 0 AND completed_sections is empty — so --resume starts at Section 1 and WALKS Section 5 rather than skipping it by either of the two mechanisms that can"
+  pass "R2: .claude/intake-progress.json carries all seven keys intake-wizard.sh's load_progress() subscripts a non-empty project_name and the expected values for deployment and track, last_section is 0 AND completed_sections is empty — so --resume starts at Section 1 and WALKS Section 5 rather than skipping it by either of the two mechanisms that can"
 else
   fail_ "R2: the progress file cannot be resumed from" "missing-keys:${r2_missing:- none} last_section=$r2_last (want 0) completed_sections=$r2_done (want 0) project_name='$r2_pn' (want non-empty) deployment='$r2_dep' (want personal) track='$r2_trk' (want full)"
 fi

@@ -98,7 +98,7 @@ amendment folded. **Built and shipping** — the user-facing page is [delta-trac
 (**Brownfield adoption, NORMATIVE** — the second entry path, for a codebase that already exists,
 re-cut as **four acts**: Scout surveys, the shell driver prepares and lands the project at
 **phase 0**, a Claude Code session assesses, and the plan is presented. Ten settled decisions
-(D1–D10) plus four delegated author decisions; full-history secret scanning tiered by audience,
+(D1–D10) plus eight delegated author decisions; full-history secret scanning tiered by audience,
 four archive classes, and an init-parity table with thirteen unowned rows. **Half built** — Scout,
 the driver, the test-debt ledger with its ratchet, the collision archive and WP9a's act boundaries
 ship; the secrets stop, the archive's two new classes, the assessment and the Adoption Record do
