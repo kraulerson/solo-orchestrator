@@ -2,11 +2,15 @@
 # scripts/adopt-project.sh — the brownfield ADOPTION DRIVER.
 #
 # Point it at a project that already exists and it walks the operator through
-# bringing that project under the framework: it reads Scout's survey, asks the
-# one question only a person can answer, confirms the facts the scan already
-# found, insists on the ones the scan can never find, writes the project's
-# state, stamps the adoption, and commits — exactly the files it wrote and
-# nothing else.
+# bringing that project under the framework: it reads Scout's survey, shows
+# what the survey found, asks who the project is FOR, confirms the facts the
+# scan already derived, writes the project's state at PHASE 0, stamps the
+# adoption, and commits — exactly the files it wrote and nothing else.
+#
+# THIS SCRIPT IS ACT 2 OF FOUR, and its final block says so. Act 1 is Scout
+# (read-only, separate). Acts 3 and 4 — the requirements interview, the fitness
+# verdict, the plan and the project's documents — are a Claude Code session
+# reached through `scripts/resume.sh`, and are NOT BUILT YET (WP12a/WP12b).
 #
 #   cd /path/to/their-project
 #   bash /path/to/solo-orchestrator/scripts/adopt-project.sh
@@ -15,13 +19,19 @@
 #   --scan-report FILE    a Scout JSON report to consume instead of running one
 #   --version / --help
 #
-# SPEC: docs/designs/2026-08-02-brownfield-adoption-v1.md §8.1 (the driver, and
-# why it is NOT a mode of init.sh), §4.1 (the chooser, in Karl's exact words),
-# §4.2 (the scanner OFFERS evidence, it does not decide), §4.3/§4.4 (S1 and S2
-# landing, and the FLOOR rule), §4.5 (what both scenarios share), §8.3 (reverse
-# intake), §8.4 (the fail-safe state-creation ORDER), §8.5 (explicit staging
-# and the adoption stamp), §5.5 ("adoption does not complete" must be SAFE),
-# §10-WP4. The standing module rules are docs/module-contract.md.
+# SPEC: docs/designs/2026-08-23-brownfield-adoption-v2.md §3 (the four acts),
+# §4.2 (the scanner OFFERS evidence, it does not decide), §4.3 (nothing
+# replaces the chooser — the project starts from the beginning), §6.5 (the tier
+# question), §8.1 (the driver and the act boundary), §8.2 (Act 2's order),
+# §8.3 (the state writes and the stamp's v2 shape), §10-WP9. Carried from
+# ADOPT-001-ARCH and unchanged by v2: §8.1's "not a mode of init.sh", §8.4's
+# fail-safe state-creation ORDER, §8.5's explicit staging, and §5.5's
+# "adoption does not complete" must be SAFE. The standing module rules are
+# docs/module-contract.md.
+#
+# A BARE `§N` IN THIS FILE NOW RESOLVES AGAINST v2, not v1 — v2 §0.2 makes the
+# citation boundary a per-file property and WP9 is the package that moves this
+# one.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # WHY THIS IS A SEPARATE SCRIPT AND NOT `init.sh --brownfield` (§8.1, §1.2)
@@ -127,7 +137,7 @@ done
 # THE GUARD, BEFORE ARGUMENT PARSING — see the header. Sibling posture, kept.
 guard_not_in_framework || exit 1
 
-for _part in adopt-core adopt-chooser adopt-intake adopt-state adopt-archive adopt-stubs adopt-test-debt; do
+for _part in adopt-core adopt-evidence adopt-intake adopt-state adopt-archive adopt-stubs adopt-test-debt; do
   if [ ! -f "$ADOPT_LIB_DIR/$_part.sh" ]; then
     echo "adopt-project: missing $ADOPT_LIB_DIR/$_part.sh — the driver needs its own lib directory." >&2
     exit 2
@@ -157,9 +167,13 @@ and records the choice in the audit trail. The framework's premise is
 opinionated enforcement, not confiscation — your files are yours.
 
 What it does, in order: reads the survey, offers what the survey found as
-EVIDENCE, asks you the one question the survey cannot answer, confirms the
-answers it already has and insists on the ones it does not, writes the
-project's state, records the adoption, and commits exactly the files it wrote.
+EVIDENCE, asks who the project is for, confirms the answers the survey already
+derived, writes the project's state at phase 0, records the adoption, and
+commits exactly the files it wrote.
+
+Your project starts at phase 0 whatever the survey found. Nothing is marked as
+already done and no shortcut is taken past any gate — the questions about what
+this project is and what it is for are asked afterwards, in Phase 0.
 
 If it stops partway — because you stopped it, or because a question had no
 answer — it stops in the SAFE direction: the project ends up more strictly

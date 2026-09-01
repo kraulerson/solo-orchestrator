@@ -765,22 +765,14 @@ else
     fail_ "G1" "fixture setup failed"
   else
     jq '.phaseMap.suggestedPhase = 2' "$TOPTMP/scan/scout-report.json" > "$GD/report.json" 2>/dev/null
+    # WP9: five answers — the tier question (2 = organizational, the tier this
+    # suite's ratchet arms are written against) and the four scan-derived
+    # confirmations. The chooser, the ladder, the nine judgment sections and
+    # the classification are no longer asked here (D4, D10, A7).
     cat > "$GD/answers" <<'ANS'
 2
-3
-2
 1
 1
-we reconcile vendor invoices by hand
-six weeks and no budget
-invoices only; no reporting in the first version
-public
-typescript and postgres are settled
-subscription billing
-just me approves things
-anyone with a login
-aws
-losing the database
 1
 1
 ANS

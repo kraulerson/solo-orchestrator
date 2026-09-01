@@ -56,7 +56,11 @@
 #   claim rather than with a number.
 #
 # THE FLOOR RULE (§4.4), which is why being wrong here is survivable: the
-# interview may only move the placement DOWN. This is a ceiling offered for
+# interview may only move the placement DOWN. THAT FLOOR RULE IS DELETED
+# (v2 D4/D10): there is no interview here and no placement anywhere — every
+# adopted project lands at phase 0 and earns each boundary through the ordinary
+# gates. The number below survives with a different job: EVIDENCE, pre-filling
+# the Phase 0 intake. This is a ceiling offered for
 # argument, never a floor asserted over the operator.
 
 # _scout_rung1 ROOT — is the product described in writing anywhere?

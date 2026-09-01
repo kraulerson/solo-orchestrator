@@ -557,12 +557,16 @@
   <div class="not-built" style="background:var(--brownfield-fill);border-left-color:var(--brownfield)">
     <h4>Read this before you plan around adoption</h4>
     <p style="margin:0 0 8px;font-size:13.5px">
-      <strong>Adoption is half built.</strong> The driver, the scenario chooser, the reverse intake, the state
-      writes, the adoption stamp with its loss detection, the commit-time enabling arms, the test-debt ledger
-      and the collision archive all ship and all work. <strong>The certification pass, the CI carve-out and the
-      Adoption Record do not exist.</strong> The driver prints a labelled <code>NOT DONE</code> block for each
-      one during the run, naming the work package that owns it. The full list is at the end of this section.
-      <strong>Do not read an adopted project as a certified one.</strong>
+      <strong>Adoption is half built.</strong> The driver, the tier question, the reverse intake's
+      confirmation arm, the state writes, the adoption stamp with its loss detection, the commit-time enabling
+      arms, the test-debt ledger and the collision archive all ship and all work. <strong>The assessment — the
+      requirements interview, the fitness verdict and the plan — does not exist, and neither do the CI
+      carve-out or the Adoption Record.</strong> The certification pass is <strong>retired</strong> rather than
+      pending: with no claimed rung and no derived landing it has nothing left to certify against. The driver
+      prints a labelled <code>NOT DONE</code> block for each unbuilt one during the run, naming the work
+      package that owns it. The full list is at the end of this section.
+      <strong>Adoption is Act 2 of four</strong> — Scout surveys, this driver prepares and lands the project at
+      phase 0, and the assessment that follows is a Claude Code session that has not been built yet.
     </p>
   </div>
 
@@ -628,33 +632,46 @@
     </div>
     <div class="mod-card">
       <h4>The one question the scan cannot answer</h4>
-      <p>The scan's findings are shown first as <strong>evidence, never as an answer</strong>, each line
-      carrying its own confidence. Then, verbatim: <em>"Is the project built out and needs to be able to be
-      supported (i.e. bug fixes, maintenance, new features add), or are you still in the process of building
-      your project?"</em></p>
+      <p>The scan's findings are shown first as <strong>evidence that decides nothing</strong>, each line
+      carrying its own confidence. Then one question, and it is not about your code: <em>"Who is this project
+      for?"</em> — <em>"Just me, or me and a few people I know"</em> / <em>"A company, a client, or people who
+      are paying for it"</em>. That answer sets the project's <strong>enforcement tier</strong>, and it is
+      asked because it is the one thing no amount of reading the code can determine.</p>
       <p><strong>There is no default and no skip.</strong> With no answer the run prints
       <code>[REFUSED]</code> and stops: <em>"Adoption did not begin. Nothing was committed and nothing was written."</em> — or <code>[BLOCKED]</code>, when the run had already written files, which then names the count (<code># BL-225-REFUSE-HONEST</code>).</p>
     </div>
     <div class="mod-card">
-      <h4>Two scenarios</h4>
-      <p><strong>S1 — completed:</strong> lands at <code>current_phase: 4</code>, straight into the
-      maintenance era; everything after arrives as a delta. Certification scope is every gate 0→1 through
-      3→4, which makes it the heaviest pass.</p>
-      <p><strong>S2 — in-flight:</strong> lands at the phase its artifacts support and reaches the
-      maintenance era the ordinary way, by shipping v1 through the gates.</p>
+      <h4>Everything lands at phase 0</h4>
+      <p><strong>Every adopted project starts at <code>current_phase: 0</code></strong> — not at a phase
+      derived from its artifacts, not at one you claimed, and not provisionally. It then goes forward through
+      the ordinary gates like any other project.</p>
+      <p>The driver used to ask how far along you were and place you accordingly. That question is
+      <strong>deleted</strong>, and so is the idea of computing an answer in its place: you are using this
+      framework because you are not already following a formal process, so grading your own position within
+      one is asking the wrong person.</p>
     </div>
     <div class="mod-card">
-      <h4>The floor rule — the interview can only move the placement DOWN</h4>
-      <p>The scan proposes a rung from the code. Your answer <strong>can lower it and cannot raise it</strong>:
-      "evidence you have not produced is not evidence." A project placed too low certifies more than it
-      strictly needed; one placed too high certifies less than it owed.</p>
+      <h4>Why landing low costs you nothing</h4>
+      <p>A phase is not a score — it is a statement about which gates were crossed <em>with evidence</em>.
+      The gates are cumulative, so a project placed at 3 without that evidence simply fails its own next gate.
+      Landing at 0 costs you the walk through Phase 0 and buys a project whose recorded position is true.</p>
+      <p>Nothing the scan learned is thrown away: the artifact ladder, the test-debt census and the reality
+      probes all become <strong>a head start on the Phase 0 questions</strong>, never a shortcut past them.</p>
     </div>
     <div class="mod-card">
-      <h4>Reverse intake, three classes</h4>
-      <p>Scan-derived answers are prefilled <em>with their provenance</em> and you keep or change them.
-      Judgement answers get no prefill, no default and no skip. <strong>Data classification is
-      non-skippable in both scenarios</strong> — the Phase 1→2 ZDR gate is a hard FAIL without it, so an
-      adoption that skipped it would produce a project that cannot pass its own next gate.</p>
+      <h4>Reverse intake — three classes, one of them asked here</h4>
+      <p>Scan-derived answers are prefilled <em>with their provenance</em> and you keep or change them. That
+      is the only class this step asks. Judgement answers and the data classification are
+      <strong>recorded blank and labelled</strong> — they belong to the <em>assessment</em>, a conversation
+      with an agent rather than a form.</p>
+      <p><strong>The classification is still mandatory, just later.</strong> The Phase 1→2 ZDR gate is a hard
+      FAIL without it — a real failure, not a warning — and it fires whenever the project's phase reads 2 or
+      more, <em>however it got there</em>. An adopted project starts at 0, below that gate. The gates are
+      cumulative and keyed to evidence, so arriving at a rung without the evidence fails on the evidence
+      regardless of what moved you there. <strong>Today the gate refuses an adopted project earlier still</strong>,
+      on a missing <code>APPROVAL_LOG.md</code> that adoption does not yet write — a real refusal, but one that
+      names the approval log rather than the classification. The run hands you
+      <code>bash scripts/resume.sh</code>, whose kickoff prompt names the classification as not optional.</p>
     </div>
     <div class="mod-card">
       <h4>A halted run leaves you MORE enforced, never less</h4>
@@ -674,12 +691,13 @@
   <div class="mod-grid">
     <div class="mod-card">
       <h4>The adoption stamp</h4>
-      <p>One additive <code>adoption</code> block in <code>.claude/manifest.json</code> — the flag, the
-      timestamp, the anchor commit, the scenario, the landed phase, the certification lists and the scan
-      report's hash. Written <strong>once, from one call site, never re-stamped</strong>; a second stamp
-      attempt is refused rather than overwriting the anchor.</p>
-      <p>Its three certification lists are <strong>empty, and empty means "not measured"</strong>, not
-      "measured and clean".</p>
+      <p>One additive <code>adoption</code> block in <code>.claude/manifest.json</code> — five keys: the
+      flag, the timestamp, the anchor commit, the scan report's hash and a schema version. Written
+      <strong>once, from one call site, never re-stamped</strong>; a second stamp attempt is refused rather
+      than overwriting the anchor, and an empty evidence hash is refused outright.</p>
+      <p>The scenario, the landed phase and the certification lists are <strong>gone from the record</strong>
+      — the first two with the question and the placement that produced them, and the lists because the
+      certification pass they belonged to is retired rather than pending.</p>
     </div>
     <div class="mod-card">
       <h4>Loud loss detection — and it blocks</h4>
@@ -753,14 +771,24 @@
     <h4>What adoption does NOT do yet — read this before you rely on it</h4>
     <p style="margin:0 0 8px;font-size:13px;color:var(--ink-soft)">
       Re-derived from the driver's own <code>adopt_stub_*</code> notices rather than copied from prose,
-      because this line has moved twice and will move again. Each block names its owner during the run.
-      The last three fire only when the run encounters the condition.
+      because this line has moved twice and will move again. <strong>Two of the bullets below are not
+      driver notices and are marked as such</strong> — the retired certification pass, which nothing
+      prints any more, and the closing caveat. Every other bullet names its owner during the run, and
+      <strong>two of those</strong> fire only when the run encounters the condition (a framework-script
+      collision, and a secrets scan with something to report).
     </p>
     <ul>
-      <li><strong>The certification pass — WP5.</strong> The largest gap and the one that matters most. It
-      would run every skipped gate's requirements <em>for real, today</em>, and it would be able to
-      <strong>fail</strong> — a blocker-grade finding would stop the adoption. None of that runs, which is why
-      the stamp's certification lists are empty.</li>
+      <li><strong>The assessment (Act 3) — WP12a.</strong> The largest gap. It is where a person is
+      actually asked what this project is for — how many people use it, whether it needs high availability,
+      whether it is internet-facing, what scale it needs, how sensitive its data is — and where the framework
+      says, <em>with its reasoning shown</em>, whether the technology fits those answers or whether this ought
+      to be rebuilt. The plan comes out of the same conversation. None of it runs yet, so the intake's
+      judgement cells stay blank and the Phase 0 questions are asked the ordinary way instead.</li>
+      <li><strong>The certification pass — RETIRED, not pending.</strong> It used to head this list. Its job
+      was to certify every gate <em>below a claimed rung</em>, and two decisions removed its subject: nobody
+      is asked how far along they are, and every adoption starts at phase 0. The principle it defended is
+      untouched — nothing is grandfathered and every gate is crossed with evidence — but the ordinary gates
+      now do that job, because the project starts below all of them.</li>
       <li><strong>The Adoption Record, the audit rows and the CI carve-out — WP7.</strong> No
       <code>APPROVAL_LOG.md</code> is written, so this adoption is recorded in the manifest and nowhere else.
       The consequence is immediate: <code>check-phase-gate.sh</code> exits 1 on <code>[FAIL] APPROVAL_LOG.md
@@ -776,7 +804,7 @@
       pass and the schema-migration checks that normally run on every commit are <strong>not</strong> —
       installing that hook today would refuse every commit, because it expects artifacts an adoption does not
       yet produce. Run them by hand: <code>bash scripts/pre-commit-gate.sh --terminal-mode</code>.</li>
-      <li><strong>Your project's framework documents — unassigned.</strong> <code>CLAUDE.md</code>, the
+      <li><strong>Your project's framework documents — WP11 archives them, WP12b writes them (D3).</strong> <code>CLAUDE.md</code>, the
       document templates and the reference docs are not written. So an adopted project has working gates and
       <strong>no <code>CLAUDE.md</code></strong> — the file an agent reads at the start of every session.
       Write one by hand or copy <code>templates/generated/claude-md.tmpl</code> from the framework clone.</li>
@@ -787,13 +815,10 @@
       <li><strong>The per-finding secrets disposition — unassigned.</strong> Scout reports what is in your
       history (redacted); nothing collects a recorded decision — rotated / false alarm / accepted risk — for
       each finding. Read the scan report's secrets section before you trust the repo.</li>
-      <li><strong>The manifest's tier keys are not written</strong> (tracked as <code>## BL-221:</code>).
-      A scaffolded manifest carries <code>deployment</code>, <code>poc_mode</code> and
-      <code>enforcement_level</code>; an adopted one does not, and one tier reader
-      (<code>assert_choosable</code>) resolves an absent <code>deployment</code> to the <em>permissive</em>
-      default while its sibling <code>read_enforcement_level</code> fails closed to strict. The commit-time
-      gates are unaffected. <strong>If you adopt an organizational project, set those keys by hand before
-      anyone runs <code>reconfigure-project.sh</code>.</strong></li>
+      <li><em>(Not a driver notice — a caveat about this list.)</em> <strong>The per-capability owner
+      strings, and this list itself.</strong> Each block above names the work package that owes it, or
+      says plainly that none does — three of them do the latter. Read those against the design's build plan rather than instead of it — an
+      owner string is the driver's best guess at run time, and this feature has had to correct one.</li>
     </ul>
   </div>
 </section>
@@ -1835,7 +1860,7 @@
     <!-- ---------- Brownfield adoption + delta track terms ---------- -->
     <div class="gloss-item">
       <dt>Brownfield Adoption</dt>
-      <dd>The second entrance: bringing a codebase that already exists under the framework, via <code>scripts/adopt-project.sh</code> rather than <code>init.sh</code>. It asks one question, lands the project at a phase, writes state fail-safe and commits exactly the files it wrote. <strong>Half built</strong> — the certification pass, the CI carve-out and the Adoption Record do not exist.</dd>
+      <dd>The second entrance: bringing a codebase that already exists under the framework, via <code>scripts/adopt-project.sh</code> rather than <code>init.sh</code>. It asks one question — <em>who is this project for?</em>, which sets the enforcement tier — lands the project at <strong>phase 0</strong> like every other, writes state fail-safe and commits exactly the files it wrote. <strong>Half built</strong> — the assessment, the CI carve-out and the Adoption Record do not exist; the certification pass is retired.</dd>
     </div>
     <div class="gloss-item">
       <dt>Scout</dt>

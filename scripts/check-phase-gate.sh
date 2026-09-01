@@ -3476,9 +3476,15 @@ if command -v soif_adoption_integrity_lost >/dev/null 2>&1; then
     # `var=$(cmd)` takes cmd's exit status, so a jq that failed here would abort
     # the WHOLE gate mid-run — a reporting line taking the enforcement down with
     # it. The fallbacks keep a cosmetic read cosmetic.
-    cpg_adopt_scenario=$(soif_adoption_read ".claude/manifest.json" '.adoption.scenario // "unknown"') || cpg_adopt_scenario="unknown"
+    # THE SCENARIO READ IS GONE, AND IT WAS COSMETIC IN BOTH DIRECTIONS.
+    # v2 §8.3 removes `scenario` from the stamp (D4 deleted the chooser that
+    # produced it), so this line would have printed "scenario: unknown" on
+    # every correctly-stamped project from now on — a gate reporting an unknown
+    # where the record is complete, which teaches operators to ignore it. It
+    # changes no `issues` increment and therefore no verdict; §9's "v2 adds no
+    # gate arms" is untouched by removing a field from a print.
     cpg_adopt_at=$(soif_adoption_read ".claude/manifest.json" '.adoption.adoptedAt // "unknown"') || cpg_adopt_at="unknown"
-    echo -e "${GREEN}[OK]${NC} Adoption stamp present and intact (scenario: $cpg_adopt_scenario, adopted: $cpg_adopt_at)"
+    echo -e "${GREEN}[OK]${NC} Adoption stamp present and intact (adopted: $cpg_adopt_at)"   # BL-242-GATE-OK-LINE
   fi
 fi
 # BF-ADOPT-GATE-END

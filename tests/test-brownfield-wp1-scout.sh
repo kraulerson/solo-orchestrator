@@ -563,7 +563,7 @@ fi
 
 # ── P2: the note is §8.2's string, verbatim ────────────────────────────────
 note=$(jqv "$ljson" '.phaseMap.note')
-if [ "$note" = "maximum satisfied rung; the interview may only lower this" ]; then
+if [ "$note" = "maximum satisfied rung; evidence for the Phase 0 intake, never a placement" ]; then
   pass "P2: phaseMap.note is §8.2's string verbatim"
 else
   fail_ "P2" "note='$note'"

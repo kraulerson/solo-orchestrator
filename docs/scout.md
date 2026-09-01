@@ -143,7 +143,7 @@ technical shape → a runnable test corpus → a deploy or release lane.
 ```text
 **Suggested starting point: 4.** The project is described, its shape is written down, it has runnable tests, and there is a way to get it out the door.
 
-This is a ceiling, not a verdict: maximum satisfied rung; the interview may only lower this
+This is a ceiling, not a verdict: maximum satisfied rung; evidence for the Phase 0 intake, never a placement
 
 | Step | Found? | What we looked at |
 |---|---|---|
@@ -154,9 +154,11 @@ This is a ceiling, not a verdict: maximum satisfied rung; the interview may only
 ```
 
 **The ladder stops at the first gap.** `suggestedPhase` is the highest
-*contiguously reached* rung, not the plain maximum — landing at phase N means
-certifying every gate below N, and that is a property of a prefix, not of a
-satisfied set with a hole in it. The plain maximum is published beside it as
+*contiguously reached* rung, not the plain maximum. The reason is unchanged by
+adoption landing everything at phase 0: reaching rung N is a claim about a
+PREFIX — every rung below it too — not about a satisfied set with a hole in it,
+and a ladder that skipped the hole would describe evidence the project does not
+have. The plain maximum is published beside it as
 `highestSatisfiedRung`, so the gap between the two is information rather than
 something thrown away.
 
@@ -172,7 +174,7 @@ Observed on a fixture whose rungs are yes / no / no / yes:
     { "rung": 3, "evidence": "a test command exists (`node test/run.js`) but no test corpus was found", "satisfied": false },
     { "rung": 4, "evidence": ".github/workflows/deploy.yml (a deploy or release lane)", "satisfied": true }
   ],
-  "note": "maximum satisfied rung; the interview may only lower this"
+  "note": "maximum satisfied rung; evidence for the Phase 0 intake, never a placement"
 }
 ```
 
@@ -338,11 +340,14 @@ The setup interview asks about fifteen things. Scout classifies each one:
 | Agent Initialization Prompt | `(generated from the completed intake)` | run_section_13 writes it from the answers above; it asks no question of its own |
 ```
 
-Three classes, and the boundary matters: **scan-derived** answers are prefilled
-with their provenance and you confirm or change them; **judgement** answers get
-no default and no guess, because the prefill pattern is right for facts the
-framework recorded and wrong for judgements it has never made; **data
-classification** is non-skippable in every scenario.
+Three classes, and **the driver now asks exactly one of them**: **scan-derived**
+answers are prefilled with their provenance and you confirm or change them.
+**Judgement** answers and the **data classification** are recorded blank and
+labelled — they belong to the *assessment*, a conversation with an agent rather
+than a form, because the prefill pattern is right for facts the framework
+recorded and wrong for judgements it has never made. The classification is still
+mandatory; an adopted project sits below the gate that demands it, and
+[adoption.md](adoption.md) names the three routes that ask for it.
 
 ---
 
@@ -399,13 +404,17 @@ bash scripts/adopt-project.sh --scan-report ./scan/scout-report.json
 ```
 
 **Read [adoption.md](adoption.md) before you run that.** Adoption is half built:
-the driver, the chooser and the interview ship and work, and several of the
-things the design promises do not exist yet. That page names each one.
+the driver, the tier question, the reverse intake's confirmation arm, the state
+writes, the adoption stamp, the test-debt ledger and the collision archive ship
+and work. The **assessment** — the requirements interview, the fitness verdict
+and the plan — does not exist yet, and neither do the CI carve-out or the
+Adoption Record. That page names each one.
 
 ---
 
 ## See also
 
 - [adoption.md](adoption.md) — the adoption driver, and the honest list of what it does not do yet.
-- [designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md) — the architecture design Scout is built from, including the report schema.
+- [designs/2026-08-23-brownfield-adoption-v2.md](designs/2026-08-23-brownfield-adoption-v2.md) — the **normative** architecture design: the four acts, and what Scout's survey is used for now that no rung is derived from it.
+- [designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md) — **superseded**, and the design Scout was originally built from, including the report schema it still emits.
 - [module-contract.md](module-contract.md) — the M1–M5 severable-module rules Scout is held to, including M5's zero-dependency arm.

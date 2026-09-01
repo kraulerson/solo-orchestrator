@@ -13,12 +13,41 @@
 # starts from the document the scanner already derived and asks the person to
 # CONFIRM it — for the parts that are derivable, and only those.
 #
-#   scan-derived    Prefilled and confirmed: TWO disclosure lines naming the
-#                   value AND ITS PROVENANCE, then keep-it / change-it, with
-#                   "change it" falling through to the ordinary question.
-#   judgment        Human-mandatory. No prefill, no default, no skip.
-#   non-skippable   Data classification. No default, no inference, and NO
-#                   "confirm" arm at all.
+# ACT 2 NOW ASKS ONE OF THE THREE CLASSES, AND ONLY ONE (v2 §8.2 step 7, A7):
+#
+#   scan-derived    ASKED HERE. Prefilled and confirmed: TWO disclosure lines
+#                   naming the value AND ITS PROVENANCE, then keep-it /
+#                   change-it, with "change it" falling through to the
+#                   ordinary question.
+#   judgment        NOT asked here any more. Recorded blank and named as the
+#                   assessment's — Act 3's requirements interview (§5.2) is
+#                   where a model conducts them.
+#   non-skippable   NOT asked here any more either, and that one needs its
+#                   reason spelled out rather than assumed. See below.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY THE DATA CLASSIFICATION LEFT ACT 2, WHEN THIS FILE USED TO CALL IT
+# NON-SKIPPABLE IN BOTH SCENARIOS.
+#
+# Because the reason it was non-skippable HERE has been deleted, and the
+# deletion is Karl's. The old argument, in this file's own words, was
+# mechanical: `check-phase-gate.sh`'s Phase 1->2 ZDR backstop hard-FAILs
+# whenever `current_phase >= 2` without a recorded classification, and "an S1
+# adoption lands at 4, i.e. above that threshold on its FIRST commit". **D10
+# deleted the landing.** Nothing lands above phase 0 any more, so a project
+# leaving Act 2 is not near that threshold and cannot reach it except by
+# crossing the very gate the backstop lives in.
+#
+# So the requirement did not weaken — its ANCHOR MOVED. §5.2 re-anchors it to
+# Act 4's Phase 0 intake write, which refuses without a recorded
+# classification, and the shipped backstop remains the second line from the
+# moment the project reaches phase 2 by the ordinary route.
+#
+# THE WINDOW IS REAL AND IS NAMED RATHER THAN HIDDEN: between WP9 and WP12a
+# nothing in adoption asks for a classification at all. The direction is
+# fail-closed (phase 0, and the only route up crosses the backstop), and the
+# operator meets the question in Phase 0 — which is where D10 puts every
+# question about what the project is and what it is supposed to do.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # THE SHAPE OF THE PREFILL READ IS LOAD-BEARING, AND §8.3 SAYS SO IN ADVANCE.
@@ -35,24 +64,6 @@
 # bite. The copy below preserves both properties under its own marker,
 # `# BF-ADOPT-PREFILL-READ`, for exactly the same reason.
 #
-# ─────────────────────────────────────────────────────────────────────────────
-# WHY DATA CLASSIFICATION GETS ITS OWN GUARD RATHER THAN RIDING THE SHARED ONE.
-#
-# It is a MECHANICAL necessity, not a policy preference: scripts/check-phase-gate.sh's
-# Phase 1->2 ZDR backstop is a hard `[FAIL]` (an `issues` increment, which is
-# what a block actually is in that script) whenever `current_phase >= 2` and
-# `.claude/process-state.json::phase1_artifacts.data_classification` is not one
-# of {public, internal, confidential, pii, financial, health, regulated} — plus
-# an attestation for anything above `public`. An S1 adoption lands at 4, i.e.
-# above that threshold on its FIRST commit. So the non-skippability is given
-# its own single-site guard, at the question's own site, where it can be read,
-# reviewed, and neutered by one line in a mutation proof.
-
-# The taxonomy, spelled exactly as the gate spells it. Order is the gate's.
-ADOPT_DC_TAXONOMY="public internal confidential pii financial health regulated"
-
-ADOPT_DC_REFUSAL="Data classification has no default, no guess and no skip — in either scenario. The Phase 1 to 2 gate is a hard FAIL without it, so an adoption that skipped it would produce a project that cannot pass its own next gate."
-
 # ── The answers ledger ──────────────────────────────────────────────────────
 # `<field>\t<title>\t<kind>\t<value>\t<provenance>`, one row per answer, in the
 # order asked. The intake artifacts are rendered from this and nothing else.
@@ -75,46 +86,6 @@ adopt_record_answer() {
   value="$(printf '%s' "$value" | tr '\t\n' '  ')"
   prov="$(printf '%s' "$prov" | tr '\t\n' '  ')"
   printf '%s\t%s\t%s\t%s\t%s\n' "$field" "$title" "$kind" "$value" "$prov" >> "$ADOPT_ANSWERS"
-}
-
-# ── The question text for the judgment rows ─────────────────────────────────
-# One case arm per intake section. §4.3 makes S1 LIGHT ON FUTURES: there is no
-# MVP cutline to draw for something already shipped, so section 4 asks for a
-# record of what exists instead of a cutline. Everything else is asked of both.
-adopt_judgment_question() {
-  local id="$1" scenario="$2"
-  case "$id" in
-    2)  printf '%s' "What problem does this project solve, and for whom? Say it concretely." ;;
-    3)  printf '%s' "What constrains this work — time, money, people, anything you cannot change?" ;;
-    4)  if [ "$scenario" = "completed" ]; then
-          printf '%s' "What does this project actually do today? List the main things it does, as they are — not as you wish they were."
-        else
-          printf '%s' "What is in the first version you would call finished, and what are you deliberately leaving out of it?"
-        fi ;;
-    6)  printf '%s' "What technology choices are already settled here, and which ones are you unsure about?" ;;
-    7)  printf '%s' "Does this project make or save money, and how? Say 'none' if it does not." ;;
-    8)  printf '%s' "Who has to approve things here, and does anything about this project need sign-off from someone else?" ;;
-    9)  printf '%s' "Who has to be able to use this, and does anyone using it need accommodations?" ;;
-    10) printf '%s' "Where does this run, and who is it distributed to?" ;;
-    11) printf '%s' "What worries you most about this project? Name the thing you would rather not write down." ;;
-    *)  printf '%s' "Tell us about this section." ;;
-  esac
-}
-
-# §4.3's operations weight for S1, as three questions rather than a checklist.
-# They cover incident response and the on-call reality (the first), the backup
-# maintainer (the second) and the release lane (the third); hosting is already
-# asked by section 10's own question above.
-adopt_ops_addendum() {
-  local scenario="$1"
-  [ "$scenario" = "completed" ] || return 0
-  adopt_ask_free "incident response" "When this breaks in production, what happens, and who finds out first?" || return 1
-  adopt_record_answer "incident_response" "Distribution & Operations" "judgment" "$ADOPT_ANSWER" ""
-  adopt_ask_free "backup maintainer" "If you were unavailable for a month, who keeps this running?" || return 1
-  adopt_record_answer "backup_maintainer" "Distribution & Operations" "judgment" "$ADOPT_ANSWER" ""
-  adopt_ask_free "release lane" "How does a change get from your machine into production today?" || return 1
-  adopt_record_answer "release_lane" "Distribution & Operations" "judgment" "$ADOPT_ANSWER" ""
-  return 0
 }
 
 # ── The scan-derived arm — the BL-204 pattern, preserved ────────────────────
@@ -152,58 +123,20 @@ adopt_confirm_scanned() {
   return 0
 }
 
-# ── The non-skippable arm ───────────────────────────────────────────────────
-adopt_ask_data_classification() {
-  local raw dc
-  adopt_say "The highest classification of any data this system handles."
-  adopt_note "This one cannot be skipped, guessed or deferred, in either scenario."
-  # NO confirm arm and NO preselection: nothing here is prefilled, because the
-  # scan has never seen the data this system handles and §8.3 gives this class
-  # no "confirm" behaviour at all.
-  adopt_offer_choice "Which one describes it?" $ADOPT_DC_TAXONOMY
-  adopt_read_optional
-  raw="$ADOPT_ANSWER"
-  dc="$(adopt_resolve_choice "$raw" $ADOPT_DC_TAXONOMY)"
-  printf '\n'
-  if [ -z "$dc" ]; then
-    adopt_refuse "$ADOPT_DC_REFUSAL"; return 1   # BF-ADOPT-DC-MANDATORY
-  fi
-  ADOPT_DATA_CLASSIFICATION="$dc"
-  adopt_record_answer "data_classification" "Data & Integrations" "non-skippable" "$dc" ""
-
-  ADOPT_ZDR_ATTESTED="false"
-  ADOPT_ZDR_REASON=""
-  if [ "$dc" = "public" ]; then
-    adopt_note "Public data: no zero-retention attestation is required."
-    adopt_record_answer "zdr_attested" "Data & Integrations" "non-skippable" "false" "public data needs no attestation"
-    return 0
-  fi
-
-  adopt_ask_choice "zero data retention" \
-    "Is zero data retention (or a self-hosted model) in place for this project?" "yes" "no" || return 1
-  if [ "$ADOPT_ANSWER" = "yes" ]; then
-    ADOPT_ZDR_ATTESTED="true"
-    adopt_record_answer "zdr_attested" "Data & Integrations" "non-skippable" "true" ""
-    return 0
-  fi
-  adopt_ask_free "the written exception for zero data retention" \
-    "Then a written exception is required. What is it? (for example: a customer contract requires retention)" || return 1
-  ADOPT_ZDR_REASON="$ADOPT_ANSWER"
-  adopt_record_answer "zdr_attested" "Data & Integrations" "non-skippable" "false" ""
-  adopt_record_answer "zdr_attestation_reason" "Data & Integrations" "non-skippable" "$ADOPT_ZDR_REASON" ""
-  return 0
-}
-
 # ── The runner ──────────────────────────────────────────────────────────────
-# adopt_run_reverse_intake REPORT SCENARIO — walks Scout's intakePrefill rows
-# IN THE ORDER SCOUT EMITS THEM and dispatches each to its class.
+# adopt_run_reverse_intake REPORT — walks Scout's intakePrefill rows IN THE
+# ORDER SCOUT EMITS THEM and dispatches each to its class.
+#
+# THE SCENARIO PARAMETER IS GONE (D4) AND SO IS EVERY BRANCH THAT READ IT.
 adopt_run_reverse_intake() {
-  local report="$1" scenario="$2"
-  local rows id title kind field value source q
+  local report="$1"
+  local rows id title kind field value source
   adopt_head "The interview"
   adopt_note "Some of this the scan already answered — you will see the answer and where it"
-  adopt_note "came from, and you can keep it or change it. The rest only you can answer, so"
-  adopt_note "there is no default and no way to skip past it."
+  adopt_note "came from, and you can keep it or change it."
+  adopt_note "The rest is not asked here. Questions only a person can answer belong to the"
+  adopt_note "assessment, which is a conversation with an agent rather than a form, and this"
+  adopt_note "step leaves those cells blank for it."
   adopt_blank
 
   rows="$(adopt_report_read "$report" '.intakePrefill.sections[]? | [.id, .title, .kind, .field, (.value // ""), (.source // "")] | @tsv')"
@@ -229,28 +162,25 @@ adopt_run_reverse_intake() {
         adopt_note "Nothing to answer here — it is written from everything above."
         adopt_record_answer "$field" "$title" "generated" "${value:-generated}" "${source:-generated from the completed intake}"
         ;;
-      5)
-        adopt_say "$title"
-        adopt_ask_data_classification || return 1
-        ;;
       *)
         case "$kind" in
           scan-derived)
             adopt_confirm_scanned "$field" "$title" "$value" "$source" || return 1
             ;;
-          judgment)
-            q="$(adopt_judgment_question "$id" "$scenario")"
+          judgment|non-skippable)
+            # A7 — ACT 2 DOES NOT ASK THESE. The row is RECORDED, blank, and
+            # named as the assessment's, which is deliberately different from
+            # dropping it: a cell that is absent from PROJECT_INTAKE.md reads
+            # as a question nobody thought of, and a cell that is present and
+            # blank reads as one that is waiting. Act 3 fills them.
+            #
+            # THE MUTATION TARGET IS THIS LINE. Restoring a question here is
+            # exactly what "Act 2 asks judgment rows again" means, and the
+            # suite's answer script is sized so that doing it runs the run out
+            # of answers and refuses.
             adopt_say "$title"
-            adopt_ask_free "$title" "$q" || return 1
-            adopt_record_answer "$field" "$title" "judgment" "$ADOPT_ANSWER" ""
-            [ "$id" = "10" ] && { adopt_ops_addendum "$scenario" || return 1; }
-            ;;
-          non-skippable)
-            # Any future non-skippable row that is not section 5 lands here
-            # rather than being silently treated as judgment.
-            adopt_say "$title"
-            adopt_ask_free "$title" "$(adopt_judgment_question "$id" "$scenario")" || return 1
-            adopt_record_answer "$field" "$title" "non-skippable" "$ADOPT_ANSWER" ""
+            adopt_note "Not asked here — this one is asked in the assessment."   # BL-242-INTAKE-CONFIRM-ONLY
+            adopt_record_answer "$field" "$title" "$kind" "" "left blank by adoption; asked in the assessment"
             ;;
           *)
             adopt_refuse "the scan report classifies '$title' as '$kind', which this driver does not know how to ask"
@@ -274,17 +204,28 @@ INTAKE_ROWS
 # one, and a near-miss is what a lint cannot tell from the genuine article.
 # adopt_stub_provenance_headers says so out loud at run time.
 adopt_render_intake_doc() {
-  local root="$1" scenario="$2" landed="$3"
+  local root="$1"
   local field title kind value prov last_title=""
   {
     printf '# Project Intake\n\n'
     printf 'Recorded during adoption on %s.\n\n' "$(date -u +%Y-%m-%d)"
-    printf 'Scenario: %s. Landed at phase %s.\n\n' "$scenario" "$landed"
+    printf 'This project starts at phase 0, like every adopted project. Cells marked as\n'
+    printf 'asked in the assessment are deliberately blank: they are questions only a\n'
+    printf 'person can answer and they belong to the assessment conversation, not here.\n\n'
     printf 'Each answer below says where it came from. An answer marked as coming from\n'
     printf 'the scan was derived from the code and confirmed by a person; an answer with\n'
     printf 'no provenance was given by a person outright.\n'
     while IFS="$(printf '\t')" read -r field title kind value prov; do
       [ -n "${field:-}" ] || continue
+      # SECTION 13 IS RENDERED BELOW, NOT HERE, AND ITS LEDGER ROW IS DROPPED.
+      # Emitting both put two `Agent Initialization Prompt` headings five lines
+      # apart, and the FIRST one was false twice over: it attributed the prompt
+      # to `run_section_13` — `intake-wizard.sh`'s function, which never runs
+      # during an adoption — and described it as "generated from the completed
+      # intake" directly above a prompt whose whole subject is that the intake
+      # is NOT complete. The row is Scout's prefill table doing its job; it is
+      # this renderer's job not to print a provenance that is wrong here.
+      [ "$field" = "agent_init_prompt" ] && continue
       if [ "$title" != "$last_title" ]; then
         printf '\n## %s\n' "$title"
         last_title="$title"
@@ -292,39 +233,199 @@ adopt_render_intake_doc() {
       printf '\n- **%s** (%s): %s\n' "$field" "$kind" "$value"
       [ -n "$prov" ] && printf '  - Source: %s\n' "$prov"
     done < "$ADOPT_ANSWERS"
+    adopt_render_section_13 "$root"
     printf '\n'
   } | adopt_write_file "$root" "PROJECT_INTAKE.md"
+}
+
+# adopt_render_section_13 — the §13 kickoff prompt, AND IT IS RENDERED WITH THE
+# HEADING THE EXTRACTOR LOOKS FOR.
+#
+# WHY THIS EXISTS AT ALL. `scripts/resume.sh`'s kickoff branch is the route a
+# completed Act 2 hands the operator to, and it pulls the prompt out of the
+# project's own intake with `awk '/^## 13\./{f=1; next} … /^```/{c = !c…}'` — a
+# heading spelled `## 13.` followed by a FENCED block. Measured before this was
+# written: the adoption-rendered document had neither, so the extraction
+# returned empty and `resume.sh` printed its fallback — which told the operator
+# to *"read PROJECT_INTAKE.md — Section 13 is your initialization prompt"*
+# about a file with no section 13 in it. The handoff pointed at a section the
+# handoff's own writer had never rendered.
+#
+# WHAT IT DELIBERATELY DOES NOT SAY. The greenfield template's section 13 opens
+# with `ATTACHED: … Solo Orchestrator Builder's Guide … Platform Module`.
+# `init.sh` copies those into `docs/reference/`; **adoption does not** (§8.7a
+# row 18, UNOWNED). Copying that wording would hand the agent a list of
+# attachments that are not there, which is the false-attachment class — so this
+# prompt names only artifacts the adoptee actually has, and says plainly that
+# the process reference is missing rather than implying it is attached.
+adopt_render_section_13() {
+  local root="$1"
+  cat <<'S13A'
+
+## 13. Agent Initialization Prompt
+
+```
+You are the AI execution layer for a Solo Orchestrator project. I am the
+Orchestrator. I define intent, constraints, and validation. You provide
+architecture, code, and documentation within the constraints I set.
+
+THIS PROJECT WAS ADOPTED, NOT SCAFFOLDED. It existed before the framework did.
+It is at PHASE 0 and no gate has been crossed: nothing about it has been
+grandfathered, and nothing in this document may be treated as an approval.
+
+WHAT YOU HAVE:
+1. This intake. Cells marked "asked in the assessment" are DELIBERATELY BLANK —
+   they are the questions only a person can answer, and nobody has been asked
+   them yet. Ask them.
+2. .claude/adoption/scout-report.json — a read-only survey of this codebase
+   taken at adoption: its stack, its artifacts, its test baseline, its secrets
+   findings and its collisions. Use it as evidence about what EXISTS. It is not
+   evidence that anything was DONE PROPERLY.
+3. .claude/test-debt.json — the files that had no tests at adoption. It is a
+   baseline that must not grow, not a list of things to ignore.
+S13A
+
+  # ITEM 4 IS CONDITIONAL, and the reason is this function's own header rule.
+  # It says the prompt "names only artifacts the adoptee actually has" and calls
+  # the alternative the false-attachment class — then named the archive
+  # unconditionally, which on a COLLISION-FREE adoptee (the common case, and the
+  # shape of this feature's own control fixture) does not exist. Pointing an
+  # agent at a directory that is not there is the same defect as the attachment
+  # list it was written to avoid, one item further down.
+  #
+  # Emitted as its own heredoc rather than substituted into the one above: a
+  # `sed` replacement carrying a literal newline does not work, and finding that
+  # out at run time inside a writer is worse than two heredocs.
+  if [ -d "$root/.claude/adoption-archive" ]; then
+    cat <<'S13B'
+4. .claude/adoption-archive/ — anything of yours the adoption moved aside, with
+   a MANIFEST and a restore line for each.
+S13B
+  fi
+
+  cat <<'S13C'
+
+WHAT YOU DO NOT HAVE: the Solo Orchestrator Builder's Guide and the Platform
+Modules. A scaffolded project receives them in docs/reference/; an adopted one
+does not yet. Do not act as though a process reference is attached. Ask for it,
+or work from this framework's own scripts and their headers.
+
+START HERE, IN THIS ORDER:
+1. Fill in every blank cell in this intake by ASKING me. Do not infer them from
+   the code — the code is what the survey already read, and the questions that
+   are left are the ones it could not answer.
+2. Data classification is NOT OPTIONAL and has no default. This project cannot
+   cross its Phase 1 to 2 gate without it, and adoption did not ask for it.
+3. Then run Phase 0 as the framework defines it, from the beginning.
+
+RULES:
+- This intake is the governing constraint once it is filled in. Until then, its
+  blank cells are open questions, not permissions.
+- Do not suggest that any gate be skipped because the project is "already
+  built". That is the exact reasoning adoption exists to refuse.
+```
+S13C
 }
 
 # adopt_render_intake_progress — .claude/intake-progress.json, in the shape
 # scripts/intake-wizard.sh's own progress file uses, so --resume and
 # reconfigure-project.sh can read an adopted project's answers.
 adopt_render_intake_progress() {
-  local root="$1" scenario="$2"
+  local root="$1"
   local answers_json field title kind value prov
   answers_json="{}"
   while IFS="$(printf '\t')" read -r field title kind value prov; do
     [ -n "${field:-}" ] || continue
     answers_json="$(printf '%s' "$answers_json" | jq --arg k "$field" --arg v "$value" '. + {($k): $v}' 2>/dev/null)" || return 1
   done < "$ADOPT_ANSWERS"
-  jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg s "$scenario" --argjson a "$answers_json" \
-    '{version: 1, started_at: $at, last_section: 13, completed_sections: [],
-      source: "adopt-project.sh", adoption_scenario: $s, answers: $a}' \
+  # THE SEVEN KEYS BELOW ARE NOT DECORATION — THEY ARE WHAT MAKES THIS FILE'S
+  # OWN HEADER TRUE, and it was false until WP9a. `intake-wizard.sh`'s
+  # `load_progress()` SUBSCRIBES `last_section`, `project_name`, `platform`,
+  # `track`, `deployment`, `language` and `description` directly (a python
+  # `data['key']`, not a `.get`), so a progress file missing any of them raises
+  # `KeyError` — and the wizard swallows it: the traceback goes to stderr, the
+  # redirect eats the non-zero status, and `--resume` carries on. Adoption used
+  # to write six unrelated keys and none of these.
+  #
+  # AND `last_section` IS 0, NOT 13, WHICH IS THE HALF THAT MATTERS. The wizard
+  # resumes at `LAST_SECTION + 1`, so the old value sent it to Section 14 — past
+  # the END of the intake, and past **Section 5, the data classification**. With
+  # A7 moving that question out of Act 2, `--resume` was the route that was
+  # supposed to still ask it, and 13 was the number that guaranteed it never
+  # would. Zero makes the wizard walk the whole intake.
+  #
+  # ADOPTION KNOWS THREE OF THE SEVEN AND WRITES THE OTHER FOUR HONESTLY.
+  # Known: `project_name` (the directory), `deployment` (the tier question —
+  # its only source) and `track` ("full", the same value
+  # `adopt_write_phase_state` records, so the two files cannot disagree).
+  # Not known and therefore written EMPTY rather than guessed: `platform`,
+  # `language`, `description` — an empty string satisfies the subscript and
+  # reads as unanswered, while a guessed platform would be a fact nobody gave.
+  #
+  # *(This said "the four values adoption cannot know", and the paired sentence
+  # in the WP9a suite said "the one key adoption genuinely knows". Both were
+  # miscounts, and the second was the stated justification for pinning only
+  # `project_name` — which is why `deployment` and `track` could be blanked with
+  # every check green. A count in a comment can be load-bearing.)*
+  jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson a "$answers_json" \
+        --arg pn "$ADOPT_PROJECT_NAME" --arg dep "$ADOPT_DEPLOYMENT" \
+    '{version: 1, started_at: $at, last_section: 0, completed_sections: [],
+      source: "adopt-project.sh",
+      project_name: $pn, platform: "", track: "full", deployment: $dep,
+      language: "", description: "",
+      answers: $a}' \
     | adopt_write_file "$root" ".claude/intake-progress.json"
 }
 
-# adopt_persist_phase1_artifacts — the canonical home the Phase 1->2 ZDR gate
-# reads. Reuse-by-extraction of intake-wizard.sh's persist_phase1_artifacts():
-# the same jq merge onto .phase1_artifacts, with the file CREATED when the
-# adoptee has none (the wizard warns and returns, because in a greenfield
-# project init.sh has already made it; in an adoptee nothing has).
+# ── The process-state file, and the merge that no longer rides with it ──────
+#
+# ONE FUNCTION BECAME TWO AT WP9, AND THE SPLIT IS A7's WHOLE MECHANICAL COST.
+# `adopt_persist_phase1_artifacts` did two unrelated jobs: it CREATED
+# `.claude/process-state.json` when the adoptee had none, and it MERGED the
+# data classification into it. A7 moves the classification to Act 4 and the
+# file creation must not go with it — `init.sh` guarantees every scaffolded
+# project a process-state, so an adoptee without one is an init-parity gap
+# (§8.7a row 5) rather than a saving.
+
+# adopt_write_process_state ROOT — creates the file if the adoptee has none.
+# Called by Act 2, unconditionally, and it writes no phase-1 content: there is
+# none to write until the assessment asks for it.
+adopt_write_process_state() {
+  local root="$1"
+  local pstate=".claude/process-state.json"
+  [ -f "$root/$pstate" ] && return 0
+  printf '%s\n' '{"build_loop":{"feature":null,"step":0,"steps_completed":[],"started_at":null},"uat_session":{},"phase2_init":{"steps_completed":[],"attestations":{}},"phase3_validation":{},"phase4_release":{}}' \
+    | adopt_write_file "$root" "$pstate" || return 1
+  return 0
+}
+
+# The taxonomy, spelled exactly as the gate spells it. Order is the gate's.
+# KEPT WITH THE WRITER BELOW AND FOR THE SAME REASON: whatever asks for a
+# classification in Act 4 has to validate the answer against exactly this set
+# or the project fails its own Phase 1->2 gate on a value nobody rejected, and
+# re-spelling a seven-value list that must match another script byte-for-byte
+# is a drift risk with no upside. One line, one owner, WP12a.
+ADOPT_DC_TAXONOMY="public internal confidential pii financial health regulated"
+
+# adopt_persist_phase1_artifacts ROOT — the canonical home the Phase 1->2 ZDR
+# gate reads. Reuse-by-extraction of intake-wizard.sh's
+# persist_phase1_artifacts(): the same jq merge onto .phase1_artifacts.
+#
+# ── THIS FUNCTION HAS NO CALLER, AND THAT IS ITS STATUS RATHER THAN A DEFECT.
+# Act 2 stopped asking for a classification at WP9 (A7) and Act 4 does not
+# exist yet; **WP12a is its caller** and inherits it unchanged. It is kept
+# rather than deleted because deleting it means WP12a re-extracts the same
+# merge from `intake-wizard.sh` a second time, and two independently-derived
+# writers of one key is how the two-owners pattern starts. Reviewers: an
+# uncalled function here is a named, dated hand-off, not dead code that was
+# missed. If WP12a lands without calling it, THAT is the defect.
+#
+# The three ADOPT_* variables it reads are likewise kept and stay empty
+# through Act 2; the assessment sets them.
 adopt_persist_phase1_artifacts() {
   local root="$1"
   local pstate=".claude/process-state.json"
-  if [ ! -f "$root/$pstate" ]; then
-    printf '%s\n' '{"build_loop":{"feature":null,"step":0,"steps_completed":[],"started_at":null},"uat_session":{},"phase2_init":{"steps_completed":[],"attestations":{}},"phase3_validation":{},"phase4_release":{}}' \
-      | adopt_write_file "$root" "$pstate" || return 1
-  fi
+  adopt_write_process_state "$root" || return 1
   local attested_json="false"
   case "$ADOPT_ZDR_ATTESTED" in true|True|TRUE) attested_json="true" ;; esac
   adopt_jq_edit "$root" "$pstate" \

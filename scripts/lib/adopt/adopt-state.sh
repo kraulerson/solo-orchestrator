@@ -142,7 +142,58 @@ INSTALL_SET
     adopt_refuse "no framework scripts could be installed and none were already there — is this a complete clone?"
     return 1
   fi
+  adopt_write_orchestrator_source "$root" || return 1   # BL-242-ORCH-SOURCE
   adopt_stub_framework_script_collisions "$n_collided" "$ADOPT_COLLISION_LIST"
+  return 0
+}
+
+# adopt_write_orchestrator_source ROOT — `.claude/orchestrator-source.json`,
+# `{source_dir}`, the framework clone this install came from. `init.sh` writes
+# it (one site, beside its own copy loop) and adoption never did.
+#
+# WHY THIS ONE INIT-PARITY ROW IS CLOSED HERE AND THE OTHER TWELVE ARE NOT.
+# It is not the cheapest and it is not the biggest; it is the one **A7's own
+# safety argument depends on**. A7 defers the data classification to Act 4, and
+# the thing that makes that acceptable is that the operator still meets the
+# question. The Phase 1->2 ZDR block names its escape hatch in its own FAIL
+# text — `reconfigure-project.sh` — and on an adopted project that hatch DIED
+# on a missing file:
+#
+#     [FAIL] Cannot find Solo Orchestrator source directory.
+#     [INFO] Expected path in .claude/orchestrator-source.json
+#
+# Three shipped scripts an adoptee RECEIVES read it — `reconfigure-project.sh`,
+# `verify-install.sh` and `check-versions.sh` — so the miss degraded three
+# tools, not one. Closing a block while leaving the escape hatch it advertises
+# unreachable is the pattern this repository has paid for before; the rest of
+# §8.7a's unowned set has no such dependency and stays recorded rather than
+# quietly absorbed here.
+#
+# It is written AFTER the install and BEFORE any state stage, because it is a
+# fact about the install rather than about the project's phase.
+#
+# YES, IT RECORDS AN ABSOLUTE HOST PATH, AND YES, IT IS COMMITTED — and both are
+# PARITY, not a new exposure this introduces. `init.sh` writes the same key from
+# `$SCRIPT_DIR` and sweeps it in with `git add -A`, and the generated
+# `.gitignore` excludes four `.claude/` paths (`cache/`, `last-checked-commit`
+# `.txt`, `last-gate-pass.txt`, `tool-usage.json`) of which this is NOT one. So
+# a scaffolded project already carries its author's clone path in history, and
+# an adopted one now carries it identically. Diverging here — writing it
+# unstaged, or ignoring it — would give the two birth paths different shapes for
+# the three readers that consume it, which is the drift `# BL-221-ADOPT-TIER-`
+# `KEYS` was filed about on a different key. If the exposure is ever judged
+# unacceptable it is `init.sh`'s to change first, and both paths follow.
+# NO `command -v jq || return 0` GUARD, and its absence is deliberate. The
+# first draft carried one, copied from writers whose no-op-on-missing-jq is
+# correct. It is UNREACHABLE — `adopt_main` refuses at "jq is required" (rc 2)
+# before any writer runs — and if it ever became reachable it would skip the
+# escape-hatch file and return SUCCESS, which is the silent-success shape this
+# function exists to remove. Its sibling writers in this file carry no such
+# guard either.
+adopt_write_orchestrator_source() {
+  local root="$1"
+  jq -n --arg s "$ADOPT_FRAMEWORK_ROOT" '{source_dir: $s}' \
+    | adopt_write_file "$root" ".claude/orchestrator-source.json" || return 1
   return 0
 }
 
@@ -172,10 +223,16 @@ adopt_ask_audience() {
   return 0
 }
 
+# THE LANDING IS A CONSTANT, AND IT IS SPELLED AS ONE (D10). Every adopted
+# project lands at phase 0 and stays there until the ordinary gates move it:
+# no scenario, no scanned rung, no floor, no arithmetic anywhere in any act.
+# Spelled as a named local on its own marked line so that a mutation proof has
+# exactly one thing to move and phase-state is the witness that it moved.
 adopt_write_phase_state() {
   local root="$1"
+  local adopt_landing=0   # BL-242-PHASE0-LANDING
   jq -n --arg p "$ADOPT_PROJECT_NAME" --arg d "$ADOPT_DEPLOYMENT" --arg m "$ADOPT_POC_MODE" \
-        --argjson phase "$ADOPT_LANDED_PHASE" \
+        --argjson phase "$adopt_landing" \
     '{project: $p, framework_version: "1.0", current_phase: $phase, track: "full",
       deployment: $d, poc_mode: $m, compliance_ready: false, review_gate_enforced: true,
       gates: {phase_0_to_1: null, phase_1_to_2: null, phase_2_to_3: null, phase_3_to_4: null}}' \
@@ -185,9 +242,12 @@ adopt_write_phase_state() {
 # ── Stage 2 — intake ────────────────────────────────────────────────────────
 adopt_write_intake() {
   local root="$1" report="$2"
-  adopt_render_intake_doc "$root" "$ADOPT_SCENARIO" "$ADOPT_LANDED_PHASE" || return 1
-  adopt_render_intake_progress "$root" "$ADOPT_SCENARIO" || return 1
-  adopt_persist_phase1_artifacts "$root" || return 1
+  adopt_render_intake_doc "$root" || return 1
+  adopt_render_intake_progress "$root" || return 1
+  # A7: the FILE, not the phase-1 merge. `init.sh` guarantees every scaffolded
+  # project a process-state and an adoptee must have one too; the
+  # classification that used to ride in with it is Act 4's now (§8.7a row 5).
+  adopt_write_process_state "$root" || return 1
   # The survey that justified every scanned answer travels with the project;
   # the stamp's scannerReportSha256 is the hash of exactly this file, so the
   # record and its evidence cannot drift apart.
@@ -250,12 +310,13 @@ adopt_write_manifest() {
 
   sha="$(adopt_sha256 "$root/.claude/adoption/scout-report.json")"
   # REFUSE ON AN EMPTY HASH (R-WP4-3), and refuse HERE rather than hoping the
-  # stamp will. `soif_adoption_stamp` takes `scanner_sha="${8:-}"` and writes
-  # whatever it is given, so an empty string would land in the durable record
-  # as a hash that ties the adoption decision to nothing — the same
-  # silent-empty shape as adopt_sha256's old unreachable fallback, one layer
-  # further out. There is no scenario in which "we could not hash the evidence"
-  # should still produce a record claiming to have hashed it.
+  # stamp will. WP9 gave `soif_adoption_stamp` its own
+  # `# BL-242-STAMP-SHA-REQUIRED` guard on the same fact, and TWO guards on one
+  # fact is deliberate rather than redundant: this one refuses LOUDLY, with an
+  # operator-facing sentence naming the missing tool, while the writer's keeps
+  # the property true for callers that do not exist yet. There is no case in
+  # which "we could not hash the evidence" should still produce a record
+  # claiming to have hashed it.
   if [ -z "$sha" ]; then                                                       # BF-ADOPT-SHA-REQUIRED
     adopt_refuse "cannot hash the kept scan report — neither shasum nor sha256sum is available, and the adoption record must not claim an evidence hash it does not have"
     return 1
@@ -268,12 +329,14 @@ adopt_write_manifest() {
   # adoption commit must be the very next one. Both hold here: this is the last
   # write of the last stage, and adopt_stage_and_commit follows immediately.
   #
-  # Certification is EMPTY and that is honest, not an oversight: the
-  # certification pass is WP5 and has not run. adopt_stub_certification says so
-  # out loud rather than letting an empty array read as "measured, nothing
-  # found".
-  ( cd "$root" && soif_adoption_stamp ".claude/manifest.json" "$ADOPT_SCENARIO" "$ADOPT_LANDED_PHASE" \
-      '[]' '[]' '[]' '[]' "$sha" ) || { adopt_refuse "the adoption stamp was refused"; return 1; }   # BF-ADOPT-STAMP-CALL
+  # THE CERTIFICATION ARRAYS ARE NOT PASSED BECAUSE THERE ARE NONE. v1-WP5's
+  # certification pass is RETIRED, not deferred (§5.1): with no claimed rung
+  # there is nothing to certify against, and under D10 no landed rung to
+  # certify for. Three empty arrays whose owner no longer exists would read as
+  # "measured, nothing found" with nobody left to correct the impression, so
+  # §8.3 removed them from the record rather than leaving them empty in it.
+  ( cd "$root" && soif_adoption_stamp ".claude/manifest.json" "$sha" ) \
+    || { adopt_refuse "the adoption stamp was refused"; return 1; }   # BF-ADOPT-STAMP-CALL
   adopt_record_write ".claude/manifest.json"
 
   # The stamp no-ops silently (rc 0) when jq is missing or the manifest is not
@@ -505,14 +568,27 @@ adopt_main() {
 
   report="$(adopt_obtain_report "$root" "$given_report")" || return 1
 
-  adopt_present_evidence "$root" "$report"
-  adopt_ask_scenario || return 1
-  adopt_decide_placement "$report" || return 1
-  adopt_ask_audience || return 1
-  adopt_run_reverse_intake "$report" "$ADOPT_SCENARIO" || return 1
+  # §4.2's evidence, which decides nothing and is printed anyway (A6): it is
+  # the only point in Act 2 where the operator sees what the survey found about
+  # their own project, and §4.3 keeps it as pre-fill for the Phase 0 intake.
+  adopt_present_evidence "$root" "$report"   # BL-242-EVIDENCE-CALL
+
+  # §8.2 STEP 1 — THE TIER QUESTION, AND IT IS THE ONLY QUESTION ADOPTION ASKS
+  # THAT IS NOT A CONFIRMATION. D9 keeps it: D4's reasoning is about
+  # self-reported PROCESS MATURITY, which an operator using this framework
+  # cannot be expected to know, and "is this for a company or for me" is a fact
+  # they know for certain and no evidence can determine. It is the sole
+  # producer of ADOPT_DEPLOYMENT, which `# BL-221-ADOPT-TIER-KEYS` requires an
+  # adopted manifest to carry and which D2's secrets tiering will read.
+  #
+  # ITS POSITION IS THE CONSTRAINT: before any writer and before anything is
+  # installed, so a run abandoned at it has changed neither the repository nor
+  # the host.
+  adopt_ask_audience || return 1   # BL-242-TIER-QUESTION
+
+  adopt_run_reverse_intake "$report" || return 1
 
   adopt_stub_secrets_disposition "$report"
-  adopt_stub_certification "$ADOPT_SCENARIO" "$ADOPT_LANDED_PHASE"
 
   # WP5b. Was adopt_stub_test_debt_ledger; it is a real measurement now.
   # BEFORE adopt_install_framework, and that ordering is stated rather than
@@ -559,18 +635,31 @@ adopt_main() {
 $(_adopt_state_order)
 STATE_ORDER
 
-  adopt_stub_adoption_record "$ADOPT_SCENARIO" "$ADOPT_LANDED_PHASE"
+  adopt_stub_adoption_record
   adopt_stage_and_commit "$root" || return 1
 
   # AFTER the commit, and that ordering is the point — see adopt_install_hooks.
   adopt_install_hooks "$root" || return 1
 
-  adopt_head "Adopted"
-  adopt_note "Scenario: $ADOPT_SCENARIO. Landed at phase $ADOPT_LANDED_PHASE."
+  # ── THE ACT BOUNDARY (§8.1, §3.5) ─────────────────────────────────────────
+  # "Completed" now means ACT 2 completed, and saying so is the whole point:
+  # this is a four-act feature whose second act ends in a shell script and
+  # whose third begins in a Claude Code session, and an operator who reads
+  # "Adopted" as "finished" stops here and never gets the assessment.
+  adopt_head "Act 2 complete — the project is adopted and sitting at phase 0"   # BL-242-ACT3-HANDOFF
+  adopt_note "Your project is now under the framework and it starts where every project"
+  adopt_note "starts: phase 0. Nothing has been marked as already done, and nothing was"
+  adopt_note "guessed about how far along you are — you will be asked about that instead."
+  adopt_blank
+  adopt_note "NEXT: run this, and paste what it prints into Claude Code."
+  adopt_note "  bash scripts/resume.sh"
+  adopt_blank
   # Say exactly WHICH gates, and no more. "The gates are live" would be a claim
   # the run has not earned: the message-scoped ones are on from the next commit,
   # and adopt_stub_hooks has just listed the ones that are not.
   adopt_note "From your next commit onward the framework's two message gates are live in"
   adopt_note "this project: test-before-code ordering, and the Build-Loop commit check."
+  adopt_blank
+  adopt_stub_assessment
   return $rc
 }

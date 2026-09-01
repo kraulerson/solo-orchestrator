@@ -13254,7 +13254,7 @@ draft did.
 | WP6 | Collision archive — `scripts/lib/adopt/adopt-archive.sh` | #345 |
 | — | CI: the **WP5b and WP6** suites pinned to the `slow-misc` shard | #346 |
 
-Eight suites cover it — the seven `tests/test-brownfield-wp*.sh` files plus
+Nine suites cover it — the eight `tests/test-brownfield-wp*.sh` files plus
 `tests/test-lint-module-dependencies.sh` for WP0's lint. Measured 2026-08-23:
 **309 assertions, 0 failed.** One caveat that is not this entry's to fix:
 `test-brownfield-wp3-regenerate-path.sh` is `unit-lane-exempt:init-sh-invoker`,
@@ -13298,13 +13298,21 @@ the operative one.
 
 | Capability (verbatim from the notice) | Owner | Announces |
 |---|---|---|
-| the certification pass | **WP5** | always |
+| ~~the certification pass~~ → **the assessment (Act 3)** | ~~WP5~~ → **WP12a** (WP9a) | always |
 | the Adoption Record, the audit rows and the CI carve-out | **WP7** | always |
 | the provenance headers on reconstructed documents | **WP7** | always |
 | the commit-time scanners (the fallback pre-commit hook) | **WP7** — see below | always |
-| your project's framework documents | **nobody** | always |
+| your project's framework documents | ~~nobody~~ → **WP11 + WP12b** (D3; string corrected in WP9a) | always |
 | installing the framework's version of *N* colliding script(s) | **nobody** | only when N > 0 |
 | the secrets disposition | **nobody** | when the scan found something — **and unconditionally when it did not RUN** |
+
+*(Two rows changed at WP9a and the strikethroughs are kept rather than
+overwritten. The count is still SEVEN — `adopt_stub_certification` was deleted
+and `adopt_stub_assessment` took its place, so the recipe above returns the same
+number for a different set, which is exactly why the recipe is the authority and
+this table is not. The certification pass is **retired**, not deferred: D4
+deleted the claimed rung it certified against and D10 deleted the landed rung it
+would have certified for.)*
 
 **THREE are owned by nobody, and that is the item needing a decision.** `§10` of
 the design allocates work to packages and gives these three to none, so
@@ -13967,6 +13975,92 @@ same standard as code rather than waved through as "docs-only".
    **stricter** than any default would have been. A fallback would have
    weakened shipped behaviour to solve a case that cannot occur.
 
+### WP9's build (2026-09-01) — what it settled, and the residual it created
+
+**The design document carries the changes; this section records only what a
+reader of THIS entry needs and cannot get from the code.**
+
+- **A5–A8** were decided at the build, on the same delegation as A1–A4 and with
+  the same label — author decisions, not Karl's. They are in
+  `docs/designs/2026-08-23-brownfield-adoption-v2.md` §8.3a. The one with a
+  user-visible consequence is **A7**: Act 2's reverse intake stops asking the
+  judgment rows *and the data classification*, because §8.2 step 7 says so and
+  because the classification's Act-2 mandate rested on "an S1 adoption lands at
+  4", which **D10 deleted**. Between WP9 and WP12a an adoption therefore records
+  no classification at all — fail-closed (the project rests at phase 0; the ZDR
+  backstop fires at `current_phase >= 2`; and the gates are cumulative and
+  evidence-keyed, so a rung reached by ANY writer without the evidence fails on
+  the evidence — which is the form of the claim that survives, because "the
+  only route to 2 crosses that gate" was FALSE: `_set_current_phase_min` in
+  `process-checklist.sh` writes `current_phase` at five call sites and ships to
+  adoptees. Today the gate refuses an adopted project earlier still, on the
+  `APPROVAL_LOG.md` A4 writes in WP9b), and the operator meets the question in the Phase 0
+  intake, which is where D10 puts it.
+- **WP12 is split into WP12a and WP12b.** An architecture review recommended it
+  twice. Sequencing is now `WP9 → WP10 → WP11 → WP12a → WP12b → WP7`.
+- **WP9 itself ships as two PRs**, 9a (the deletions, the stamp, the act
+  boundaries) and 9b (A1's preflight, A4's `APPROVAL_LOG.md`). One work package,
+  one scope row; the split is a review-surface decision and both land before
+  WP10.
+
+**THE INIT-PARITY RESIDUAL — this is the part that is not recoverable from the
+code, and it is bigger than §10 implies.** §8.7's audit is delivered at §8.7a
+with the adoption half derived **by execution** (a shipped adoption run against
+a hermetic adoptee, tree diffed: **76** files written, 68 under `scripts/`,
+**eight** elsewhere) rather than by grep — grep having under-read this exact
+kind of surface twice already in this repository. **32 rows. Thirteen are
+UNOWNED, one UNSPECIFIED (`CHANGELOG.md`, which D3's reach ruling does not
+name), one PARTIAL (`.gitignore`).** *(75 / seven / thirty-one was the first
+measurement, taken before this package finished adding
+`.claude/orchestrator-source.json`. A measurement is only true of the tree it
+was taken on, and this one outlived that tree by three commits.)* The five packages after WP9 close **none**
+of the thirteen. Three matter beyond bookkeeping:
+
+- `docs/reference/*` is not installed, so **D8 binds
+  `docs/reference/messaging-standard.md` inside a project that never receives
+  it** — and `resume.sh`'s §13 kickoff prompt hands the agent a Builder's Guide
+  that is not there either.
+- `.claude/settings.json` (permissions + the session-hook roster) and the
+  vendored `.claude/skills/` are not installed, so an adopted project's
+  **sessions** are a materially weaker place than a scaffolded project's.
+- `.claude/settings.local.json`'s `mcpServers.qdrant` entry is not written, so
+  `## BL-233:`'s accumulation gate derives NOT REQUIRED and **switches itself
+  off silently** on every adopted project — the fail-open row that entry exists
+  to have removed, reintroduced through a different door.
+
+**Still thirteen, and WP9a closing one is why — which is the point.**
+Splitting row 23 to close `.claude/orchestrator-source.json` created row **23a**
+for the two files that travelled with it, itself unowned, so the count never
+moved. *(This paragraph said "twelve, not thirteen" for two rounds while the
+paragraph seventeen lines above it said thirteen — the entry contradicted
+itself, which is exactly the defect it had just recorded against §8.7a.)*
+That file had no owner in the first draft of that table.
+Adversarial review then executed the routes A7's deferral depends on and found
+that the Phase 1→2 ZDR block **names `reconfigure-project.sh` as its escape
+hatch in its own FAIL text**, and that the hatch died on exactly that missing
+file — so the block was reachable and its advertised way out was not. Three
+shipped scripts an adoptee receives read the file. The rest of the unowned set
+has no such dependency and stays recorded rather than quietly absorbed.
+
+None of the remaining thirteen is WP9's to fix and none is designed anywhere.
+They are recorded here because "the adoption feature is finished" now has a
+denominator, which is what this entry has been asking for since it was filed.
+
+**THE REVIEW ROUND'S OWN LESSON, because it generalises past this feature.**
+A7 defers a mandatory question to a later package and argues the deferral is
+safe. Half that argument — *fail-closed* — was true and verified. The other half
+— *the operator still gets asked* — was **asserted by nobody and false on all
+three routes**, and none of the three failures announced itself: one pointed at
+a document section that was never rendered, one crashed inside a python
+subprocess whose traceback went to stderr and whose non-zero status was
+discarded, and one died on a file that had no owner. **Deferring a requirement
+is only honest if the route that re-asks it exists, and a route is worth exactly
+what an execution of it says.** `## BUG-010:` carries the three
+`intake-wizard.sh` defects found on the way — a swallowed `KeyError`, a choice
+prompt that loops forever on EOF, and an appendix writer whose jq program does
+not compile because `label` is a reserved keyword; they are pre-existing and are filed
+rather than absorbed into this feature's fix.
+
 **`## F-010:` is superseded by this entry** and now points here.
 
 **The design document's status row has been wrong three times, and the third is
@@ -13977,6 +14071,138 @@ written); v1.2 corrected it to WP0–WP3; v1.2.1 corrected it to WP0–WP4 with
 overstated the gap for thirteen days. v1.2.2 restates the not-built set as the
 seven runtime stubs above — a list the code can be asked for rather than one a
 human maintains.
+
+## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
+
+**Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.
+**Category:** Reads a field that means something else — Scout emits an
+`evidence` string for UNSATISFIED rungs too
+**Status:** Open
+**Owner:** unassigned
+
+**PRE-EXISTING AND NOT BRANCH-INTRODUCED.** The function is byte-identical to
+`main`'s `scripts/lib/adopt/adopt-chooser.sh` (WP9a renamed that file to
+`adopt-evidence.sh` and changed nothing inside this function). It is filed now
+because the review found it inside the block **A6 re-certified and the WP9a
+suite's `V1` re-pinned** — and because A6's "the known defect is CARRIED" note
+names a *different* defect (the derive-in-two-places split), so a reader could
+reasonably conclude this one had been considered and kept. It had not been
+noticed.
+
+**What happens.** `adopt_evidence_deploy_lane` reads
+`[.phaseMap.rungs[]? | select(.rung == 4) | .evidence] | first // ""` and
+branches on whether that string is non-empty. **Scout emits an `evidence`
+string for unsatisfied rungs too** — it describes what was looked for, not a
+claim that it was found. So on any adoptee with no deploy lane the operator
+sees:
+
+```
+Deployment: the scan found no lane out the door found — no HANDOFF.md or
+RELEASE_NOTES.md, no deploy/release pipeline, no version-shaped tags.
+  Points to: built out. Confidence: LOW — this is file presence, not run history;
+```
+
+Two defects in three lines: **"Points to: built out"** on evidence saying the
+opposite, and a doubled **"found … found"** where the driver's lead-in meets
+Scout's sentence. The `elif` and `else` arms are unreachable for any real Scout
+report, so the block has one live path and it is the wrong one.
+
+**Why it is worth more than a cosmetic slip.** This is the ONE surface in Act 2
+where an operator is shown what the survey concluded about their own project,
+and `## BL-242:`'s A6 kept the block on the argument that seeing it is worth
+something. A signal that reports the inverse of its own evidence is worth less
+than nothing.
+
+**The fix**: consult `.satisfied` rather than the presence of `.evidence` —
+`[.phaseMap.rungs[]? | select(.rung == 4 and .satisfied) | .evidence] | first // ""`
+— and drop the driver's redundant "the scan found" lead-in where Scout's own
+sentence already carries one. Both other arms then become reachable and the
+`elif` (pipeline configured, no lane out the door) starts doing its job.
+
+**Related:** `## BL-242:` A6, which keeps this block and names a different
+carried defect.
+
+---
+
+## BL-249: FIVE invariants the adoption writers' own comments state and nothing pins — including one they call impossible, and D10's headline promise
+
+**Logged:** 2026-09-01, by round-7 adversarial review of the BL-242 WP9a branch.
+**Category:** A stated invariant with no check behind it
+**Status:** Open
+**Owner:** unassigned
+
+**NOT A DEFECT IN SHIPPED CODE.** The writer is correct in all three cases; the
+suite does not guard it. Filed rather than fixed because the reviewer ranked
+all three as follow-ups that do not block a merge, and because the fix belongs
+with whoever next opens that proof.
+
+`scripts/lib/adopt/adopt-intake.sh`'s `adopt_render_intake_progress` carries a
+comment making three promises. `tests/test-brownfield-wp9-act-boundaries.sh`'s
+`R2` pins the two keys adoption knows by value (`project_name`, `deployment`)
+and the resume point, and none of these:
+
+1. **"written EMPTY rather than guessed"** — `platform`, `language` and
+   `description`. Mutants setting them to `"linux"`, `"python"` and
+   `"a service"` survive at **29/0**. A guessed value reaches
+   `intake-wizard.sh --resume` as a fact the operator supplied.
+2. **"the same value `adopt_write_phase_state` records, so the two files cannot
+   disagree"** — `track`. A mutant writing `"delta"` into `phase-state.json`
+   while `intake-progress.json` keeps `"full"` survives **the entire
+   PR-blocking brownfield set**: WP9 29/0, WP4 24/0, WP3-arms 33/0, BL-225
+   35/0. Nothing compares the two files.
+3. The same class `2859688` closed for `deployment` and `track`-by-value: that
+   fix pinned two keys and left the neighbouring stated invariants unpinned.
+
+**The fix is small** — a `jq -e` over the three empties, and a cross-file
+comparison of `track` — but it is the *third* time this proof has needed
+widening, so whoever takes it should ask what else the comment promises rather
+than closing these three and stopping. **The general lesson, which is the
+reason this is filed rather than folded in silently: a comment that states an
+invariant is a claim, and this repository now has four rounds of evidence that
+an unpinned claim drifts.**
+
+**A FIFTH, AND IT IS THE SHARPEST OF THE SET — D10's HEADLINE PROMISE, found
+by the PR review.** *"Every adopted project lands at phase 0"* is this package's
+central decision, and a ONE-LINE conditional derivation survives every
+PR-blocking check:
+
+```bash
+local adopt_landing=0; [ -d "$root/.github/workflows" ] && adopt_landing=4   # BL-242-PHASE0-LANDING
+```
+
+`bash -n` clean, two changed lines. WP9a 29/0 and WP4 24/0, both rc 0 — and the
+mutant is LIVE, not inert: on a fixture carrying `.github/workflows/ci.yml` it
+lands `current_phase: 4` where the shipped tree lands 0. It hides because `E1`
+reads the control fixture's phase and `E2` replaces the whole marked line, and
+neither fixture has a CI directory — so what they pin is *"the literal on the
+marked line"*, not *"the landing is unconditional"*, which is what D10 asserts.
+**Shipped behaviour is correct.** The fix is one assertion: a second fixture
+carrying `.github/workflows/` (ideally tags and a `CHANGELOG.md`, so
+`suggestedPhase` is 4) asserting `current_phase == 0`.
+
+**A FOURTH, SAME CLASS, FOUND IN ROUND 9.**
+`# BL-242-STAMP-SHA-REQUIRED` is `case "$scanner_sha" in '') return 1 ;; esac`,
+which matches its documented contract — it refuses an EMPTY hash — but the
+file header's stronger sentence, *"a durable record that says how a project got
+here must not be written malformed"*, over-reaches. Executed against the
+shipped writer:
+
+```
+soif_adoption_stamp ".claude/manifest.json" " "   ->  rc=0
+{"schemaVersion":2,...,"scannerReportSha256":" "}
+```
+
+Unreachable from the driver, which computes the hash and refuses at
+`# BF-ADOPT-SHA-REQUIRED` first — so it is a latent trap for a future caller,
+the same shape as the seven stale 8-argument call sites that shipped `"completed"`
+into that field until round 8. Either tighten the guard to reject whitespace or
+narrow the header sentence to what the guard does.
+
+**Related:** `## BL-242:` A7 (which moved the classification and made this file
+load-bearing), and `## BUG-010:` (the `intake-wizard.sh` defects on the same
+route).
+
+---
 
 ## BL-240: `workflow.html`'s "Verified against the tree on YYYY-MM-DD" stamp has no mechanism — and a staleness check is a lint that can red without a defect
 
