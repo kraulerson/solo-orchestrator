@@ -499,10 +499,40 @@ e5_marker=$(_sites "$L_STAMP" 'BL-242-STAMP-SHA-REQUIRED')
 # no-ops (rc 0).
 e5_order=0
 ( cd "$E5" && soif_adoption_stamp "no-such-manifest.json" "" ) || e5_order=1
-if [ "$e5_rc" -eq 1 ] && [ "$e5_written" -eq 0 ] && [ "$e5_marker" -eq 1 ] && [ "$e5_order" -eq 1 ]; then
-  pass "E5: an EMPTY evidence hash is refused by the stamp itself (rc $e5_rc, nothing written), and refused BEFORE the no-op arms — a missing manifest still yields a refusal rather than the rc 0 that means 'this host cannot stamp'"
+
+# AND THE JQ ARM, which the manifest probe alone cannot see. There are TWO
+# no-op arms — `command -v jq || return 0` and `[ -f "$manifest" ] || return 0`
+# — and a guard moved below the FIRST one still refuses on a missing manifest,
+# so that probe passes while a jq-less host gets rc 0 ("this host cannot
+# stamp") for a malformed call. Probed with jq removed from PATH, and the
+# isolated PATH is asserted to genuinely lack it before the measurement is
+# trusted (`# BL-233-WPB` learned that a safety-net PATH defeats its own probe).
+# RUN IN A FRESH SHELL, NOT A SUBSHELL — and this cost a debugging round, so it
+# is written down. bash CACHES command locations in a hash table, and
+# `command -v` consults that cache: inside this suite's own process, jq has
+# already been run many times, so `PATH=<empty-dir> command -v jq` STILL FINDS
+# IT and the probe silently measured nothing. A `bash -c` starts with an empty
+# hash table. The isolated PATH is asserted to genuinely lack jq before the
+# measurement is trusted, for the same reason `# BL-233-WPB` records: a probe
+# that cannot see the condition it isolates reports the happy answer.
+e5_nojq_path="$E5/nojq"
+mkdir -p "$e5_nojq_path"
+# PATH IS SET INSIDE THE FRESH SHELL, NOT AS ITS PREFIX — the second half of
+# the same lesson. `PATH=<empty-dir> bash -c …` cannot find `bash`, so the
+# probe failed to launch and its `|| e5_order_jq=1` fired on the LAUNCH
+# failure, reporting a refusal that never happened. Two ways to measure
+# nothing, one after the other; both reported the happy answer.
+e5_jq_gone=0
+bash -c 'PATH="$1"; command -v jq' _ "$e5_nojq_path" >/dev/null 2>&1 || e5_jq_gone=1
+e5_order_jq=0
+if [ "$e5_jq_gone" -eq 1 ]; then
+  ( cd "$E5" && bash -c '. "$1" >/dev/null 2>&1; PATH="$2"; soif_adoption_stamp "manifest.json" ""' _ "$L_STAMP" "$e5_nojq_path" ) || e5_order_jq=1
+fi
+if [ "$e5_rc" -eq 1 ] && [ "$e5_written" -eq 0 ] && [ "$e5_marker" -eq 1 ] && [ "$e5_order" -eq 1 ] \
+   && [ "$e5_jq_gone" -eq 1 ] && [ "$e5_order_jq" -eq 1 ]; then
+  pass "E5: an EMPTY evidence hash is refused by the stamp itself (rc $e5_rc, nothing written), and refused BEFORE BOTH no-op arms — a missing manifest AND a host with no jq each still yield a refusal rather than the rc 0 that means 'this host cannot stamp'"
 else
-  fail_ "E5: the stamp accepted an empty evidence hash, or checked it too late" "rc=$e5_rc block-written=$e5_written marker-sites=$e5_marker refuses-before-the-no-op-arms=$e5_order (want 1)"
+  fail_ "E5: the stamp accepted an empty evidence hash, or checked it too late" "rc=$e5_rc block-written=$e5_written marker-sites=$e5_marker refuses-before-the-manifest-arm=$e5_order (want 1) jq-genuinely-absent=$e5_jq_gone (want 1) refuses-before-the-jq-arm=$e5_order_jq (want 1)"
 fi
 
 echo "=== V — A6: the evidence block survives, re-worded ==="
@@ -776,15 +806,22 @@ r2_done=$(_num "$r2_done")
 
 # AND PRESENCE IS NOT VALUE. `jq -e 'has($k)'` is TRUE for an explicit null,
 # and python's `shlex.quote(None)` returns '' rather than raising, so a null
-# `project_name` resumes with a silently blanked name past every has()-check.
-# The one key adoption genuinely knows is asserted by VALUE; the four it cannot
-# know stay empty by design and are not.
+# value resumes with a silently blanked field past every has()-check.
+#
+# ADOPTION KNOWS **THREE** OF THE SEVEN, NOT ONE, and the miscount here was
+# load-bearing: this comment said "the one key adoption genuinely knows", which
+# is why only `project_name` was asserted by value and why `deployment` and
+# `track` could both be blanked at 29/0. All three are asserted by value now;
+# `platform`, `language` and `description` stay empty by design and are not.
 r2_pn=$(jq -r '.project_name // ""' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
+r2_dep=$(jq -r '.deployment // ""' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
+r2_trk=$(jq -r '.track // ""' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
 
-if [ -z "$r2_missing" ] && [ "$r2_last" = "0" ] && [ "$r2_done" -eq 0 ] && [ -n "$r2_pn" ]; then
-  pass "R2: .claude/intake-progress.json carries all seven keys intake-wizard.sh's load_progress() subscripts with a real project_name, last_section is 0 AND completed_sections is empty — so --resume starts at Section 1 and WALKS Section 5 rather than skipping it by either of the two mechanisms that can"
+if [ -z "$r2_missing" ] && [ "$r2_last" = "0" ] && [ "$r2_done" -eq 0 ] \
+   && [ -n "$r2_pn" ] && [ "$r2_dep" = "personal" ] && [ "$r2_trk" = "full" ]; then
+  pass "R2: .claude/intake-progress.json carries all seven keys intake-wizard.sh's load_progress() subscripts with real values for the three it knows (project_name, deployment, track), last_section is 0 AND completed_sections is empty — so --resume starts at Section 1 and WALKS Section 5 rather than skipping it by either of the two mechanisms that can"
 else
-  fail_ "R2: the progress file cannot be resumed from" "missing-keys:${r2_missing:- none} last_section=$r2_last (want 0) completed_sections=$r2_done (want 0) project_name='$r2_pn' (want non-empty)"
+  fail_ "R2: the progress file cannot be resumed from" "missing-keys:${r2_missing:- none} last_section=$r2_last (want 0) completed_sections=$r2_done (want 0) project_name='$r2_pn' (want non-empty) deployment='$r2_dep' (want personal) track='$r2_trk' (want full)"
 fi
 
 # R3 — THE ESCAPE HATCH, executed. `check-phase-gate.sh`'s Phase 1->2 ZDR block
@@ -938,10 +975,15 @@ _stub_approval_log "$CTL/p"
 gate_in "$CTL/p"
 g1_line=0; grep -qF "Adoption stamp present and intact" "$GATE_OUT" 2>/dev/null && g1_line=1
 g1_scen=0; grep -F "Adoption stamp present and intact" "$GATE_OUT" 2>/dev/null | grep -q "scenario:" && g1_scen=1
-if [ "$g1_line" -eq 1 ] && [ "$g1_scen" -eq 0 ]; then
-  pass "G1 (A8): the adoptee's own gate reports the stamp intact (the positive control) and that line NAMES NO SCENARIO — a field the v2 record does not carry"
+# AND WHAT THE LINE STILL CARRIES, not only what it lost. Asserting the absence
+# of `scenario:` is satisfied by a line that reports nothing at all — stripping
+# `(adopted: …)` too was green. A8 retired ONE field; the rest of the report is
+# the reason the line exists.
+g1_at=0; grep -F "Adoption stamp present and intact" "$GATE_OUT" 2>/dev/null | grep -qE 'adopted: [0-9]{4}-[0-9]{2}-[0-9]{2}T' && g1_at=1
+if [ "$g1_line" -eq 1 ] && [ "$g1_scen" -eq 0 ] && [ "$g1_at" -eq 1 ]; then
+  pass "G1 (A8): the adoptee's own gate reports the stamp intact, that line NAMES NO SCENARIO — a field the v2 record does not carry — and it STILL reports the adoption date, so the fix removed one field rather than gutting the line"
 else
-  fail_ "G1 (A8): the gate's stamp line is wrong" "line-present=$g1_line names-scenario=$g1_scen (gate rc $GATE_RC)"
+  fail_ "G1 (A8): the gate's stamp line is wrong" "line-present=$g1_line names-scenario=$g1_scen (want 0) reports-adoptedAt=$g1_at (want 1) (gate rc $GATE_RC)"
 fi
 
 G2M="$(newtmp)"
@@ -976,10 +1018,16 @@ h1_phase0=0; grep -qF "phase 0" "$CTL_OUT" 2>/dev/null && h1_phase0=1
 h1_resume=0; grep -qF "scripts/resume.sh" "$CTL_OUT" 2>/dev/null && h1_resume=1
 h1_owner=0; grep -qF "WP12a" "$CTL_OUT" 2>/dev/null && h1_owner=1
 h1_stale=0; grep -qF "the certification pass" "$CTL_OUT" 2>/dev/null && h1_stale=1
-if [ "$h1_act2" -eq 1 ] && [ "$h1_phase0" -eq 1 ] && [ "$h1_resume" -eq 1 ] && [ "$h1_owner" -eq 1 ] && [ "$h1_stale" -eq 0 ]; then
+# A8's THIRD deliverable, which nothing pinned: the framework-documents notice
+# used to print "unassigned — §10 names no owner", which is false against v2 —
+# D3 gives them to WP11 (archive) and WP12b (write). Reverting it was green.
+h1_docowner=0; grep -qF "WP11 archives them, WP12b writes them (D3)" "$CTL_OUT" 2>/dev/null && h1_docowner=1
+h1_stale_owner=0; grep -qF "unassigned — §10 names no owner" "$CTL_OUT" 2>/dev/null && h1_stale_owner=1
+if [ "$h1_act2" -eq 1 ] && [ "$h1_phase0" -eq 1 ] && [ "$h1_resume" -eq 1 ] && [ "$h1_owner" -eq 1 ] \
+   && [ "$h1_stale" -eq 0 ] && [ "$h1_docowner" -eq 1 ] && [ "$h1_stale_owner" -eq 0 ]; then
   pass "H1: the run ends by saying Act 2 completed, naming the phase-0 standing and scripts/resume.sh, and announcing the assessment as WP12a's — and it no longer announces the RETIRED certification pass"
 else
-  fail_ "H1: the handoff block is not in its v2 shape" "act2=$h1_act2 phase0=$h1_phase0 resume=$h1_resume wp12a=$h1_owner retired-stub-still-printed=$h1_stale"
+  fail_ "H1: the handoff block is not in its v2 shape" "act2=$h1_act2 phase0=$h1_phase0 resume=$h1_resume wp12a=$h1_owner retired-stub-still-printed=$h1_stale docs-owner-named=$h1_docowner (want 1) stale-owner-printed=$h1_stale_owner (want 0)"
 fi
 
 echo ""
