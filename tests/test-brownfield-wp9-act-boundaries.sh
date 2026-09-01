@@ -655,26 +655,58 @@ r1_heading=$(grep -c '^## 13\.' "$CTL/p/PROJECT_INTAKE.md" 2>/dev/null); r1_head
 # a specific untruth to an agent:
 #   the adoption statement      — or the agent treats it as scaffolded
 #   the phase-0 / no-gate line  — or D10's whole promise is reversed in prose
+#   the grandfathering clause   — the sentence four words later, and round 3
+#                                 inverted it while the pinned one stayed put
 #   the DELIBERATELY BLANK line — or the blank cells read as answered
+#   the two artifact PATHS      — a typo'd path is a dead pointer, silently
 #   the "not evidence that anything was DONE PROPERLY" line — the survey's own limit
+#   the test-debt "must not grow" line — or the baseline becomes a permission
 #   WHAT YOU DO NOT HAVE       — the false-attachment guard
+#   "Do not infer them from"    — or the agent answers the questions itself,
+#                                 from the code, which is the one source §4.3
+#                                 says cannot answer them
 #   the classification line     — the requirement A7 defers
+#   "Then run Phase 0 … from the beginning" — D10's promise as an INSTRUCTION,
+#                                 distinct from the phase-0 statement of fact.
+#                                 Round 3 flipped it to "run Phase 2 … from
+#                                 where the project already is" at 29/0
+#   "open questions, not permissions" — or every blank cell reads as consent
 #   the anti-skip rule          — the one an inversion turns into permission
+#
+# ROUND 3 WROTE TEN MUTANTS AGAINST THIS PROMPT AND SIX SURVIVED THE FIRST
+# LIST. The list is per-sentence rather than a digest for a stated reason, and
+# the cost of that choice is exactly this: it must be EXTENDED when the prompt
+# gains a load-bearing sentence, and nothing enforces that it was. Said plainly
+# so the next reader does not assume completeness.
 # A digest over the whole heredoc was the alternative and is worse: it fails on
 # every innocent re-wording and tells a reader nothing about WHICH line matters.
+# MATCHED AGAINST THE NORMALISED PROMPT, for the reason C2 exists: the prompt
+# is WRAPPED at ~78 columns, so half these sentences straddle a newline and a
+# line-oriented `grep -F` cannot see them. The first draft of this list learned
+# that immediately — "nothing about it has been grandfathered" broke across two
+# lines and read as missing. Same transform, same LC_ALL=C, same reason.
+r1_norm="$TOPTMP/r1-prompt-normalised"
+_normalise "$r1_prompt" > "$r1_norm" 2>/dev/null || : > "$r1_norm"
 r1_missing=""
 while IFS= read -r phrase; do
   [ -n "$phrase" ] || continue
-  grep -qF -- "$phrase" "$r1_prompt" 2>/dev/null || r1_missing="$r1_missing [$phrase]"
+  grep -qF -- "$phrase" "$r1_norm" 2>/dev/null || r1_missing="$r1_missing [$phrase]"
 done <<'R1PHRASES'
 THIS PROJECT WAS ADOPTED, NOT SCAFFOLDED
 It is at PHASE 0 and no gate has been crossed
+nothing about it has been grandfathered
+nothing in this document may be treated as an approval
 DELIBERATELY BLANK
-It is not
-evidence that anything was DONE PROPERLY
+It is not evidence that anything was DONE PROPERLY
+.claude/adoption/scout-report.json
+.claude/test-debt.json
+a baseline that must not grow, not a list of things to ignore
 WHAT YOU DO NOT HAVE
 Do not act as though a process reference is attached
+Do not infer them from
 Data classification is NOT OPTIONAL and has no default
+Then run Phase 0 as the framework defines it, from the beginning
+blank cells are open questions, not permissions
 Do not suggest that any gate be skipped
 That is the exact reasoning adoption exists to refuse
 R1PHRASES
@@ -728,18 +760,26 @@ fi
 # case that mutates a shared fixture makes every later assertion depend on the
 # order they happen to run in.
 R3D="$(newtmp)"; mkdir -p "$R3D/p"
-r3_src=0; r3_val="?"
+r3_src=0; r3_val="?"; r3_staged=0
 if mk_adoptee "$R3D/p"; then
   _ans 1 > "$R3D/answers"
   run_adopt "$R3D/p" "$R3D/answers" "$REPORT"
   [ -s "$R3D/p/.claude/orchestrator-source.json" ] && r3_src=1
+  # AND IT MUST BE IN THE ADOPTION COMMIT. A raw `>` redirect would produce the
+  # file and skip `adopt_write_file` entirely — with it `adopt_touched_disk`
+  # (`# BL-225-TOUCHED-DISK`), the mkdir, both refusal arms, and
+  # `adopt_record_write`, which is what puts the path in the explicit staging
+  # list. An unstaged hatch file is one `git checkout` from gone, so "the file
+  # exists" is the weaker half of this assertion.
+  r3_staged=$( cd "$R3D/p" && git show --name-only --format= HEAD 2>/dev/null | grep -c '^\.claude/orchestrator-source\.json$' )
+  r3_staged=$(_num "$r3_staged")
   ( cd "$R3D/p" && bash scripts/reconfigure-project.sh --field data_classification --old "" --new internal ) >"$TOPTMP/r3-out" 2>&1 || true
   r3_val=$(jq -r '.phase1_artifacts.data_classification // "ABSENT"' "$R3D/p/.claude/process-state.json" 2>/dev/null)
 fi
-if [ "$r3_src" -eq 1 ] && [ "$r3_val" = "internal" ]; then
+if [ "$r3_src" -eq 1 ] && [ "$r3_staged" -eq 1 ] && [ "$r3_val" = "internal" ]; then
   pass "R3: the escape hatch the ZDR block names in its own FAIL text WORKS on an adopted project — reconfigure-project.sh resolves .claude/orchestrator-source.json and writes the classification the gate reads"
 else
-  fail_ "R3: the gate names an escape hatch that does not reach an adopted project" "orchestrator-source-written=$r3_src classification-after=$r3_val (want internal); output: $(head -3 "$TOPTMP/r3-out" 2>/dev/null | tr '\n' '|')"
+  fail_ "R3: the gate names an escape hatch that does not reach an adopted project" "orchestrator-source-written=$r3_src committed=$r3_staged (want 1) classification-after=$r3_val (want internal); output: $(head -3 "$TOPTMP/r3-out" 2>/dev/null | tr '\n' '|')"
 fi
 
 # R4 (MUTATION) — and it asserts on the HATCH, not on the file. A missing file
@@ -781,6 +821,18 @@ fi
 # and R4 exist to prevent, arriving by a door neither of them watches.
 R5M="$(newtmp)"
 if mk_mirror "$R5M/fw"; then
+  # THE SHIPPED SPELLING IS ASSERTED POSITIVELY, AND THAT IS THIS CASE'S WHOLE
+  # LESSON. R5's first version discriminated only by `_changed_lines -eq 2`
+  # after its own sed rewrote the marked line to a canonical `|| true`. Against
+  # a tree ALREADY carrying `|| true` in a different spelling — one space before
+  # the comment instead of three — the sed still "changed" two lines, so the
+  # conjunct held, and the mutant's behavioural half (`rc 0`, file absent) is
+  # what the mutant produces anyway. The escape hatch was dead in the shipped
+  # tree and this proof passed. **A mutation proof whose only discriminator is
+  # its own edit landing proves that sed works, not that the property holds.**
+  r5_shipped_refuses=$(grep -c 'BL-242-ORCH-SOURCE$' "$L_STATE" 2>/dev/null); r5_shipped_refuses=$(_num "$r5_shipped_refuses")
+  r5_shipped_spelling=0
+  grep -E '^[[:space:]]*adopt_write_orchestrator_source "\$root" \|\| return 1[[:space:]]+# BL-242-ORCH-SOURCE$' "$L_STATE" >/dev/null 2>&1 && r5_shipped_spelling=1
   cp -p "$R5M/fw/scripts/lib/adopt/adopt-state.sh" "$R5M/pre.sh"
   _sed_inplace "$R5M/fw/scripts/lib/adopt/adopt-state.sh" \
     's/^.*BL-242-ORCH-SOURCE$/  adopt_write_orchestrator_source "$root" || true   # BL-242-ORCH-SOURCE/'
@@ -797,10 +849,11 @@ if mk_mirror "$R5M/fw"; then
     r5_rc="$RUN_RC"
     r5_src=0; [ -s "$R5M/p/.claude/orchestrator-source.json" ] && r5_src=1
   fi
-  if [ "$r5_changed" -eq 2 ] && [ "$r5_parse" -eq 1 ] && [ "$r5_rc" = "0" ] && [ "$r5_src" = "0" ]; then
-    pass "R5 (MUTATION): with the hatch write's failure swallowed (`|| true`) and the write made to fail, the adoption COMPLETES at rc $r5_rc with the escape-hatch file ABSENT — which is why the shipped call refuses instead"
+  if [ "$r5_shipped_refuses" -eq 1 ] && [ "$r5_shipped_spelling" -eq 1 ] \
+     && [ "$r5_changed" -eq 2 ] && [ "$r5_parse" -eq 1 ] && [ "$r5_rc" = "0" ] && [ "$r5_src" = "0" ]; then
+    pass "R5 (MUTATION): the SHIPPED call refuses on a failed hatch write (asserted positively, independent of this case's own edit), and with that failure swallowed the adoption COMPLETES at rc $r5_rc with the escape-hatch file ABSENT"
   else
-    fail_ "R5 (MUTATION): swallowing the hatch write's failure did not produce a silent success" "changed=$r5_changed parses=$r5_parse rc=$r5_rc (want 0) source-file-present=$r5_src (want 0)"
+    fail_ "R5 (MUTATION): the shipped call does not refuse, or swallowing its failure produced no silent success" "shipped-marker-sites=$r5_shipped_refuses (want 1) shipped-refuses-on-failure=$r5_shipped_spelling (want 1) changed=$r5_changed parses=$r5_parse rc=$r5_rc (want 0) source-file-present=$r5_src (want 0)"
   fi
 else
   fail_ "R5 (MUTATION): mirror setup" "mk_mirror failed"
