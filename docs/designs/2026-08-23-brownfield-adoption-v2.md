@@ -619,12 +619,50 @@ blast-radius table gains four rows"* — it gained **three** (the fourth enumera
 the same short-enumeration defect the sentence itself was describing; and the attribution of
 `docs/adoption.md`'s tier-key row flip to `066a138`, which was `68ad9dd`'s.
 
-**Six rounds, one class, and the conclusion the whole series earns.** Not one blocking finding in
-six rounds has been a defect in shipped behaviour; rounds 4, 5 and 6 each verified that by running
-a full adoption. Every blocker has been **a plausible statement recorded as a verified one**. The
-defect recurred *inside the fixes for it* at least three times — a mutation proof whose only
-discriminator was its own edit landing, a probe that isolated nothing, and a commit message
-announcing the third instance of exactly what it was committing. **Care does not fix this class,
+**2026-09-01, eighth through tenth passes — rounds 7, 8 and 9, and the record catching up with
+itself.** Recorded together because their findings are one shape, and because **this changelog
+stopping at round 6 was itself round 9's blocking finding** — raised against the PR body's claim
+that §0.3 carried all of it. The same gap round 6 blocked on, recurring one level up, in the
+artifact that describes it.
+
+**Round 7** found shipped behaviour sound for the fourth consecutive round and blocked on five false
+statements: `adopt-core.sh`'s version comment claiming the build *"carries the skeleton, the
+chooser, placement"* (a file WP9a never opened); a dangling `BF-ADOPT-DC-MANDATORY` cross-reference
+**this branch created**, invisible to `lint-bl-markers.sh` because that lint covers `# BL-NNN-…` and
+not `BF-…`; `adopt-stubs.sh`'s header naming WP5/WP5b as unbuilt eleven lines above its own rule
+forbidding exactly that; `## BL-242:`'s *"seven `tests/test-brownfield-wp*.sh` files"* after this
+branch made it eight; and a **self-refuting commit message** (*"touches … 386 … and §0.3 spans
+183–571. It touched none of it"*). The last was fixed by rebuilding two commits — the only
+correction in this series that had to beat a deadline, because that window closes at push.
+
+**Round 8** found it sound for the fifth round and blocked on two: `docs/INDEX.md` saying **four**
+delegated author decisions where the design carries **eight** — *this branch added A5–A8 in its own
+first commit and wrote "four" three commits later* — and `workflow.html`'s NOT-DONE preamble making
+two false claims about its own list. It also found **seven stale 8-argument `soif_adoption_stamp`
+calls** feeding `"completed"` into what is now `scanner_sha`: green, because nothing asserted that
+field, which is what made it a trap rather than a failure.
+
+**Round 9** found it sound for the sixth round, killed ten of its own ten mutants against
+PR-blocking checks, and blocked on two more: a **verification recipe that named the file it was
+printed in** (`grep -c 'resolve-tools'` *"over this driver and its lib"* — including the file making
+the claim, which is its only hit), and *"Each block names its owner during the run"* **surviving
+eight lines below its own deletion**, in the same hunk this branch wrote.
+
+**What these three rounds change in normative text**, so a reader of those sections knows why: §9's
+Scout row is amended (`scout-report.sh`'s floor-rule note was shipped operator-facing output
+describing deleted machinery); §4.2 gains the `scripts/lib/scout/` row — **its sixth omission, and
+the first created by this branch's own later commit**; §8.7a's measurement is re-derived to 76 files
+and eight paths across 32 rows, after this package's own new writer falsified it; and §12-3's
+unowned count is thirteen.
+
+**Nine rounds, one class, and the conclusion the whole series earns.** Not one blocking finding in
+nine rounds has been a defect in shipped behaviour; **rounds 4 through 9 each verified that by
+running a full adoption — six consecutive rounds**. Every blocker has been **a plausible statement
+recorded as a verified one**. The defect recurred *inside the fixes for it* at least **five** times
+— a mutation proof whose only discriminator was its own edit landing; a probe that isolated
+nothing, twice over; a commit message announcing the third instance of exactly what it was
+committing; a verification recipe that named the file it was printed in; and a claim surviving
+eight lines below its own deletion, in the hunk that deleted it. **Care does not fix this class,
 because care is what produces it.** What fixes it is mechanical and cheap: re-derive the number at
 the tip, re-run the mutant against the shipped file, and `git show` the commit before writing its
 message.

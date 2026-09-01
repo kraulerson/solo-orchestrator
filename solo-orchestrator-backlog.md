@@ -14124,7 +14124,7 @@ carried defect.
 
 ---
 
-## BL-249: three invariants `adopt_render_intake_progress`'s own comment states are pinned by nothing — including one it calls impossible
+## BL-249: FIVE invariants the adoption writers' own comments state and nothing pins — including one they call impossible, and D10's headline promise
 
 **Logged:** 2026-09-01, by round-7 adversarial review of the BL-242 WP9a branch.
 **Category:** A stated invariant with no check behind it
@@ -14160,6 +14160,25 @@ than closing these three and stopping. **The general lesson, which is the
 reason this is filed rather than folded in silently: a comment that states an
 invariant is a claim, and this repository now has four rounds of evidence that
 an unpinned claim drifts.**
+
+**A FIFTH, AND IT IS THE SHARPEST OF THE SET — D10's HEADLINE PROMISE, found
+by the PR review.** *"Every adopted project lands at phase 0"* is this package's
+central decision, and a ONE-LINE conditional derivation survives every
+PR-blocking check:
+
+```bash
+local adopt_landing=0; [ -d "$root/.github/workflows" ] && adopt_landing=4   # BL-242-PHASE0-LANDING
+```
+
+`bash -n` clean, two changed lines. WP9a 29/0 and WP4 24/0, both rc 0 — and the
+mutant is LIVE, not inert: on a fixture carrying `.github/workflows/ci.yml` it
+lands `current_phase: 4` where the shipped tree lands 0. It hides because `E1`
+reads the control fixture's phase and `E2` replaces the whole marked line, and
+neither fixture has a CI directory — so what they pin is *"the literal on the
+marked line"*, not *"the landing is unconditional"*, which is what D10 asserts.
+**Shipped behaviour is correct.** The fix is one assertion: a second fixture
+carrying `.github/workflows/` (ideally tags and a `CHANGELOG.md`, so
+`suggestedPhase` is 4) asserting `current_phase == 0`.
 
 **A FOURTH, SAME CLASS, FOUND IN ROUND 9.**
 `# BL-242-STAMP-SHA-REQUIRED` is `case "$scanner_sha" in '') return 1 ;; esac`,
