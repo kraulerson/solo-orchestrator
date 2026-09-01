@@ -518,6 +518,7 @@ _td_write_body() {
   if command -v adopt_write_file >/dev/null 2>&1; then
     printf '%s\n' "$json" | adopt_write_file "$root" "$TD_LEDGER_REL" || return 1
   else
+    ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
     mkdir -p "$root/.claude" 2>/dev/null || { echo "test-debt: could not create $root/.claude" >&2; return 2; }
     printf '%s\n' "$json" > "$ledger" || { echo "test-debt: could not write $ledger" >&2; return 2; }
   fi

@@ -101,13 +101,13 @@ adopt_refuse() {
     else
       # Touched the tree before anything reached the ledger — the archive's copy
       # phase is the reachable case. Say exactly that, and no count.
-      printf '          Nothing was committed, and no file is recorded as written — but adoption\n' >&2
+      printf '          Nothing was committed, and no file is recorded as written — but %s\n' "$(printf '%s' "${ADOPT_OPERATION:-Adoption}" | tr '[:upper:]' '[:lower:]')" >&2
       printf '          had already begun changing this project. Check `.claude/adoption-archive/`\n' >&2
       printf '          and `git status --ignored --untracked-files=all` before re-running.\n' >&2
     fi
   else
     printf '\n[REFUSED] %s\n' "$1" >&2
-    printf '          Adoption did not begin. Nothing was committed and nothing was written.\n' >&2
+    printf '          %s did not begin. Nothing was committed and nothing was written.\n' "${ADOPT_OPERATION:-Adoption}" >&2
   fi
   return 1
 }
@@ -281,7 +281,24 @@ ADOPT_COMMITTED=0
 # BL-225-TOUCHED-DISK: 1 as soon as ANY writer has changed the adoptee's tree,
 # including before the write is recorded. adopt_refuse reads it so it can never
 # again say "nothing was written" over files that exist.
+#
+# THE FIRST VERSION OF THIS COMMENT WAS FALSE AND THAT IS WHY THE INVARIANT IS
+# NOW TESTED RATHER THAN ASSERTED. It claimed "ANY writer" while the flag was
+# set at two of the twelve sites that write to the adoptee's tree, so a failed
+# `cp -p` inside `adopt_install_framework` left a directory behind under a
+# refusal saying nothing was written — the same sentence, the same cause, one
+# writer over. `# BL-225-TOUCHED-DISK` is set at EVERY such site, and
+# tests/test-bl225-staging-preflight.sh's T9 DERIVES both sets and requires
+# them to match, so a thirteenth writer added without the flag fails the suite
+# instead of waiting for a sixth review round.
 ADOPT_TOUCHED_DISK=0
+# BL-225-OPERATION: `--re-add` is a DIFFERENT OPERATION, not a mode of the
+# adoption run (adopt-project.sh says so), and it never calls
+# adopt_ledger_init — so every one of its refusals landed in the arm that says
+# "Adoption did not begin". At the restore failure that became
+# self-contradicting: "the audit row was already written" two lines above
+# "nothing was written".
+ADOPT_OPERATION="Adoption"
 
 adopt_ledger_init() {
   ADOPT_WRITTEN_LEDGER="$1"
@@ -336,8 +353,8 @@ adopt_name_ignored_paths() {
 adopt_write_file() {
   local root="$1" rel="$2" dir
   dir="$(dirname "$root/$rel")"
-  mkdir -p "$dir" 2>/dev/null || { adopt_refuse "could not create $dir"; return 1; }
   ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
+  mkdir -p "$dir" 2>/dev/null || { adopt_refuse "could not create $dir"; return 1; }
   cat > "$root/$rel" || { adopt_refuse "could not write $rel"; return 1; }
   adopt_record_write "$rel"
   return 0
@@ -350,6 +367,7 @@ adopt_jq_edit() {
   local f="$root/$rel"
   [ -f "$f" ] || { adopt_refuse "cannot edit $rel — it does not exist"; return 1; }
   command -v jq >/dev/null 2>&1 || { adopt_refuse "jq is required to adopt a project"; return 1; }
+  ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
   jq "$@" "$filter" "$f" > "$f.tmp" 2>/dev/null || { rm -f "$f.tmp"; adopt_refuse "jq could not edit $rel"; return 1; }
   mv "$f.tmp" "$f" || { adopt_refuse "could not replace $rel"; return 1; }
   adopt_record_write "$rel"

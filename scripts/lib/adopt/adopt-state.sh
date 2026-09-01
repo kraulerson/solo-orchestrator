@@ -103,12 +103,14 @@ adopt_install_framework() {
       n_collided=$((n_collided + 1))
       continue
     fi
+    ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
     mkdir -p "$(dirname "$dst")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$rel")"; return 1; }
     # `cp -p`, and NOT `cp` followed by `chmod +x`. The framework's own modes
     # are already right — entry scripts are 0755 and libs are 0644 — and a
     # blanket +x would land every sourced lib in the adoptee at 0755, a
     # difference from a scaffolded project that nothing downstream would ever
     # explain. Preserving the source mode keeps the two births identical.
+    ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
     cp -p "$src" "$dst" 2>/dev/null || { adopt_refuse "could not install $rel"; return 1; }
     adopt_record_write "$rel"
     n_copied=$((n_copied + 1))
@@ -352,7 +354,12 @@ STAGE_SET
       # first fix deleted this line outright because it is wrong for an
       # unmeasurable cause — which left the common case with no action at all,
       # except git's `-f` hint, which is the wrong one.
-      if [ -n "$_named" ]; then
+      # The remedy fires when an ignore rule is the CONFIRMED cause — from the
+      # namer, or from git's own diagnostic. Gating on the namer alone left the
+      # tracked-path case (this branch's headline case) with no remedy at all,
+      # because `git check-ignore` is index-aware and structurally cannot name a
+      # tracked path. It must still NOT fire on an unmeasured cause.
+      if [ -n "$_named" ] || printf '%s' "$_dry" | grep -q 'ignored by one of your'; then
         printf '          Un-ignore them in .gitignore and run adoption again.\n'
       fi
     } >&2
@@ -412,14 +419,17 @@ adopt_install_hooks() {
   local root="$1"
   local hooks="$root/.git/hooks"
   adopt_head "Turning the gates on"
+  ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
   mkdir -p "$hooks" 2>/dev/null || { adopt_refuse "could not create $hooks"; return 1; }
 
   if [ ! -f "$hooks/commit-msg" ]; then
+    ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
     printf '%s\n' '#!/usr/bin/env bash' > "$hooks/commit-msg" || { adopt_refuse "could not create the commit-msg hook"; return 1; }
   fi
   if grep -qF "$SOIF_TDD_OPEN" "$hooks/commit-msg" 2>/dev/null; then
     adopt_note "The commit-msg gate was already present — left as it was."
   else
+    ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
     soif_emit_tdd_commitmsg_block >> "$hooks/commit-msg" || { adopt_refuse "could not extend the commit-msg hook"; return 1; }
     adopt_note "Commit-msg gate installed (it composes with whatever was already in that hook)."
   fi
