@@ -14020,9 +14020,31 @@ of the thirteen. Three matter beyond bookkeeping:
   off silently** on every adopted project — the fail-open row that entry exists
   to have removed, reintroduced through a different door.
 
-None of the thirteen is WP9's to fix and none is designed anywhere. They are
-recorded here because "the adoption feature is finished" now has a denominator,
-which is what this entry has been asking for since it was filed.
+**Twelve, not thirteen — WP9a closed one, and which one is the point.**
+`.claude/orchestrator-source.json` had no owner in the first draft of that table.
+Adversarial review then executed the routes A7's deferral depends on and found
+that the Phase 1→2 ZDR block **names `reconfigure-project.sh` as its escape
+hatch in its own FAIL text**, and that the hatch died on exactly that missing
+file — so the block was reachable and its advertised way out was not. Three
+shipped scripts an adoptee receives read the file. The rest of the unowned set
+has no such dependency and stays recorded rather than quietly absorbed.
+
+None of the remaining twelve is WP9's to fix and none is designed anywhere. They
+are recorded here because "the adoption feature is finished" now has a
+denominator, which is what this entry has been asking for since it was filed.
+
+**THE REVIEW ROUND'S OWN LESSON, because it generalises past this feature.**
+A7 defers a mandatory question to a later package and argues the deferral is
+safe. Half that argument — *fail-closed* — was true and verified. The other half
+— *the operator still gets asked* — was **asserted by nobody and false on all
+three routes**, and none of the three failures announced itself: one pointed at
+a document section that was never rendered, one crashed inside a python
+subprocess whose traceback went to stderr and whose non-zero status was
+discarded, and one died on a file that had no owner. **Deferring a requirement
+is only honest if the route that re-asks it exists, and a route is worth exactly
+what an execution of it says.** `## BUG-010:` carries the two
+`intake-wizard.sh` defects found on the way; they are pre-existing and are filed
+rather than absorbed into this feature's fix.
 
 **`## F-010:` is superseded by this entry** and now points here.
 

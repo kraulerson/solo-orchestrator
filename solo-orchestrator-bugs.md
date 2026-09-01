@@ -647,6 +647,74 @@ the workflow from an updated framework clone.
 When adding a new bug, copy this block and fill it in:
 
 ```markdown
+## BUG-010: `intake-wizard.sh --resume` fails SILENTLY on a progress file it does not like — a swallowed `KeyError`, then a skipped section, then "Intake Complete!" at rc 0
+
+**Logged:** 2026-09-01, by adversarial review of the BL-242 WP9a branch. Found
+while testing whether a route the branch DEPENDED ON actually worked. It did not.
+**Category:** Silent success — the class this repository exists to hunt
+**Status:** Open
+**Owner:** unassigned. **NOT adoption's** — the trigger was an adoption-written
+file and that half is fixed (`adopt_render_intake_progress` now writes every key
+the wizard subscripts), but the swallow is the wizard's and any other producer of
+a progress file hits it.
+
+**Two independent defects in one path, and they compound.**
+
+**(1) `load_progress()` SUBSCRIPTS, and the failure is swallowed.** Its embedded
+python does `data['last_section']`, `data['project_name']`, `data['platform']`,
+`data['track']`, `data['deployment']`, `data['language']`, `data['description']`
+— seven direct subscripts, no `.get`, no default. A progress file missing any one
+raises `KeyError`. The traceback goes to **stderr**, the non-zero status is not
+checked, and `--resume` **carries on** with the variables unset. Observed:
+
+```
+Traceback (most recent call last):
+  File "<string>", line 7, in <module>
+KeyError: 'project_name'
+[INFO] Sections completed: none
+[INFO] Resuming from Section 14
+[STEP] Section 11.5: Testing & Bug Tracking
+╔══ Intake Complete! ══╗
+intake-wizard --resume rc=0
+```
+
+**It resumed at Section 14 — past Section 5, Data Classification — and reported
+COMPLETE, at rc 0.** A caller cannot tell that from a real completion.
+
+**(2) The choice prompt loops FOREVER on EOF.** With the KeyError fixed, feeding
+`/dev/null` to `--resume` does not terminate: the prompt re-asks without an EOF
+guard. **Measured: 19,819,553 bytes of `Invalid choice. Enter a number between 1
+and 2.` in under two minutes**, still running when killed. A `read` that cannot
+distinguish "wrong answer" from "no more input" has no stopping condition.
+
+**Why the two together are worse than either.** Defect (1) means a malformed
+progress file is not refused; defect (2) means the wizard cannot be driven
+non-interactively even to discover that. So the only two outcomes available to a
+non-TTY caller are a false success and a hang.
+
+**The fix, both halves:**
+- `load_progress()` should use `.get(k, '')` (or validate the key set and REFUSE
+  by name), and the caller must check the exit status rather than reading stdout
+  over a traceback.
+- The choice loop needs an EOF guard: `read` returning non-zero is not a wrong
+  answer, it is the end of input, and the wizard should refuse and exit rather
+  than re-prompt. `scripts/lib/adopt/adopt-core.sh`'s `adopt_read_optional` and
+  the `ADOPT_MANDATORY_REFUSAL` path are the shape to copy — that driver treats
+  EOF as an unanswered mandatory question and stops.
+
+**Reproduce (hermetically):** adopt any fixture with
+`scripts/adopt-project.sh`, then hand-strip `project_name` from
+`.claude/intake-progress.json` and run `bash scripts/intake-wizard.sh --resume
+< /dev/null`. Before BL-242 WP9a the file was missing six of the seven keys by
+construction, so no hand-strip was needed.
+
+**Related:** `## BL-242:` (whose A7 deferral made this route load-bearing, and
+whose §8.7a records `.claude/orchestrator-source.json` — the third broken route
+found in the same review), and the `[FAIL]`-vs-`issues` doctrine in
+`CLAUDE.md`: a label is not a verdict, and here an exit code was not one either.
+
+---
+
 ## BUG-###: [One-line title]
 
 **Found:** YYYY-MM-DD

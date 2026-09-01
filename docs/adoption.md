@@ -245,14 +245,28 @@ just noting.** It used to be refused-if-skipped right here, and the reason given
 was mechanical: the Phase 1→2 ZDR backstop hard-`[FAIL]`s whenever
 `current_phase >= 2`, and an adoption used to be able to land at phase 4 on its
 first commit. **It cannot any more** — every adoption lands at phase 0 — so the
-threshold is not within reach, and the requirement is asserted where it now bites:
-the Phase 0 intake will not be written without one, and the backstop is still
-there the moment you reach phase 2 by the ordinary route.
+threshold is out of reach until you cross the very gate the backstop lives in.
 
-> **Not built yet:** the assessment is Act 3 and it has not shipped. Until it
-> does, those cells stay blank and the Phase 0 questions are asked the ordinary
-> way instead — `bash scripts/resume.sh` will tell you how to start. Nothing is
-> lost and nothing is assumed; the direction is fail-closed.
+**You will still be asked.** Three routes reach the question, and all three are
+exercised by the test suite rather than assumed:
+
+| Route | What it does |
+|---|---|
+| `bash scripts/resume.sh` | What the run tells you to do next. It prints the initialization prompt from this project's own Section 13, and that prompt names the classification as **not optional**. |
+| `bash scripts/intake-wizard.sh --resume` | Walks the intake from Section 1, which includes **Section 5 — Data Classification**. |
+| `bash scripts/reconfigure-project.sh --field data_classification --old "" --new <value>` | The escape hatch the Phase 1→2 gate names in its own failure message, if you get there first. |
+
+> **Not built yet:** the assessment is Act 3 and it has not shipped, so those
+> cells stay blank until you fill them through one of the routes above. The
+> direction is fail-closed: a project with no classification cannot cross its
+> Phase 1→2 gate.
+>
+> Every one of those three routes was **broken on an adopted project** until
+> this was built, and none of the breakages announced itself — one pointed at a
+> section that did not exist, one crashed internally and then reported success
+> having skipped the question, and one died on a file adoption never wrote.
+> They are recorded here because "you will be asked later" is worth exactly
+> what an execution of the asking says.
 
 An out-of-vocabulary answer to a choice question is refused by name rather than
 coerced:
