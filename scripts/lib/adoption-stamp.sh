@@ -137,9 +137,37 @@ soif_adoption_adopted() {
 }
 
 # ── 2. THE STAMP ────────────────────────────────────────────────────────────
-# soif_adoption_stamp <manifest> <scenario> <landed_phase> \
-#                     <kindA_json> <kindB_json> <kindC_json> \
-#                     <blockers_json> <scanner_report_sha256>
+# soif_adoption_stamp <manifest> <scanner_report_sha256>
+#
+# ── THE v2 SHAPE (v2 design §8.3), AND WHAT LEFT WITH IT ────────────────────
+# Six parameters are gone and the reason is one decision each, not a tidy-up:
+#
+#   scenario, landed_phase   D4 deleted the chooser and D10 deleted placement.
+#                            There is no scenario to record and no rung to
+#                            record it at: every adopted project lands at
+#                            phase 0 and earns each boundary through the
+#                            ordinary gates.
+#   kindA/kindB/kindC        v1-WP5's certification pass is RETIRED (§5.1),
+#                            not deferred. Three empty arrays whose owner no
+#                            longer exists are worse than no arrays: they read
+#                            as "measured, nothing found".
+#   blockersAccepted         the secrets dispositions D2 requires are recorded
+#                            through `bypass_audit_append` (§6.3), which
+#                            validates the ledger's shape before appending;
+#                            a second home for the same facts is the
+#                            dual-source pattern this file's own header bans.
+#
+# THE ENUM REFUSAL WENT WITH `scenario`, AND ITS JOB DID NOT. v1's scenario
+# enum guard existed so that "a durable record that says how a project got here
+# must not be written malformed" was a property of the WRITER rather than a
+# habit of its caller. With no scenario left to validate, the evidence hash
+# is what remains, and it is validated HERE — `# BL-242-STAMP-SHA-REQUIRED` —
+# rather than being left to `adopt_write_manifest`'s own
+# `# BF-ADOPT-SHA-REQUIRED`. Two guards on one fact is deliberate: the driver's
+# refuses loudly with an operator-facing sentence, and this one keeps the
+# property true for every future caller, including callers that do not exist
+# yet. A record claiming an evidence hash it does not have is exactly the
+# silent-empty class both were written against.
 #
 # Assembles §8.5's block and jq-merges it into <manifest> with the
 # atomic-rename pattern, exactly as soif_currency_stamp does. Additive: every
@@ -170,20 +198,17 @@ soif_adoption_adopted() {
 #
 # No-ops (rc 0, nothing written) when jq is unavailable or the manifest does
 # not exist — the `[ -f "$manifest" ] || return 0` idiom. REFUSES (rc 1,
-# nothing written) on a scenario outside §8.5's enum: a durable record that
-# says how a project got here must not be written malformed.
+# nothing written) on an empty evidence hash: a durable record that says how a
+# project got here must not be written malformed.
 soif_adoption_stamp() {
   local manifest="${1:-.claude/manifest.json}"
-  local scenario="${2:-}"
-  local landed_phase="${3:-0}"
-  local kind_a="${4:-[]}" kind_b="${5:-[]}" kind_c="${6:-[]}"
-  local blockers="${7:-[]}" scanner_sha="${8:-}"
+  local scanner_sha="${2:-}"
 
-  case "$scenario" in
-    completed|in-flight) : ;;
-    *) return 1 ;;   # BF-ADOPT-SCENARIO-ENUM
-  esac
-  case "$landed_phase" in ''|*[!0-9]*) landed_phase=0 ;; esac
+  # BEFORE the jq/manifest no-op arms, deliberately. Those arms return 0 for
+  # "this host cannot stamp"; this one returns 1 for "this CALL is wrong", and
+  # a caller that cannot tell them apart would treat a malformed stamp as a
+  # host limitation.
+  case "$scanner_sha" in '') return 1 ;; esac   # BL-242-STAMP-SHA-REQUIRED
 
   command -v jq >/dev/null 2>&1 || return 0
   [ -f "$manifest" ] || return 0
@@ -193,8 +218,8 @@ soif_adoption_stamp() {
   # a second stamp SILENTLY MOVES adoptedAtCommit to the current tip, which
   # re-opens the TDD exemption window at will; the loss detector cannot see it
   # because both copies read adopted. Refusing here makes the property
-  # structural. If a driver ever needs a legitimate scenario transition, that is
-  # a design amendment with its own function — not a silent overwrite.
+  # structural. If a driver ever needs to revise a landed record, that is a
+  # design amendment with its own function — not a silent overwrite.
   if jq -e '.adoption.adopted == true' "$manifest" >/dev/null 2>&1; then
     return 1   # BF-ADOPT-RESTAMP-REFUSE
   fi
@@ -203,21 +228,17 @@ soif_adoption_stamp() {
   adopted_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || adopted_at=""
   anchor="$(git rev-parse HEAD 2>/dev/null)" || anchor=""
 
+  # schemaVersion 2 — v2 §8.3. The bump is not cosmetic: a reader that finds
+  # `schemaVersion: 1` is looking at a record written by the v1 driver, which
+  # carried a scenario and a landed rung, and a reader that finds 2 is looking
+  # at one that never did.
   local adoption_json
   adoption_json="$(jq -n \
     --arg at "$adopted_at" \
     --arg anchor "$anchor" \
-    --arg scenario "$scenario" \
-    --argjson landed "$landed_phase" \
-    --argjson kindA "$kind_a" \
-    --argjson kindB "$kind_b" \
-    --argjson kindC "$kind_c" \
-    --argjson blockers "$blockers" \
     --arg sha "$scanner_sha" \
-    '{schemaVersion: 1, adopted: true, adoptedAt: $at, adoptedAtCommit: $anchor,
-      scenario: $scenario, landedPhase: $landed,
-      certification: {kindA: $kindA, kindB: $kindB, kindC: $kindC},
-      blockersAccepted: $blockers, scannerReportSha256: $sha}')" || return 1
+    '{schemaVersion: 2, adopted: true, adoptedAt: $at, adoptedAtCommit: $anchor,
+      scannerReportSha256: $sha}')" || return 1
 
   # Merge — atomic rename, the soif_currency_stamp filter's own form.
   jq --argjson adoption "$adoption_json" '.adoption = $adoption' \

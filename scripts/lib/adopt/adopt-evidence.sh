@@ -1,64 +1,60 @@
 #!/usr/bin/env bash
-# scripts/lib/adopt/adopt-chooser.sh — the scenario chooser (§4.1), the
-# evidence the scanner OFFERS around it (§4.2), and where each scenario lands
-# (§4.3/§4.4, including THE FLOOR RULE).
+# scripts/lib/adopt/adopt-evidence.sh — the evidence the scanner OFFERS the
+# operator during Act 2 (§4.2), and nothing else.
 #
-# SPEC: docs/designs/2026-08-02-brownfield-adoption-v1.md §4.1, §4.2, §4.3,
-# §4.4, §8.2 (`phaseMap.suggestedPhase` is the REACHED rung and its own note
-# says "the interview may only lower this").
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# THE QUESTION IS A DECISION, NOT A PHRASING.
-#
-# It is Karl's own sentence and it is asked VERBATIM. Two properties of it are
-# load-bearing and a well-meaning edit destroys either one:
-#
-#   • It is written for a NON-DEVELOPER — no phase numbers, no framework
-#     vocabulary, no "MVP".
-#   • It asks about the PROJECT'S SITUATION, not the project's artifacts,
-#     because the artifacts are what the scanner already measured and they are
-#     frequently misleading: a mature service with no README.md, a weekend
-#     prototype with a tagged release.
-#
-# tests/test-brownfield-wp4-driver.sh pins the sentence by STRING EQUALITY, and
-# also pins both properties directly, so "I just tidied the wording" is a red
-# check rather than a silent change of meaning.
+# SPEC: docs/designs/2026-08-23-brownfield-adoption-v2.md §4.2 (the scanner
+# offers evidence; it does not decide), §4.3 (what the evidence is FOR, since
+# it is not for placement), §8.3a-A5/A6.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# AND IT IS NOT PREFILLED. §4.2 considered inferring the scenario from the scan
-# and asking for confirmation, and REJECTED it: the framework's own prefill
-# pattern is right for facts the framework itself recorded earlier and wrong
-# for a judgment it has never made, because presenting a guess as a default
-# makes the most consequential answer in the whole flow the easiest one to
-# accept without reading. So the evidence is printed BEFORE the question, each
-# signal with its own confidence, explicitly labelled as evidence — and the
-# operator's answer overrides all of it.
-
-# BF-ADOPT-CHOOSER-QUESTION — Karl's wording (§4.1), VERBATIM. Do not reflow,
-# do not fix the grammar of "new features add", do not split it across lines.
-ADOPT_CHOOSER_QUESTION="Is the project built out and needs to be able to be supported (i.e. bug fixes, maintenance, new features add), or are you still in the process of building your project?"
-
-# The two answers, in the same register as the question: no phase numbers, no
-# framework words. They are the operator's own two situations, said back.
-ADOPT_CHOOSER_ANSWER_BUILT="It is built out and needs to be supported"
-ADOPT_CHOOSER_ANSWER_BUILDING="I am still in the process of building it"
-
-# ── §4.2 — the evidence the scanner offers ──────────────────────────────────
+# THIS FILE WAS `adopt-chooser.sh` AND THE CHOOSER IS GONE (D4, D10).
 #
+# What it carried and no longer does: Karl's one question, both canned answers,
+# `adopt_ask_scenario`, the S2 ladder, `adopt_apply_floor` and
+# `adopt_decide_placement`. **D4 deleted the question** — *"trusting an end
+# user to know what's needed is a mistake considering they are using the
+# orchestrator BECAUSE they are not already following a proper SDLC"* — and
+# **D10 deleted the idea that anything should be computed in its place**:
+# *"the project gets ingested and starts from the beginning."* Every adopted
+# project lands at phase 0 and earns each boundary through the ordinary gates.
+#
+# The rename is A5's, and it is not tidiness: a file called `chooser`
+# containing no chooser is the stale-string class this repository keeps paying
+# for.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY THE EVIDENCE SURVIVED THE DELETION (A6)
+#
+# The obvious cut was to delete this block with the question it introduced, and
+# it is wrong. §4.3 says the artifact ladder, the census and the reality probes
+# all survive and all matter — as PRE-FILL for the Phase 0 intake and as
+# context for the plan. And this is the only point in Act 2 where an operator
+# sees what a read-only look at their own code found.
+#
+# WHAT CHANGED IS ITS PURPOSE, AND THE WORDING HAD TO CHANGE WITH IT. The block
+# used to end "your answer to the next question overrides all of it", which
+# invited the operator to weigh evidence for a judgment they were about to
+# make. There is no such judgment now, and a block that still read that way
+# would be asking for weight nobody uses. It says plainly instead that the
+# project starts at phase 0 whatever any of this says.
+#
+# ─────────────────────────────────────────────────────────────────────────────
 # WHAT IS CONSUMED AND WHAT IS DERIVED, stated plainly because the two are easy
-# to confuse. §8.2's report schema — verified against scripts/lib/scout/ — has
-# no chooser-evidence section: it carries `phaseMap`, `reality`, `stack`,
-# `secrets`, `collisions`, `testsBaseline` and `intakePrefill`, and none of
-# them is §4.2's table. So the deploy-lane signal is CONSUMED from the report
-# (rung 4 and the ci_pipeline_configured probe — Scout already derived it and
-# this driver does not re-derive it), while release tags, commit shape and the
+# to confuse — AND BECAUSE THE SPLIT IS A KNOWN DEFECT THAT WP9 DID NOT FIX.
+# §8.2's report schema has no chooser-evidence section: it carries `phaseMap`,
+# `reality`, `stack`, `secrets`, `collisions`, `testsBaseline` and
+# `intakePrefill`. So the deploy-lane signal is CONSUMED from the report (rung
+# 4 and the ci_pipeline_configured probe — Scout already derived it and this
+# driver does not re-derive it), while release tags, commit shape and the
 # changelog are read from the adoptee's own git and tree HERE, because nothing
-# reports them. That gap is recorded in the WP4 report as a candidate for a
-# future `chooserEvidence` section in Scout rather than papered over: one fact
-# derived in two places is two chances to disagree about it.
+# reports them. ONE FACT DERIVED IN TWO PLACES IS TWO CHANCES TO DISAGREE ABOUT
+# IT. That is unchanged by the chooser's deletion and is recorded rather than
+# quietly inherited; a Scout-side section is the fix and it is nobody's yet.
 #
 # Every line below carries its confidence, and the block ends by saying that
-# none of it decides anything.
+# none of it decides anything — which is now the literal truth rather than a
+# disclaimer.
+
 adopt_evidence_deploy_lane() {
   local report="$1"
   local rung4 probe
@@ -126,9 +122,8 @@ adopt_evidence_changelog() {
 adopt_present_evidence() {
   local root="$1" report="$2"
   adopt_head "What the scan noticed"
-  adopt_note "None of this is an answer. It is what a read-only look at the code found,"
-  adopt_note "and each line says how much weight it deserves. Your answer to the next"
-  adopt_note "question overrides all of it."
+  adopt_note "This is what a read-only look at your code found, and each line says how much"
+  adopt_note "weight it deserves. It is here so you can see it, not so you can act on it."
   adopt_blank
   adopt_evidence_deploy_lane "$report"
   adopt_evidence_release_tags "$root"
@@ -137,106 +132,11 @@ adopt_present_evidence() {
   adopt_blank
   adopt_note "Users: the scan cannot measure whether anyone is using this. Only you know that."
   adopt_blank
-}
-
-# ── The chooser itself ──────────────────────────────────────────────────────
-# adopt_ask_scenario — leaves "completed" or "in-flight" in ADOPT_SCENARIO.
-# The two words are §8.5's stamp enum, not operator-facing vocabulary; the
-# operator never sees either of them.
-ADOPT_SCENARIO=""
-adopt_ask_scenario() {
-  adopt_head "The one question the scan cannot answer"
-  # No default, no preselection, no "(suggested)" — §4.2's rejected alternative.
-  adopt_ask_choice "the project's situation" "$ADOPT_CHOOSER_QUESTION" \
-    "$ADOPT_CHOOSER_ANSWER_BUILT" \
-    "$ADOPT_CHOOSER_ANSWER_BUILDING" || return 1
-  case "$ADOPT_ANSWER" in
-    "$ADOPT_CHOOSER_ANSWER_BUILT")    ADOPT_SCENARIO="completed" ;;
-    "$ADOPT_CHOOSER_ANSWER_BUILDING") ADOPT_SCENARIO="in-flight" ;;
-    *) adopt_refuse "the scenario answer could not be read"; return 1 ;;
-  esac
-  return 0
-}
-
-# ── Placement (§4.3, §4.4) ──────────────────────────────────────────────────
-#
-# S1 lands at 4 and adopted. S2 lands at the phase its artifacts support —
-# Scout's `phaseMap.suggestedPhase`, the REACHED rung — FLOORED by the
-# interview.
-#
-# THE FLOOR RULE IS ONE-DIRECTIONAL AND THAT IS THE WHOLE POINT (§4.4). The
-# interview may only move the placement DOWN, never up. Artifact evidence is a
-# claim about what was BUILT; the operator's answer is a claim about what is
-# TRUE; where they disagree the SAFER number wins, because a project placed too
-# low certifies more than it strictly needed and a project placed too high
-# certifies LESS THAN IT OWED. Scout's own report says so in the field beside
-# the number: "maximum satisfied rung; the interview may only lower this".
-adopt_apply_floor() {
-  local scanned="$1" claimed="$2"
-  scanned="$(adopt_int "$scanned")"
-  claimed="$(adopt_int "$claimed")"
-  if [ "$claimed" -lt "$scanned" ]; then printf '%s' "$claimed"; else printf '%s' "$scanned"; fi   # BF-ADOPT-FLOOR
-}
-
-# The S2 ladder question, in the operator's register: no phase numbers, no
-# framework artifact names. The rungs are the same four Scout measured, said as
-# things a person can recognise about their own project.
-ADOPT_LADDER_Q="How far along is the work itself? Pick the LAST line that is already true."
-ADOPT_LADDER_0="None of these yet"
-ADOPT_LADDER_1="We have written down what this project is for"
-ADOPT_LADDER_2="...and the technical shape of it is written down too"
-ADOPT_LADDER_3="...and there are tests that actually run"
-ADOPT_LADDER_4="...and there is a way to get it out the door"
-
-# adopt_ask_ladder — leaves the operator's claimed rung (0-4) in ADOPT_ANSWER.
-adopt_ask_ladder() {
-  adopt_ask_choice "how far along the work is" "$ADOPT_LADDER_Q" \
-    "$ADOPT_LADDER_0" "$ADOPT_LADDER_1" "$ADOPT_LADDER_2" "$ADOPT_LADDER_3" "$ADOPT_LADDER_4" || return 1
-  case "$ADOPT_ANSWER" in
-    "$ADOPT_LADDER_0") ADOPT_ANSWER=0 ;;
-    "$ADOPT_LADDER_1") ADOPT_ANSWER=1 ;;
-    "$ADOPT_LADDER_2") ADOPT_ANSWER=2 ;;
-    "$ADOPT_LADDER_3") ADOPT_ANSWER=3 ;;
-    "$ADOPT_LADDER_4") ADOPT_ANSWER=4 ;;
-    *) adopt_refuse "the answer about how far along the work is could not be read"; return 1 ;;
-  esac
-  return 0
-}
-
-# adopt_decide_placement REPORT — leaves the landed phase in ADOPT_LANDED_PHASE.
-ADOPT_LANDED_PHASE=""
-adopt_decide_placement() {
-  local report="$1" scanned claimed landed
-  if [ "$ADOPT_SCENARIO" = "completed" ]; then
-    # §4.3: S1 lands at 4, full stop. Its artifacts are not consulted, because
-    # the operator has just said the thing being built is finished, and the
-    # certification pass — every gate 0->1 through 3->4 — is what makes that
-    # claim expensive rather than free.
-    ADOPT_LANDED_PHASE=4
-    adopt_note "This project lands where a finished project lands, and every gate behind it"
-    adopt_note "has to be certified rather than assumed."
-    return 0
-  fi
-
-  scanned="$(adopt_int "$(adopt_report_read "$report" '.phaseMap.suggestedPhase // 0')")"
+  # A6's closing sentence, and the whole reason this block was allowed to
+  # survive D4 in a re-worded form. Say it in as many words: nothing above
+  # moves the project, and what it found is reused as PRE-FILL later.
+  adopt_note "None of this decides anything. Your project starts at phase 0 either way and"
+  adopt_note "earns each gate the ordinary way; what the scan found becomes a head start on"
+  adopt_note "the Phase 0 questions, never a shortcut past them."
   adopt_blank
-  adopt_note "From the code alone, the scan placed this project at rung $scanned of 4."
-  adopt_note "Your answer can move that DOWN if the code flatters the project. It cannot"
-  adopt_note "move it up: evidence you have not produced is not evidence."
-  adopt_blank
-  adopt_ask_ladder || return 1
-  claimed="$ADOPT_ANSWER"
-  landed="$(adopt_apply_floor "$scanned" "$claimed")"
-  ADOPT_LANDED_PHASE="$landed"
-  if [ "$claimed" -gt "$scanned" ]; then
-    adopt_note "You placed it higher than the code supports, so it lands at $landed — the"
-    adopt_note "number the artifacts can back up. Nothing is lost: the rest is earned the"
-    adopt_note "ordinary way, by shipping."
-  elif [ "$claimed" -lt "$scanned" ]; then
-    adopt_note "You placed it lower than the code suggested, so it lands at $landed. The"
-    adopt_note "lower number costs more certification, not less, and that is the safe side."
-  else
-    adopt_note "The code and your answer agree: it lands at $landed."
-  fi
-  return 0
 }

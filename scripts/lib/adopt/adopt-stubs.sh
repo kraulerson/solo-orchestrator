@@ -40,21 +40,25 @@ adopt_stub_notice() {
   adopt_note "$consequence"
 }
 
-# WP5 — the certification pass (§5). The empty certification arrays in the
-# stamp are the visible consequence and the notice names them, because an empty
-# array is exactly what a completed pass with no findings would also produce.
-adopt_stub_certification() {
-  local scenario="$1" landed="$2"
-  local scope
-  if [ "$scenario" = "completed" ]; then
-    scope="every gate from 0 to 4, because landing at 4 means all four have notionally been crossed"
-  else
-    scope="the gates below phase $landed; the ones above it get crossed the ordinary way, later"
-  fi
-  adopt_stub_notice "the certification pass" "WP5" \
-    "It would have run $scope, and a blocker-grade finding would have stopped this adoption."
-  adopt_note "Because it did not run, the adoption record's certification lists are EMPTY."
-  adopt_note "An empty list here means 'not measured', not 'measured and clean'."
+# WP12a — THE ASSESSMENT (Act 3), which is the act this run just handed off to.
+#
+# THIS REPLACES THE WP5 CERTIFICATION STUB, AND THE REPLACEMENT IS NOT A
+# RENAME. v1-WP5's pass certified every gate below a CLAIMED rung; D4 deleted
+# the claim and D10 deleted the landing, so the pass has no object and §5.1
+# RETIRES it. Announcing a retired package as "not built yet" would be worse
+# than silence — it tells an operator to expect something nobody will ever
+# build — so what is announced instead is the thing that genuinely has not run
+# and genuinely will: the assessment.
+#
+# It is announced rather than started because Act 3 is a Claude Code session,
+# not a shell step. The one honest thing this driver can do about it is name it
+# and point at the script that generates the first message.
+adopt_stub_assessment() {
+  adopt_stub_notice "the assessment (Act 3) — the requirements interview, the fitness verdict and the plan" "WP12a" \
+    "Adoption has surveyed, installed and recorded. What it has NOT done is ask you what this"
+  adopt_note "project is for, judge whether the technology fits those answers, or write you a plan."
+  adopt_note "Until that ships, PROJECT_INTAKE.md carries the cells the scan could fill and leaves"
+  adopt_note "the rest blank, and the Phase 0 questions are asked the ordinary way instead."
 }
 
 # WP5b — the test-debt ledger and its ratchet (§5.4) — RETIRED, NOT DELETED IN
@@ -132,12 +136,10 @@ adopt_stub_secrets_disposition() {
 # check-phase-gate.sh exits 1 on a project with phase-state and no
 # APPROVAL_LOG.md, which is the SAFE direction but is not a finished adoption.
 adopt_stub_adoption_record() {
-  local scenario="$1" landed="$2"
   adopt_stub_notice "the Adoption Record, the audit rows and the CI carve-out" "WP7" \
     "APPROVAL_LOG.md is not written, so the phase gate will report it missing until WP7 lands."
   adopt_note "That is the safe direction — a blocked project, not a silently-approved one — but it"
-  adopt_note "means this adoption ($scenario, phase $landed) is recorded in the manifest and"
-  adopt_note "nowhere else yet."
+  adopt_note "means this adoption is recorded in the manifest and nowhere else yet."
 }
 
 # The fallback PRE-COMMIT hook. Not attributed to a work package, because §10
@@ -169,11 +171,12 @@ adopt_stub_hooks() {
 # delivered owner for undelivered work, which is the one thing an honest stub
 # must not do.
 adopt_stub_project_docs() {
-  adopt_stub_notice "your project's framework documents" "unassigned — §10 names no owner" \
+  adopt_stub_notice "your project's framework documents" "WP11 archives them, WP12b writes them (D3)" \
     "CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the"
   adopt_note "state are here, so the gates work; the reading material an agent picks up at the start"
   adopt_note "of a session is not, and a CLAUDE.md you already have would be a collision, not a gap."
-  adopt_note "WP6's archive covers your AI-layer settings and your git hooks; documents are neither."
+  adopt_note "WP6's archive covers your AI-layer settings and your git hooks; documents are neither"
+  adopt_note "YET — D3 makes them a fourth archive class, and WP11 is where that lands."
 }
 
 # WP7 — §8.6's provenance headers on reconstructed documents.
