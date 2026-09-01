@@ -14204,6 +14204,415 @@ route).
 
 ---
 
+## BL-250: the "on this machine only" disclosures are all mid-transcript, and the operator stops reading before any of them
+
+**Logged:** 2026-09-01, at Karl's direction, after a dogfood-readiness probe of
+the shipped collision archive. **Revised EIGHT times the same day under
+adversarial review, every round refuting the round before it** — the count taken
+at the commit that carries this line, because it is otherwise self-defeating: a
+round whose only finding is that the number is one short makes it one short
+again the moment you fix it, and a draft of this very line was one short for
+exactly that reason: round one
+refuted four of the original claims — including one that pointed the Boundary at
+the wrong function; round two refuted two of round one's corrections (a
+withholding-reason count and a transcript line number); round three refuted the
+prescribed scope key; round four refuted the *replacement* key, found the Proof
+list self-contradictory and miscounted, and refuted a sentence its own next
+clause disproved; round five refuted the *third* key's partition — "on any
+refusal path it is the whole archive" is false, because `adopt_install_hooks`
+refuses AFTER the commit lands — plus a fixture label, an assertion worded in the
+refuted vocabulary, and another miscount. Every correction is kept visible below,
+because a backlog entry that misdirects its implementer is worse than no entry,
+and because the *pattern* is the thing worth carrying forward: **not one round
+found a defect in shipped behaviour — every one found a plausible statement
+recorded as a verified one, and every one found it inside the previous round's
+fix.** Round six found the last of them: a
+single integer inside the assertion round five had just added, corrected
+everywhere else in the same round. Care does not fix this class, because care is
+what produces it; only re-measuring at the tip does, and this entry proves it by
+having failed to six times running — the misses narrowing each round, from a
+Boundary naming the wrong function to a single wrong integer, until a seventh round, rebuilding
+fifteen fixtures from scratch, found **no defect in shipped behaviour and two
+imprecisions in this entry's own prose** — one of them a sentence that was
+plainly false ("leaves files" where the base recipe leaves none). Round seven did
+not come back clean; it came back with the smallest findings yet, and a draft of
+this very paragraph scored it as "refuted nothing at all", which is the eighth
+instance of the defect and the one hardest to notice, because the false claim
+flattered the process rather than the code. A NINTH round then found the fix for
+the eighth had left the revision count one short — the entry named an "eighth
+instance" two sentences after totalling seven — which is the same defect once
+more, now purely in this entry's arithmetic about itself. **The stopping condition is a round
+whose findings no longer touch what an implementer would build — not a round with
+nothing to say, and never a round you have described as clean without checking
+what it said.**
+**Category:** True statements in the wrong place — the disclosures are accurate,
+complete and correctly reasoned, and they scroll past
+**Status:** Open
+**Owner:** unassigned
+
+**THE BEHAVIOUR IS RIGHT AND IS NOT WHAT THIS ENTRY ASKS TO CHANGE.** Measured
+on an adoptee whose `.gitignore` carries `.claude/settings.local.json`:
+
+```
+adopt rc=0
+archived on disk : .claude/settings.json   .claude/settings.local.json
+committed        : .claude/settings.json   MANIFEST.json   MANIFEST.md
+```
+*(An abbreviation of one fixture, not an inventory — a real adoptee also
+archives its git hooks and any skills, and commits six paths — an
+estimate from shape, not a measurement of a named fixture, and the one number in
+this entry that is not.)*
+
+The withheld copy is archived, restorable, and named in `MANIFEST.json` with
+`withheldReason: "original-gitignored"`. Withholding it is CORRECT and must
+stay: committing an archive copy of a file the operator's own `.gitignore`
+excludes would launder that file past their rule under a new path, and
+`.claude/settings.local.json` is both the modal case and the one people put
+credentials in. `docs/adoption.md` publishes this as a guarantee — *"never
+commits that copy under a different name"* — and
+`tests/test-brownfield-wp6-collision-archive.sh`'s G1/G1b/G1c/G2 pin it, with G1
+asserting `findingCount == 0` so that it is the ignore rule and not the secret
+scanner that saved the file.
+
+**THE ORACLE IS `_adopt_original_is_ignored`, MARKER `# BF-ADOPT-IGNORE-ORIGINAL`,
+and naming it correctly is the single most load-bearing line in this entry.**
+The first draft named `_adopt_record_if_stageable` instead. That function is the
+`git add --dry-run` staging guard for `MANIFEST.json`, `MANIFEST.md` and
+`.claude/bypass-audit.json` — its only three call sites — and it is **never
+called on a collision original**. Review proved the difference by double
+mutation: neutering `# BF-ADOPT-IGNORE-ORIGINAL` **commits the gitignored file**,
+while neutering `_adopt_record_if_stageable` leaves the withholding untouched and
+instead drops both MANIFESTs out of the commit — and `.claude/bypass-audit.json`
+with them, its third subject, which an earlier telling of this mutation omitted. A Boundary naming the second
+would have told an implementer to protect the one function they could safely
+delete, and left the one that actually enforces the guarantee unnamed.
+
+**WHAT IS WRONG IS WHERE THE OPERATOR IS TOLD.** `_adopt_archive_disclose` says
+it, correctly and repeatedly. Re-derived on the fixture above: a 189-line
+transcript whose archive block runs 112–134, carrying **five** distinct
+statements of it — at 121, 124, 126, 127–129 and 130. Four of them:
+
+```
+      NOT COMMITTED — original-gitignored
+   1 of those copies were NOT added to the commit.
+   They are still on disk in <arc> — they are simply not in version control.
+   your .gitignore covers: .claude/settings.local.json
+```
+
+The fifth, at 127–129, is the strongest, and it states the same guarantee
+`docs/adoption.md` publishes — in different words, not the same sentence: the
+transcript says *"does NOT commit that copy under a different name"*, the doc
+says *"never commits that copy under a different name"*; 130 is counted because it is the operator-facing pointer,
+though strictly it names an ignore rule rather than disclosing a location.
+
+**All five are inside the archive block, and the run then continues** through the
+install, the state writes, the commit, the hooks and the Act-2 handoff. *(Those
+numbers are fixture-specific and are given for reproduction, not citation —
+`# BF-ADOPT-IGNORE-ORIGINAL` and `_adopt_archive_disclose` are the durable
+handles. The first draft carried a fourth number from a differently-shaped
+fixture that landed outside the block it was cited to be inside; the second said
+"four times over" and dropped 127–129 while keeping 130, an inconsistent
+selection undercounting in the same direction as the defect it was correcting.)*
+**After that block the run can mention the operator's archived files twice
+more**, and neither mention says the on-disk-only fact. `adopt_stub_project_docs`
+always prints *"WP6's archive covers your AI-layer settings and your git hooks"*
+— on fixture 1 at line 169. `adopt_install_hooks` prints *"You already have a
+pre-commit hook. It has been LEFT ALONE, and a copy is in the archive with a
+restore line — see `<arc>/MANIFEST.md`"* — a positive durability claim about the
+operator's own archived hook — but **only when the adoptee has a pre-commit hook
+of its own** (`if [ -e "$hooks/pre-commit" ]`), so on fixture 1 it does not print
+at all. Measured on a FOURTH fixture, which is NOT the adoptee used above: it
+carries `.claude/settings.json` and a passing `pre-commit` hook, **no
+`.gitignore` and no `settings.local.json`**, `rc=0` — block 112–126, adoption
+commit header 142, hook line **148–149**, stub line **163**.
+
+*(Two admissions, because they are the entry's subject. First: a draft put the
+hook line at 163–164 with the block at 112–141 — transcribed from a
+differently-shaped fixture rather than measured. Its replacement was measured,
+then labelled "same adoptee plus a hook", which it was not; on the actual
+gitignore-carrying adoptee plus a hook the numbers are 112–138 / 154 / 160–161 /
+175. FIVE of this entry's measured citations were transcribed rather than
+re-measured and every one was wrong — three line numbers and, in this round
+alone, two file counts (a post-commit-refusal box and assertion 2's
+counterexample, both off by one because the source fixture carried a file mine
+did not). Every number now here was measured on a fixture built from the recipe
+below. **Measure it, and name the fixture you measured.** Second: nothing is withheld on that fourth fixture, so
+`adopt_install_hooks`' promise is entirely TRUE there and the MANIFEST it points
+at IS committed. The fixture establishes WHERE the line prints, not that it
+misleads; the misleading case is the archive-ignored adoptee of fixture 2, where
+the same promise points at a MANIFEST that is not in git.)* *(A draft of this paragraph asserted nothing
+followed — while its own next clause listed "the hooks" among the steps that do.
+Self-refuting in the same sentence, caught in round four.)* The **narrowed
+premise still holds**, because neither line states the fact; what changes is that
+an implementer told "nothing follows" would never reconcile the new closing
+summary with `adopt_install_hooks`' promise.
+*(The first draft called this "the only line" saying it and called the archive
+block "the longest the run prints"; both are false — and on the same transcript
+the interview block runs 31–105, 75 lines, against the archive's 23. The
+interview's length is fixed prose; the archive's grows with the entry count, so
+on a real adoptee it is longer than 23 and still not the longest.)*
+
+**The premise had to be narrowed once more, and the narrowing is the ask's real
+shape.** The entry previously said the archive block is "the only place any of it
+is said". It is not. `_adopt_record_if_stageable` prints its own
+`stays out of the commit — it is on disk` line for each of its three subjects,
+and the worst-placed of them is **above** the block. Measured on a SECOND fixture
+— same adoptee, `.gitignore` = `.claude/adoption-archive/`, `rc=0` — the two
+MANIFEST notes print at **111–112**, with the archive header at 114: the
+operator is told the archive's own index is uncommitted *before* being told there
+is an archive, visually glued to the preceding test-debt section. On a THIRD
+fixture with `.claude/` ignored whole, a `.claude/bypass-audit.json` note prints
+at **138**, after `_adopt_archive_disclose`'s closing MANIFEST pointer and before
+the next header at 140 — inside the archive section visually, emitted by a
+different arm, and about the audit ledger rather than an archived original.
+*(A draft of this paragraph said that one prints "below" the block; measured, it
+does not. Transcribed again, caught again.)* So the true premise is narrower and
+still carries the ask: **the archive block is the only place it is said about the
+operator's own archived files**, and the stray notes about the archive's own
+record are worse placed, not better. On that third fixture `[BLOCKED] git will
+not stage every file this adoption must commit` goes to **stderr**, not the
+transcript — a placement fact of its own, and out of scope here.
+
+**Why it matters more than transcript polish.** The archive's promise is
+*"nothing is lost"*, kept two ways — a committed copy for most things, an
+on-disk copy for these. An operator who takes "the archive is in git" as
+universal will believe a machine loss is survivable when for these files it is
+not. **The gap is exactly one disk failure wide, and only for the files most
+likely to hold secrets** — which are also the files least likely to exist
+anywhere else, precisely because the operator marked them never-commit.
+
+### What to build
+
+A closing summary naming every archive path that is on disk and not in the
+commit, its count, and one sentence saying those copies exist **on this machine
+only**.
+
+**DEFINE THE SET BY THE OUTCOME, NOT BY ANY FIELD.** The set is *every path
+written into `ADOPT_ARCHIVE_DIR` that is absent from the adoption commit*. Two
+successive drafts of this entry keyed it on something narrower and both were
+refuted by execution; the outcome is the only definition that survives every
+reachable shape.
+
+*Draft one keyed it on `withheldReason`* — refuted: there are four reasons, not
+the one it named.
+
+*Draft two keyed it on `stagedForCommit == false`* — refuted, because
+`MANIFEST.json`'s `entries[]` is built from the archived **originals** alone.
+The two MANIFESTs are recorded separately by `_adopt_record_if_stageable` and
+**have no `stagedForCommit` field of their own**, so a set keyed on that field
+structurally cannot reach them. Measured on a completion-path adoptee that
+gitignores `.claude/adoption-archive/` — a reasonable thing to do to a local
+backup directory; `rc=0`, no `[BLOCKED]`: **four** files on disk, **zero**
+archive paths in the commit, field-keyed count **2**. That line tells the
+operator 2 where the answer is 4, and its own closing sentence — *"The full
+record … is in `<arc>/MANIFEST.md`"* — points at a file that is not in git
+either. Proof assertion 4's own defect, a wrong count beside a list of paths,
+reappearing in the spec that assertion exists to check.
+
+*Draft three keyed it on the withheld `entries[]` plus the withheld MANIFESTs*
+— **refuted too, and by a shape that needs no `.gitignore` at all.**
+`adopt_stage_and_commit` has **four** refusal arms and only one of them involves
+withholding: `there is nothing to commit — no file was recorded as written`
+(near-unreachable: it needs an empty write ledger), `git will not stage every
+file this adoption must commit` (`# BL-225-STAGE-PREFLIGHT`), `could not stage
+the adoption files`, and `the adoption commit did not succeed — your own hooks
+or git identity may have refused it`. *(A draft said "three" here and omitted
+the first — the same miscount round two refuted two paragraphs above, committed
+inside the correction for it.)* That last arm is an ordinary brownfield project
+whose **own** `pre-commit` hook exits non-zero — squarely the audience this
+feature exists for, and the driver deliberately does not `--no-verify` past it.
+Measured:
+
+```
+adopt rc=1     HEAD unmoved — no adoption commit
+archive files on disk        : 4
+archive paths in HEAD        : 0   (all 4 staged in the index, committed nowhere)
+withheld entries[]           : 0
+withholding notes printed    : 0
+```
+
+**Zero withheld, four on disk, nothing committed** — the draft-three set is
+EMPTY where the true answer is the whole archive, a wider miss than draft two's.
+
+**THE PARTITION IS NOT COMPLETION-VS-REFUSAL. IT IS WHETHER THE ADOPTION COMMIT
+LANDED**, and a draft of this paragraph got that wrong too, in the direction the
+Proof preamble names as the worst one. It said *"on any refusal path it is the
+entire archive directory"* — false, because `adopt_install_hooks` runs **after**
+`adopt_stage_and_commit` (`adopt_main` calls them in that order, and the comment
+between them says the ordering is the point), and it carries refusal arms of its
+own. Measured on an adoptee whose `.git/hooks/commit-msg` is read-only, so
+appending the framework's block fails:
+
+```
+adopt rc=1     HEAD MOVED — the adoption commit landed
+archive files on disk        : 4
+archive paths in HEAD        : 4
+withheld entries[]           : 0
+[BLOCKED] could not extend the commit-msg hook
+```
+
+A closing line anchored at `adopt_refuse`'s exit — which this entry offers below
+as the second anchor — and built to the refuted rule would name **all four
+committed files as existing on this machine only**. That is the Proof preamble's own
+falsehood-in-the-opposite-direction, written into the spec by the correction that
+was fixing the opposite miss. **The repository had already refuted this**:
+`adopt_refuse` carries `# BL-225-REFUSE-HONEST` saying in as many words that
+`adopt_install_hooks` runs after the commit, and `adopt_stage_and_commit` sets
+`ADOPT_COMMITTED=1` at the same marker precisely so a later refusal tells the
+truth.
+
+**So: when no adoption commit landed (`ADOPT_COMMITTED=0`) the set is the whole
+archive directory. When one landed — whether or not a later step refused — it is
+the archive paths absent from that commit, which in practice is the withheld
+`entries[]` plus either withheld MANIFEST.** Use the flag the code already
+derives; do not re-derive it from the exit path. **Read that second half as
+derived, never as a key**: a draft stated it as the rule, which is the
+`stagedForCommit` field assertion 3 forbids, smuggled back in — and it is
+refutable. On an adoptee whose own `pre-commit` hook unstages the archive and
+exits 0, the commit lands with zero withheld and **four** archive paths absent
+from it, where the field-keyed restatement yields the empty set. Low
+reachability, and the outcome definition above is right in that shape too —
+which is the whole reason it is the definition.
+
+*(Two scope notes. `.claude/bypass-audit.json` is `_adopt_record_if_stageable`'s
+third subject and is deliberately OUT of the set: it is the audit ledger, not
+archive content, and it lives outside the archive directory — stated so the next
+reader need not wonder whether it was forgotten. And read `ADOPT_ARCHIVE_DIR` as
+English, not as the identifier: the variable is assigned only after both
+MANIFESTs write, so an earlier refusal inside `adopt_archive_write` leaves the
+archive DIRECTORY with the variable still `""`. Measured: an adoptee with two
+archivable originals whose SECOND is unreadable refuses with `[BLOCKED] could not
+archive .claude/settings.local.json` and leaves one regular file behind; the one-original base recipe leaves three directories — only the
+innermost empty — and no file at all, so the set is then correctly empty. The set is the directory on disk, whatever the variable
+holds.)*
+
+**Scope it by the FIELD, not by the reason.** `original-gitignored` is one of
+**four** withholding reasons written by the chain at `# BF-ADOPT-IGNORE-ORIGINAL`
+and its siblings — `not-scanned`, `secret-match`, `original-gitignored`,
+`gitignored`, in that precedence order — and all four produce the same exposure.
+`not-scanned` withholds every archived **copy** — measured on the fixture-1
+adoptee (two originals) with gitleaks off `PATH`: 4 files on disk, 2 in the
+commit, because both MANIFESTs still stage. The counts are shape-dependent; the
+one-original base recipe gives 3 and 2. What is universal is the withholding:
+`not-scanned` is the FIRST arm of the chain and `secretsScan.status` is per-run,
+so it takes every copy and never the MANIFESTs.
+*(A draft said "the entire archive", which is wrong in this entry's own
+vocabulary: "the archive" here is the directory INCLUDING the MANIFESTs, and that
+definition is what makes the round-three refutation work.)* `gitignored` is the
+mechanical
+case: the *archived* path is itself covered by the operator's rules
+(`# BF-ADOPT-IGNORE-ARCHIVE`), so an ignore broad enough to reach the archive
+directory takes the MANIFESTs down with it through `_adopt_record_if_stageable`
+— leaving no committed record of the archive at all, unless
+`# BL-225-STAGE-PREFLIGHT` refuses the run first. *(The first draft said "three"
+and named only two siblings; the omitted fourth is the worst of them.)* An
+implementer following a gitignore-only reading ships a line that stays silent in
+the three cases where the operator has *more* on disk and *less* in git, not
+fewer.
+
+**Two placements, because there are two exits.** The completion path ends in the
+Act-2 handoff block — note that `adopt_stub_assessment` prints after the gate
+sentence, so "last block" is not literally last and the line needs a chosen
+anchor. **And the refusal path never reaches it at all:** `_adopt_archive_disclose`
+runs inside `adopt_archive_write`, five steps before `adopt_stage_and_commit`
+where `# BL-225-STAGE-PREFLIGHT` lives, so an adoptee ignoring `.claude/`
+outright gets the withheld copies on disk, the mid-transcript disclosure, and
+then `[BLOCKED]` — with no closing line under this fix. *(The first draft
+asserted the preflight made that path unreachable. It does not; the refusal is
+real and correct, but it happens later.)* Decide explicitly whether the refusal
+path is in scope; if it is, `adopt_refuse`'s exit is the second anchor — **and
+decide the stream with it**, because every `printf` in `adopt_refuse` is `>&2`,
+so that anchor writes to stderr while everything this entry calls "the
+transcript" is stdout. A closing line split across two streams is a placement
+defect of the kind this entry exists to fix.
+
+**Boundary.** Do NOT change the withholding, `_adopt_original_is_ignored` /
+`# BF-ADOPT-IGNORE-ORIGINAL`, or `MANIFEST.json`'s `withheldReason` vocabulary.
+This is a print.
+
+*(Caveat on this entry's own citations, since it invokes CLAUDE.md's citation
+rule as its lesson: `scripts/lint-bl-markers.sh` covers `BL-NNN-…` markers only
+— it names `BF-ADOPT-*` in as many words as out of scope, because those have no
+`## BL-NNN:` entry to resolve to. So `# BF-ADOPT-IGNORE-ORIGINAL` and
+`# BF-ADOPT-IGNORE-ARCHIVE`, the two the round-one correction turns on, can rot
+without any lint going red. Re-grep them before trusting them.)*
+
+### Proof
+
+**Seven assertions, and the first two alone are NOT enough** — review built a
+closing line that passed both while listing *every* archived path, telling the
+operator that four files which ARE in the commit exist only on their machine.
+*(That 4-and-5 pair, and assertion 4's, come from a REVIEWER'S MUTANT built on
+the gitignore-carrying adoptee plus a hook — 5 archive paths on disk, 4 in the
+commit — not from any fixture measured for this entry. Named here because this
+entry's own rule is to name the fixture, and two numbers were standing without
+one.)*
+That is a falsehood in the opposite direction from the gap being closed.
+
+*(A draft of this list said "Four assertions" over five, and its 3 and 5
+demanded 2 and 4 on the same fixture — no implementation could satisfy both, so
+the harness this entry prescribed could not have been built green. 3 has been
+rewritten against the outcome-defined set and the count is now derived from the
+list. A miscounted list of assertions, inside the Proof section of an entry whose
+thesis is that underived numbers are the defect, is the fourth-round instance of
+that thesis.)*
+
+1. A `.gitignore`-carrying fixture names the withheld path **after** the
+   adoption-commit line.
+2. A fixture in which **every archive path is in the adoption commit** prints
+   nothing. **Stated in outcome vocabulary deliberately**: an earlier draft said
+   "no withheld entries", which is the refuted `entries[]` key smuggled back into
+   the assertion meant to catch it — and it is measurably different. On an
+   adoptee whose `.gitignore` is the single line `MANIFEST.md`: `rc=0`, commit
+   landed, `withheld entries[] = 0`, and yet 3 archive files on disk against 2 in
+   the commit. The old wording demanded silence; the corrected set demands the
+   line, naming `MANIFEST.md`, count 1.
+3. **The printed set equals exactly the set defined above** — every archive path
+   absent from the adoption commit — and a committed sibling must be ABSENT from
+   it. *(Not `stagedForCommit == false`: that key is refuted above, and pinning
+   it here would re-impose the defect inside the assertion meant to catch it.)*
+4. **The printed count equals that set's length** — the mutant above printed
+   `1` beside five paths and neither of the first two assertions noticed.
+5. **A fixture that gitignores `.claude/adoption-archive/` names BOTH MANIFESTs
+   and counts 4, not 2.** Assertions 1–4 are satisfiable by an `entries[]`-only
+   implementation, so without this one the worst *completion-path* case is
+   invisible to the proof. The same fixture asserts **zero** archive paths in the
+   adoption commit, so the closing line must not send the operator to
+   `MANIFEST.md` as though it were committed. Note that an implementation adding
+   both MANIFESTs *unconditionally* also passes 5 — and then lies on a fixture
+   where they ARE committed; only 3, keyed to the outcome, closes that.
+6. **A refusal fixture whose own `pre-commit` hook exits 1 — no `.gitignore`,
+   nothing withheld — names all four archive paths and counts 4.** This is the
+   case three drafts of the scope key could not express. Without it, the entry's
+   own proof is green while the feature stays silent for an operator with the
+   whole archive on disk and none of it in any commit.
+7. **A POST-COMMIT refusal prints nothing** — a fixture with a read-only
+   `.git/hooks/commit-msg`, where the adoption commit lands and
+   `adopt_install_hooks` then refuses. 6 alone makes "refusal ⇒ name the whole
+   archive" look right; 7 is the fixture that kills it, and without the pair an
+   implementer ships a line telling the operator that all **four** committed
+   files on that fixture exist only on their machine. *(This integer said "five"
+   for one round. The round-five correction was applied to the measured box and
+   to the prose above it, and missed the assertion that same round added — sixth
+   round, sixth instance, and the narrowest yet: a correction that lands
+   everywhere except inside its own new artifact.)*
+
+**Reproducing any number in this entry.** Build an adoptee with its own git
+history, then `git config core.excludesFile /dev/null` in it **before**
+measuring: this host's global ignore (`~/.config/git/ignore`) carries an
+UNANCHORED `**/.claude/settings.local.json`, which matches the archive copy as
+well as the original and silently changes which arm of the withhold chain fires.
+A measurement taken without that is a measurement of the host, not of the
+feature. Then `scripts/scout.sh --root <p> --out <scan>`, then
+`scripts/adopt-project.sh --scan-report <scan>/scout-report.json` with five `1`
+answers on stdin.
+
+**Related:** `## BL-225:` (the staging preflight, which refuses whole but only
+after this print), `## BL-226:` (the sibling disclosure-wording entry), and
+`# BF-ADOPT-STAGE-EXPLICIT`.
+
+---
+
 ## BL-240: `workflow.html`'s "Verified against the tree on YYYY-MM-DD" stamp has no mechanism — and a staleness check is a lint that can red without a defect
 
 **Logged:** 2026-08-17 (split out of `## BL-230:` deliberately, at Karl's
