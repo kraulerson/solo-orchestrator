@@ -1458,6 +1458,34 @@ fixture — or force a ≤20-blank fixture no real adoption produces, which is t
 this paragraph was trying to avoid, relocated into the fixture.)* **WP12a therefore asserts that an
 assessed fixture lands in one of the two Phase-0 entries and NEVER in the classic prompt.**
 
+**MEASURED AT WP9's BUILD, and the paragraph above is right in its conclusion and wrong in its
+mechanism.** A shipped adoption was run and `resume.sh` executed inside the result:
+
+```
+blank-cell count : 0        <- not 87
+manifesto present: no
+resume.sh        -> "Read PROJECT_INTAKE.md — Section 13 is your initialization prompt — and
+                     begin Phase 0 from it."
+```
+
+The **87** is a property of `templates/project-intake.md`, which adoption does not render.
+`adopt_render_intake_doc` writes its own bullet-list document, and the predicate counts empty
+**table cells** (`grep -cE '\| *\|$'`), so an adopted intake scores **0** however many judgment
+cells it leaves blank — the intake branch cannot fire on an adoptee at all, and the **kickoff
+branch is the route, on the FIRST resume**. The disjunction WP12a asserts is still the right
+assertion (it is true, and it does not couple to a constant in another script); what changes is
+that a fixture built to exercise the *intake* side of it would be building a state adoption cannot
+produce.
+
+**Two consequences, both WP12a's and neither WP9's.** First, the kickoff branch extracts §13's
+fenced prompt with `awk '/^## 13\./…'` and the adoption-rendered document has no `## 13.` heading,
+so `bl202_s13` is empty and the operator gets the **generic fallback** printed above — which then
+tells them to read a "Section 13" the file does not label. Act 4's document work should either
+render the heading the extractor looks for or stop naming a section number it does not write.
+Second, this is the state D10 promises *today*, before WP12a: an adopted project's first resume is
+already a Phase-0 entry, which is why WP9 ships an honest handoff pointing at `resume.sh` rather
+than pulling the fifth branch forward.
+
 ### §8.6 — The Adoption Record records an assessment and a plan (WP7, re-cut in content)
 
 WP7 is **unchanged in need and changed in content** (`## BL-242:`'s words): the Adoption Record
