@@ -34,11 +34,18 @@
 # adopt_module_version — the driver's own version marker. A literal, for the
 # same reason Scout's is: at adoption time there may be no framework state to
 # read a version out of. The suffix is information, not decoration — this build
-# carries the skeleton, the chooser, placement, reverse intake AND WP6's
-# collision archive, disclosure, recorded re-adds and archive-secrets refusal,
-# with HONEST STUBS where WP5/WP5b/WP7 will land.
+# carries the skeleton, the TIER QUESTION, the reverse intake's confirmation
+# arm, the phase-0 landing, WP5b's test-debt ledger and WP6's collision archive
+# with its disclosure, recorded re-adds and archive-secrets refusal, plus WP9a's
+# act boundaries — with HONEST STUBS where WP10/WP11/WP12a/WP12b/WP7 will land.
+#
+# THE CHOOSER AND PLACEMENT ARE GONE (v2 D4, D10) and this comment said they
+# were here for the whole of WP9a, because this file is not in that package's
+# blast radius and was never opened. §4.2's standing lesson, landing again: a
+# blast radius is not enumerated once, it grows while you work inside it.
+# WP5 is RETIRED rather than pending (§5.1), so it is off the stub list too.
 adopt_module_version() {
-  printf '%s\n' "0.2.0-wp6"
+  printf '%s\n' "0.2.0-wp9a"
 }
 
 # ── Output. One transcript, on stdout, so a test can pin it. ────────────────
@@ -180,7 +187,11 @@ _adopt_read_line() {
 # Nothing in §8.3 is optional; this exists so that the non-skippability of a
 # question is expressed as its OWN guard at the question's own site, where it
 # can be read, reviewed and mutated, instead of being an emergent property of a
-# shared reader. See BF-ADOPT-DC-MANDATORY in adopt-intake.sh.
+# shared reader. The example that motivated it was adopt-intake.sh's
+# data-classification guard; A7 moved that question to Act 4 and deleted the
+# guard, so the cross-reference that stood here pointed at nothing. The DESIGN
+# rule it illustrated is unchanged, and `adopt_ask_data_classification`'s
+# successor in WP12a inherits it.
 adopt_read_optional() {
   _adopt_read_line || true
   return 0

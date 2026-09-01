@@ -13254,7 +13254,7 @@ draft did.
 | WP6 | Collision archive — `scripts/lib/adopt/adopt-archive.sh` | #345 |
 | — | CI: the **WP5b and WP6** suites pinned to the `slow-misc` shard | #346 |
 
-Eight suites cover it — the seven `tests/test-brownfield-wp*.sh` files plus
+Nine suites cover it — the eight `tests/test-brownfield-wp*.sh` files plus
 `tests/test-lint-module-dependencies.sh` for WP0's lint. Measured 2026-08-23:
 **309 assertions, 0 failed.** One caveat that is not this entry's to fix:
 `test-brownfield-wp3-regenerate-path.sh` is `unit-lane-exempt:init-sh-invoker`,
@@ -14121,6 +14121,49 @@ sentence already carries one. Both other arms then become reachable and the
 
 **Related:** `## BL-242:` A6, which keeps this block and names a different
 carried defect.
+
+---
+
+## BL-249: three invariants `adopt_render_intake_progress`'s own comment states are pinned by nothing — including one it calls impossible
+
+**Logged:** 2026-09-01, by round-7 adversarial review of the BL-242 WP9a branch.
+**Category:** A stated invariant with no check behind it
+**Status:** Open
+**Owner:** unassigned
+
+**NOT A DEFECT IN SHIPPED CODE.** The writer is correct in all three cases; the
+suite does not guard it. Filed rather than fixed because the reviewer ranked
+all three as follow-ups that do not block a merge, and because the fix belongs
+with whoever next opens that proof.
+
+`scripts/lib/adopt/adopt-intake.sh`'s `adopt_render_intake_progress` carries a
+comment making three promises. `tests/test-brownfield-wp9-act-boundaries.sh`'s
+`R2` pins the two keys adoption knows by value (`project_name`, `deployment`)
+and the resume point, and none of these:
+
+1. **"written EMPTY rather than guessed"** — `platform`, `language` and
+   `description`. Mutants setting them to `"linux"`, `"python"` and
+   `"a service"` survive at **29/0**. A guessed value reaches
+   `intake-wizard.sh --resume` as a fact the operator supplied.
+2. **"the same value `adopt_write_phase_state` records, so the two files cannot
+   disagree"** — `track`. A mutant writing `"delta"` into `phase-state.json`
+   while `intake-progress.json` keeps `"full"` survives **the entire
+   PR-blocking brownfield set**: WP9 29/0, WP4 24/0, WP3-arms 33/0, BL-225
+   35/0. Nothing compares the two files.
+3. The same class `2859688` closed for `deployment` and `track`-by-value: that
+   fix pinned two keys and left the neighbouring stated invariants unpinned.
+
+**The fix is small** — a `jq -e` over the three empties, and a cross-file
+comparison of `track` — but it is the *third* time this proof has needed
+widening, so whoever takes it should ask what else the comment promises rather
+than closing these three and stopping. **The general lesson, which is the
+reason this is filed rather than folded in silently: a comment that states an
+invariant is a claim, and this repository now has four rounds of evidence that
+an unpinned claim drifts.**
+
+**Related:** `## BL-242:` A7 (which moved the classification and made this file
+load-bearing), and `## BUG-010:` (the `intake-wizard.sh` defects on the same
+route).
 
 ---
 

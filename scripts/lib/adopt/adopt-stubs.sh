@@ -2,27 +2,34 @@
 # scripts/lib/adopt/adopt-stubs.sh — the parts of adoption that are NOT built,
 # said out loud at the point in the run where they belong.
 #
-# SPEC: docs/designs/2026-08-02-brownfield-adoption-v1.md §10 — WP5 (the
-# certification pass), WP5b (the test-debt ledger), WP7 (the CI carve-out, the
-# provenance headers and the Adoption Record), §6.3 (per-finding secrets
-# disposition, which §10 assigns to no package).
+# SPEC: docs/designs/2026-08-23-brownfield-adoption-v2.md §10 — WP10 (tool
+# resolution and the tier-scoped secrets stop), WP11 (the `script` and
+# `document` archive classes), WP12a (the assessment: interview, verdict, plan),
+# WP12b (the D3 document writing) and WP7 (the CI carve-out, the provenance
+# headers and the Adoption Record).
 #
-# WP6 IS NO LONGER IN THAT LIST, and the header is the first place that had to
-# change when it landed: §7's collision archive, its MANIFEST, the disclosure
-# and the recorded re-adds all ship (scripts/lib/adopt/adopt-archive.sh). What
-# remains unbuilt around it is named honestly by the two stubs below — the
-# adoptee's framework DOCUMENTS and the REPLACEMENT half for framework-script
-# collisions — and both are attributed to nobody, because nobody owns them.
+# WP6 AND WP5b HAVE LANDED AND WP5 IS RETIRED, and the header is the first place
+# that has to change each time: §7's collision archive with its MANIFEST,
+# disclosure and recorded re-adds ships (adopt-archive.sh); the test-debt ledger
+# ships (adopt-test-debt.sh); and v1-WP5's certification pass is RETIRED rather
+# than pending — D4 deleted the claimed rung it certified against and D10 the
+# landed rung it would have certified for (§5.1), so `adopt_stub_certification`
+# is gone and `adopt_stub_assessment` took its place.
 # A stub file whose own header still claims a delivered package is exactly the
-# "measured and clean" misreading these stubs exist to prevent, one level up.
+# "measured and clean" misreading these stubs exist to prevent, one level up —
+# and this header claimed two of them, plus a retired one, through the whole of
+# WP9a.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # WHY STUBS EXIST AT ALL, AND WHAT MAKES ONE HONEST.
 #
-# A driver that quietly skipped the certification pass would produce a project
-# that LOOKS certified: an `adoption` block with three empty certification
-# arrays reads, to anyone who finds it later, exactly like "we measured and
-# there was nothing to record". §5.1's indictment of bare grandfathering is
+# A driver that quietly skipped a measurement produces a project that LOOKS
+# measured. The original example was the certification pass: an `adoption` block
+# with three empty certification arrays reads, to anyone who finds it later,
+# exactly like "we measured and there was nothing to record". v2 §8.3 answered
+# it more strongly than a stub could — the arrays are REMOVED from the record
+# rather than left empty in it, because a field that is not there cannot be
+# misread as a measurement — but the reasoning is why the stubs below exist. §5.1's indictment of bare grandfathering is
 # that "nothing is measured; nothing is recorded; the exemption is the ABSENCE
 # of a field" — an unannounced stub reproduces all three properties.
 #
