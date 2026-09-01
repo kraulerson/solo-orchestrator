@@ -13298,13 +13298,21 @@ the operative one.
 
 | Capability (verbatim from the notice) | Owner | Announces |
 |---|---|---|
-| the certification pass | **WP5** | always |
+| ~~the certification pass~~ → **the assessment (Act 3)** | ~~WP5~~ → **WP12a** (WP9a) | always |
 | the Adoption Record, the audit rows and the CI carve-out | **WP7** | always |
 | the provenance headers on reconstructed documents | **WP7** | always |
 | the commit-time scanners (the fallback pre-commit hook) | **WP7** — see below | always |
-| your project's framework documents | **nobody** | always |
+| your project's framework documents | ~~nobody~~ → **WP11 + WP12b** (D3; string corrected in WP9a) | always |
 | installing the framework's version of *N* colliding script(s) | **nobody** | only when N > 0 |
 | the secrets disposition | **nobody** | when the scan found something — **and unconditionally when it did not RUN** |
+
+*(Two rows changed at WP9a and the strikethroughs are kept rather than
+overwritten. The count is still SEVEN — `adopt_stub_certification` was deleted
+and `adopt_stub_assessment` took its place, so the recipe above returns the same
+number for a different set, which is exactly why the recipe is the authority and
+this table is not. The certification pass is **retired**, not deferred: D4
+deleted the claimed rung it certified against and D10 deleted the landed rung it
+would have certified for.)*
 
 **THREE are owned by nobody, and that is the item needing a decision.** `§10` of
 the design allocates work to packages and gives these three to none, so

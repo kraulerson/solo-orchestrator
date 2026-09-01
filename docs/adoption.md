@@ -11,12 +11,17 @@ bash /path/to/solo-orchestrator/scripts/adopt-project.sh
 
 > ## ⚠ Read this before you plan around adoption
 >
-> **Adoption is half built.** The driver, the scenario chooser, the reverse
-> intake, the state writes, the adoption stamp, the commit-time enabling arms
-> the test-debt ledger with its ratchet, and — as of WP6 — **the collision
-> archive, its disclosure and its recorded re-adds** all ship and all work.
-> **The certification pass, the CI carve-out and the Adoption Record do not
-> exist.**
+> **Adoption is half built.** The driver, the tier question, the reverse
+> intake's confirmation arm, the state writes, the adoption stamp, the
+> commit-time enabling arms, the test-debt ledger with its ratchet, and the
+> collision archive with its disclosure and recorded re-adds all ship and all
+> work. **The assessment — the requirements interview, the fitness verdict and
+> the plan — does not exist, and neither do the CI carve-out or the Adoption
+> Record.**
+>
+> **This page describes the four-act v2 design.** Adoption is Act 2 of four:
+> Act 1 is Scout, and Acts 3 and 4 are a Claude Code session that has not been
+> built. What ships today ends by handing off to `bash scripts/resume.sh`.
 >
 > The driver does not paper over that. It prints a labelled `NOT DONE` block for
 > every one of them, in the run, naming the work package that owns it. The full
@@ -32,7 +37,7 @@ Everything on this page is output that was observed, pasted as it printed.
 
 - [Before you adopt: run Scout](#before-you-adopt-run-scout)
 - [The one question](#the-one-question)
-- [Where each answer lands, and the floor rule](#where-each-answer-lands-and-the-floor-rule)
+- [Where it lands: phase 0, always](#where-it-lands-phase-0-always)
 - [The reverse intake](#the-reverse-intake)
 - [What gets written, and in what order](#what-gets-written-and-in-what-order)
 - [The adoption stamp, and what happens when it is lost](#the-adoption-stamp-and-what-happens-when-it-is-lost)
@@ -93,14 +98,13 @@ driver never calls `create_project()`.
 
 ## The one question
 
-Before it asks anything, the driver shows what the scan noticed — as **evidence,
-never as an answer**, each line carrying its own confidence:
+Before it asks anything, the driver shows what the scan noticed — as **evidence
+that decides nothing**, each line carrying its own confidence:
 
 ```text
 ══ What the scan noticed
-   None of this is an answer. It is what a read-only look at the code found,
-   and each line says how much weight it deserves. Your answer to the next
-   question overrides all of it.
+   This is what a read-only look at your code found, and each line says how much
+   weight it deserves. It is here so you can see it, not so you can act on it.
 
    Deployment: the scan found .github/workflows/deploy.yml (a deploy or release lane).
      Points to: built out. Confidence: LOW — this is file presence, not run history;
@@ -113,95 +117,83 @@ never as an answer**, each line carrying its own confidence:
      Points to: built out. Confidence: MEDIUM.
 
    Users: the scan cannot measure whether anyone is using this. Only you know that.
+
+   None of this decides anything. Your project starts at phase 0 either way and
+   earns each gate the ordinary way; what the scan found becomes a head start on
+   the Phase 0 questions, never a shortcut past them.
 ```
 
-Then it asks, **verbatim**:
+Then it asks **one question**, and it is not about your code:
 
 ```text
-══ The one question the scan cannot answer
-Is the project built out and needs to be able to be supported (i.e. bug fixes, maintenance, new features add), or are you still in the process of building your project?
-   1) It is built out and needs to be supported
-   2) I am still in the process of building it
+Who is this project for?
+   1) Just me, or me and a few people I know
+   2) A company, a client, or people who are paying for it
    Answer with the number or the words:
 ```
-
-Two properties of that sentence are load-bearing. It is written for a
-**non-developer** — no phase numbers, no framework vocabulary, no "MVP". And it
-asks about the **project's situation**, not its artifacts, because the artifacts
-are what the scan already measured and they are frequently misleading: a mature
-service with no `README.md`, a weekend prototype with a tagged release.
 
 **There is no default and no skip.** With no answer:
 
 ```text
-[REFUSED] This question has no default and no skip, and no answer was given: the project's situation
+[REFUSED] This question has no default and no skip, and no answer was given: who the project is for
           Adoption did not begin. Nothing was committed and nothing was written.
 ```
 
-Inferring the scenario and asking you to confirm it was considered and rejected:
-prefill is right for facts the framework itself recorded earlier, and wrong for a
-judgement it has never made. A guess presented as a default would make the most
-consequential answer in the whole flow the easiest one to skim past.
+That answer sets your project's **tier**, and the tier decides how strictly the
+framework treats you — most visibly, how hard it stops when a secret scan finds
+something. It is the one thing adoption asks because it is the one thing no
+amount of reading your code can determine.
 
 ---
 
-## Where each answer lands, and the floor rule
+## Where it lands: phase 0, always
 
-### S1 — COMPLETED
-
-```text
-   This project lands where a finished project lands, and every gate behind it
-   has to be certified rather than assumed.
-…
-══ Adopted
-   Scenario: completed. Landed at phase 4.
-```
-
-Lands at `current_phase: 4`, adopted, straight into the maintenance era —
-everything after this arrives as a [delta](delta-track.md). The interview is
-light on futures (no MVP cutline, no Phase-0 success criteria for work that
-already shipped) and heavy on operations. Certification scope is **every gate
-0→1 through 3→4**, because landing at phase 4 means all four have notionally been
-crossed. That makes S1 the heaviest pass — and the correct one.
-
-### S2 — IN-FLIGHT
-
-Lands at the phase its artifacts support, floored by your answer. It reaches the
-maintenance era the ordinary way, by shipping v1 through the gates. Docs for what
-**exists** are reconstructed; the plan for what is **coming** is authored fresh
-and real, and **nothing is grandfathered going forward**.
-
-### The floor rule — the interview can only move the placement DOWN
+**Every adopted project lands at phase 0.** Not at a phase derived from your
+artifacts, not at one you claimed, not "provisionally" pending a later
+promotion. Phase 0, and then forward through the ordinary gates like any other
+project.
 
 ```text
-   From the code alone, the scan placed this project at rung 4 of 4.
-   Your answer can move that DOWN if the code flatters the project. It cannot
-   move it up: evidence you have not produced is not evidence.
-
-How far along is the work itself? Pick the LAST line that is already true.
-   1) None of these yet
-   2) We have written down what this project is for
-   3) ...and the technical shape of it is written down too
-   4) ...and there are tests that actually run
-   5) ...and there is a way to get it out the door
-   Answer with the number or the words:
-   You placed it lower than the code suggested, so it lands at 0. The
-   lower number costs more certification, not less, and that is the safe side.
+══ Act 2 complete — the project is adopted and sitting at phase 0
+   Your project is now under the framework and it starts where every project
+   starts: phase 0. Nothing has been marked as already done, and nothing was
+   guessed about how far along you are — you will be asked about that instead.
 ```
 
-Artifact evidence is a claim about what was built; your answer is a claim about
-what is true. Where they disagree the safer number wins, because a project placed
-**too low certifies more than it strictly needed** and a project placed too high
-certifies less than it owed.
+### Why it does not ask how far along you are
 
-### What both scenarios share
+An earlier version of this driver asked. It put one question to you — *is the
+project built out, or are you still building it?* — and used your answer, floored
+by what the scan could corroborate, to decide which phase to place you at.
 
-- **Data classification is non-skippable**, in both.
-- **Both run the full secrets scan** — history does not care what phase you land
-  at.
-- **Neither gets a forward exemption.** Every exemption in this design is scoped
-  to commits **at or before** the adoption commit. There is no arm anywhere that
-  exempts a commit written after adoption day.
+That question is **deleted**, and so is the idea of computing an answer in its
+place. The reasoning is short: you are using this framework because you are not
+already following a formal software process, so asking you to grade your own
+position within one is asking the wrong person. And deleting a question whose
+answer cannot be trusted does not mean the answer must be computed some other
+way — it can equally mean the question does not need answering. Here it does not.
+
+**What you lose is nothing you had.** A phase is not a score; it is a statement
+about which gates have been crossed with evidence. Placing a project at phase 3
+without that evidence produces a project that fails its own next gate — the
+gates are cumulative by contract, so each one assumes every earlier one really
+happened. Landing at 0 costs you the walk through Phase 0 and buys you a project
+whose recorded position is true.
+
+**What the scan learned is not thrown away.** The artifact ladder, the test-debt
+census, the reality probes and everything the assessment finds all become
+**pre-fill for the Phase 0 intake** and context for the plan. A project that
+already has tests, a deploy lane and architecture docs gets an intake that says
+so. What it does not get is a shortcut past a gate.
+
+### What every adoption gets
+
+- **The full secrets scan.** History does not care what phase you land at.
+- **No forward exemption.** Every exemption in this design is scoped to commits
+  **at or before** the adoption commit. There is no arm anywhere that exempts a
+  commit written after adoption day.
+- **The same demand set as a greenfield project.** Strip the adoption record out
+  of an adopted project and its gates ask for exactly the same things.
 
 ---
 
@@ -226,34 +218,41 @@ Keep 'legacy-app' as the answer?
    Answer with the number or the words:
 ```
 
-Three classes across the fifteen intake sections:
+Three classes across the fifteen intake sections — and **this step now asks
+exactly one of them**:
 
-| Class | Behaviour | Example |
+| Class | Behaviour here | Example |
 |---|---|---|
-| **Scan-derived** | Prefilled with **the value and its provenance**, then keep-it / change-it. "Change it" falls through to the ordinary question | Project Identity, Repo Setup, Testing & Bug Tracking, Tooling Configuration |
-| **Judgement** | No prefill, no default, no skip | Business Context, Constraints, Features & Requirements, Technical Preferences, Revenue Model, Governance Pre-Flight, Accessibility, Distribution & Operations, Known Risks |
-| **Non-skippable** | No default, no inference, and no "confirm" arm at all | Data classification |
+| **Scan-derived** | **ASKED.** Prefilled with **the value and its provenance**, then keep-it / change-it. "Change it" falls through to the ordinary question | Project Identity, Repo Setup, Testing & Bug Tracking, Tooling Configuration |
+| **Judgement** | **NOT asked here.** Recorded blank and named as the assessment's | Business Context, Constraints, Features & Requirements, Technical Preferences, Revenue Model, Governance Pre-Flight, Accessibility, Distribution & Operations, Known Risks |
+| **Non-skippable** | **NOT asked here** either — see below | Data classification |
 
-**Data classification is a mechanical necessity, not a policy preference.** The
-Phase 1→2 ZDR backstop is a hard `[FAIL]` whenever `current_phase >= 2`, so an
-adoption that skipped it would produce a project that cannot pass its own next
-gate. Observed on a run that reached that question with nothing to answer it:
+**Why the questions only you can answer are not asked here.** They belong to the
+**assessment** — a conversation with an agent about what this project is and what
+it is supposed to do, rather than a form. Filling a form badly at the end of a
+shell script is not the same as being interviewed, and the answers feed a fitness
+verdict that needs the reasoning behind them.
+
+Cells left blank are **recorded as blank and labelled**, not dropped:
 
 ```text
-Which one describes it?
-   1) public
-   2) internal
-   3) confidential
-   4) pii
-   5) financial
-   6) health
-   7) regulated
-   Answer with the number or the words:
-
-[REFUSED] Data classification has no default, no guess and no skip — in either scenario. The Phase 1 to 2 gate is a hard FAIL without it, so an adoption that skipped it would produce a project that cannot pass its own next gate.
-          Adoption did not begin. Nothing was committed and nothing was written.
-rc=1
+Business Context
+   Not asked here — this one is asked in the assessment.
 ```
+
+**Data classification moved with them, and that is worth explaining rather than
+just noting.** It used to be refused-if-skipped right here, and the reason given
+was mechanical: the Phase 1→2 ZDR backstop hard-`[FAIL]`s whenever
+`current_phase >= 2`, and an adoption used to be able to land at phase 4 on its
+first commit. **It cannot any more** — every adoption lands at phase 0 — so the
+threshold is not within reach, and the requirement is asserted where it now bites:
+the Phase 0 intake will not be written without one, and the backstop is still
+there the moment you reach phase 2 by the ordinary route.
+
+> **Not built yet:** the assessment is Act 3 and it has not shipped. Until it
+> does, those cells stay blank and the Phase 0 questions are asked the ordinary
+> way instead — `bash scripts/resume.sh` will tell you how to start. Nothing is
+> lost and nothing is assumed; the direction is fail-closed.
 
 An out-of-vocabulary answer to a choice question is refused by name rather than
 coerced:
@@ -309,7 +308,7 @@ counter-example this exists to avoid is `create_project()`'s
 `git add -A` + `git commit --no-verify`, which on an existing project would sweep
 your uncommitted work into a framework commit with verification bypassed.
 
-Observed on a completed S1 run — one commit,
+Observed on a completed run — one commit,
 `chore: adopt <project> into the Solo Orchestrator framework`, containing 69
 files: `.claude/adoption/scout-report.json`, `.claude/manifest.json`,
 `.claude/phase-state.json`, `.claude/process-state.json`,
@@ -350,21 +349,21 @@ Adoption writes one additive block into `.claude/manifest.json`. Observed:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "adopted": true,
   "adoptedAt": "2026-08-10T20:18:37Z",
   "adoptedAtCommit": "c0ba12ef6ecd620b57c55581435138f53a098da2",
-  "scenario": "completed",
-  "landedPhase": 4,
-  "certification": { "kindA": [], "kindB": [], "kindC": [] },
-  "blockersAccepted": [],
   "scannerReportSha256": "c5ac90a264f61d55cb3423151d04f8161bf671e3272d09fe14fabad80f302efd"
 }
 ```
 
-**Those three empty certification lists mean "not measured", not "measured and
-clean"** — the certification pass is [not built](#what-is-not-built-yet), and the
-driver says so during the run.
+**Five keys, and the four that left are as informative as the five that
+stayed.** `scenario` went with the question that produced it; `landedPhase`
+went with the idea of deriving a phase at all; and `certification` and
+`blockersAccepted` went because the pass that filled them is retired and three
+permanently-empty arrays read as "measured, nothing found" to anyone who does
+not know the history. `schemaVersion: 1` in a manifest means a record written by
+the earlier driver, which carried all four.
 
 It is written **once**, from **one** call site, and never re-stamped. A second
 stamp attempt is refused rather than overwriting the anchor.
@@ -407,7 +406,7 @@ With the stamp intact the same gate prints:
 
 ```text
 Adoption Stamp Integrity
-[OK] Adoption stamp present and intact (scenario: completed, adopted: 2026-08-10T20:18:37Z)
+[OK] Adoption stamp present and intact (adopted: 2026-08-10T20:18:37Z)
 ```
 
 **One honest residual:** a stamp written but not yet **committed** has no
@@ -650,26 +649,43 @@ This is the honest half of the page. Everything below is **designed and not
 built**. The driver prints a labelled block for each one during the run, naming
 the work package that owns it — the text below is what it actually printed.
 
-### The certification pass — WP5
+### The assessment — Act 3 — WP12a
 
 ```text
-NOT DONE — the certification pass
-   Owner: WP5. This build does not do it, and does not pretend to.
-   It would have run every gate from 0 to 4, because landing at 4 means all four have notionally been crossed, and a blocker-grade finding would have stopped this adoption.
-   Because it did not run, the adoption record's certification lists are EMPTY.
-   An empty list here means 'not measured', not 'measured and clean'.
+NOT DONE — the assessment (Act 3) — the requirements interview, the fitness verdict and the plan
+   Owner: WP12a. This build does not do it, and does not pretend to.
+   Adoption has surveyed, installed and recorded. What it has NOT done is ask you what this
+   project is for, judge whether the technology fits those answers, or write you a plan.
+   Until that ships, PROJECT_INTAKE.md carries the cells the scan could fill and leaves
+   the rest blank, and the Phase 0 questions are asked the ordinary way instead.
 ```
 
-This is the largest gap, and the one that matters most. The certification pass is
-the whole reason adoption is not grandfathering: it would run every skipped
-gate's requirements **for real, today** — the scanners executing against your
-actual code, the reviews genuinely held and signed, and only the handful of
-things impossible to re-run marked as historical. It would also be able to
-**fail**: a blocker-grade finding would stop adoption completing until it was
-fixed or explicitly accepted with a recorded signer.
+This is the largest gap. The assessment is where a person is actually asked what
+this project is for — how many people use it, whether it needs high availability,
+whether it is internet-facing, what scale it needs, how sensitive its data is —
+and where the framework says, **with its reasoning shown**, whether the
+technology fits those answers or whether this ought to be rebuilt. The plan comes
+out of the same conversation.
 
-**Today, none of that runs.** An adopted project lands at its phase with its
-certification lists empty. Do not read an adopted project as a certified one.
+**Today, none of that runs.** What you get from adoption is a project correctly
+under the framework at phase 0, with a survey on disk and an intake half filled.
+The Phase 0 questions still get asked — by the ordinary flow, starting from
+`bash scripts/resume.sh` — so nothing is skipped; what is missing is the
+judgement layer on top.
+
+### The certification pass — RETIRED, not deferred
+
+This one used to be the largest gap on this page and it is **not going to be
+built**. Its job was to certify every gate *below a claimed rung* — the heavier
+your claim, the heavier the pass. Two decisions removed its subject: the claim is
+gone (nobody is asked how far along they are) and the landing is gone (every
+adoption starts at phase 0). With no claimed rung there is nothing to certify
+against, and with no landed rung there is nothing to certify for.
+
+**The principle it existed to defend is untouched**: nothing is grandfathered,
+every gate is crossed with evidence, and an adopted project's demand set is the
+same as a greenfield project's. What changed is that the ordinary gates now do
+that job, because the project starts below all of them.
 
 ### The test-debt ledger — WP5b — **shipped**
 
@@ -830,9 +846,9 @@ stamp integrity check runs after that point**, so on a project with no
 `APPROVAL_LOG.md` the loss detector never gets to speak.
 
 The **Adoption Record** itself — the one place a successor reads to understand
-how this project entered the framework, carrying the scenario, the landed phase,
-the certification inventory, the blocker acceptances, the secrets dispositions,
-the collision archive path and the CI keep-or-retire decisions — does not exist.
+how this project entered the framework, carrying the assessment's findings and
+the verdict, the secrets dispositions, the collision archive path and the CI
+keep-or-retire decisions — does not exist.
 Neither does the eight-clause lint that keeps it structurally unparseable as a
 gate approval. (The archive path it would carry is real now — it is in
 `.claude/adoption-archive/*/MANIFEST.json` and in an `adoption_event` audit
@@ -888,12 +904,14 @@ not among them. Read them here, in the framework clone you run the driver from.
 | You want | Today |
 |---|---|
 | A read-only survey of an existing codebase | ✅ [Scout](scout.md), complete |
-| A guided landing at the right phase, with the scenario chooser and reverse intake | ✅ Ships and works |
+| A guided landing at phase 0, with the tier question and the reverse intake's confirmations | ✅ Ships and works |
 | Project state written fail-safe, staged explicitly, committed as its own commit | ✅ Ships and works |
 | An adoption stamp, and loud detection when it is lost | ✅ Ships and works |
 | Test-first ordering enforced from adoption day forward | ✅ Ships and works |
-| Gates that were skipped actually run and recorded | ❌ Certification pass — **not built** |
-| Adoption that can *fail* on a serious finding | ❌ Certification pass — **not built** |
+| Gates that were skipped actually run and recorded | ✅ By construction — nothing is skipped; the project starts below every gate |
+| Being asked what the project is for, and told whether the stack fits | ❌ The assessment (Act 3) — **not built** (WP12a) |
+| A fitness verdict, a plan, and the reasoning behind both | ❌ The assessment (Act 3) — **not built** (WP12a) |
+| Adoption that can *fail* on a serious finding | ❌ The secrets stop — **not built** (WP10) |
 | A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works, **but you run it; nothing calls it on commit yet (WP7)** |
 | Your colliding hooks/settings archived with a restore path | ✅ Collision archive — ships |
 | Plain disclosure of what was archived, path by path | ✅ Ships |
@@ -904,8 +922,8 @@ not among them. Read them here, in the framework clone you run the driver from.
 | A readable record of how this project entered the framework | ❌ Adoption Record — **not built** |
 | Secret scanning, SAST and migration checks on every commit | ❌ Deferred to WP7, by decision |
 | The framework's version of a colliding `scripts/*.sh` installed | ❌ Replacement half — **not built**, and unassigned |
-| A `CLAUDE.md` in the adopted project | ❌ **Not built** — unassigned; §10 names no owner |
-| The manifest's tier keys, so enforcement cannot be downgraded | ❌ **Not written — `## BL-221:`.** Set them by hand on an organizational adoptee |
+| A `CLAUDE.md` in the adopted project | ❌ **Not built** — WP11 archives yours, WP12b writes the framework's (D3) |
+| The manifest's tier keys, so enforcement cannot be downgraded | ✅ Ships — `## BL-221:` closed; the tier question is their only source |
 
 ---
 
@@ -922,6 +940,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 ## See also
 
 - [scout.md](scout.md) — the read-only survey. Run it first.
-- [delta-track.md](delta-track.md) — where an S1 adoption lands: the post-1.0 maintenance loop.
-- [designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md) — the architecture design, including the full certification-pass specification the build has not reached yet.
+- [delta-track.md](delta-track.md) — the post-1.0 maintenance loop an adopted project reaches the ordinary way, by shipping through the gates.
+- [designs/2026-08-23-brownfield-adoption-v2.md](designs/2026-08-23-brownfield-adoption-v2.md) — the **normative** architecture design: the four acts, the ten settled decisions, and the build plan.
+- [designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md) — superseded, kept because the shipped code still cites its section numbers in places v2's packages have not reached.
 - [module-contract.md](module-contract.md) — the severable-module rules the driver is held to.

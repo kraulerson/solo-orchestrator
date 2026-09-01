@@ -26,7 +26,7 @@ five-phase build: after v1.0 ships, and before a project that already exists com
 | [step5-dogfood-walker-rubric.md](step5-dogfood-walker-rubric.md) | The pass/partial/fail rubric the Step-5 dogfood walker uses to disposition scenario outcomes. |
 | [delta-track.md](delta-track.md) | **After v1.0** — the post-release lifecycle `init.sh` installs into every project: the phase-4 activation gate, the four change classes and their confirm-not-quiz open, the brief whose Done-observable checklist *is* the close review, the close-time attribute ratchet, the hotfix lane and its release-blocking retro, the cadence clock's current/overdue/**unmeasurable** contract, `cut-release.sh`'s three refusals and tool-decided semver, and `.claude/delta-policy.json`. Worked transcripts throughout, all executed. |
 | [scout.md](scout.md) | **Scout** — the read-only survey (`scripts/scout.sh`). All seven report sections, the read-only proof, the opt-in `--run-tests`, full-history secret scanning with the value never printed, and the limits Scout states about itself (the untested-file count is a name-match heuristic; branch protection is `unknown`, not `no`). |
-| [adoption.md](adoption.md) | **Brownfield adoption** — `scripts/adopt-project.sh`: the chooser question verbatim, the floor rule, the reverse intake, the fail-safe write order, the adoption stamp and its loud loss detection, and the TDD exemption's bound. Plus the **test-debt ledger** and its tier ratchet, the exemption's forward equivalent; and the **collision archive** — layout and MANIFEST, the disclosure, `--re-add`, and the pre-staging secret scan that refuses to commit a matched archive entry. **Carries the prominent "what is not built yet" section** — the certification pass, CI carve-out and Adoption Record are designed and not implemented. |
+| [adoption.md](adoption.md) | **Brownfield adoption** — `scripts/adopt-project.sh`: the tier question, the **phase-0 landing every adopted project gets**, the reverse intake's confirmation arm, the fail-safe write order, the adoption stamp and its loud loss detection, and the TDD exemption's bound. Plus the **test-debt ledger** and its tier ratchet, the exemption's forward equivalent; and the **collision archive** — layout and MANIFEST, the disclosure, `--re-add`, and the pre-staging secret scan that refuses to commit a matched archive entry. **Carries the prominent "what is not built yet" section** — the assessment (Act 3), the CI carve-out and the Adoption Record are designed and not implemented; the certification pass is retired. |
 
 ## Handoffs (`docs/handoffs/`)
 
@@ -94,14 +94,18 @@ track, and the BA/PM agent roles. v1.1 post-review, r1 folded; describes a produ
 v1.0.0: four change classes with derived-then-confirmed attributes, a severable module with a
 dependency-direction lint, three re-fire triggers, and a tool-decided release cut. v1.2, build-evidence
 amendment folded. **Built and shipping** — the user-facing page is [delta-track.md](delta-track.md)).
+[designs/2026-08-23-brownfield-adoption-v2.md](designs/2026-08-23-brownfield-adoption-v2.md)
+(**Brownfield adoption, NORMATIVE** — the second entry path, for a codebase that already exists,
+re-cut as **four acts**: Scout surveys, the shell driver prepares and lands the project at
+**phase 0**, a Claude Code session assesses, and the plan is presented. Ten settled decisions
+(D1–D10) plus four delegated author decisions; full-history secret scanning tiered by audience,
+four archive classes, and an init-parity table with thirteen unowned rows. **Half built** — Scout,
+the driver, the test-debt ledger with its ratchet, the collision archive and WP9a's act boundaries
+ship; the secrets stop, the archive's two new classes, the assessment and the Adoption Record do
+not. User-facing pages: [scout.md](scout.md) and [adoption.md](adoption.md), which name every gap).
 [designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md)
-(**Brownfield adoption** — the second entry path, for a codebase that already exists: a standalone
-read-only scanner, the completed-vs-in-flight scenario chooser, the certification pass that replaces
-grandfathering, full-history secret scanning with redacted findings, and the archive-and-disclose
-collision policy. v1.2, build-evidence amendment folded. **Half built** — Scout, the adoption
-driver, the test-debt ledger with its ratchet, and the collision archive ship; the certification
-pass, CI carve-out and Adoption Record do not. User-facing pages: [scout.md](scout.md) and
-[adoption.md](adoption.md), which name every gap).
+(**superseded**, kept because shipped code still cites its section numbers where v2's packages have
+not reached, and because it is the design the first build was made against).
 
 ## Module contract (`docs/module-contract.md`)
 

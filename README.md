@@ -168,18 +168,22 @@ bash /path/to/solo-orchestrator/scripts/scout.sh --out ./scan
 bash /path/to/solo-orchestrator/scripts/adopt-project.sh --scan-report ./scan/scout-report.json
 ```
 
-It shows you what the scan found as *evidence*, then asks the one question the
-scan cannot answer — whether the project is finished and needs supporting, or
-still being built — and lands it accordingly, writing state in a fail-safe order
-and committing exactly the files it wrote.
+It shows you what the scan found as *evidence that decides nothing*, asks the
+one question no amount of reading your code can answer — **who the project is
+for**, which sets its enforcement tier — and lands it at **phase 0**, writing
+state in a fail-safe order and committing exactly the files it wrote.
 
-> **⚠ Adoption is half built.** The driver, chooser, reverse intake, state
-> writes, adoption stamp and the collision archive (with its disclosure,
-> recorded re-adds and pre-staging secret scan) ship and work. **The
-> certification pass, the test-debt ledger, the CI carve-out and the Adoption
-> Record do not exist yet.** The driver prints a labelled `NOT DONE` block for
-> each during the run rather than papering over it. Do not read an adopted
-> project as a certified one.
+**Every adopted project starts at phase 0.** Nothing is marked as already done
+and no gate is skipped: what the scan learned becomes a head start on the Phase 0
+questions rather than a shortcut past them.
+
+> **⚠ Adoption is half built.** The driver, the tier question, the reverse
+> intake's confirmations, the state writes, the adoption stamp, the test-debt
+> ledger and the collision archive (with its disclosure, recorded re-adds and
+> pre-staging secret scan) ship and work. **The assessment — the requirements
+> interview, the fitness verdict and the plan — does not exist yet, and neither
+> do the CI carve-out or the Adoption Record.** The driver prints a labelled
+> `NOT DONE` block for each during the run rather than papering over it.
 > [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
 
 **These three pages live in this repo and are not copied into generated
