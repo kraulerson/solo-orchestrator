@@ -13756,10 +13756,50 @@ run.
    `## BL-215:`, and an implementer reading it would budget zero work for Act
    3's entry point.)* The **requirements interview** and **all evaluators** run
    here.
-4. **PLACE AND PROCEED** — rung derived from assessment evidence; documents
-   written; plan presented; normal Build Loop.
+4. **~~PLACE AND~~ PROCEED** — ~~rung derived from assessment evidence~~; documents
+   written; plan presented; normal Build Loop — from phase 0.
 
-**THE PROVISIONAL PHASE-0 LANDING IS THE LOAD-BEARING CHOICE**, and it is what
+**STEP 4's RUNG DERIVATION IS NOT KARL'S, AND HE CORRECTED IT ON 2026-08-31.**
+His words: *"The project gets ingested and starts from the beginning to ask the
+user about what it is and what it's supposed to do."* And, restating D4's
+reason: *"we can't trust the user to know how to follow an SDLC because if they
+did, they wouldn't need the framework."*
+
+**So there is no rung to derive.** An adopted project lands at phase 0 and runs
+the ordinary SDLC from the beginning — Phase 0 intake first. What Scout, the
+census and the assessment learn becomes PRE-FILL for that intake, not evidence for
+skipping past it. That is D6's shape (*"the verdict EXITS into machinery that
+already exists, with the intake pre-filled from everything the assessment just
+learned"*) generalised from the rebuild verdict to every adoption.
+
+**HOW THIS ENTRY GOT IT WRONG IS THE TRANSFERABLE PART.** D4 deleted the
+chooser. This entry read that as *replace the operator's claimed rung with a
+derived one* and wrote step 4 accordingly; the v2 design then built §4.3 —
+titled *"What replaces it: placement from evidence alone"* — on top of it.
+**Karl never asked for a replacement.** Deleting a question because the answer
+cannot be trusted does not imply computing the answer another way; it can
+equally mean the question does not need answering. Derive:
+
+```
+awk '/^## BL-242:/{f=1} f&&/^## BL-240:/{exit} f' solo-orchestrator-backlog.md \
+  | grep -i 'karl' | grep -i 'rung\|ladder\|placement\|evidence'
+```
+
+On the tree before this correction that returned nothing. It does NOT now, and
+cannot: this correction's own prose and its own code block are matches, and the
+`placement` alternand also matches the word *re**placement*** two paragraphs
+up — so even the pre-correction zero was partly pattern luck.
+**Re-derive against a pre-correction revision; do not read a total from here.**
+The claim the recipe supports is the one worth checking: every Karl quote in D4
+and D5 is about TRUSTING THE USER and about WAITING FOR THE REVIEW, and none is
+about placement.
+**This is the third inference this entry recorded as Karl's ruling** — the
+others are the `adopt_ask_audience` deletion (corrected in D4 above, now D9) and
+the *"Adoption assesses; it does not ask"* headline. All three share one shape:
+prose written BESIDE a ruling was read as part of it.
+
+
+**THE PHASE-0 LANDING IS THE LOAD-BEARING CHOICE**, and it is what
 makes the split safe. It preserves the promise `adopt_main` already prints —
 *"If you stop partway, this project ends up more strictly gated than it started,
 never less."* An operator who never runs Act 3 leaves a project sitting at phase
