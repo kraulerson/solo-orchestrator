@@ -557,12 +557,16 @@
   <div class="not-built" style="background:var(--brownfield-fill);border-left-color:var(--brownfield)">
     <h4>Read this before you plan around adoption</h4>
     <p style="margin:0 0 8px;font-size:13.5px">
-      <strong>Adoption is half built.</strong> The driver, the scenario chooser, the reverse intake, the state
-      writes, the adoption stamp with its loss detection, the commit-time enabling arms, the test-debt ledger
-      and the collision archive all ship and all work. <strong>The certification pass, the CI carve-out and the
-      Adoption Record do not exist.</strong> The driver prints a labelled <code>NOT DONE</code> block for each
-      one during the run, naming the work package that owns it. The full list is at the end of this section.
-      <strong>Do not read an adopted project as a certified one.</strong>
+      <strong>Adoption is half built.</strong> The driver, the tier question, the reverse intake's
+      confirmation arm, the state writes, the adoption stamp with its loss detection, the commit-time enabling
+      arms, the test-debt ledger and the collision archive all ship and all work. <strong>The assessment — the
+      requirements interview, the fitness verdict and the plan — does not exist, and neither do the CI
+      carve-out or the Adoption Record.</strong> The certification pass is <strong>retired</strong> rather than
+      pending: with no claimed rung and no derived landing it has nothing left to certify against. The driver
+      prints a labelled <code>NOT DONE</code> block for each unbuilt one during the run, naming the work
+      package that owns it. The full list is at the end of this section.
+      <strong>Adoption is Act 2 of four</strong> — Scout surveys, this driver prepares and lands the project at
+      phase 0, and the assessment that follows is a Claude Code session that has not been built yet.
     </p>
   </div>
 
@@ -661,9 +665,11 @@
       <strong>recorded blank and labelled</strong> — they belong to the <em>assessment</em>, a conversation
       with an agent rather than a form.</p>
       <p><strong>The classification is still mandatory, just later.</strong> The Phase 1→2 ZDR gate is a hard
-      FAIL without it, and an adopted project sits at phase 0 — below that gate, and unable to pass it until
-      the question is answered. The run hands you <code>bash scripts/resume.sh</code>, whose kickoff prompt
-      names the classification as not optional.</p>
+      FAIL without it — a real failure, not a warning — and it fires whenever the project's phase reads 2 or
+      more, <em>however it got there</em>. An adopted project starts at 0, below that gate. The gates are
+      cumulative and keyed to evidence, so arriving at a rung without the evidence fails on the evidence
+      regardless of what moved you there. The run hands you <code>bash scripts/resume.sh</code>, whose kickoff
+      prompt names the classification as not optional.</p>
     </div>
     <div class="mod-card">
       <h4>A halted run leaves you MORE enforced, never less</h4>
@@ -1852,7 +1858,7 @@
     <!-- ---------- Brownfield adoption + delta track terms ---------- -->
     <div class="gloss-item">
       <dt>Brownfield Adoption</dt>
-      <dd>The second entrance: bringing a codebase that already exists under the framework, via <code>scripts/adopt-project.sh</code> rather than <code>init.sh</code>. It asks one question, lands the project at a phase, writes state fail-safe and commits exactly the files it wrote. <strong>Half built</strong> — the certification pass, the CI carve-out and the Adoption Record do not exist.</dd>
+      <dd>The second entrance: bringing a codebase that already exists under the framework, via <code>scripts/adopt-project.sh</code> rather than <code>init.sh</code>. It asks one question — <em>who is this project for?</em>, which sets the enforcement tier — lands the project at <strong>phase 0</strong> like every other, writes state fail-safe and commits exactly the files it wrote. <strong>Half built</strong> — the assessment, the CI carve-out and the Adoption Record do not exist; the certification pass is retired.</dd>
     </div>
     <div class="gloss-item">
       <dt>Scout</dt>

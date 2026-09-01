@@ -658,7 +658,7 @@ file and that half is fixed (`adopt_render_intake_progress` now writes every key
 the wizard subscripts), but the swallow is the wizard's and any other producer of
 a progress file hits it.
 
-**Two independent defects in one path, and they compound.**
+**Three independent defects on one path, and they compound.**
 
 **(1) `load_progress()` SUBSCRIPTS, and the failure is swallowed.** Its embedded
 python does `data['last_section']`, `data['project_name']`, `data['platform']`,
@@ -687,15 +687,50 @@ guard. **Measured: 19,819,553 bytes of `Invalid choice. Enter a number between 1
 and 2.` in under two minutes**, still running when killed. A `read` that cannot
 distinguish "wrong answer" from "no more input" has no stopping condition.
 
-**Why the two together are worse than either.** Defect (1) means a malformed
+**(3) THE APPENDIX WRITER IS A JQ PROGRAM THAT DOES NOT COMPILE, and the wizard
+reports success over it.** `intake-wizard.sh` line ~413 declares
+`def row(label; val): …`. **`label` is a jq RESERVED KEYWORD** — jq's own
+language description says reserved words "cannot be used as function or data
+symbols" — so jq 1.7.1 rejects the whole program:
+
+```
+$ echo '{}' | jq 'def row(label; val): "\(label)|\(val)"; row("a";"b")'
+jq: error: syntax error, unexpected label, expecting IDENT or BINDING at <top-level>, line 1
+jq: 1 compile error
+```
+
+The consequence is a table rendered as a bare header — every row missing —
+under a success line:
+
+```
+### Project Context
+
+| Field | Value |
+|---|---|
+```
+```
+  [OK] PROJECT_INTAKE.md updated with 'Intake Answers (Auto-Populated)' appendix
+```
+
+This one is **not** adoption-specific: it affects greenfield identically, and
+`intake-wizard.sh` is untouched by the branch that filed this entry. It is
+recorded here because it is the third silent success on the same path, and
+because the entry's premise is that this route's defects be written down.
+**Fix:** rename the parameter (`lbl`, `field`) — a one-word change — and check
+jq's exit status rather than reading its stdout.
+
+**Why the three together are worse than any one.** Defect (1) means a malformed
 progress file is not refused; defect (2) means the wizard cannot be driven
-non-interactively even to discover that. So the only two outcomes available to a
-non-TTY caller are a false success and a hang.
+non-interactively even to discover that; defect (3) means one of its outputs is
+silently empty on EVERY run, greenfield included. So the only two outcomes
+available to a non-TTY caller are a false success and a hang — and the
+interactive path has a third silent failure inside it.
 
 **The fix, both halves:**
 - `load_progress()` should use `.get(k, '')` (or validate the key set and REFUSE
   by name), and the caller must check the exit status rather than reading stdout
   over a traceback.
+- Rename jq's `label` parameter and check jq's exit status.
 - The choice loop needs an EOF guard: `read` returning non-zero is not a wrong
   answer, it is the end of input, and the wizard should refuse and exit rather
   than re-prompt. `scripts/lib/adopt/adopt-core.sh`'s `adopt_read_optional` and

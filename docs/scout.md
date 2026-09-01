@@ -338,11 +338,14 @@ The setup interview asks about fifteen things. Scout classifies each one:
 | Agent Initialization Prompt | `(generated from the completed intake)` | run_section_13 writes it from the answers above; it asks no question of its own |
 ```
 
-Three classes, and the boundary matters: **scan-derived** answers are prefilled
-with their provenance and you confirm or change them; **judgement** answers get
-no default and no guess, because the prefill pattern is right for facts the
-framework recorded and wrong for judgements it has never made; **data
-classification** is non-skippable in every scenario.
+Three classes, and **the driver now asks exactly one of them**: **scan-derived**
+answers are prefilled with their provenance and you confirm or change them.
+**Judgement** answers and the **data classification** are recorded blank and
+labelled — they belong to the *assessment*, a conversation with an agent rather
+than a form, because the prefill pattern is right for facts the framework
+recorded and wrong for judgements it has never made. The classification is still
+mandatory; an adopted project sits below the gate that demands it, and
+[adoption.md](adoption.md) names the three routes that ask for it.
 
 ---
 
@@ -399,8 +402,11 @@ bash scripts/adopt-project.sh --scan-report ./scan/scout-report.json
 ```
 
 **Read [adoption.md](adoption.md) before you run that.** Adoption is half built:
-the driver, the chooser and the interview ship and work, and several of the
-things the design promises do not exist yet. That page names each one.
+the driver, the tier question, the reverse intake's confirmation arm, the state
+writes, the adoption stamp, the test-debt ledger and the collision archive ship
+and work. The **assessment** — the requirements interview, the fitness verdict
+and the plan — does not exist yet, and neither do the CI carve-out or the
+Adoption Record. That page names each one.
 
 ---
 

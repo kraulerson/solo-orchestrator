@@ -244,8 +244,15 @@ Business Context
 just noting.** It used to be refused-if-skipped right here, and the reason given
 was mechanical: the Phase 1→2 ZDR backstop hard-`[FAIL]`s whenever
 `current_phase >= 2`, and an adoption used to be able to land at phase 4 on its
-first commit. **It cannot any more** — every adoption lands at phase 0 — so the
-threshold is out of reach until you cross the very gate the backstop lives in.
+first commit. **It cannot any more** — every adoption lands at phase 0.
+
+The backstop fires at `current_phase >= 2` **however that number is reached**,
+and it is a hard failure rather than a warning. That is deliberately not the
+same claim as *"you cannot get to phase 2 without answering"*: other framework
+commands can advance the number (`scripts/process-checklist.sh` does, when it
+verifies your Phase 2 setup). What holds is that the gates are **cumulative and
+keyed to evidence** — arriving at a rung without the evidence fails the gate on
+the evidence, regardless of what moved you there.
 
 **You will still be asked.** Three routes reach the question, and all three are
 exercised by the test suite rather than assumed:
@@ -254,7 +261,7 @@ exercised by the test suite rather than assumed:
 |---|---|
 | `bash scripts/resume.sh` | What the run tells you to do next. It prints the initialization prompt from this project's own Section 13, and that prompt names the classification as **not optional**. |
 | `bash scripts/intake-wizard.sh --resume` | Walks the intake from Section 1, which includes **Section 5 — Data Classification**. |
-| `bash scripts/reconfigure-project.sh --field data_classification --old "" --new <value>` | The escape hatch the Phase 1→2 gate names in its own failure message, if you get there first. |
+| `bash scripts/reconfigure-project.sh --field data_classification --new <value>` | The escape hatch the Phase 1→2 gate names in its own failure message, if you get there first. |
 
 > **Not built yet:** the assessment is Act 3 and it has not shipped, so those
 > cells stay blank until you fill them through one of the routes above. The
