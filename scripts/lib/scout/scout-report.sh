@@ -98,7 +98,7 @@ scout_emit_json() {
   done < "$work/rungs"
   printf '],\n'
   # §8.2, verbatim. It is the design's sentence and it travels with the number.
-  printf '    "note": "maximum satisfied rung; the interview may only lower this"\n'
+  printf '    "note": "maximum satisfied rung; evidence for the Phase 0 intake, never a placement"\n'
   printf '  },\n'
 
   # ── reality ──────────────────────────────────────────────────────────────
@@ -393,7 +393,7 @@ scout_emit_markdown() {
   printf -- '---\n\n## How far along this project looks\n\n'
   printf '**Suggested starting point: %s.** %s\n' "$suggested" "$(_scout_phase_sentence "$suggested")"
   printf '\nThis is a ceiling, not a verdict: %s\n\n' \
-    "maximum satisfied rung; the interview may only lower this"
+    "maximum satisfied rung; evidence for the Phase 0 intake, never a placement"
   if [ "$highest" != "$suggested" ]; then
     printf 'Worth knowing: this project has evidence for step %s, but step %s is missing, so the count stops at %s. Having the later thing without the earlier one is normal in a project that grew organically — it is not a problem, it is just something the interview should ask about.\n\n' \
       "$highest" "$(( suggested + 1 ))" "$suggested"
