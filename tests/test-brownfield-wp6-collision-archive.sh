@@ -323,23 +323,17 @@ fi
 jq '.phaseMap.suggestedPhase = 2' "$REPORT" > "$TOPTMP/report.json" 2>/dev/null
 
 # ── Answers ─────────────────────────────────────────────────────────────────
+# WP9 SHORTENED THIS FROM EIGHTEEN LINES TO FIVE. Act 2 now asks the TIER
+# question and the four askable scan-derived confirmations, and nothing else:
+# the scenario chooser and the S2 ladder are DELETED (D4, D10) and the nine
+# judgment sections and the data classification moved to Act 3's interview
+# (§8.2 step 7, §8.3a-A7). The first line is the tier — 2 is organizational,
+# which is the tier this suite's ratchet assertions are written against.
 _ans() {
   cat <<'ANS'
 2
-3
-2
 1
 1
-we reconcile vendor invoices by hand
-six weeks and no budget
-invoices only; no reporting in the first version
-public
-typescript and postgres are settled
-subscription billing
-just me approves things
-anyone with a login
-aws
-losing the database
 1
 1
 ANS

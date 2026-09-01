@@ -178,7 +178,7 @@ mk_adopted_project() {
      "$REPO_ROOT/scripts/lib/helpers-full.sh" \
      "$LIB" "$d/scripts/lib/"
   chmod +x "$d/scripts/check-phase-gate.sh"
-  ( cd "$d" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '["tdd-ordering"]' '[]' "reportsha" ) || return 1
+  ( cd "$d" && soif_adoption_stamp ".claude/manifest.json" "reportsha" ) || return 1
   ( cd "$d" && git add -A && git commit -q -m "chore: adopt project" ) || return 1
 }
 

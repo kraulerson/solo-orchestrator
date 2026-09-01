@@ -43,8 +43,13 @@
 #           afterwards. Each writer's jq filter is PINNED at sites==1 in its
 #           own shipped source, so a writer that changes shape fails this test
 #           loudly instead of leaving it exercising a stale copy.
-#   S4      A scenario outside §8.5's `completed|in-flight` enum is REFUSED —
-#           a durable record must not be written malformed.
+#   S4      An EMPTY evidence hash is REFUSED — a durable record must not be
+#           written malformed. THIS ROW WAS RE-AIMED AT WP9: it used to pin the
+#           `completed|in-flight` scenario enum, and v2 §8.3 removed `scenario`
+#           from the record with the chooser that produced it (D4). The guard's
+#           JOB did not go with its subject — the evidence hash is what is left
+#           to validate, and it is validated in the writer rather than left to
+#           the writer's one caller.
 #   T1/T2   TDD arm, DIRECTION (i): an adopted project's pre-adoption commit is
 #           exempt (T1, rc 0); neuter the exemption guard and the SAME fixture
 #           blocks (T2, rc 1).
@@ -184,29 +189,30 @@ S="$(newtmp)"
     && echo x > f.txt && git add f.txt && git commit -q -m "chore: base" ) >/dev/null 2>&1
 printf '%s\n' '{"foreignKey":"keep-me","host":"gitlab","currency":{"schemaVersion":1}}' > "$S/manifest.json"
 
-( cd "$S" && soif_adoption_stamp "manifest.json" "completed" 3 \
-    '["phase-0-docs"]' '["sponsor-approval"]' '["tdd-ordering"]' '[]' "deadbeef" ) >/dev/null 2>&1
+( cd "$S" && soif_adoption_stamp "manifest.json" "deadbeef" ) >/dev/null 2>&1
 s1_foreign=$(jq -r '.foreignKey // "MISSING"' "$S/manifest.json" 2>/dev/null)
 s1_currency=$(jq -r '.currency.schemaVersion // "MISSING"' "$S/manifest.json" 2>/dev/null)
 s1_adopted=$(jq -r '.adoption.adopted // "MISSING"' "$S/manifest.json" 2>/dev/null)
-s1_scenario=$(jq -r '.adoption.scenario // "MISSING"' "$S/manifest.json" 2>/dev/null)
-s1_landed=$(jq -r '.adoption.landedPhase // "MISSING"' "$S/manifest.json" 2>/dev/null)
-s1_kc=$(jq -r '.adoption.certification.kindC[0] // "MISSING"' "$S/manifest.json" 2>/dev/null)
+# The v2 block's key set, asserted as a SET rather than as three absences: a
+# partial deletion passes an absence pair and fails a set comparison.
+s1_keys=$(jq -r '.adoption | keys | join(",")' "$S/manifest.json" 2>/dev/null)
+s1_ver=$(jq -r '.adoption.schemaVersion // "MISSING"' "$S/manifest.json" 2>/dev/null)
 s1_sha=$(jq -r '.adoption.scannerReportSha256 // "MISSING"' "$S/manifest.json" 2>/dev/null)
 s1_at=$(jq -r '.adoption.adoptedAt // "MISSING"' "$S/manifest.json" 2>/dev/null)
 s1_anchor=$(jq -r '.adoption.adoptedAtCommit // "MISSING"' "$S/manifest.json" 2>/dev/null)
 s1_head=$( cd "$S" && git rev-parse HEAD 2>/dev/null )
 if [ "$s1_foreign" = "keep-me" ] && [ "$s1_currency" = "1" ] && [ "$s1_adopted" = "true" ] \
-   && [ "$s1_scenario" = "completed" ] && [ "$s1_landed" = "3" ] && [ "$s1_kc" = "tdd-ordering" ] \
+   && [ "$s1_keys" = "adopted,adoptedAt,adoptedAtCommit,scannerReportSha256,schemaVersion" ] \
+   && [ "$s1_ver" = "2" ] \
    && [ "$s1_sha" = "deadbeef" ] && [ "$s1_anchor" = "$s1_head" ] \
    && printf '%s' "$s1_at" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'; then
-  pass "S1: the stamp is ADDITIVE — foreignKey and .currency both survive — and the block carries §8.5's schema (adoptedAtCommit = the pre-adoption tip)"
+  pass "S1: the stamp is ADDITIVE — foreignKey and .currency both survive — and the block carries v2 §8.3's schema EXACTLY (five keys, schemaVersion 2, adoptedAtCommit = the pre-adoption tip)"
 else
-  fail_ "S1" "foreign=$s1_foreign currency=$s1_currency adopted=$s1_adopted scenario=$s1_scenario landed=$s1_landed kindC=$s1_kc sha=$s1_sha adoptedAt=$s1_at anchor=$s1_anchor head=$s1_head"
+  fail_ "S1" "foreign=$s1_foreign currency=$s1_currency adopted=$s1_adopted keys=$s1_keys schemaVersion=$s1_ver sha=$s1_sha adoptedAt=$s1_at anchor=$s1_anchor head=$s1_head"
 fi
 
 S2D="$(newtmp)"
-if ( cd "$S2D" && soif_adoption_stamp "absent-manifest.json" "completed" 1 '[]' '[]' '[]' '[]' "" ) >/dev/null 2>&1; then
+if ( cd "$S2D" && soif_adoption_stamp "absent-manifest.json" "deadbeef" ) >/dev/null 2>&1; then
   if [ -e "$S2D/absent-manifest.json" ]; then
     fail_ "S2" "the stamp CREATED a manifest that did not exist"
   else
@@ -250,25 +256,25 @@ _w '. + {deployment: $dep, poc_mode: $pm, enforcement_level: "strict"}' --arg de
 _w '. + {deployment: $dep, poc_mode: $pm}' --arg dep organizational --arg pm sponsored_poc || w_ok=0
 _w '.currency = $currency' --argjson currency '{"schemaVersion":1,"files":{}}'           || w_ok=0
 s3_adopted=$(jq -r '.adoption.adopted // "MISSING"' "$S3D/manifest.json" 2>/dev/null)
-s3_scen=$(jq -r '.adoption.scenario // "MISSING"' "$S3D/manifest.json" 2>/dev/null)
+s3_ver=$(jq -r '.adoption.schemaVersion // "MISSING"' "$S3D/manifest.json" 2>/dev/null)
 s3_foreign=$(jq -r '.foreignKey // "MISSING"' "$S3D/manifest.json" 2>/dev/null)
-if [ "$w_ok" -eq 1 ] && [ "$s3_adopted" = "true" ] && [ "$s3_scen" = "completed" ] \
+if [ "$w_ok" -eq 1 ] && [ "$s3_adopted" = "true" ] && [ "$s3_ver" = "2" ] \
    && [ "$s3_foreign" = "keep-me" ] \
    && [ "$n_cg" -eq 1 ] && [ "$n_up" -eq 1 ] && [ "$n_30" -eq 1 ] && [ "$n_61" -eq 1 ] && [ "$n_cu" -eq 1 ]; then
   pass "S3: all five §8.5 existing-file writers run in sequence (host×2, BL-030 backfill, BL-061 refresh, .currency) and the adoption block survives every one; each filter pinned at sites==1 in its shipped source"
 else
-  fail_ "S3" "writers_ok=$w_ok adopted=$s3_adopted scenario=$s3_scen foreign=$s3_foreign sites: check-gate=$n_cg upgrade-host=$n_up bl030=$n_30 bl061=$n_61 currency=$n_cu (each want 1)"
+  fail_ "S3" "writers_ok=$w_ok adopted=$s3_adopted schemaVersion=$s3_ver foreign=$s3_foreign sites: check-gate=$n_cg upgrade-host=$n_up bl030=$n_30 bl061=$n_61 currency=$n_cu (each want 1)"
 fi
 
 S4D="$(newtmp)"
 printf '%s\n' '{"host":"github"}' > "$S4D/manifest.json"
-if ( cd "$S4D" && soif_adoption_stamp "manifest.json" "sideways" 1 '[]' '[]' '[]' '[]' "" ) >/dev/null 2>&1; then
-  fail_ "S4" "a scenario outside completed|in-flight was ACCEPTED"
+if ( cd "$S4D" && soif_adoption_stamp "manifest.json" "" ) >/dev/null 2>&1; then
+  fail_ "S4" "an EMPTY evidence hash was ACCEPTED"
 else
   if jq -e '.adoption' "$S4D/manifest.json" >/dev/null 2>&1; then
     fail_ "S4" "the stamp refused (rc non-zero) but still wrote an adoption block"
   else
-    pass "S4: a scenario outside §8.5's completed|in-flight enum is refused and nothing is written"
+    pass "S4: an EMPTY evidence hash is refused and nothing is written — the record never claims a hash it does not have"
   fi
 fi
 
@@ -284,12 +290,12 @@ S5D="$(newtmp)"
     && echo x > f.txt && git add f.txt && git commit -q -m "chore: base" ) >/dev/null 2>&1
 printf '%s\n' '{"host":"github"}' > "$S5D/manifest.json"
 s5_first=0
-( cd "$S5D" && soif_adoption_stamp "manifest.json" "completed" 1 '[]' '[]' '[]' '[]' "one" ) >/dev/null 2>&1 && s5_first=1
+( cd "$S5D" && soif_adoption_stamp "manifest.json" "one" ) >/dev/null 2>&1 && s5_first=1
 s5_anchor_1=$(jq -r '.adoption.adoptedAtCommit // "MISSING"' "$S5D/manifest.json" 2>/dev/null)
 s5_sha_1=$(jq -r '.adoption.scannerReportSha256 // "MISSING"' "$S5D/manifest.json" 2>/dev/null)
 ( cd "$S5D" && echo y > g.txt && git add g.txt && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
 s5_second_rc=0
-( cd "$S5D" && soif_adoption_stamp "manifest.json" "in-flight" 4 '[]' '[]' '[]' '[]' "two" ) >/dev/null 2>&1 || s5_second_rc=$?
+( cd "$S5D" && soif_adoption_stamp "manifest.json" "two" ) >/dev/null 2>&1 || s5_second_rc=$?
 s5_anchor_2=$(jq -r '.adoption.adoptedAtCommit // "MISSING"' "$S5D/manifest.json" 2>/dev/null)
 s5_sha_2=$(jq -r '.adoption.scannerReportSha256 // "MISSING"' "$S5D/manifest.json" 2>/dev/null)
 if [ "$s5_first" -eq 1 ] && [ "$s5_second_rc" -ne 0 ] \
