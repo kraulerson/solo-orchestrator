@@ -11,7 +11,7 @@
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) the implementer of the work packages in §10 |
 | **Subject** | **Brownfield adoption, second architecture** — an existing codebase enters Solo Orchestrator through four acts: a read-only survey, a deterministic shell preparation that lands the project at phase 0, a model-driven assessment, and a documented plan the project proceeds from — **starting at the beginning, with no rung derived by anyone** (D10). Adoption **assesses** rather than asking the operator to classify the project; it asks exactly one thing — who the project is for (D9). |
 | **Companion documents** | ADOPT-001-ARCH (superseded; kept as the record of the first build and of §-citations in shipped code — see §0.2) · `## BL-242:` in `solo-orchestrator-backlog.md` (the D1–D10 decision record this document designs from) · `docs/adoption.md`, `docs/scout.md` (the shipped user-facing pages, which describe the v1 build and must be revised by §10-WP12b, except the chooser sections §4.2 gives to WP9) · `docs/messaging-standard.md` (the presentation contract D8 makes binding) · `docs/module-contract.md` (M1–M5) · SOI-002-BUILD (`docs/builders-guide.md`) |
-| **Status of the thing described** | **NOTHING OF v2 IS BUILT.** v1's status row was wrong three times because it was a hand-maintained list; this row is a **set of derivations** instead, each printed in §13 with its output on **2026-08-24**. (1) *What the v1 build left unbuilt* is the set of `adopt_stub_*` functions actually called — the recipe in §1.2 returns **7**. (2) *That the chooser still exists* — `# BF-ADOPT-CHOOSER-QUESTION` resolves in `scripts/lib/adopt/adopt-chooser.sh` (§13-V7). (3) *That adoption still runs no tool resolution* — `grep -c 'resolve-tools'` over the driver and its lib returns **0** in every file, against **7** mentions in `init.sh` (§13-V3). (4) *That `scripts/resume.sh` knows nothing of adoption* — `grep -c 'adopt' "scripts/resume.sh"` returns **0** (§13-V8). When any of those derivations stops returning what this row says, this row is stale — re-run them; do not quote them. **A caveat the derivations themselves taught:** the framework's install set measured **65** files on `main` and **67** on the branch this document was verified on, because two PR-review scripts joined the shipped set between the two — and **68** re-derived on 2026-08-31 against the `main` this document lands on (§13-V6). Three values in eight days. A count in this document is a measurement with a date and a branch, never a property. |
+| **Status of the thing described** | **WP9a IS BUILT; NOTHING ELSE OF v2 IS.** This row said "nothing of v2 is built" until 2026-09-01, and it was stale for exactly the reason it warns about — **derivation (2) had stopped returning what the row claimed, and the row's own instruction is to re-run rather than quote.** v1's status row was wrong three times because it was a hand-maintained list; this one is a **set of derivations**, re-run at the tip on **2026-09-01**: (1) *What is still unbuilt* — the `adopt_stub_*` functions actually called, §1.2's recipe → **7** (unchanged in count, changed in membership: `adopt_stub_certification` went with WP5's retirement and `adopt_stub_assessment` took its place). (2) *Whether the chooser still exists* — `scripts/lib/adopt/adopt-chooser.sh` is **GONE**; the file is `adopt-evidence.sh` and Karl's sentence resolves in **no tracked file** but the frozen v1 design and the suite that must spell it to search for it (§4.2, §10-WP9's `C2`). (3) *That adoption still runs no tool resolution* — `grep -c 'resolve-tools'` over the driver and its lib returns **0** in every file, against **7** mentions in `init.sh`; still WP10's (§13-V3). (4) *That `scripts/resume.sh` knows nothing of adoption* — `grep -c 'adopt' "scripts/resume.sh"` returns **0**; the fifth branch is WP12a's, and WP9a deliberately did not pull it forward (§10-WP9). **When any derivation stops returning what this row says, this row is stale — re-run them; do not quote them.** **A caveat the derivations themselves taught:** the framework's install set measured **65** files on `main`, **67** on the branch this document was first verified against, and **68** re-derived on 2026-09-01 (§13-V6). Three values in nine days. A count in this document is a measurement with a date and a branch, never a property — which is also why this row was allowed to go stale: nobody re-ran it. |
 
 **Provenance.** Ten architecture decisions — **D1 through D10** — are settled and recorded in
 `## BL-242:` in `solo-orchestrator-backlog.md`. **D1–D8** were settled **by Karl on 2026-08-23**
@@ -386,9 +386,11 @@ three rows this document's own blast radius had missed.** Nothing here overturns
 is what building WP9 found. Five changes:
 
 1. **§8.7a — the init-parity table, delivered**, and its adoption half derived **by execution**
-   (a shipped adoption run against a hermetic adoptee, tree diffed: 75 files, 68 under `scripts/`,
-   seven elsewhere) rather than by grep, because grep has under-read this exact surface twice
-   before. Thirty-one rows; **thirteen UNOWNED**. §12-3 is rewritten from "not delivered" to what
+   (a shipped adoption run against a hermetic adoptee, tree diffed: **76** files, 68 under
+   `scripts/`, **eight** elsewhere) rather than by grep, because grep has under-read this exact
+   surface twice before. **32 rows; thirteen UNOWNED.** *(This entry said 75 / seven / thirty-one
+   for three rounds after §8.7a itself was re-measured — a changelog entry describing a
+   measurement is a SECOND carrier of it, and correcting the table did not correct this.)* §12-3 is rewritten from "not delivered" to what
    the table says, which is worse news than the residual expected.
 2. **WP12 is split into 12a and 12b**, on a recommendation the architecture review made twice.
    §10's sequencing line and both rows are re-cut; the A3 manifesto mutation moves to 12b with the
@@ -1649,11 +1651,18 @@ assertion (it is true, and it does not couple to a constant in another script); 
 that a fixture built to exercise the *intake* side of it would be building a state adoption cannot
 produce.
 
-**Two consequences, both WP12a's and neither WP9's.** First, the kickoff branch extracts §13's
-fenced prompt with `awk '/^## 13\./…'` and the adoption-rendered document has no `## 13.` heading,
-so `bl202_s13` is empty and the operator gets the **generic fallback** printed above — which then
-tells them to read a "Section 13" the file does not label. Act 4's document work should either
-render the heading the extractor looks for or stop naming a section number it does not write.
+**Two consequences. The first was handed to WP12a here and WP9a BUILT IT INSTEAD** — this
+paragraph assigned delivered work to a future package for three rounds, which is the mirror image
+of the defect the rest of this section records. As written it said: the kickoff branch extracts
+§13's fenced prompt with `awk '/^## 13\./…'`, the adoption-rendered document has no `## 13.`
+heading, so `bl202_s13` is empty and the operator gets the **generic fallback** — which then tells
+them to read a "Section 13" the file does not label. **That is fixed.**
+`adopt_render_section_13` renders the heading the extractor looks for and a real prompt beneath it,
+and §10-WP9's `R1` asserts it by running `resume.sh` on an adopted fixture: the prompt appears, the
+fallback does not, and exactly one heading and one title exist. **The reason it moved into WP9a
+rather than waiting is A7**: WP9a is what deferred the data classification, so WP9a owed the route
+that re-asks it, and that prompt is where the classification is named as non-optional.
+
 Second, this is the state D10 promises *today*, before WP12a: an adopted project's first resume is
 already a Phase-0 entry, which is why WP9 ships an honest handoff pointing at `resume.sh` rather
 than pulling the fifth branch forward.
@@ -1924,7 +1933,7 @@ only, so WP9's stamp changes must add their pins to a PR-blocking suite, not tha
 2. **`## BL-226:`** ("moved" claimed where nothing moved) — WP11's notice rewrite touches the same
    strings and should close it in passing; recorded so it is checked rather than assumed.
 3. **The init-parity audit is DELIVERED at §8.7a, and it is worse news than this entry expected.**
-   Thirty-one rows; the adoption half measured by execution, the `init.sh` half read from source
+   **32 rows**; the adoption half measured by execution, the `init.sh` half read from source
    and acknowledged partial. **Thirteen rows are UNOWNED, one UNSPECIFIED, one PARTIAL**, and the
    five packages after WP9 close none of the thirteen. Three of them are load-bearing for claims
    this document makes elsewhere: `docs/reference/*` (row 18) means **D8 binds

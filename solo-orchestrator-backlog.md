@@ -13988,8 +13988,13 @@ reader of THIS entry needs and cannot get from the code.**
   because the classification's Act-2 mandate rested on "an S1 adoption lands at
   4", which **D10 deleted**. Between WP9 and WP12a an adoption therefore records
   no classification at all — fail-closed (the project rests at phase 0; the ZDR
-  backstop fires at `current_phase >= 2`; the only route to 2 crosses the gate
-  that backstop lives in), and the operator meets the question in the Phase 0
+  backstop fires at `current_phase >= 2`; and the gates are cumulative and
+  evidence-keyed, so a rung reached by ANY writer without the evidence fails on
+  the evidence — which is the form of the claim that survives, because "the
+  only route to 2 crosses that gate" was FALSE: `_set_current_phase_min` in
+  `process-checklist.sh` writes `current_phase` at five call sites and ships to
+  adoptees. Today the gate refuses an adopted project earlier still, on the
+  `APPROVAL_LOG.md` A4 writes in WP9b), and the operator meets the question in the Phase 0
   intake, which is where D10 puts it.
 - **WP12 is split into WP12a and WP12b.** An architecture review recommended it
   twice. Sequencing is now `WP9 → WP10 → WP11 → WP12a → WP12b → WP7`.

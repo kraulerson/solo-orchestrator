@@ -513,30 +513,35 @@ decides whether that is a hard block: `deployment: organizational` or
 `.claude/phase-state.json`, which the driver writes correctly, exactly as it does
 in a scaffolded project.
 
-> **⚠ Scope that sentence to the commit-time surface, because one other surface
-> is NOT the same.** The two birth paths write **different manifests**, and one
-> tier reader fails open on the difference.
+> **This used to say the two birth paths write different manifests. They do
+> not, any more — `## BL-221:` is Closed (PR #356) and the keys are written.**
+> Measured on an adoption at this tree:
+>
+> ```json
+> {"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}
+> ```
 >
 > | Key in `.claude/manifest.json` | Scaffolded by `init.sh` | Adopted |
 > |---|---|---|
-> | `deployment` | `"personal"` | **absent** |
-> | `poc_mode` | `null` | absent |
-> | `enforcement_level` | `"strict"` | **absent** |
+> | `deployment` | `"personal"` | `"personal"` — from the tier question, its only source |
+> | `poc_mode` | `null` | `"production"` |
+> | `enforcement_level` | `"strict"` | `"strict"` |
 >
-> `assert_choosable` in `scripts/lib/enforcement-level.sh` reads
-> `jq -r '.deployment // "personal"'`, so an **absent** key resolves to the
-> **permissive** tier. `validate_transition` calls it, `reconfigure-project.sh`
-> calls `validate_transition`, and `reconfigure-project.sh` is one of the 63
-> scripts adoption installs. Measured: an organizational project with the key
-> present refuses a move to `enforcement_level: no`; **the same project with only
-> that key removed allows it.**
+> **The paragraph that stood here told you to set those keys by hand, and
+> following it would have been actively harmful** — `.claude/manifest.json` is
+> where the adoption stamp lives, so a botched hand-edit trips
+> `[FAIL] Adoption stamp LOST` and costs you the record of how the project
+> entered the framework. It was correct when written and was left behind by the
+> fix; it is recorded here rather than deleted because "advice that outlived its
+> defect" is worth recognising as a category. **Do not hand-edit the manifest.**
 >
-> `read_enforcement_level`, in the same library file, fails *closed* to `strict`
-> on the same manifest — so the two readers disagree, and the commit-time gates
-> are unaffected. Filed as **`## BL-221:`** with both candidate fixes and the
-> `# BL-084-TIER-KEY` sync-sibling warning. **Until it is resolved: if you adopt
-> an organizational project, set the manifest's tier keys by hand before anyone
-> runs `reconfigure-project.sh`.**
+> What the paragraph was about is still worth knowing, because it is why the
+> keys must never go missing: `assert_choosable` in
+> `scripts/lib/enforcement-level.sh` once read `jq -r '.deployment // "personal"'`,
+> so an **absent** key resolved to the **permissive** tier while
+> `read_enforcement_level` failed *closed* to `strict` on the same manifest —
+> two readers, opposite directions. Both halves are fixed: the writer supplies
+> the keys and the predicate is fail-closed (`# BL-221-TIER-FAIL-CLOSED`).
 
 ---
 
