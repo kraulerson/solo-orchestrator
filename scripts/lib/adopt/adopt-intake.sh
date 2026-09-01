@@ -217,6 +217,15 @@ adopt_render_intake_doc() {
     printf 'no provenance was given by a person outright.\n'
     while IFS="$(printf '\t')" read -r field title kind value prov; do
       [ -n "${field:-}" ] || continue
+      # SECTION 13 IS RENDERED BELOW, NOT HERE, AND ITS LEDGER ROW IS DROPPED.
+      # Emitting both put two `Agent Initialization Prompt` headings five lines
+      # apart, and the FIRST one was false twice over: it attributed the prompt
+      # to `run_section_13` — `intake-wizard.sh`'s function, which never runs
+      # during an adoption — and described it as "generated from the completed
+      # intake" directly above a prompt whose whole subject is that the intake
+      # is NOT complete. The row is Scout's prefill table doing its job; it is
+      # this renderer's job not to print a provenance that is wrong here.
+      [ "$field" = "agent_init_prompt" ] && continue
       if [ "$title" != "$last_title" ]; then
         printf '\n## %s\n' "$title"
         last_title="$title"
@@ -224,7 +233,7 @@ adopt_render_intake_doc() {
       printf '\n- **%s** (%s): %s\n' "$field" "$kind" "$value"
       [ -n "$prov" ] && printf '  - Source: %s\n' "$prov"
     done < "$ADOPT_ANSWERS"
-    adopt_render_section_13
+    adopt_render_section_13 "$root"
     printf '\n'
   } | adopt_write_file "$root" "PROJECT_INTAKE.md"
 }
@@ -250,7 +259,8 @@ adopt_render_intake_doc() {
 # prompt names only artifacts the adoptee actually has, and says plainly that
 # the process reference is missing rather than implying it is attached.
 adopt_render_section_13() {
-  cat <<'S13'
+  local root="$1"
+  cat <<'S13A'
 
 ## 13. Agent Initialization Prompt
 
@@ -273,8 +283,27 @@ WHAT YOU HAVE:
    evidence that anything was DONE PROPERLY.
 3. .claude/test-debt.json — the files that had no tests at adoption. It is a
    baseline that must not grow, not a list of things to ignore.
+S13A
+
+  # ITEM 4 IS CONDITIONAL, and the reason is this function's own header rule.
+  # It says the prompt "names only artifacts the adoptee actually has" and calls
+  # the alternative the false-attachment class — then named the archive
+  # unconditionally, which on a COLLISION-FREE adoptee (the common case, and the
+  # shape of this feature's own control fixture) does not exist. Pointing an
+  # agent at a directory that is not there is the same defect as the attachment
+  # list it was written to avoid, one item further down.
+  #
+  # Emitted as its own heredoc rather than substituted into the one above: a
+  # `sed` replacement carrying a literal newline does not work, and finding that
+  # out at run time inside a writer is worse than two heredocs.
+  if [ -d "$root/.claude/adoption-archive" ]; then
+    cat <<'S13B'
 4. .claude/adoption-archive/ — anything of yours the adoption moved aside, with
    a MANIFEST and a restore line for each.
+S13B
+  fi
+
+  cat <<'S13C'
 
 WHAT YOU DO NOT HAVE: the Solo Orchestrator Builder's Guide and the Platform
 Modules. A scaffolded project receives them in docs/reference/; an adopted one
@@ -295,7 +324,7 @@ RULES:
 - Do not suggest that any gate be skipped because the project is "already
   built". That is the exact reasoning adoption exists to refuse.
 ```
-S13
+S13C
 }
 
 # adopt_render_intake_progress — .claude/intake-progress.json, in the shape

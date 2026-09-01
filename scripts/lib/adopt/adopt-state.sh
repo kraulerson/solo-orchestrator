@@ -183,9 +183,15 @@ INSTALL_SET
 # the three readers that consume it, which is the drift `# BL-221-ADOPT-TIER-`
 # `KEYS` was filed about on a different key. If the exposure is ever judged
 # unacceptable it is `init.sh`'s to change first, and both paths follow.
+# NO `command -v jq || return 0` GUARD, and its absence is deliberate. The
+# first draft carried one, copied from writers whose no-op-on-missing-jq is
+# correct. It is UNREACHABLE — `adopt_main` refuses at "jq is required" (rc 2)
+# before any writer runs — and if it ever became reachable it would skip the
+# escape-hatch file and return SUCCESS, which is the silent-success shape this
+# function exists to remove. Its sibling writers in this file carry no such
+# guard either.
 adopt_write_orchestrator_source() {
   local root="$1"
-  command -v jq >/dev/null 2>&1 || return 0
   jq -n --arg s "$ADOPT_FRAMEWORK_ROOT" '{source_dir: $s}' \
     | adopt_write_file "$root" ".claude/orchestrator-source.json" || return 1
   return 0
