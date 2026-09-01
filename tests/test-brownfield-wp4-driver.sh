@@ -57,7 +57,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DRIVER="$REPO_ROOT/scripts/adopt-project.sh"
 LIB_DIR="$REPO_ROOT/scripts/lib/adopt"
-L_CHOOSER="$LIB_DIR/adopt-chooser.sh"
 L_INTAKE="$LIB_DIR/adopt-intake.sh"
 L_STATE="$LIB_DIR/adopt-state.sh"
 

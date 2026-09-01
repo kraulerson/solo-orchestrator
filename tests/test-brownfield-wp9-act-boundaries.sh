@@ -121,6 +121,15 @@ fi
 # so a complete run needs exactly 1 + 4 answers. THE LENGTH IS LOAD-BEARING:
 # every mutant that puts a question back runs OUT of answers and refuses, which
 # is what makes those mutations discriminate.
+#
+# AND THAT COUPLING HAS A COST A FUTURE READER MUST BE TOLD ABOUT. N4 kills its
+# mutant by STARVATION, so what it strictly pins is "Act 2 consumes exactly
+# five answers", not "Act 2 asks no judgment questions". A later package that
+# legitimately adds one confirmation row will fail N4 for the wrong reason, and
+# the obvious repair — lengthening this function — silently RETIRES the proof.
+# **If you lengthen it, re-derive N4 against the new length or replace it.**
+# N1's report-derived deferral count is the semantic half and has no such
+# coupling; between them the property is pinned twice, by different means.
 _ans() {
   local tier="${1:-1}"
   printf '%s\n1\n1\n1\n1\n' "$tier"
@@ -193,14 +202,44 @@ else
   fail_ "C1 (A5): the rename is incomplete" "old-file=$c1_old new-file=$c1_new loop-new=$c1_loop_new loop-old=$c1_loop_old parses=$c1_parse"
 fi
 
-# C2 — §4.2's completion check: the verbatim question occurs NOWHERE under
-# scripts/. This is the assertion the whole deletion is measured by.
-c2_hits=$(grep -rlF -- "$CHOOSER_LITERAL" "$REPO_ROOT/scripts" 2>/dev/null | wc -l | tr -d ' ')
-c2_hits=$(_num "$c2_hits")
-if [ "$c2_hits" -eq 0 ]; then
-  pass "C2: Karl's chooser sentence occurs in NO file under scripts/ — §4.2's completion check for WP9"
+# C2 — §4.2's completion check, WIDENED TWICE AFTER IT MISSED SOMETHING.
+#
+# It began as `grep -rlF` over `scripts/`. Adversarial review found a FOURTH
+# occurrence the design had never counted and this check structurally could not
+# see: `workflow.html`, the non-engineer walkthrough README links from its ninth
+# line, where the sentence is LINE-WRAPPED inside a `<p>`. A single-line `-F`
+# search cannot match a wrapped literal, and the surface was the wrong one
+# anyway — the question was never confined to `scripts/`.
+#
+# So this now sweeps EVERY TRACKED FILE with whitespace NORMALISED (`tr -s`
+# collapses newlines and runs of spaces to one space, which is exactly the
+# transform that makes a wrapped occurrence findable). Two files are allowed to
+# carry it, each for a stated reason, and the allowlist is spelled here rather
+# than implied by a path filter:
+#   • the SUPERSEDED v1 design — a frozen artifact, stamped to the tree it was
+#     written against, and out of scope by the same rule CLAUDE.md applies to
+#     Reports/ and archived handoffs;
+#   • THIS SUITE, which must spell the sentence to search for it.
+# Untracked trees (worktrees, scratch) are excluded by using `git ls-files`,
+# not by a directory denylist that would need maintaining.
+_normalise() { tr -s '[:space:]' ' ' < "$1"; }
+c2_hits=""
+while IFS= read -r f; do
+  case "$f" in
+    docs/designs/2026-08-02-brownfield-adoption-v1.md) continue ;;
+    tests/test-brownfield-wp9-act-boundaries.sh)       continue ;;
+  esac
+  [ -f "$REPO_ROOT/$f" ] || continue
+  if _normalise "$REPO_ROOT/$f" | grep -qF -- "$CHOOSER_LITERAL" 2>/dev/null; then
+    c2_hits="$c2_hits $f"
+  fi
+done <<C2FILES
+$( cd "$REPO_ROOT" && git ls-files )
+C2FILES
+if [ -z "$c2_hits" ]; then
+  pass "C2: Karl's chooser sentence occurs in NO tracked file — whitespace-normalised, so a LINE-WRAPPED copy cannot hide from it, and across the whole tree rather than scripts/ alone"
 else
-  fail_ "C2: the chooser sentence survives under scripts/" "$c2_hits file(s): $(grep -rlF -- "$CHOOSER_LITERAL" "$REPO_ROOT/scripts" 2>/dev/null | tr '\n' ' ')"
+  fail_ "C2: the chooser sentence survives" "in:$c2_hits"
 fi
 
 # C3a — every named symbol of §4.2's blast radius, checked against
@@ -247,19 +286,46 @@ fi
 # C4 (MUTATION) — C2's recipe is a grep, and a grep that matches nothing is
 # indistinguishable from a grep that is wrong. Inject the literal into a MIRROR
 # and re-run the identical recipe: it must find it.
+# C4 (MUTATION) — AND IT INJECTS THE HARD CASE, NOT THE EASY ONE.
+#
+# The first version of this mutant appended the sentence as a single-line shell
+# comment and proved the recipe found it. That certified the half that never
+# escaped: the occurrence adversarial review actually found was WRAPPED across
+# three lines of HTML prose, which the then-current single-line `grep -F` could
+# not match at all. A mutant that only exercises the case the check already
+# handles would have stayed green through the real defect.
+#
+# The fixture is therefore a PROSE file wrapped the way `workflow.html` wraps —
+# continuation lines with leading indentation and NO per-line prefix — rather
+# than a shell file, because a wrapped shell comment carries a `#` into the
+# middle of the sentence and stops being the case under test. (That is not
+# hypothetical: it is what the first draft of this mutant did, and it failed
+# for that reason rather than for a real one.)
+#
+# BOTH recipes run against it, in opposite directions: the naive single-line
+# one must MISS it — proving the wrapping is a genuine hazard and not a
+# hypothetical — and C2's normalised one must FIND it.
 C4M="$(newtmp)"
-if mk_mirror "$C4M/fw"; then
-  printf '\n# %s\n' "$CHOOSER_LITERAL" >> "$C4M/fw/scripts/lib/adopt/adopt-evidence.sh"
-  c4_hits=$(grep -rlF -- "$CHOOSER_LITERAL" "$C4M/fw/scripts" 2>/dev/null | wc -l | tr -d ' ')
-  c4_hits=$(_num "$c4_hits")
-  c4_parse=$(_parses "$C4M/fw/scripts/lib/adopt/adopt-evidence.sh")
-  if [ "$c4_hits" -eq 1 ] && [ "$c4_parse" -eq 1 ]; then
-    pass "C4 (MUTATION): with the sentence re-injected into a mirror (mutant still parses), C2's identical recipe finds it — the absence assertion discriminates"
-  else
-    fail_ "C4 (MUTATION): C2's recipe did not find a re-injected sentence" "hits=$c4_hits parses=$c4_parse"
-  fi
+c4_target="$C4M/wrapped-prose.html"
+cat > "$c4_target" <<'C4HTML'
+    <div class="mod-card">
+      <h4>The one question the scan cannot answer</h4>
+      <p>The scan's findings are shown first as evidence, each line
+      carrying its own confidence. Then, verbatim: <em>"Is the project built out and needs to be able to be
+      supported (i.e. bug fixes, maintenance, new features add), or are you still in the process of building
+      your project?"</em></p>
+    </div>
+C4HTML
+c4_naive=$(grep -clF -- "$CHOOSER_LITERAL" "$c4_target" 2>/dev/null); c4_naive=$(_num "$c4_naive")
+c4_norm=0
+_normalise "$c4_target" | grep -qF -- "$CHOOSER_LITERAL" && c4_norm=1
+# The fixture must genuinely SPAN lines, or "the naive recipe missed it" would
+# be true for an uninteresting reason.
+c4_span=$(grep -c 'Is the project built out' "$c4_target" 2>/dev/null); c4_span=$(_num "$c4_span")
+if [ "$c4_naive" -eq 0 ] && [ "$c4_norm" -eq 1 ] && [ "$c4_span" -eq 1 ]; then
+  pass "C4 (MUTATION): a LINE-WRAPPED occurrence is INVISIBLE to a single-line grep and VISIBLE to C2's normalised recipe — which is the exact shape that escaped into workflow.html and the exact shape the old check could not see"
 else
-  fail_ "C4 (MUTATION): mirror setup" "mk_mirror failed"
+  fail_ "C4 (MUTATION): the wrapped fixture did not discriminate the two recipes" "single-line-found=$c4_naive (want 0) normalised-found=$c4_norm (want 1) sentence-starts-on-one-line=$c4_span (want 1)"
 fi
 
 echo "=== D — D9's opposite pin: the TIER question survives, and its answer is consumed ==="
@@ -430,10 +496,18 @@ done
 v1_conf=$(grep -c "Confidence:" "$CTL_OUT" 2>/dev/null); v1_conf=$(_num "$v1_conf")
 v1_stale=0; grep -qF "overrides all of it" "$CTL_OUT" 2>/dev/null && v1_stale=1
 v1_phase0=0; grep -qF "starts at phase 0" "$CTL_OUT" 2>/dev/null && v1_phase0=1
-if [ "$v1_signals" -eq 4 ] && [ "$v1_conf" -ge 4 ] && [ "$v1_stale" -eq 0 ] && [ "$v1_phase0" -eq 1 ]; then
-  pass "V1 (A6): all four evidence signals are still offered with confidence tiers ($v1_conf lines), the sentence pointing at the deleted question is gone, and the block says the project starts at phase 0 regardless"
+# THE "USERS" LINE IS ASSERTED HERE BECAUSE IT WAS NEARLY LOST IN TRANSIT. The
+# WP4 suite's deleted E1 checked three things; two were re-homed above and this
+# third — the block declaring that the scan CANNOT measure whether anyone uses
+# the project — was not, so for one review round the code still printed it and
+# nothing pinned it. It is the block's only claim about its own LIMITS, which
+# makes it the line most worth keeping honest.
+v1_users=0; grep -qF "the scan cannot measure" "$CTL_OUT" 2>/dev/null && v1_users=1
+if [ "$v1_signals" -eq 4 ] && [ "$v1_conf" -ge 4 ] && [ "$v1_stale" -eq 0 ] \
+   && [ "$v1_phase0" -eq 1 ] && [ "$v1_users" -eq 1 ]; then
+  pass "V1 (A6): all four evidence signals are still offered with confidence tiers ($v1_conf lines), 'users' is still declared unmeasurable, the sentence pointing at the deleted question is gone, and the block says the project starts at phase 0 regardless"
 else
-  fail_ "V1 (A6): the evidence block is not in its re-worded shape" "signals=$v1_signals confidence-lines=$v1_conf stale-sentence=$v1_stale phase0-line=$v1_phase0"
+  fail_ "V1 (A6): the evidence block is not in its re-worded shape" "signals=$v1_signals confidence-lines=$v1_conf stale-sentence=$v1_stale phase0-line=$v1_phase0 users-unmeasurable=$v1_users"
 fi
 
 # V2 (MUTATION) — the positive half of V1 is the load-bearing one: an assertion
@@ -473,10 +547,21 @@ for q in "What problem does this project solve" "What constrains this work" "Wha
   grep -qF "$q" "$CTL_OUT" 2>/dev/null && n1_judgment=1
 done
 n1_dc=0; grep -qF "highest classification of any data" "$CTL_OUT" 2>/dev/null && n1_dc=1
-if [ "$n1_confirms" -ge 4 ] && [ "$n1_judgment" -eq 0 ] && [ "$n1_dc" -eq 0 ] && [ "$CTL_RC" -eq 0 ]; then
-  pass "N1 (A7): the run completed (rc $CTL_RC) having asked $n1_confirms scan-derived confirmations and NO judgment question and NO data-classification question — the positive half is the control"
+# THE LIVE HALF. The two greps above search for literals belonging to DELETED
+# functions, so against this tree they can only ever be 0 — they are revert
+# canaries, not discriminators, and a suite leaning on them alone would assert
+# nothing. This one is derived from the REPORT: every judgment and
+# non-skippable row Scout emits must appear in the transcript as deferred, and
+# the count must MATCH. It moves if the report's shape moves, which is the
+# property actually worth pinning.
+n1_deferrable=$(jq -r '[.intakePrefill.sections[] | select(.kind == "judgment" or .kind == "non-skippable")] | length' "$REPORT" 2>/dev/null)
+n1_deferrable=$(_num "$n1_deferrable")
+n1_deferred=$(grep -c "asked in the assessment" "$CTL_OUT" 2>/dev/null); n1_deferred=$(_num "$n1_deferred")
+if [ "$n1_confirms" -ge 4 ] && [ "$n1_judgment" -eq 0 ] && [ "$n1_dc" -eq 0 ] && [ "$CTL_RC" -eq 0 ] \
+   && [ "$n1_deferrable" -gt 0 ] && [ "$n1_deferred" -eq "$n1_deferrable" ]; then
+  pass "N1 (A7): the run completed (rc $CTL_RC) having asked $n1_confirms scan-derived confirmations, and every one of the report's $n1_deferrable judgment/non-skippable rows was DEFERRED BY NAME rather than asked or dropped — a count derived from the report, not from literals of deleted functions"
 else
-  fail_ "N1 (A7): Act 2's question set is not confirmations-only" "confirmations=$n1_confirms judgment-asked=$n1_judgment classification-asked=$n1_dc rc=$CTL_RC"
+  fail_ "N1 (A7): Act 2's question set is not confirmations-only" "confirmations=$n1_confirms judgment-asked=$n1_judgment classification-asked=$n1_dc rc=$CTL_RC deferrable-rows=$n1_deferrable deferred-in-transcript=$n1_deferred"
 fi
 
 # N2 — what Act 2 WRITES: the confirmed cells present, the judgment cells blank
@@ -527,6 +612,100 @@ if mk_mirror "$N4M/fw"; then
   fi
 else
   fail_ "N4 (MUTATION): mirror setup" "mk_mirror failed"
+fi
+
+echo "=== R — the three routes A7's deferral DEPENDS ON, each executed ==="
+
+# A7 defers the data classification to Act 4, and what makes that acceptable is
+# not the deferral — it is that the operator still MEETS the question. That
+# conjunct was asserted by nobody and was FALSE ON ALL THREE ROUTES when
+# adversarial review executed them: `resume.sh` pointed at a section the intake
+# did not label, `intake-wizard.sh --resume` raised a swallowed KeyError and
+# resumed PAST the classification, and the escape hatch the ZDR block names in
+# its own FAIL text died on a file adoption never wrote. All three are asserted
+# here, by running them, because a claim about a route is worth exactly what an
+# execution of it says.
+
+# R1 — the route WP9a's own handoff advertises.
+r1_prompt="$TOPTMP/r1-resume"
+( cd "$CTL/p" && bash scripts/resume.sh ) > "$r1_prompt" 2>&1 || true
+r1_adopted=0; grep -qF "THIS PROJECT WAS ADOPTED" "$r1_prompt" 2>/dev/null && r1_adopted=1
+r1_dc=0;      grep -qF "Data classification is NOT OPTIONAL" "$r1_prompt" 2>/dev/null && r1_dc=1
+r1_fallback=1; grep -qF "Section 13 is your initialization prompt" "$r1_prompt" 2>/dev/null && r1_fallback=0
+r1_heading=$(grep -c '^## 13\.' "$CTL/p/PROJECT_INTAKE.md" 2>/dev/null); r1_heading=$(_num "$r1_heading")
+if [ "$r1_adopted" -eq 1 ] && [ "$r1_dc" -eq 1 ] && [ "$r1_fallback" -eq 1 ] && [ "$r1_heading" -eq 1 ]; then
+  pass "R1: scripts/resume.sh — the command Act 2's handoff prints — extracts a REAL initialization prompt from the adopted intake's own '## 13.' section, and that prompt names the data classification as not optional. Not the generic fallback that used to point at a section nobody rendered"
+else
+  fail_ "R1: the advertised route does not deliver a usable prompt" "adopted-prompt=$r1_adopted names-classification=$r1_dc escaped-the-fallback=$r1_fallback section-13-headings=$r1_heading (want 1)"
+fi
+
+# R2 — the wizard's resume path. Asserted as the KEY SET load_progress()
+# SUBSCRIPTS, plus the resume POINT, because those are two independent defects
+# and fixing either alone leaves the route broken: without the keys it raises
+# KeyError, and with last_section 13 it resumes at Section 14 — PAST Section 5,
+# the classification.
+r2_missing=""
+for k in last_section project_name platform track deployment language description; do
+  jq -e --arg k "$k" 'has($k)' "$CTL/p/.claude/intake-progress.json" >/dev/null 2>&1 || r2_missing="$r2_missing $k"
+done
+r2_last=$(jq -r '.last_section // "MISSING"' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
+if [ -z "$r2_missing" ] && [ "$r2_last" = "0" ]; then
+  pass "R2: .claude/intake-progress.json carries all seven keys intake-wizard.sh's load_progress() subscripts, and last_section is 0 — so --resume starts at Section 1 and WALKS Section 5 instead of resuming past it"
+else
+  fail_ "R2: the progress file cannot be resumed from" "missing-keys:${r2_missing:- none} last_section=$r2_last (want 0)"
+fi
+
+# R3 — THE ESCAPE HATCH, executed. `check-phase-gate.sh`'s Phase 1->2 ZDR block
+# names `reconfigure-project.sh` in its own FAIL text; this runs it and reads
+# the value back out of the file the gate reads.
+#
+# ON ITS OWN FIXTURE, deliberately: this case WRITES into the project, and the
+# control fixture above is shared by every read-only assertion in this file. A
+# case that mutates a shared fixture makes every later assertion depend on the
+# order they happen to run in.
+R3D="$(newtmp)"; mkdir -p "$R3D/p"
+r3_src=0; r3_val="?"
+if mk_adoptee "$R3D/p"; then
+  _ans 1 > "$R3D/answers"
+  run_adopt "$R3D/p" "$R3D/answers" "$REPORT"
+  [ -s "$R3D/p/.claude/orchestrator-source.json" ] && r3_src=1
+  ( cd "$R3D/p" && bash scripts/reconfigure-project.sh --field data_classification --old "" --new internal ) >"$TOPTMP/r3-out" 2>&1 || true
+  r3_val=$(jq -r '.phase1_artifacts.data_classification // "ABSENT"' "$R3D/p/.claude/process-state.json" 2>/dev/null)
+fi
+if [ "$r3_src" -eq 1 ] && [ "$r3_val" = "internal" ]; then
+  pass "R3: the escape hatch the ZDR block names in its own FAIL text WORKS on an adopted project — reconfigure-project.sh resolves .claude/orchestrator-source.json and writes the classification the gate reads"
+else
+  fail_ "R3: the gate names an escape hatch that does not reach an adopted project" "orchestrator-source-written=$r3_src classification-after=$r3_val (want internal); output: $(head -3 "$TOPTMP/r3-out" 2>/dev/null | tr '\n' '|')"
+fi
+
+# R4 (MUTATION) — and it asserts on the HATCH, not on the file. A missing file
+# and a broken hatch look identical if you only check the file.
+R4M="$(newtmp)"
+if mk_mirror "$R4M/fw"; then
+  # MARKER-BASED, and the delimiter is `/` rather than `|` ON PURPOSE. The
+  # line being mutated contains `||`, and CLAUDE.md records that a `|`-delimited
+  # sed whose expression carries `||` either errors or — worse — terminates
+  # early and leaves the file UNCHANGED while reporting success. The changed-
+  # line assertion below is the second half of that defence.
+  r4_shipped=$(_sites "$L_STATE" 'BL-242-ORCH-SOURCE')
+  cp -p "$R4M/fw/scripts/lib/adopt/adopt-state.sh" "$R4M/pre.sh"
+  _sed_inplace "$R4M/fw/scripts/lib/adopt/adopt-state.sh" 's/^.*BL-242-ORCH-SOURCE$/  :   # BL-242-ORCH-SOURCE/'
+  r4_changed=$(_changed_lines "$R4M/pre.sh" "$R4M/fw/scripts/lib/adopt/adopt-state.sh")
+  r4_parse=$(_parses "$R4M/fw/scripts/lib/adopt/adopt-state.sh")
+  mkdir -p "$R4M/p"; r4_val="?"
+  if mk_adoptee "$R4M/p"; then
+    _ans 1 > "$R4M/answers"
+    run_adopt "$R4M/p" "$R4M/answers" "$REPORT" "$R4M/fw"
+    ( cd "$R4M/p" && bash scripts/reconfigure-project.sh --field data_classification --old "" --new internal ) >/dev/null 2>&1 || true
+    r4_val=$(jq -r '.phase1_artifacts.data_classification // "ABSENT"' "$R4M/p/.claude/process-state.json" 2>/dev/null)
+  fi
+  if [ "$r4_shipped" -eq 1 ] && [ "$r4_changed" -eq 2 ] && [ "$r4_parse" -eq 1 ] && [ "$r4_val" = "ABSENT" ]; then
+    pass "R4 (MUTATION): drop the orchestrator-source write (1 line, mutant still parses) and the escape hatch goes DEAD — the classification stays ABSENT after running the very command the gate tells the operator to run"
+  else
+    fail_ "R4 (MUTATION): dropping the orchestrator-source write changed nothing observable" "shipped-sites=$r4_shipped changed=$r4_changed parses=$r4_parse classification-after=$r4_val (want ABSENT)"
+  fi
+else
+  fail_ "R4 (MUTATION): mirror setup" "mk_mirror failed"
 fi
 
 echo "=== G — A8: the gate stops naming a scenario it no longer records ==="
