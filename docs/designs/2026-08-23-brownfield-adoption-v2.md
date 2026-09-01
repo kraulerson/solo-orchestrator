@@ -522,6 +522,50 @@ believed to discriminate. None was a defect in the shipped behaviour, which pass
 probe all three times. The remedy that has actually worked is not more care: it is **re-running the
 measurement and re-writing the mutant** at the tip, every round.
 
+**2026-09-01, fifth pass — round 4 blocked, Tier 1 was EMPTY, and the pattern held a fourth time.**
+Round 4 wrote sixteen mutants and **nine survived**; it found no defect in shipped behaviour, and
+said so first. Every finding was a proof that did not discriminate or a claim false at the tip.
+
+**Two of the branch's own claims were refuted by its own tree**, which is the sharpest form this
+recurring defect has taken:
+
+1. **`df7d5a1`'s message described an R2 fix that was never applied.** The reasoning in it was
+   correct — `jq -e 'has($k)'` is true for an explicit null and `shlex.quote(None)` returns `''`
+   rather than raising — but the hunk is absent from the commit, because the script that would have
+   made it asserted and exited before writing, and the message was composed from what was *intended*
+   rather than from the diff. The hole stayed open and a mutant walked through it. **A commit
+   message is a claim about a tree, and the tree is the arbiter.**
+2. **`2e4c180` and §0.3 both said §9's Scout row was "amended"; §9's row was byte-identical to
+   `main`.** Only the changelog sentence asserting the amendment existed. §9's row is now actually
+   amended, and §4.2 gains the `scripts/lib/scout/` row it was missing — **the sixth time that table
+   has been short, and the first time the omission was created by the branch's own later commit.**
+
+**Proofs that did not discriminate**, all now fixed and each re-verified by re-running the mutant:
+`R5` pinned the escape hatch's CALL SITE, so moving the swallow one line down INTO the function was
+green (it now calls the function with a stubbed writer and requires a refusal — behaviour, not
+spelling); `R2` pinned `last_section` and not `completed_sections`, so a populated skip-set let the
+wizard print `[OK] Section 5 — already complete` and then *"Intake Complete!"* at rc 0 — **the exact
+failure A7 was written against, through the other door**; `R1` pinned the classification sentence
+and not the clause beside it, so *"adoption did not ask for it"* could become *"adoption already
+recorded it for you"*; `R1` counted `^## 13\.` and not the title, so the double-heading defect
+`730c27d` fixed could be restored green; and `E5`'s fixture had both jq and a manifest, so the
+stamp guard's stated ORDERING was unpinned.
+
+**Numbers, again.** `## BL-242:` — the entry `README.md` tells readers to *"prefer to this
+sentence"* — still carried four claims this document had already corrected, and contradicted itself
+about the unowned count seventeen lines apart. `docs/adoption.md`'s committed-set enumeration said
+69 files and six paths where the run prints **76 and eight**, omitting `orchestrator-source.json` —
+**this package's own new writer**, the identical failure §8.7a had just been corrected for, one file
+over. And `BUG-010` had been filed *inside* the bugs file's template code fence, scrambling the
+last 120 lines of it.
+
+**Four rounds, one defect class, and the honest conclusion.** Not one blocking finding in four
+rounds has been a defect in what the software does. Every one has been **a plausible statement
+recorded as a verified one** — a mechanism, a count, a transcript, a commit message, or a proof
+believed to discriminate. Care has not fixed it; four rounds of care produced four rounds of it.
+What has worked, every time, is **re-deriving the number and re-running the mutant against the tip**
+— and the reason that works is that it does not consult the author's belief at all.
+
 ### §0.4 — Verification posture, and the branch topology caveat
 
 Every claim marked *verified* was **executed on 2026-08-24**; §13 prints the commands and their
@@ -831,6 +875,7 @@ A deletion with a footprint, not a string edit. Verified against the tree (§13-
 | `scripts/lib/adopt/adopt-intake.sh` | `$ADOPT_SCENARIO`'s five parameter sites, `adopt_judgment_question`'s scenario branch, `adopt_ops_addendum` whole, and — under **A7** — the judgment / non-skippable arms of `adopt_run_reverse_intake` including `adopt_ask_data_classification` and `# BF-ADOPT-DC-MANDATORY`. Not in this table before either, for the same reason |
 | `scripts/lib/adopt/adopt-stubs.sh` | `adopt_stub_certification` (WP5 is RETIRED, §5.1) and the `$ADOPT_SCENARIO`/`$ADOPT_LANDED_PHASE` parameters of `adopt_stub_adoption_record` (**A8**) |
 | `workflow.html` | The Step-B and Step-C cards — the verbatim question, the *Two scenarios* card (`S1 … lands at current_phase: 4`), the floor-rule card, *"data classification is non-skippable in both scenarios"*, and the stamp card naming *"the scenario, the landed phase, the certification lists"*. **THIS ROW IS THE THIRD TIME THIS TABLE HAS BEEN SHORT, and it is the one that matters most**: the page is linked from `README.md`'s ninth line as the walkthrough *"written for non-engineers"* and is served over GitHub Pages. It escaped §4.2's own completion check because the sentence is **LINE-WRAPPED** there, and a single-line `grep -F` cannot match a wrapped literal — so the check reported a clean tree while the most-read description of the feature still described the deleted question. The check is now a whitespace-normalised sweep of every **tracked** file (§10-WP9's `C2`), with the wrapped case pinned by its own mutant (`C4`) |
+| `scripts/lib/scout/scout-report.sh`, `scripts/lib/scout/scout-phasemap.sh` | **THE SIXTH TIME THIS TABLE HAS BEEN SHORT — and this row was created by the branch's OWN later commit**, which edited both files to retire the floor-rule note and did not add them here. §9's Scout row is amended to match. The lesson is the one this table keeps teaching: a blast radius is not a thing you enumerate once, it is a thing that grows while you work inside it |
 | `README.md` and `docs/scout.md` | **THE FOURTH AND FIFTH TIME THIS TABLE HAS BEEN SHORT, both found in the review of the commit that announced the third.** `README.md`'s brownfield bullet still said adoption *"caps an in-flight project at the phase its own evidence supports"* — the floor rule, deleted — and called the certification pass *"designed and not yet implemented"* when it is RETIRED. `docs/scout.md` still said the classification is *"non-skippable in every scenario"* and that *"the driver, the chooser and the interview ship and work"*. **Neither carries the verbatim question, so no widening of C2 would ever have found them**: the defect class is stale prose describing deleted machinery, and the only check that covers it is a reader. Recorded as the standing limit of this table rather than papered over with a lint that cannot exist |
 | `tests/test-brownfield-wp4-driver.sh` | `CHOOSER_LITERAL` pins the question's **presence**; v2 re-aims it to pin **absence** (§10-WP9's mutation). Its **P** block (P1–P5, placement and the floor rule) and its Act-2 classification cases (I3, I5, I6, I7) assert deleted behaviour and go with it; every answer script in the suite shortens, because Act 2 now asks the tier question and the scan-derived confirmations and nothing else |
 
@@ -1748,7 +1793,7 @@ statement with a denominator.
 | Kept | Anchor | Note |
 |---|---|---|
 | Every phase-gate predicate | `scripts/check-phase-gate.sh` | v2 adds no gate arms beyond WP3's shipped ones, and under D10 it needs none — **but not for the reason this cell gave until 2026-09-01.** It said *"nothing writes `current_phase` outside Act 2's phase-0 landing"*, which is false: `process-checklist.sh`'s `_set_current_phase_min` writes it at five call sites and ships to adoptees. The real reason is better and does not depend on enumerating writers: the gates are **cumulative and evidence-keyed**, so a project whose rung was advanced without the evidence fails the gate on the evidence, whoever moved it |
-| Scout, whole | `scripts/scout.sh`, `scripts/lib/scout/` | Act 1 is the shipped Scout. Candidate future section (`chooserEvidence`) dies with the chooser |
+| Scout, **almost** whole | `scripts/scout.sh`, `scripts/lib/scout/` | Act 1 is the shipped Scout. Candidate future section (`chooserEvidence`) dies with the chooser. **AMENDED AT WP9a, and the amendment is here rather than only in the changelog because that is where a reader of this row looks:** `scout-report.sh` emitted, in the report and the rendered markdown, the note *"maximum satisfied rung; the interview may only lower this"* — the FLOOR RULE, whose interview D4 deleted and whose placement D10 deleted. Shipped operator-facing output making a claim about machinery that does not exist. Re-worded to *"…evidence for the Phase 0 intake, never a placement"* at four sites plus the WP1 suite's string-equality pin. Nothing else in Scout changes, and nothing outside Scout reads `phaseMap.suggestedPhase` any more, which is what made the note purely descriptive |
 | The in-core enabling arms | `scripts/lib/adoption-stamp.sh`, `# BF-ADOPT-FLAG-READ`, the TDD adoption-window arm | The `adopted` flag's meaning and every reader; the stamp's writer changes shape (§8.3), not home or discipline |
 | The test-debt ledger and ratchet | `scripts/lib/adopt/adopt-test-debt.sh` (WP5b, shipped) | Untouched; still kind (c)'s forward equivalent |
 | The collision archive mechanism | `scripts/lib/adopt/adopt-archive.sh` (WP6, shipped) | Gains two classes (§7.3); layout, MANIFEST, `--re-add`, pre-staging scan unchanged |

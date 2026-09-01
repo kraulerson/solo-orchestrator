@@ -642,18 +642,14 @@ the workflow from an updated framework clone.
 
 ---
 
-## Template for new entries
-
-When adding a new bug, copy this block and fill it in:
-
-```markdown
 ## BUG-010: `intake-wizard.sh --resume` fails SILENTLY on a progress file it does not like — a swallowed `KeyError`, then a skipped section, then "Intake Complete!" at rc 0
 
 **Logged:** 2026-09-01, by adversarial review of the BL-242 WP9a branch. Found
 while testing whether a route the branch DEPENDED ON actually worked. It did not.
 **Category:** Silent success — the class this repository exists to hunt
-**Status:** Open
-**Owner:** unassigned. **NOT adoption's** — the trigger was an adoption-written
+**Owner:** unassigned. *(No `**Status:**` line, deliberately: `CLAUDE.md` records
+that this file's vocabulary is `Fixed` / `Superseded`, and that "open" is read
+BY NEGATION. A literal `Open` here would have been the only one in the file.)* **NOT adoption's** — the trigger was an adoption-written
 file and that half is fixed (`adopt_render_intake_progress` now writes every key
 the wizard subscripts), but the swallow is the wizard's and any other producer of
 a progress file hits it.
@@ -750,6 +746,13 @@ found in the same review), and the `[FAIL]`-vs-`issues` doctrine in
 
 ---
 
+---
+
+## Template for new entries
+
+When adding a new bug, copy this block and fill it in:
+
+```markdown
 ## BUG-###: [One-line title]
 
 **Found:** YYYY-MM-DD

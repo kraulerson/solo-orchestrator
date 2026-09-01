@@ -14001,11 +14001,14 @@ reader of THIS entry needs and cannot get from the code.**
 **THE INIT-PARITY RESIDUAL — this is the part that is not recoverable from the
 code, and it is bigger than §10 implies.** §8.7's audit is delivered at §8.7a
 with the adoption half derived **by execution** (a shipped adoption run against
-a hermetic adoptee, tree diffed: 75 files written, 68 under `scripts/`, seven
-elsewhere) rather than by grep — grep having under-read this exact kind of
-surface twice already in this repository. Thirty-one rows. **Thirteen are
+a hermetic adoptee, tree diffed: **76** files written, 68 under `scripts/`,
+**eight** elsewhere) rather than by grep — grep having under-read this exact
+kind of surface twice already in this repository. **32 rows. Thirteen are
 UNOWNED, one UNSPECIFIED (`CHANGELOG.md`, which D3's reach ruling does not
-name), one PARTIAL (`.gitignore`).** The five packages after WP9 close **none**
+name), one PARTIAL (`.gitignore`).** *(75 / seven / thirty-one was the first
+measurement, taken before this package finished adding
+`.claude/orchestrator-source.json`. A measurement is only true of the tree it
+was taken on, and this one outlived that tree by three commits.)* The five packages after WP9 close **none**
 of the thirteen. Three matter beyond bookkeeping:
 
 - `docs/reference/*` is not installed, so **D8 binds
@@ -14020,8 +14023,13 @@ of the thirteen. Three matter beyond bookkeeping:
   off silently** on every adopted project — the fail-open row that entry exists
   to have removed, reintroduced through a different door.
 
-**Twelve, not thirteen — WP9a closed one, and which one is the point.**
-`.claude/orchestrator-source.json` had no owner in the first draft of that table.
+**Still thirteen, and WP9a closing one is why — which is the point.**
+Splitting row 23 to close `.claude/orchestrator-source.json` created row **23a**
+for the two files that travelled with it, itself unowned, so the count never
+moved. *(This paragraph said "twelve, not thirteen" for two rounds while the
+paragraph seventeen lines above it said thirteen — the entry contradicted
+itself, which is exactly the defect it had just recorded against §8.7a.)*
+That file had no owner in the first draft of that table.
 Adversarial review then executed the routes A7's deferral depends on and found
 that the Phase 1→2 ZDR block **names `reconfigure-project.sh` as its escape
 hatch in its own FAIL text**, and that the hatch died on exactly that missing
@@ -14029,8 +14037,8 @@ file — so the block was reachable and its advertised way out was not. Three
 shipped scripts an adoptee receives read the file. The rest of the unowned set
 has no such dependency and stays recorded rather than quietly absorbed.
 
-None of the remaining twelve is WP9's to fix and none is designed anywhere. They
-are recorded here because "the adoption feature is finished" now has a
+None of the remaining thirteen is WP9's to fix and none is designed anywhere.
+They are recorded here because "the adoption feature is finished" now has a
 denominator, which is what this entry has been asking for since it was filed.
 
 **THE REVIEW ROUND'S OWN LESSON, because it generalises past this feature.**
@@ -14042,8 +14050,10 @@ a document section that was never rendered, one crashed inside a python
 subprocess whose traceback went to stderr and whose non-zero status was
 discarded, and one died on a file that had no owner. **Deferring a requirement
 is only honest if the route that re-asks it exists, and a route is worth exactly
-what an execution of it says.** `## BUG-010:` carries the two
-`intake-wizard.sh` defects found on the way; they are pre-existing and are filed
+what an execution of it says.** `## BUG-010:` carries the three
+`intake-wizard.sh` defects found on the way — a swallowed `KeyError`, a choice
+prompt that loops forever on EOF, and an appendix writer whose jq program does
+not compile because `label` is a reserved keyword; they are pre-existing and are filed
 rather than absorbed into this feature's fix.
 
 **`## F-010:` is superseded by this entry** and now points here.
@@ -14056,6 +14066,58 @@ written); v1.2 corrected it to WP0–WP3; v1.2.1 corrected it to WP0–WP4 with
 overstated the gap for thirteen days. v1.2.2 restates the not-built set as the
 seven runtime stubs above — a list the code can be asked for rather than one a
 human maintains.
+
+## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
+
+**Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.
+**Category:** Reads a field that means something else — Scout emits an
+`evidence` string for UNSATISFIED rungs too
+**Status:** Open
+**Owner:** unassigned
+
+**PRE-EXISTING AND NOT BRANCH-INTRODUCED.** The function is byte-identical to
+`main`'s `scripts/lib/adopt/adopt-chooser.sh` (WP9a renamed that file to
+`adopt-evidence.sh` and changed nothing inside this function). It is filed now
+because the review found it inside the block **A6 re-certified and the WP9a
+suite's `V1` re-pinned** — and because A6's "the known defect is CARRIED" note
+names a *different* defect (the derive-in-two-places split), so a reader could
+reasonably conclude this one had been considered and kept. It had not been
+noticed.
+
+**What happens.** `adopt_evidence_deploy_lane` reads
+`[.phaseMap.rungs[]? | select(.rung == 4) | .evidence] | first // ""` and
+branches on whether that string is non-empty. **Scout emits an `evidence`
+string for unsatisfied rungs too** — it describes what was looked for, not a
+claim that it was found. So on any adoptee with no deploy lane the operator
+sees:
+
+```
+Deployment: the scan found no lane out the door found — no HANDOFF.md or
+RELEASE_NOTES.md, no deploy/release pipeline, no version-shaped tags.
+  Points to: built out. Confidence: LOW — this is file presence, not run history;
+```
+
+Two defects in three lines: **"Points to: built out"** on evidence saying the
+opposite, and a doubled **"found … found"** where the driver's lead-in meets
+Scout's sentence. The `elif` and `else` arms are unreachable for any real Scout
+report, so the block has one live path and it is the wrong one.
+
+**Why it is worth more than a cosmetic slip.** This is the ONE surface in Act 2
+where an operator is shown what the survey concluded about their own project,
+and `## BL-242:`'s A6 kept the block on the argument that seeing it is worth
+something. A signal that reports the inverse of its own evidence is worth less
+than nothing.
+
+**The fix**: consult `.satisfied` rather than the presence of `.evidence` —
+`[.phaseMap.rungs[]? | select(.rung == 4 and .satisfied) | .evidence] | first // ""`
+— and drop the driver's redundant "the scan found" lead-in where Scout's own
+sentence already carries one. Both other arms then become reachable and the
+`elif` (pipeline configured, no lane out the door) starts doing its job.
+
+**Related:** `## BL-242:` A6, which keeps this block and names a different
+carried defect.
+
+---
 
 ## BL-240: `workflow.html`'s "Verified against the tree on YYYY-MM-DD" stamp has no mechanism — and a staleness check is a lint that can red without a defect
 

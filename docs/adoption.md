@@ -346,7 +346,7 @@ IDENTICAL — a halted run wrote nothing
 
 ```text
 ══ Committing exactly what was written
-   69 file(s), named one by one. Anything else you had in progress stays
+   76 file(s), named one by one. Anything else you had in progress stays
    exactly as you left it — unstaged, uncommitted, untouched.
 ```
 
@@ -356,23 +356,34 @@ counter-example this exists to avoid is `create_project()`'s
 your uncommitted work into a framework commit with verification bypassed.
 
 Observed on a completed run — one commit,
-`chore: adopt <project> into the Solo Orchestrator framework`, containing 69
-files: `.claude/adoption/scout-report.json`, `.claude/manifest.json`,
-`.claude/phase-state.json`, `.claude/process-state.json`,
-`.claude/intake-progress.json`, `PROJECT_INTAKE.md`, and the framework `scripts/`
-tree. **Your own files are not in it.**
+`chore: adopt <project> into the Solo Orchestrator framework`, containing **76**
+files: the eight below, and the framework `scripts/` tree (68 of them).
+**Your own files are not in it.**
+
+```text
+.claude/adoption/scout-report.json   .claude/intake-progress.json
+.claude/manifest.json                .claude/orchestrator-source.json
+.claude/phase-state.json             .claude/process-state.json
+.claude/test-debt.json               PROJECT_INTAKE.md
+```
+
+*(This list read six files and 69 until it was re-measured. It had been correct
+when written and was falsified twice over — by the test-debt ledger WP5b added,
+and by `orchestrator-source.json`, which **this package added**. An enumeration
+of what a run writes has to be re-run by whoever adds a writer; nothing checks
+it.)*
 
 ### What lands in `scripts/`
 
 ```text
 ══ Installing the framework's own scripts
-   Installed 63 framework script(s); left 0 of your own file(s) untouched.
+   Installed 68 framework script(s); left 0 of your own file(s) untouched.
 ```
 
 The set is **derived from `init.sh`'s own copy list** rather than duplicated, so
 an adopted project's script set cannot drift from a scaffolded one's. Measured,
 comparing this adopted project against a project scaffolded by `init.sh` on the
-same tree: **63 scripts each, and the difference in both directions is empty.**
+same tree: **68 scripts each, and the difference in both directions is empty.**
 
 The commit-msg hook comes from the same emitters `init.sh` uses. Measured — the
 adopted and the scaffolded project's `.git/hooks/commit-msg` have the **same
