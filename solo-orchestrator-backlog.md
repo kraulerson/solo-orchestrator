@@ -13967,6 +13967,55 @@ same standard as code rather than waved through as "docs-only".
    **stricter** than any default would have been. A fallback would have
    weakened shipped behaviour to solve a case that cannot occur.
 
+### WP9's build (2026-09-01) — what it settled, and the residual it created
+
+**The design document carries the changes; this section records only what a
+reader of THIS entry needs and cannot get from the code.**
+
+- **A5–A8** were decided at the build, on the same delegation as A1–A4 and with
+  the same label — author decisions, not Karl's. They are in
+  `docs/designs/2026-08-23-brownfield-adoption-v2.md` §8.3a. The one with a
+  user-visible consequence is **A7**: Act 2's reverse intake stops asking the
+  judgment rows *and the data classification*, because §8.2 step 7 says so and
+  because the classification's Act-2 mandate rested on "an S1 adoption lands at
+  4", which **D10 deleted**. Between WP9 and WP12a an adoption therefore records
+  no classification at all — fail-closed (the project rests at phase 0; the ZDR
+  backstop fires at `current_phase >= 2`; the only route to 2 crosses the gate
+  that backstop lives in), and the operator meets the question in the Phase 0
+  intake, which is where D10 puts it.
+- **WP12 is split into WP12a and WP12b.** An architecture review recommended it
+  twice. Sequencing is now `WP9 → WP10 → WP11 → WP12a → WP12b → WP7`.
+- **WP9 itself ships as two PRs**, 9a (the deletions, the stamp, the act
+  boundaries) and 9b (A1's preflight, A4's `APPROVAL_LOG.md`). One work package,
+  one scope row; the split is a review-surface decision and both land before
+  WP10.
+
+**THE INIT-PARITY RESIDUAL — this is the part that is not recoverable from the
+code, and it is bigger than §10 implies.** §8.7's audit is delivered at §8.7a
+with the adoption half derived **by execution** (a shipped adoption run against
+a hermetic adoptee, tree diffed: 75 files written, 68 under `scripts/`, seven
+elsewhere) rather than by grep — grep having under-read this exact kind of
+surface twice already in this repository. Thirty-one rows. **Thirteen are
+UNOWNED, one UNSPECIFIED (`CHANGELOG.md`, which D3's reach ruling does not
+name), one PARTIAL (`.gitignore`).** The five packages after WP9 close **none**
+of the thirteen. Three matter beyond bookkeeping:
+
+- `docs/reference/*` is not installed, so **D8 binds
+  `docs/reference/messaging-standard.md` inside a project that never receives
+  it** — and `resume.sh`'s §13 kickoff prompt hands the agent a Builder's Guide
+  that is not there either.
+- `.claude/settings.json` (permissions + the session-hook roster) and the
+  vendored `.claude/skills/` are not installed, so an adopted project's
+  **sessions** are a materially weaker place than a scaffolded project's.
+- `.claude/settings.local.json`'s `mcpServers.qdrant` entry is not written, so
+  `## BL-233:`'s accumulation gate derives NOT REQUIRED and **switches itself
+  off silently** on every adopted project — the fail-open row that entry exists
+  to have removed, reintroduced through a different door.
+
+None of the thirteen is WP9's to fix and none is designed anywhere. They are
+recorded here because "the adoption feature is finished" now has a denominator,
+which is what this entry has been asking for since it was filed.
+
 **`## F-010:` is superseded by this entry** and now points here.
 
 **The design document's status row has been wrong three times, and the third is
