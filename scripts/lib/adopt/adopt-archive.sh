@@ -529,7 +529,7 @@ adopt_archive_write() {
   # `mkdir -p` that creates the parents and then fails has still changed the
   # tree, and the copy loop below runs ~110 lines before adopt_record_write, so
   # the ledger is empty through the whole copy phase while these files exist.
-  ADOPT_TOUCHED_DISK=1
+  adopt_touched_disk
   mkdir -p "$arc_abs" 2>/dev/null || { adopt_refuse "could not create the collision archive at $arc_rel"; return 1; }
 
   while IFS="$(printf '\t')" read -r rel class arel; do
@@ -538,7 +538,7 @@ adopt_archive_write() {
     # `cp -p` preserves the mode, which matters more here than anywhere else in
     # the driver: a git hook that comes back at 0644 does not run, and an
     # operator restoring one would get silence rather than an error.
-    ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
+    adopt_touched_disk   # BL-225-TOUCHED-DISK
     cp -p "$root/$rel" "$arc_abs/$arel" 2>/dev/null || { adopt_refuse "could not archive $rel"; return 1; }
   done < "$work/arcinv"
 
@@ -945,7 +945,7 @@ adopt_archive_readd() {
   # ABOVE the record and now runs there — which makes the residual documented
   # above the WHOLE residual rather than most of it. R5 forces that failure
   # with a regular file where a directory has to go and asserts zero rows.
-  ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$(dirname "$root/$want")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$want") — nothing has been changed and nothing recorded"; return 1; }
   #
   # THE DETAILS ARE BUILT ON THEIR OWN LINE so that the emit is a COMPLETE
@@ -968,7 +968,7 @@ adopt_archive_readd() {
     return 1
   fi
 
-  ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
   cp -p "$restored_from" "$root/$want" || { adopt_refuse "could not restore $want — the audit row was already written, so the ledger records an intent that did not complete"; return 1; }
   case "$mode" in ''|*[!0-7]*) : ;; *) chmod "$mode" "$root/$want" 2>/dev/null ;; esac
 

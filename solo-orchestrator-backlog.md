@@ -9504,6 +9504,29 @@ half-written; an honest refusal (`# BL-225-REFUSE-HONEST`) that derives the
 written count and labels the two cases apart; and the same oracle correction in
 `_adopt_record_if_stageable` (`# BL-225-ORACLE-SYNC`).
 
+**THE TOUCHED-DISK MARKER, AND WHAT ITS GUARD DOES NOT COVER.** The refusal can
+no longer say "nothing was written" over files that exist, because every writer
+raises a marker first and `adopt_refuse` reads it. Two design facts and one
+residual, all measured:
+
+- **The marker is a FILE (`$ADOPT_WORK/touched`), not a variable.**
+  `adopt_write_file` — the driver's most-used writer — is called at seven sites
+  as the RIGHT-HAND SIDE OF A PIPELINE, and bash 3.2 has no `lastpipe`, so a
+  variable set there dies with the subshell. The first version of this fix set a
+  variable and was therefore invisible to the driver at exactly those sites.
+- **`tests/test-bl225-staging-preflight.sh` T9 enforces the invariant** by
+  DERIVING the write sites from the source with a denylist of write shapes and
+  a small, reasoned exemption list. Its first version was an ALLOWLIST of
+  variable spellings; review defeated it in one attempt with an ordinary new
+  function writing to `"$dest"`. The denylist catches that.
+- **RESIDUAL: T9 is a net, not a proof.** It verifies that a marker call
+  appears before the write inside the same function; it does NOT verify
+  REACHABILITY, and a call wrapped in a never-true condition would satisfy it.
+  That is not statically decidable here. The mitigation is structural rather
+  than textual — because the marker is a file, an unreachable call creates
+  nothing and the behavioural assertions fail instead. Recorded rather than
+  implied.
+
 **THE NARROWING IS DELIBERATE AND IS RECORDED RATHER THAN LEFT TO A DIFF.** This
 entry's title asks for a preflight, and the natural reading is *before anything
 is written*. What shipped runs before **staging** — by which point ~78 files are

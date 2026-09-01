@@ -84,7 +84,7 @@ adopt_refuse() {
   # said "nothing was written". Same class as the claim it replaced. The flag is
   # set by every writer the moment it has touched the tree, so this reads a fact
   # rather than a proxy for one.
-  if [ "$_n" -gt 0 ] || [ "${ADOPT_TOUCHED_DISK:-0}" -eq 1 ]; then
+  if [ "$_n" -gt 0 ] || adopt_has_touched_disk; then
     printf '\n[BLOCKED] %s\n' "$1" >&2
     if [ "${ADOPT_COMMITTED:-0}" -eq 1 ]; then
       printf '          The adoption commit HAD already landed; a later step did not complete.\n' >&2
@@ -101,8 +101,13 @@ adopt_refuse() {
     else
       # Touched the tree before anything reached the ledger — the archive's copy
       # phase is the reachable case. Say exactly that, and no count.
+      # "ATTEMPTED", not "changed": the marker is raised BEFORE each write, so a
+      # `mkdir -p` that failed having created nothing also raises it. Claiming
+      # files exist would be the same unmeasured assertion this whole entry is
+      # about — in the opposite direction. Attempted is true in every case that
+      # reaches here, and it still sends the operator to look.
       printf '          Nothing was committed, and no file is recorded as written — but %s\n' "$(printf '%s' "${ADOPT_OPERATION:-Adoption}" | tr '[:upper:]' '[:lower:]')" >&2
-      printf '          had already begun changing this project. Check `.claude/adoption-archive/`\n' >&2
+      printf '          had already ATTEMPTED writes to this project. Check `.claude/adoption-archive/`\n' >&2
       printf '          and `git status --ignored --untracked-files=all` before re-running.\n' >&2
     fi
   else
@@ -291,7 +296,23 @@ ADOPT_COMMITTED=0
 # tests/test-bl225-staging-preflight.sh's T9 DERIVES both sets and requires
 # them to match, so a thirteenth writer added without the flag fails the suite
 # instead of waiting for a sixth review round.
-ADOPT_TOUCHED_DISK=0
+# BL-225-TOUCHED-DISK is a FILE, not a variable, and that is the whole point.
+# `adopt_write_file` — the driver's most-used writer, and the one that lands
+# PROJECT_INTAKE.md, phase-state.json, manifest.json, the scout report and the
+# test-debt ledger — is called at seven sites as the RIGHT-HAND SIDE OF A
+# PIPELINE. bash 3.2 has no `lastpipe`, so that side runs in a SUBSHELL and any
+# variable it sets is discarded when it returns: the flag was set where nobody
+# could read it. A file survives the subshell, and it also cannot be satisfied
+# by a line that merely APPEARS in the right place — the marker had to be
+# reachable to create it.
+adopt_touched_disk() {          # BL-225-TOUCHED-DISK
+  [ -n "${ADOPT_WORK:-}" ] || return 0
+  : > "$ADOPT_WORK/touched" 2>/dev/null || true
+  return 0
+}
+adopt_has_touched_disk() {      # BL-225-TOUCHED-DISK
+  [ -n "${ADOPT_WORK:-}" ] && [ -f "$ADOPT_WORK/touched" ]
+}
 # BL-225-OPERATION: `--re-add` is a DIFFERENT OPERATION, not a mode of the
 # adoption run (adopt-project.sh says so), and it never calls
 # adopt_ledger_init — so every one of its refusals landed in the arm that says
@@ -353,7 +374,7 @@ adopt_name_ignored_paths() {
 adopt_write_file() {
   local root="$1" rel="$2" dir
   dir="$(dirname "$root/$rel")"
-  ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$dir" 2>/dev/null || { adopt_refuse "could not create $dir"; return 1; }
   cat > "$root/$rel" || { adopt_refuse "could not write $rel"; return 1; }
   adopt_record_write "$rel"
@@ -367,7 +388,7 @@ adopt_jq_edit() {
   local f="$root/$rel"
   [ -f "$f" ] || { adopt_refuse "cannot edit $rel — it does not exist"; return 1; }
   command -v jq >/dev/null 2>&1 || { adopt_refuse "jq is required to adopt a project"; return 1; }
-  ADOPT_TOUCHED_DISK=1   # BL-225-TOUCHED-DISK
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
   jq "$@" "$filter" "$f" > "$f.tmp" 2>/dev/null || { rm -f "$f.tmp"; adopt_refuse "jq could not edit $rel"; return 1; }
   mv "$f.tmp" "$f" || { adopt_refuse "could not replace $rel"; return 1; }
   adopt_record_write "$rel"

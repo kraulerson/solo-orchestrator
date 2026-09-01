@@ -201,44 +201,107 @@ chk "T8: and stages NOTHING — the decider sees the WHOLE set, not just [0]" "$
 chk "T8: git's force hint is never relayed"         "$(printf '%s' "$t8err" | grep -c 'really want to add them')" "0"
 chk "T8: and the remedy line is present"            "$(printf '%s' "$t8err" | grep -c 'Un-ignore them in .gitignore')" "1"
 
-echo "== T9 — every tree-writing site raises ADOPT_TOUCHED_DISK (derived, not listed) =="
-# THE INVARIANT IS TESTED BECAUSE ASSERTING IT FAILED. The flag's first comment
-# said "1 as soon as ANY writer has changed the adoptee's tree" while it was set
-# at two of twelve such sites — so a failed `cp -p` in adopt_install_framework
-# left a directory behind under a refusal saying nothing was written. A
-# site-by-site fix invites the same finding at a thirteenth writer, so this
-# DERIVES both sets and requires them to match. Add a writer without the flag
-# and this fails here, not in review.
+echo "== T9 — every tree-writing site raises the touched marker (DENYLIST, not a list) =="
+# THE INVARIANT IS TESTED BECAUSE ASSERTING IT FAILED — TWICE, IN DIFFERENT WAYS.
+# First the flag's comment claimed "ANY writer" while it was set at two of
+# twelve sites. Then this check's own recipe was an ALLOWLIST of specific
+# variable spellings ("$dir", "$dst", "$arc_abs", ...), so review added an
+# ordinary new function writing to "$dest" and the check reported all clear.
+# A transcribed set is not a derived one; that is this repo's own rule and this
+# guard broke it.
 #
-# THE INVARIANT IS PER-FUNCTION, NOT PER-WRITER, and that was measured rather
-# than assumed. Removing the flag from `adopt_install_framework`'s `cp -p` does
-# NOT fail this check and SHOULD NOT: the `mkdir -p` two lines above has already
-# raised it, so the mutant is behaviourally identical. Removing the ONLY flag in
-# a function DOES fail it (verified against adopt-test-debt.sh). A per-writer
-# rule would demand redundant lines and report a no-op as a defect.
-_writers()  { grep -rn 'mkdir -p "\$root\|mkdir -p "\$dir"\|mkdir -p "\$(dirname "\$root\|mkdir -p "\$(dirname "\$dst")"\|mkdir -p "\$arc_abs"\|mkdir -p "\$hooks"\|cp -p "\$src" "\$dst"\|cp -p "\$root/\|cp -p "\$restored_from"\|cat > "\$root/\|printf .* > "\$hooks/\|soif_emit_tdd_commitmsg_block >> "\$hooks/\|> "\$f.tmp"' "$REPO_ROOT"/scripts/lib/adopt/*.sh | cut -d: -f1,2; }
-_flags()    { grep -rn 'ADOPT_TOUCHED_DISK=1' "$REPO_ROOT"/scripts/lib/adopt/*.sh | cut -d: -f1,2; }
+# So the recipe is now a DENYLIST: match the general SHAPES that write, then
+# subtract an explicit, commented allowlist of lines whose target is not the
+# adoptee's tree. A new writer is caught by default, and an exemption has to be
+# written down with a reason — the shape `lint-bl-markers.sh` already uses.
+#
+# WHAT THIS STILL CANNOT DO, stated rather than implied: it checks that a
+# marker call appears before the write inside the same function. It does NOT
+# check reachability — a call wrapped in a never-true condition would satisfy
+# it. Reachability is not statically decidable here; the mitigation is that the
+# marker is a FILE, so a placed-but-unreachable call creates nothing and the
+# behavioural tests (T7, the archive probe) fail instead.
+_writers() {
+  # One grep per verb, not one giant alternation: a single ERE with a dozen
+  # alternatives silently matched fewer lines than its own first alternative
+  # while this was being built, and a recipe nobody can debug is a recipe
+  # nobody can trust.
+  # BOTH loops must feed the SAME pipeline. A first draft left the first loop
+  # un-piped, so its output bypassed every filter and comments came back as
+  # writers — the filters were there and simply were not reached.
+  { for _v in 'mkdir -p ' 'cp ' 'mv ' 'install ' 'ln ' 'touch ' 'cat > '; do
+      # WORD-BOUNDED: `grep -F 'touch '` matched `n_touch ` inside a `local`
+      # declaration — a variable name, not a command.
+      grep -rnE -- "(^|[^A-Za-z0-9_])$_v" "$REPO_ROOT"/scripts/lib/adopt/*.sh
+    done
+    for _v in '> "$' '>> "$'; do
+      grep -rnF -- "$_v" "$REPO_ROOT"/scripts/lib/adopt/*.sh
+    done; } \
+    | grep -vE ':[0-9]+: *#' \
+    | grep -vE ':[0-9]+:[[:space:]]*(adopt_note|adopt_say|adopt_head|adopt_refuse|printf|echo)([[:space:]]|$)' \
+    | grep -vE '\$ADOPT_WORK|\$TD_TMP|\$TMPDIR|mktemp|\$ADOPT_WRITTEN_LEDGER' \
+    | grep -vE '"\$work/|"\$ADOPT_ANSWERS"|> "\$names"' \
+    | cut -d: -f1,2 | sort -u
+}
+# ^ THE ALLOWLIST, and every arm carries its reason:
+#   :N: #        — a comment describing a write is not a write
+#   a line whose FIRST TOKEN is an output function
+#                — output functions whose ARGUMENTS contain write verbs
+#                  ("put it back: cp $arc/$ap $op"). Anchored to the first
+#                  token on purpose: a draft that excluded any line CONTAINING
+#                  `adopt_refuse "` removed nearly every real writer, because
+#                  almost all of them end `|| { adopt_refuse "..."; return 1; }`.
+#                  The writer count collapsed from 25 to 1 and the check went
+#                  green on nothing.
+#   $ADOPT_WORK / $TD_TMP / $TMPDIR / mktemp / the written-ledger
+#                — the driver's own state, not the operator's tree.
+#                  `/dev/null` IS DELIBERATELY ABSENT: excluding it removed
+#                  almost every real writer, because nearly all of them carry
+#                  `2>/dev/null` for error suppression. The writer set silently
+#                  collapsed to five while the check stayed green — the same
+#                  shape as the allowlist it replaced, arriving through an
+#                  exclusion instead of an omission.
+#   "$work/ , "$ADOPT_ANSWERS" , > "$names"
+#                — THREE NAMED EXEMPTIONS, named because they cannot be derived
+#                  from the line itself: `$work` and `$ADOPT_ANSWERS` arrive as
+#                  PARAMETERS (`local arc="$1" work="$2"`; `ADOPT_ANSWERS="$1"`)
+#                  and `$names` is assigned `"$TD_TMP/names"` a line earlier.
+#                  All three are driver scratch, not the adoptee's tree, and
+#                  tracing callers is beyond what a shell fixture should do.
+#                  AN EXEMPTION MUST ALWAYS CARRY A REASON LIKE THESE — that is
+#                  the whole difference between this denylist and the allowlist
+#                  it replaced, where an unrecognised target was silently absent
+#                  instead of loudly flagged.
+#
+# WHAT THIS IS AND IS NOT. It is a NET, not a proof. It catches a new writer
+# that uses any of the shapes above, which is how review defeated the previous
+# recipe — an ordinary new function writing to `"$dest"`. It does NOT verify
+# REACHABILITY: a marker call wrapped in a never-true condition would satisfy
+# it, and that is not statically decidable here. The mitigation is structural
+# rather than textual — the marker is a FILE, so a placed-but-unreachable call
+# creates nothing and the BEHAVIOURAL assertions (T7, and the archive probe)
+# fail instead. Recorded on `## BL-225:` as a residual rather than implied.
+_markers() { grep -rn 'adopt_touched_disk$\|adopt_touched_disk ' "$REPO_ROOT"/scripts/lib/adopt/*.sh | grep -v '^.*:[0-9]*: *#' | cut -d: -f1,2; }
 t9_w=$(_writers | wc -l | tr -d ' ')
-t9_f=$(_flags   | wc -l | tr -d ' ')
-chk "T9: at least one tree-writing site is found (the recipe still matches)" \
+chk "T9: the recipe still matches tree-writing sites at all" \
   "$([ "${t9_w:-0}" -gt 0 ] && echo yes || echo no)" "yes"
-# THE INVARIANT IS "raised BEFORE the write, inside the same function" — not
-# "on the line immediately above", which two adjacent writers cannot both
-# satisfy without a redundant line. For each writer, scan back to the start of
-# its enclosing function and require a flag in between.
+# For each writer, scan back to the start of its enclosing function and require
+# a marker call in between. PER-FUNCTION, not per-writer: two adjacent writers
+# cannot both carry a line above them without a redundant one, and removing a
+# redundant one is a genuine no-op. Measured both directions — see below.
 t9_missing=0
 while IFS=: read -r wf wl; do
   [ -n "$wl" ] || continue
   fn_start=$(awk -v L="$wl" 'NR<L && /^[A-Za-z_][A-Za-z0-9_]*\(\) *\{/ {n=NR} END{print n+0}' "$wf")
   [ "$fn_start" -gt 0 ] || fn_start=1
-  if ! awk -v A="$fn_start" -v B="$wl" 'NR>A && NR<B && /ADOPT_TOUCHED_DISK=1/ {f=1} END{exit !f}' "$wf"; then
+  if ! awk -v A="$fn_start" -v B="$wl" 'NR>A && NR<B && /adopt_touched_disk/ {f=1} END{exit !f}' "$wf"; then
     t9_missing=$((t9_missing + 1))
-    echo "         (T9) no flag before $(basename "$wf"):$wl in its function"
+    echo "         (T9) no marker before $(basename "$wf"):$wl in its function"
   fi
 done <<T9SET
 $(_writers)
 T9SET
-chk "T9: every tree-writing site is preceded by the flag (writers=$t9_w flags=$t9_f)" "$t9_missing" "0"
+chk "T9: every tree-writing site is preceded by the marker (writers=$t9_w)" "$t9_missing" "0"
 
 # ORDER-SENSITIVE: M2 and M3 each `cp` their own mutant over
 # "$MUTLIB/adopt-state.sh". Correct at the current ordering because each writes
