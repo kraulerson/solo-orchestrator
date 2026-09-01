@@ -103,12 +103,14 @@ adopt_install_framework() {
       n_collided=$((n_collided + 1))
       continue
     fi
+    adopt_touched_disk   # BL-225-TOUCHED-DISK
     mkdir -p "$(dirname "$dst")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$rel")"; return 1; }
     # `cp -p`, and NOT `cp` followed by `chmod +x`. The framework's own modes
     # are already right — entry scripts are 0755 and libs are 0644 — and a
     # blanket +x would land every sourced lib in the adoptee at 0755, a
     # difference from a scaffolded project that nothing downstream would ever
     # explain. Preserving the source mode keeps the two births identical.
+    adopt_touched_disk   # BL-225-TOUCHED-DISK
     cp -p "$src" "$dst" 2>/dev/null || { adopt_refuse "could not install $rel"; return 1; }
     adopt_record_write "$rel"
     n_copied=$((n_copied + 1))
@@ -308,17 +310,73 @@ STAGE_SET
     adopt_refuse "there is nothing to commit — no file was recorded as written"
     return 1
   fi
+  # BL-225-STAGE-PREFLIGHT: ask BEFORE adding, and stop WHOLE.
+  #
+  # `git add` on a mixed pathspec STAGES THE CLEAN PATHS AND EXITS 1 — measured,
+  # not assumed (T1 of tests/test-bl225-staging-preflight.sh). The old code
+  # learned that from `git add`'s exit status, by which point the index was
+  # already half-written.
+  #
+  # THE ORACLE IS `git add --dry-run`, AND THAT CHOICE IS THE FIX. The first
+  # version asked `git check-ignore`, which is INDEX-AWARE and reports nothing
+  # for a TRACKED path — so a tracked `.claude/manifest.json` under a
+  # later-added `.claude/` rule passed the preflight and half-staged exactly as
+  # before. Measured against `git add` as ground truth across a directory rule,
+  # a file rule and a glob, `--dry-run` is the only oracle that agrees in all
+  # three; `check-ignore --no-index` swaps the false-clean for a FALSE REFUSAL
+  # on projects that work today. `--dry-run` writes nothing: `.git/` hashes
+  # byte-identical before and after, so the promise below holds by construction.
+  #
+  # The set checked is FILES_TO_STAGE, complete by construction: it is exactly
+  # what the `git add` would receive.
+  local _dry _ignored _named
+  if ! _dry=$( cd "$root" && git add --dry-run -- "${FILES_TO_STAGE[@]}" 2>&1 >/dev/null ); then
+    # --dry-run names the PATTERN that matched; the helper names the PATHS.
+    # Keep git's own diagnostic as the fallback, so a cause this code did not
+    # anticipate (a pathspec-magic fatal, say) is REPORTED rather than
+    # misdiagnosed as an ignore rule.
+    _named=$(adopt_name_ignored_paths "$root" "${FILES_TO_STAGE[@]}") || _named=""
+    _ignored="$_named"
+    [ -n "$_ignored" ] || _ignored="$_dry"
+    adopt_refuse "git will not stage every file this adoption must commit"
+    {
+      printf '          NOTHING WAS STAGED — your index is exactly as you left it.\n'
+      printf '          git says:\n'
+      # BL-225-NO-FORCE-HINT: strip git's `hint:` lines. git suggests `add -f`,
+      # and `docs/adoption.md` guarantees adoption NEVER commits a file the
+      # operator's .gitignore excludes — so relaying the hint would put two
+      # contradictory instructions three lines apart, and would make this
+      # message depend on the host's `advice.addIgnoredFile` setting.
+      printf '%s\n' "$_ignored" | grep -v '^hint:' | sed 's/^/            /'
+      printf '          These are framework files the adoption needs tracked, so they cannot be\n'
+      printf '          quietly skipped: an install missing them is broken rather than reduced.\n'
+      # The remedy, and ONLY when an ignore rule is the confirmed cause. The
+      # first fix deleted this line outright because it is wrong for an
+      # unmeasurable cause — which left the common case with no action at all,
+      # except git's `-f` hint, which is the wrong one.
+      # The remedy fires when an ignore rule is the CONFIRMED cause — from the
+      # namer, or from git's own diagnostic. Gating on the namer alone left the
+      # tracked-path case (this branch's headline case) with no remedy at all,
+      # because `git check-ignore` is index-aware and structurally cannot name a
+      # tracked path. It must still NOT fire on an unmeasured cause.
+      if [ -n "$_named" ] || printf '%s' "$_dry" | grep -q 'ignored by one of your'; then
+        printf '          Un-ignore them in .gitignore and run adoption again.\n'
+      fi
+    } >&2
+    return 1
+  fi
   adopt_head "Committing exactly what was written"
   adopt_note "$n file(s), named one by one. Anything else you had in progress stays"
   adopt_note "exactly as you left it — unstaged, uncommitted, untouched."
   ( cd "$root" && git add -- "${FILES_TO_STAGE[@]}" ) || {   # BF-ADOPT-STAGE-EXPLICIT
-    adopt_refuse "could not stage the adoption files (are any of them ignored by .gitignore?)"
+    adopt_refuse "could not stage the adoption files"
     return 1
   }
   ( cd "$root" && git commit -q -m "chore: adopt ${ADOPT_PROJECT_NAME:-this project} into the Solo Orchestrator framework" ) || {
     adopt_refuse "the adoption commit did not succeed — your own hooks or git identity may have refused it"
     return 1
   }
+  ADOPT_COMMITTED=1   # BL-225-REFUSE-HONEST: derived, so a later refusal tells the truth
   return 0
 }
 
@@ -361,14 +419,17 @@ adopt_install_hooks() {
   local root="$1"
   local hooks="$root/.git/hooks"
   adopt_head "Turning the gates on"
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$hooks" 2>/dev/null || { adopt_refuse "could not create $hooks"; return 1; }
 
   if [ ! -f "$hooks/commit-msg" ]; then
+    adopt_touched_disk   # BL-225-TOUCHED-DISK
     printf '%s\n' '#!/usr/bin/env bash' > "$hooks/commit-msg" || { adopt_refuse "could not create the commit-msg hook"; return 1; }
   fi
   if grep -qF "$SOIF_TDD_OPEN" "$hooks/commit-msg" 2>/dev/null; then
     adopt_note "The commit-msg gate was already present — left as it was."
   else
+    adopt_touched_disk   # BL-225-TOUCHED-DISK
     soif_emit_tdd_commitmsg_block >> "$hooks/commit-msg" || { adopt_refuse "could not extend the commit-msg hook"; return 1; }
     adopt_note "Commit-msg gate installed (it composes with whatever was already in that hook)."
   fi

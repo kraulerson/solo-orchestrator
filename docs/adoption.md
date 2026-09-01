@@ -135,7 +135,7 @@ service with no `README.md`, a weekend prototype with a tagged release.
 
 ```text
 [REFUSED] This question has no default and no skip, and no answer was given: the project's situation
-          Adoption did not complete. Nothing has been committed.
+          Adoption did not begin. Nothing was committed and nothing was written.
 ```
 
 Inferring the scenario and asking you to confirm it was considered and rejected:
@@ -251,7 +251,7 @@ Which one describes it?
    Answer with the number or the words:
 
 [REFUSED] Data classification has no default, no guess and no skip — in either scenario. The Phase 1 to 2 gate is a hard FAIL without it, so an adoption that skipped it would produce a project that cannot pass its own next gate.
-          Adoption did not complete. Nothing has been committed.
+          Adoption did not begin. Nothing was committed and nothing was written.
 rc=1
 ```
 
@@ -260,7 +260,7 @@ coerced:
 
 ```text
 [REFUSED] 'legacy-app' is not one of the answers offered for: who the project is for
-          Adoption did not complete. Nothing has been committed.
+          Adoption did not begin. Nothing was committed and nothing was written.
 ```
 
 ---
@@ -914,7 +914,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Code | Meaning |
 |---|---|
 | 0 | Adoption completed |
-| 1 | Adoption did not complete — a refusal, a blocker, or a halt. **Nothing has been committed** |
+| 1 | Adoption did not complete. The message distinguishes the two cases (`# BL-225-REFUSE-HONEST`): **`[REFUSED]`** when the run never began — nothing committed, nothing written; **`[BLOCKED]`** when it began and stopped — nothing committed, but *N* file(s) already on disk, with the count derived from the write ledger rather than assumed. It does **not** claim those files are visible to plain `git status`: on the staging-block path they provably are not, so it names `git status --ignored --untracked-files=all` instead. **Nothing is ever left half-staged** — `# BL-225-STAGE-PREFLIGHT` asks `git add --dry-run` before it stages, and stops whole |
 | 2 | Bad usage, or a target the driver cannot use |
 
 ---

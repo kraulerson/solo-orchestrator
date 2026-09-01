@@ -525,6 +525,11 @@ adopt_archive_write() {
 
   arc_rel="$(adopt_archive_dir_new "$root")"
   arc_abs="$root/$arc_rel"
+  # BL-225-TOUCHED-DISK, raised BEFORE the mkdir rather than after it: a
+  # `mkdir -p` that creates the parents and then fails has still changed the
+  # tree, and the copy loop below runs ~110 lines before adopt_record_write, so
+  # the ledger is empty through the whole copy phase while these files exist.
+  adopt_touched_disk
   mkdir -p "$arc_abs" 2>/dev/null || { adopt_refuse "could not create the collision archive at $arc_rel"; return 1; }
 
   while IFS="$(printf '\t')" read -r rel class arel; do
@@ -533,6 +538,7 @@ adopt_archive_write() {
     # `cp -p` preserves the mode, which matters more here than anywhere else in
     # the driver: a git hook that comes back at 0644 does not run, and an
     # operator restoring one would get silence rather than an error.
+    adopt_touched_disk   # BL-225-TOUCHED-DISK
     cp -p "$root/$rel" "$arc_abs/$arel" 2>/dev/null || { adopt_refuse "could not archive $rel"; return 1; }
   done < "$work/arcinv"
 
@@ -717,8 +723,26 @@ STAGEABLE
 _adopt_record_if_stageable() {
   local root="$1" rel="$2"
   [ -e "$root/$rel" ] || return 0
-  if ( cd "$root" && git check-ignore -q -- "$rel" ) 2>/dev/null; then
-    adopt_note "Your .gitignore excludes $rel, so it stays out of the commit — it is on disk."
+  # BL-225-ORACLE-SYNC: `git add --dry-run`, not `git check-ignore`. The same
+  # oracle error BL-225 fixed one directory over lived here too, and it is a
+  # WRONG ANSWER rather than the rc-128 fail-open below it: check-ignore is
+  # index-aware and reports nothing for a TRACKED path, so a tracked
+  # `.claude/bypass-audit.json` under a later-added `.claude/` rule was recorded
+  # for staging — withholding nothing, disclosing nothing — and `git add` then
+  # refused it. Two contradictory oracles ten files apart is how the next reader
+  # copies the refuted one.
+  if ! ( cd "$root" && git add --dry-run -- "$rel" ) >/dev/null 2>&1; then
+    # BL-225-ORACLE-SYNC (second half): `git add --dry-run` fails for ANY
+    # reason, not only an ignore rule — an unreadable file fails it too. Ask the
+    # namer whether an ignore rule is actually the cause before naming one; the
+    # first draft of this arm attributed every failure to `.gitignore`, which is
+    # a broken install disclosed with the wrong reason.
+    if adopt_name_ignored_paths "$root" "$rel" >/dev/null 2>&1; then
+      adopt_note "Your .gitignore excludes $rel, so it stays out of the commit — it is on disk."
+    else
+      adopt_note "git will not stage $rel, so it stays out of the commit — it is on disk. git says:"
+      ( cd "$root" && git add --dry-run -- "$rel" ) 2>&1 >/dev/null | grep -v '^hint:' | sed 's/^/    /'
+    fi
     return 0
   fi
   adopt_record_write "$rel"
@@ -921,6 +945,7 @@ adopt_archive_readd() {
   # ABOVE the record and now runs there — which makes the residual documented
   # above the WHOLE residual rather than most of it. R5 forces that failure
   # with a regular file where a directory has to go and asserts zero rows.
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$(dirname "$root/$want")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$want") — nothing has been changed and nothing recorded"; return 1; }
   #
   # THE DETAILS ARE BUILT ON THEIR OWN LINE so that the emit is a COMPLETE
@@ -943,6 +968,7 @@ adopt_archive_readd() {
     return 1
   fi
 
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
   cp -p "$restored_from" "$root/$want" || { adopt_refuse "could not restore $want — the audit row was already written, so the ledger records an intent that did not complete"; return 1; }
   case "$mode" in ''|*[!0-7]*) : ;; *) chmod "$mode" "$root/$want" 2>/dev/null ;; esac
 
@@ -961,6 +987,21 @@ adopt_archive_readd() {
 # "re-adds are permitted" decision was the moment they had not yet formed an
 # opinion.
 adopt_readd_main() {
+  ADOPT_OPERATION="The re-add"   # BL-225-OPERATION: not an adoption run
+  # BL-225-TOUCHED-DISK: `--re-add` is dispatched BEFORE `adopt_main`, which is
+  # the only place `ADOPT_WORK` is ever assigned — so without this the marker
+  # writes nowhere and `adopt_has_touched_disk` answers "nothing touched" for
+  # this whole command. That regressed the audit-row contradiction one round
+  # after it was fixed: the refusal said "the audit row was already written"
+  # and then "nothing was written". A marker that is present, correctly placed
+  # and INERT is worse than an absent one, because the guard reads it as green.
+  if [ -z "${ADOPT_WORK:-}" ]; then
+    ADOPT_WORK="$(mktemp -d "${TMPDIR:-/tmp}/adopt-readd.XXXXXXXX" 2>/dev/null)" || {
+      echo "adopt-project: could not create a temporary working directory." >&2
+      return 2
+    }
+    trap 'rm -rf "$ADOPT_WORK"' EXIT INT TERM
+  fi
   local root="$1" want="$2"
   if ! command -v jq >/dev/null 2>&1; then
     echo "adopt-project: jq is required." >&2

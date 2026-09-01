@@ -9496,6 +9496,88 @@ git names the culprit) but the adoptee is left half-written with no way back
 except by hand.
 **Status:** Open
 
+**PARTIALLY CLOSED 2026-08-31 — the STAGING half. The BEFORE-ANY-WRITE half is
+still open, and this entry stays Open for it.** What shipped: a preflight in
+`adopt_stage_and_commit` (`# BL-225-STAGE-PREFLIGHT`) that asks
+`git add --dry-run` before it stages and stops WHOLE, so the index is never
+half-written; an honest refusal (`# BL-225-REFUSE-HONEST`) that derives the
+written count and labels the two cases apart; and the same oracle correction in
+`_adopt_record_if_stageable` (`# BL-225-ORACLE-SYNC`).
+
+**THE TOUCHED-DISK MARKER, AND WHAT ITS GUARD DOES NOT COVER.** The refusal can
+no longer say "nothing was written" over files that exist, because every writer
+raises a marker first and `adopt_refuse` reads it. Two design facts and one
+residual, all measured:
+
+- **The marker is a FILE (`$ADOPT_WORK/touched`), not a variable.**
+  `adopt_write_file` — the driver's most-used writer — is called at seven sites
+  as the RIGHT-HAND SIDE OF A PIPELINE, and bash 3.2 has no `lastpipe`, so a
+  variable set there dies with the subshell. The first version of this fix set a
+  variable and was therefore invisible to the driver at exactly those sites.
+- **`tests/test-bl225-staging-preflight.sh` T9 enforces the invariant** by
+  DERIVING the write sites from the source with a denylist of write shapes and
+  a small, reasoned exemption list. Its first version was an ALLOWLIST of
+  variable spellings; review defeated it in one attempt with an ordinary new
+  function writing to `"$dest"`. The denylist catches that.
+- **RESIDUAL: the guard is a NET, not a proof, and this is a finding about the
+  APPROACH rather than about any one recipe.** It was rewritten twice and
+  defeated twice, each rewrite opening a new blind spot of the same shape,
+  because **a shell regex cannot decide "does this line write into the
+  adoptee's tree" — the answer depends on variable provenance the line does not
+  carry.** `printf x > "$root/f"` and `printf x > "$TD_TMP/f"` are the same
+  shape and opposite answers. It was therefore labelled honestly instead of
+  rewritten a third time. **Named gaps, each measured:** `printf … > file` and
+  `echo … > file` (the output-function filter removes them, and it must, or it
+  removes nearly every real writer instead — two real sites in this codebase sit
+  in that gap and both carry markers); `tee`; a redirect with no space after
+  `>`; an exemption matching on the READ side of a line whose write target is in
+  the tree; and REACHABILITY, which is not statically decidable — a marker call
+  inside a never-true condition satisfies the text check. Two mitigations, both
+  structural rather than textual: the marker is a FILE, so an unreachable call
+  creates nothing and the behavioural assertions fail instead; and **T10** cross-
+  checks two independently derived sets — every file that raises the marker must
+  also yield a writer — which catches a collapse that removes a whole FILE from
+  the recipe's view. That happened twice (a `/dev/null` arm matching
+  `2>/dev/null`, and an `adopt_refuse "` arm matching error tails); T9 stayed
+  green through both and T10 fails on it.
+- **RESIDUAL: T10 does NOT catch a whole-FUNCTION collapse.** Measured, not
+  supposed: a `$arc_abs` + `restore:` exemption pair — the second of which is a
+  *correct* cleanup of a jq string literal that is not a write — plus deleting
+  both markers in `adopt_archive_write` takes the recipe 16 hits to 11, leaves
+  the archive copy phase unguarded, and both checks stay green, 35/35. The file
+  stays "represented" because `adopt_archive_readd` still yields hits. A
+  per-function variant would not catch it either: once the markers are removed
+  the function leaves the check's domain, and the only thing that would catch it
+  is a coverage number pinned from outside the recipe — which rots. It needs two
+  independent mistakes to align, one of them a legitimate cleanup. Recorded
+  rather than answered with a third guard, because every guard added here has
+  itself had a hole.
+
+**THE NARROWING IS DELIBERATE AND IS RECORDED RATHER THAN LEFT TO A DIFF.** This
+entry's title asks for a preflight, and the natural reading is *before anything
+is written*. What shipped runs before **staging** — by which point ~78 files are
+already on disk. The index is protected; the disk is not. Closing that half needs
+a planned-path set derived before the first write, which is a different piece of
+work and is not attempted here.
+
+**THE FIRST FIX FOR THIS ENTRY WAS WRONG, AND THE REASON IS WORTH KEEPING.** It
+asked `git check-ignore`, which is INDEX-AWARE — git-check-ignore(1): *"tracked
+files are not shown at all since they are not subject to exclude rules"* — while
+`git add` is not. So on a TRACKED `.claude/manifest.json` under a later-added
+`.claude/` rule, check-ignore reported *nothing ignored* and the preflight said
+proceed, and `git add` then refused **and staged anyway**: this defect,
+unchanged, through the guard written to stop it. Adversarial review caught it.
+Measured against `git add` as ground truth across a directory rule, a file rule
+and a glob, `git add --dry-run` is the only oracle that agrees in all three;
+`check-ignore --no-index` swaps the false-clean for a FALSE REFUSAL on projects
+that work today. A second benefit fell out: `--dry-run` is immune to the
+pathspec-magic variables that make `check-ignore` exit 128, so the fail-open
+class the first fix's fail-closed arm was written to defend against is
+**eliminated** rather than guarded — and that arm, with its marker, is gone. (It
+is described here rather than cited: the marker no longer exists, and citing a
+withdrawn marker is what `scripts/lint-bl-markers.sh` exists to catch. It caught
+this paragraph.)
+
 **What happens.** `scripts/adopt-project.sh` stages every recorded path in ONE
 `git add`, and `git add` on a gitignored path FAILS. WP6 fixed this for the
 paths it owns — the collision archive's entries, both MANIFESTs and the audit
