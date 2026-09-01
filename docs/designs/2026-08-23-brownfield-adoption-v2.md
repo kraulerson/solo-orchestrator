@@ -396,10 +396,12 @@ is what building WP9 found. Five changes:
    §10's sequencing line and both rows are re-cut; the A3 manifesto mutation moves to 12b with the
    reason stated, because it needs a document writer to mutate.
 3. **A5–A8 recorded in §8.3a**, labelled A and not D per that section's own rule.
-4. **§4.2's blast-radius table gains four rows it did not have** — `scripts/check-phase-gate.sh`
+4. **§4.2's blast-radius table gains THREE rows it did not have** — `scripts/check-phase-gate.sh`
    (a cosmetic `.adoption.scenario` read that would print `scenario: unknown` forever),
-   `adopt-intake.sh`, `adopt-stubs.sh`, and the WP4 suite's `P` block and Act-2 classification
-   cases. **That is the fourth instance of this document's recurring defect** — after D9, D10 and
+   `adopt-intake.sh` and `adopt-stubs.sh`. *(This said FOUR, counting the WP4 suite's `P` block and
+   Act-2 classification cases as a fourth; that row was already on `main` and was WIDENED, not
+   added. Derived: 5 rows on `main`, 8 after this amendment. A sentence about a short enumeration,
+   short by one.)* **That is the fourth instance of this document's recurring defect** — after D9, D10 and
    the "does not ask" headline — and the first one that is not about mistaking prose for a ruling:
    this time an enumeration was simply short, inside the section whose own closing paragraph warns
    that "a blast-radius enumeration is the author's inference about consequences".
@@ -567,6 +569,65 @@ recorded as a verified one** — a mechanism, a count, a transcript, a commit me
 believed to discriminate. Care has not fixed it; four rounds of care produced four rounds of it.
 What has worked, every time, is **re-deriving the number and re-running the mutant against the tip**
 — and the reason that works is that it does not consult the author's belief at all.
+
+**2026-09-01, sixth pass — round 5 blocked, Tier 1 was EMPTY a SECOND time, and the worst finding
+of the six rounds was an instruction that would have destroyed an operator's record.** Round 5
+re-ran round 4's nine survivors and confirmed all dead, then found six claims false at the tip:
+
+1. **`docs/adoption.md` told operators to hand-edit `.claude/manifest.json`** — *"if you adopt an
+   organizational project, set the manifest's tier keys by hand"* — above a table listing all three
+   tier keys as **absent**. Measured: all three present (`## BL-221:` Closed, PR #356), and **this
+   branch had already added a row 450 lines below saying they ship**, so the file contradicted
+   itself. The manifest is where the adoption stamp lives, so following the advice trips
+   `[FAIL] Adoption stamp LOST` and costs the record of how the project entered the framework — to
+   fix a defect closed weeks earlier. **It was correct when written and was left behind by its own
+   fix**, and the commit that swept for exactly this class fixed `workflow.html`, missed the
+   callout in the file it was editing, and left the table-row half to a different commit.
+   *"Advice that outlived its defect"* is the category worth carrying forward.
+2. **The tip commit claimed it corrected `## BL-242:`'s mechanism sentence; its diff did not touch
+   it** — third instance of a message describing absent work, in the entry `README.md` tells
+   readers to prefer over everything else.
+3. **§0.3 and §12-3 still carried the pre-correction measurement** (75 files / seven paths /
+   thirty-one rows) in lines *this branch added*. A changelog entry describing a measurement is a
+   **second carrier** of it; correcting the table did not correct the entry about the table.
+4. **§8.5 assigned delivered work to WP12a** — the `## 13.` kickoff prompt WP9a had built and `R1`
+   asserts by execution. The mirror image of the rest of this section: undone work claimed done,
+   and now done work claimed undone.
+5. **The status row still said "NOTHING OF v2 IS BUILT"** while its own derivation (2) named
+   `adopt-chooser.sh`, which this branch deleted. That row's instruction is *"when any of those
+   derivations stops returning what this row says, re-run them; do not quote them."* Nobody had.
+6. **A comment miscount was load-bearing.** *"The four values adoption cannot know are written
+   EMPTY"* — it writes three; `track` is a value. Its paired sentence in the suite said *"the one
+   key adoption genuinely knows"*, and that was the stated reason only `project_name` was pinned by
+   value — so blanking `deployment` (the tier answer, whose only source is the question WP9a kept)
+   and blanking `track` were both green.
+
+**And a fix that measured nothing, twice, both times reporting the happy answer.** E5's new
+jq-arm probe: `PATH=<empty-dir> command -v jq` **still finds jq**, because bash caches command
+locations and `command -v` consults the cache; re-doing it as `PATH=<empty-dir> bash -c …` then
+could not find `bash`, so the launch failure fired the refusal branch. The working form sets `PATH`
+INSIDE the fresh shell.
+
+**2026-09-01, seventh pass — round 6, and the pattern completed a circle.** Round 6 found the
+shipped software sound for the third consecutive round and blocked on three more false claims —
+one of them being that **this very changelog recorded round 5**, which it did not until this entry
+existed. The commit making that claim is the same one whose body announces *"THE TIP COMMIT CLAIMED
+A CORRECTION ABSENT FROM ITS OWN DIFF — third instance on this branch."* **It was the fourth,
+committed in the sentence position that named the third.** Also corrected: §0.3's *"§4.2's
+blast-radius table gains four rows"* — it gained **three** (the fourth enumerated item was a
+*widening* of the `tests/test-brownfield-wp4-driver.sh` row already present on `main`), which is
+the same short-enumeration defect the sentence itself was describing; and the attribution of
+`docs/adoption.md`'s tier-key row flip to `066a138`, which was `68ad9dd`'s.
+
+**Six rounds, one class, and the conclusion the whole series earns.** Not one blocking finding in
+six rounds has been a defect in shipped behaviour; rounds 4, 5 and 6 each verified that by running
+a full adoption. Every blocker has been **a plausible statement recorded as a verified one**. The
+defect recurred *inside the fixes for it* at least three times — a mutation proof whose only
+discriminator was its own edit landing, a probe that isolated nothing, and a commit message
+announcing the third instance of exactly what it was committing. **Care does not fix this class,
+because care is what produces it.** What fixes it is mechanical and cheap: re-derive the number at
+the tip, re-run the mutant against the shipped file, and `git show` the commit before writing its
+message.
 
 ### §0.4 — Verification posture, and the branch topology caveat
 
