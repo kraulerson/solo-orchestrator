@@ -746,8 +746,6 @@ found in the same review), and the `[FAIL]`-vs-`issues` doctrine in
 
 ---
 
----
-
 ## Template for new entries
 
 When adding a new bug, copy this block and fill it in:

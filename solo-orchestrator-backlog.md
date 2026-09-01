@@ -14161,6 +14161,24 @@ reason this is filed rather than folded in silently: a comment that states an
 invariant is a claim, and this repository now has four rounds of evidence that
 an unpinned claim drifts.**
 
+**A FOURTH, SAME CLASS, FOUND IN ROUND 9.**
+`# BL-242-STAMP-SHA-REQUIRED` is `case "$scanner_sha" in '') return 1 ;; esac`,
+which matches its documented contract — it refuses an EMPTY hash — but the
+file header's stronger sentence, *"a durable record that says how a project got
+here must not be written malformed"*, over-reaches. Executed against the
+shipped writer:
+
+```
+soif_adoption_stamp ".claude/manifest.json" " "   ->  rc=0
+{"schemaVersion":2,...,"scannerReportSha256":" "}
+```
+
+Unreachable from the driver, which computes the hash and refuses at
+`# BF-ADOPT-SHA-REQUIRED` first — so it is a latent trap for a future caller,
+the same shape as the seven stale 8-argument call sites that shipped `"completed"`
+into that field until round 8. Either tighten the guard to reject whitespace or
+narrow the header sentence to what the guard does.
+
 **Related:** `## BL-242:` A7 (which moved the classification and made this file
 load-bearing), and `## BUG-010:` (the `intake-wizard.sh` defects on the same
 route).

@@ -40,8 +40,15 @@
 # act boundaries. HONEST STUBS name WP11, WP12a, WP12b and WP7 at run time.
 # WP10's absence — tool resolution and the tier-scoped secrets stop — is
 # announced by NOTHING, which is the design's own derivation 3 and not an
-# oversight of this comment: `grep -c 'resolve-tools'` over this driver and its
-# lib returns 0 in every file.
+# oversight of this comment. Derive it from the STUBS rather than from a grep
+# for the tool: no `adopt_stub_*` body names WP10, and those seven functions
+# are the whole set of things the run announces.
+#
+# *(The first spelling of this said `grep -c 'resolve-tools'` "returns 0 in
+# every file" — of the driver and its lib, which includes THIS file, where the
+# recipe itself is the one hit. A verification recipe printed inside the file
+# it verifies falsifies itself; this repository has paid for that three times
+# already. Name a recipe whose subject is not the sentence.)*
 #
 # THE CHOOSER AND PLACEMENT ARE GONE (v2 D4, D10) and this comment said they
 # were here for the whole of WP9a, because this file is not in that package's
