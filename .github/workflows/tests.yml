@@ -518,6 +518,7 @@ jobs:
             tests/test-brownfield-wp6-collision-archive.sh
             tests/test-bl225-staging-preflight.sh
             tests/test-brownfield-wp9-act-boundaries.sh
+            tests/test-brownfield-wp9b-preflight-approval.sh
             tests/test-bl233-mcp-outcome-enforcement.sh
             tests/test-bl233-wpb-accumulation.sh
             tests/test-pr-review-gate.sh
