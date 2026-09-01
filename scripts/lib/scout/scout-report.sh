@@ -323,7 +323,10 @@ _scout_emit_prefill() {
 
 # ── The human view (§4.1's register) ────────────────────────────────────────
 
-# _scout_phase_sentence N — what the placement means, without saying "phase".
+# _scout_phase_sentence N — what the EVIDENCE amounts to, without saying
+# "phase". It used to say "what the placement means"; there is no placement
+# any more (v2 D10 — every adopted project lands at phase 0), and the sentence
+# describes what the scan found rather than where anything lands.
 _scout_phase_sentence() {
   case "$1" in
     0) printf 'We could not find a written description of what this project is for.\n' ;;
@@ -331,7 +334,7 @@ _scout_phase_sentence() {
     2) printf 'The project is described and its technical shape is written down.\n' ;;
     3) printf 'The project is described, its shape is written down, and it has tests that can actually be run.\n' ;;
     4) printf 'The project is described, its shape is written down, it has runnable tests, and there is a way to get it out the door.\n' ;;
-    *) printf 'Placement could not be determined.\n' ;;
+    *) printf 'The scan could not tell how far along this is.\n' ;;
   esac
 }
 
