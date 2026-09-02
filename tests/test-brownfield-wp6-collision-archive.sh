@@ -296,10 +296,17 @@ _add_surfaces() {
   return 0
 }
 
+# A FRAMEWORK ROOT IS NOT `scripts/` PLUS `init.sh`. `templates/` is part of
+# it: since WP9b the driver renders APPROVAL_LOG.md from
+# `$ADOPT_FRAMEWORK_ROOT/templates/generated/approval-log-*.tmpl` (A4), and a
+# mirror without it makes every adoption run against that mirror REFUSE — which
+# is the right behaviour on a real incomplete checkout and a silent wrecking
+# ball on an incomplete test double. Mirror the templates too.
 mk_mirror() {
   local m="$1"
   mkdir -p "$m" || return 1
   cp -Rp "$REPO_ROOT/scripts" "$m/" || return 1
+  cp -Rp "$REPO_ROOT/templates" "$m/" || return 1
   cp -p "$REPO_ROOT/init.sh" "$m/" || return 1
   return 0
 }

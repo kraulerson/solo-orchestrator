@@ -109,6 +109,28 @@ adopt_archive_inventory() {
 $(_adopt_archive_ai_surfaces)
 AI
 
+  # ── APPROVAL_LOG.md, AND IT IS HERE BECAUSE WP9b MADE IT A REPLACE ────────
+  # §7.1's rule is not "AI surfaces are archived", it is "every
+  # archive-and-replace surface produces a row". Until A4 nothing in adoption
+  # wrote this path, so it belonged to §7.5 (keep theirs) and correctly had no
+  # row. A4 renders the tier-matched template OVER it, which makes it a
+  # replace — and a replace with no row is the silent-success class this whole
+  # archive exists to close.
+  #
+  # MEASURED BEFORE THE FIX, on an adoptee whose own APPROVAL_LOG.md was never
+  # committed: rc 0, the operator's sign-off record gone, ZERO blobs anywhere
+  # in the repository containing it, and the run printing "Nothing was
+  # deleted." in the same transcript. The disclosure was telling the truth
+  # about the list it had been given; the list was wrong.
+  #
+  # ITS OWN CLASS, NOT `document`. WP11 owns the `document` class (D3) and
+  # folding this into it now would poach that package's vocabulary and its
+  # notice text. A named class costs one row here and leaves WP11 free to
+  # absorb it deliberately.
+  if [ -f "$root/APPROVAL_LOG.md" ]; then
+    printf '%s\t%s\t%s\n' "APPROVAL_LOG.md" "approval-log" "APPROVAL_LOG.md"
+  fi
+
   # Skills are a directory shape, not a fixed path, so they are globbed. `find`
   # rather than a glob because bash 3.2 has no `nullglob` and an unmatched glob
   # would be passed through as a literal path.
@@ -563,8 +585,25 @@ adopt_archive_write() {
     # marker-composed bucket: the framework appends a MARKED block to their
     # commit-msg hook, so their file keeps working and the archive is the
     # pre-composition copy the restore line puts back.
+    # `APPROVAL_LOG.md` is REPLACED, not kept: A4 renders the tier-matched
+    # template over it, and `kept` — "the operator's original is still at the
+    # path" — would be false in the document an auditor reads to learn what
+    # happened to their files.
+    #
+    # THIS FIELD IS FORWARD-LOOKING, AND SAYING SO IS THE POINT. The MANIFEST is
+    # written at the archive stage, two steps before the state loop, so on a run
+    # interrupted between them the original IS still at the path while this says
+    # `replaced`. Review raised that as the value being wrong. It is not wrong;
+    # it is the same tense every neighbouring field already uses — MEASURED on
+    # `SOIF_ADOPT_HALT_AFTER=install`, the identical row reads
+    # `{"disposition":"replaced","stagedForCommit":true}` with no commit having
+    # happened. Re-deriving one field after the fact while its neighbours stay
+    # declarative would make the record less coherent, not more. What the record
+    # states is what this adoption WILL do to each file; an interrupted run
+    # leaves every such statement unfulfilled together.
     case "$rel" in
       .git/hooks/commit-msg) dispo="composed" ;;
+      APPROVAL_LOG.md)       dispo="replaced" ;;   # BL-242-ARCHIVE-DISPO
       *)                     dispo="kept" ;;
     esac
 

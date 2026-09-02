@@ -209,10 +209,17 @@ run_adopt() {
 # anyway decided nothing and is not rendered". Spelling the name plainly and
 # registering the suite is the honest combination; dodging the predicate with
 # a glob would hide the decision instead of making it.
+# A FRAMEWORK ROOT IS NOT `scripts/` PLUS `init.sh`. `templates/` is part of
+# it: since WP9b the driver renders APPROVAL_LOG.md from
+# `$ADOPT_FRAMEWORK_ROOT/templates/generated/approval-log-*.tmpl` (A4), and a
+# mirror without it makes every adoption run against that mirror REFUSE — which
+# is the right behaviour on a real incomplete checkout and a silent wrecking
+# ball on an incomplete test double. Mirror the templates too.
 mk_mirror() {
   local m="$1"
   mkdir -p "$m" || return 1
   cp -Rp "$REPO_ROOT/scripts" "$m/" || return 1
+  cp -Rp "$REPO_ROOT/templates" "$m/" || return 1
   cp -p "$REPO_ROOT/init.sh" "$m/" || return 1
   return 0
 }
@@ -334,29 +341,71 @@ fi
 
 echo "=== S — the fail-safe state-creation order (§8.4, §5.5) ==="
 
+# WP9b PREPENDED `approval_log` (A4), and §8.4's property is UNCHANGED by it.
+# §8.4 is about which of two unsafe rows an interruption can rest in:
+# phase-state-present/manifest-absent BLOCKS (safe), manifest-present/
+# phase-state-absent silently SKIPS the gate (never reachable). The log sits
+# ahead of both and is inert on its own — with no phase-state the gate exits 0
+# — so adding it cannot create the unsafe row, while writing it LAST would
+# leave every mid-step-7 death in phase-state-present/log-absent, the gate's
+# hard refusal. Both halves are pinned: the order's HEAD is A4's, and its TAIL
+# is still §8.4's.
 s1_order="$( . "$L_STATE" >/dev/null 2>&1; _adopt_state_order | tr '\n' ' ' )"
 s1_sites=$(_sites "$L_STATE" 'BF-ADOPT-STATE-ORDER')
-if [ "$s1_order" = "phase_state intake manifest " ] && [ "$s1_sites" -eq 1 ]; then
-  pass "S1: the order is §8.4's, spelled once as data — phase_state, intake, manifest"
+s1_first_sites=$(_sites "$L_STATE" 'BL-242-APPROVAL-LOG-FIRST')
+if [ "$s1_order" = "approval_log phase_state intake manifest " ] \
+   && [ "$s1_sites" -eq 1 ] && [ "$s1_first_sites" -eq 1 ]; then
+  pass "S1: the order is A4's log first, then §8.4's — approval_log, phase_state, intake, manifest"
 else
-  fail_ "S1" "order=[$s1_order] (want 'phase_state intake manifest ') sites=$s1_sites (want 1)"
+  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake manifest ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
 fi
 
 # _assert_safe_row LABEL DIR — §8.4's TOP row: phase-state present, manifest
-# absent => the gate BLOCKS and the tier ladder reads `strict`. Both halves,
-# because C4's correction says the single flat claim is not true of both.
+# absent. The tier ladder must read `strict`, and the row must NEVER be the
+# silently-skipped one.
+#
+# ── WHAT WP9b CHANGED HERE, AND WHY THE OLD ASSERTION WAS RETIRED ──────────
+# This used to require the gate to EXIT NON-ZERO and to do so because
+# `APPROVAL_LOG.md not found but ...` — i.e. the safety of an interrupted
+# adoption was resting on a MISSING FILE. A4 writes that file (first, before
+# phase-state), so the precondition never fires on a tree adoption produced,
+# and the gate now reaches a real verdict: MEASURED, `Current phase: 0`,
+# `Phase gates consistent.`, rc 0. That verdict is TRUE — the project is at
+# phase 0 and has crossed nothing — so re-pinning the old rc would be pinning
+# an artifact.
+#
+# THE SAFETY DID NOT MOVE, AND THIS ASSERTS WHERE IT ACTUALLY LIVES. §8.4's
+# concern is the OPPOSITE row — manifest present, phase-state absent — where
+# the gate prints "skipping phase gate check" and exits 0 on an
+# adopted-LOOKING project with no enforcement. That row is still unreachable
+# (approval_log and phase_state both precede manifest), and the commit-time
+# ladder still reads `strict` here because the manifest is missing. Both are
+# asserted below; the retired third clause is named rather than deleted so a
+# future reader does not re-add it.
+#
+# The gate's refusal on a GENUINELY missing log is untouched — WP9b's own
+# suite mutates the write away and watches the precondition death return.
 _assert_safe_row() {
   local label="$1" dir="$2"
-  local rc has_ps has_mf lvl why=0
+  local rc has_ps has_mf lvl skipped=0
   gate_in "$dir"; rc=$GATE_RC
   has_ps=0; [ -f "$dir/.claude/phase-state.json" ] && has_ps=1
   has_mf=0; [ -f "$dir/.claude/manifest.json" ] && has_mf=1
-  grep -q 'APPROVAL_LOG.md not found but' "$GATE_OUT" && why=1
+  grep -q 'skipping phase gate check' "$GATE_OUT" && skipped=1
+  # `skipped` ALONE CANNOT FAIL HERE, and saying so beats implying otherwise:
+  # its only producing site is inside `if [ ! -f "$PHASE_STATE" ]`, and this
+  # helper has already asserted the phase-state exists. A draft stopped there
+  # and printed "the gate RUNS" while interpolating an untested `rc` — under a
+  # mutant that removed A4's write, that line printed with the gate dead at
+  # rc 1 on the missing-log precondition. Assert the verdict itself.
+  local reached=0
+  grep -q 'Phase gates consistent' "$GATE_OUT" && reached=1
   lvl="$( . "$REPO_ROOT/scripts/lib/enforcement-level.sh" >/dev/null 2>&1; read_enforcement_level "$dir" )"
-  if [ "$rc" -ne 0 ] && [ "$has_ps" -eq 1 ] && [ "$has_mf" -eq 0 ] && [ "$why" -eq 1 ] && [ "$lvl" = "strict" ]; then
-    pass "$label: the safe row — phase-state present, manifest absent; the gate BLOCKS (rc $rc) for that reason and the tier ladder reads strict"
+  if [ "$has_ps" -eq 1 ] && [ "$has_mf" -eq 0 ] && [ "$skipped" -eq 0 ] \
+     && [ "$reached" -eq 1 ] && [ "$rc" -eq 0 ] && [ "$lvl" = "strict" ]; then
+    pass "$label: the safe row — phase-state present, manifest absent; the gate REACHES ITS VERDICT (rc 0, 'Phase gates consistent') and the tier ladder reads strict"
   else
-    fail_ "$label" "gate_rc=$rc (want non-zero) phase_state=$has_ps (want 1) manifest=$has_mf (want 0) blocked_for_that_reason=$why enforcement_level=$lvl (want strict)"
+    fail_ "$label" "phase_state=$has_ps (want 1) manifest=$has_mf (want 0) gate_skipped=$skipped (want 0) reached_verdict=$reached (want 1) gate_rc=$rc (want 0) enforcement_level=$lvl (want strict)"
   fi
 }
 
@@ -729,10 +778,47 @@ fi
 echo ""
 echo "=== R — the halted-run exits, and the record's evidence hash ==="
 
-# R1 — a re-run of an adoption that already installed everything must NAME the
-# real cause. This is the operator's most likely second move (something went
-# wrong at the commit, fix it, run again) and the first cut answered it by
-# blaming the clone — the one thing that was fine.
+# R1 — a re-run of an adoption that already completed must NAME the real cause.
+# This is the operator's most likely second move (something went wrong, fix it,
+# run again) and the driver's first cut answered it by blaming the clone — the
+# one thing that was fine.
+#
+# ── WP9b MOVED THE ANSWER EARLIER, AND THIS PIN MOVED WITH IT ──────────────
+# This used to assert the n_copied tripwire's text ("every framework script is
+# already present"), which fires inside `adopt_install_framework` — AFTER the
+# tier question, the reverse intake, the test-debt census and the archive.
+# A1's preflight now refuses the same tree at STEP 0, before any of that, so
+# the tripwire is not reached on this fixture and pinning its wording would
+# fail against a strictly better implementation.
+#
+# WHAT IS ASSERTED IS THE PROPERTY, NOT THE MESSAGE'S OWNER: the second run
+# refuses, it says the project is already adopted, it does NOT blame the clone,
+# and it points at the route that actually helps. The clone misdiagnosis is
+# still pinned as an ABSENCE, because that is the defect this test was born
+# for and it must not come back by any path.
+#
+# The tripwire itself is NOT asserted dead — the mutation proofs in the WP9b
+# suite still drive it. But it is no longer reachable through the shipped
+# driver: arm 3's third signal refuses on at-least-half of the install set
+# being present, and `n_copied -eq 0` implies all of it. A draft of this
+# comment claimed "a tree carrying every framework script but no `.claude/` at
+# all still reaches it" — built, measured, and refuted at step 0, with the
+# tripwire text absent. This comment was the surviving twin of a sentence the
+# design had already corrected.
+#
+# TWO CLAUSES WERE DROPPED AND ARE NAMED HERE RATHER THAN LEFT TO A DIFF, the
+# same discipline `_assert_safe_row` above applies to its one:
+#   • `said_resume_unbuilt` — the tripwire's "RESUMING AN INTERRUPTED ADOPTION
+#     IS NOT BUILT YET" line. The preflight answers first now, so that text is
+#     unreachable on this fixture. The property it protected did not vanish: an
+#     operator whose first run died AFTER the install still needs telling, and
+#     that is asserted where it now lives — `_adopt_preflight_prior_archive`
+#     derives whether the framework is installed and says so (WP9b suite).
+#   • `r1_gate` ("the safe row still holds after the refused re-run") — RETIRED
+#     for the same reason `_assert_safe_row`'s rc clause was: on a fully
+#     adopted tree the gate now reaches a true verdict at rc 0 instead of dying
+#     on a missing APPROVAL_LOG.md. Re-aiming it here would duplicate
+#     `_assert_safe_row`, which already pins gate-runs/not-skipped/strict.
 R1D="$(newtmp)"
 if ! mk_adoptee "$R1D/p"; then
   fail_ "R1" "fixture setup failed"
@@ -741,17 +827,15 @@ else
   _ans > "$R1D/answers"
   run_adopt "$R1D/p" "$R1D/answers" "$R1D/report.json"; r1_first=$RUN_RC
   run_adopt "$R1D/p" "$R1D/answers" "$R1D/report.json"; r1_second=$RUN_RC
-  r1_true=0; r1_false=0; r1_resume=0
-  grep -q 'every framework script is already present' "$RUN_ERR" && r1_true=1
-  grep -q 'is this a complete clone' "$RUN_ERR" && r1_false=1
-  grep -q 'RESUMING AN INTERRUPTED ADOPTION IS NOT BUILT YET' "$RUN_ERR" && r1_resume=1
-  # …and the safe row still holds after the refused re-run.
-  gate_in "$R1D/p"; r1_gate=$GATE_RC
-  if [ "$r1_first" -eq 0 ] && [ "$r1_second" -ne 0 ] && [ "$r1_true" -eq 1 ] \
-     && [ "$r1_false" -eq 0 ] && [ "$r1_resume" -eq 1 ] && [ "$r1_gate" -ne 0 ]; then
-    pass "R1: a second run on an already-installed project refuses with the TRUE cause, never the clone misdiagnosis, says resuming is not built yet, and leaves the gate still blocking"
+  r1_adopted=0; r1_false=0; r1_route=0
+  grep -q 'already been adopted' "$RUN_ERR" "$RUN_OUT" && r1_adopted=1
+  grep -q 'is this a complete clone' "$RUN_ERR" "$RUN_OUT" && r1_false=1
+  grep -q 'scripts/resume.sh' "$RUN_OUT" && r1_route=1
+  if [ "$r1_first" -eq 0 ] && [ "$r1_second" -ne 0 ] && [ "$r1_adopted" -eq 1 ] \
+     && [ "$r1_false" -eq 0 ] && [ "$r1_route" -eq 1 ]; then
+    pass "R1: a second run refuses at the preflight, says the project is already adopted, never blames the clone, and names the route that helps"
   else
-    fail_ "R1" "first_rc=$r1_first second_rc=$r1_second (want non-zero) named_true_cause=$r1_true blamed_the_clone=$r1_false (want 0) said_resume_unbuilt=$r1_resume gate_rc=$r1_gate (want non-zero)"
+    fail_ "R1" "first_rc=$r1_first second_rc=$r1_second (want non-zero) said_already_adopted=$r1_adopted (want 1) blamed_the_clone=$r1_false (want 0) named_the_route=$r1_route (want 1)"
   fi
 fi
 

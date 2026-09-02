@@ -41,7 +41,15 @@
 
 # _adopt_state_order — §8.4's order, spelled ONCE, as data, so that reversing
 # it is a ONE-LINE edit and a mutation proof has a single site to hit.
+# A4 PUTS `approval_log` FIRST, AND THE ORDER IS A SAFETY PROPERTY, NOT A
+# PREFERENCE. Written LAST, every mid-step-7 death leaves the tree
+# phase-state-present/log-absent — the gate's hard refusal, the one state an
+# interrupted adoption must not rest in. Written FIRST, an interrupted run
+# leaves at worst a log with no phase-state, which is INERT: with no
+# phase-state the gate exits 0 and skips. Of the two orders only one has a safe
+# failure mode.
 _adopt_state_order() {
+  printf '%s\n' approval_log   # BL-242-APPROVAL-LOG-FIRST
   printf '%s\n' phase_state intake manifest   # BF-ADOPT-STATE-ORDER
 }
 
@@ -96,7 +104,16 @@ adopt_install_framework() {
     [ -n "$rel" ] || continue
     src="$ADOPT_FRAMEWORK_ROOT/$rel"
     dst="$root/$rel"
-    [ -f "$src" ] || continue
+    # SYNC SIBLING — `_adopt_preflight_managed` must count THIS set, filtered
+    # THIS way, or the two disagree about "is the framework here" and a design
+    # sentence gets written on the strength of the wrong one (§0.3). BOTH
+    # halves are needed for `n_copied -eq 0` to imply the preflight's
+    # `n_present == n_total`; a draft called this one "the load-bearing half",
+    # which understates the other. **`P6i`/`P6i2` in
+    # `tests/test-brownfield-wp9b-preflight-approval.sh` pin THIS line** — an
+    # incomplete root must still adopt a fresh project and must never emit
+    # `could not install`; `P6h` pins the sibling.
+    [ -f "$src" ] || continue   # BL-242-INSTALL-SET-KEY
     if [ -e "$dst" ]; then
       ADOPT_COLLISION_LIST="$ADOPT_COLLISION_LIST$rel
 "
@@ -194,6 +211,469 @@ adopt_write_orchestrator_source() {
   local root="$1"
   jq -n --arg s "$ADOPT_FRAMEWORK_ROOT" '{source_dir: $s}' \
     | adopt_write_file "$root" ".claude/orchestrator-source.json" || return 1
+  return 0
+}
+
+# ── §8.2 STEP 0 — THE RE-ADOPTION PREFLIGHT (A1) ────────────────────────────
+#
+# WHY IT IS BEFORE EVERY QUESTION AND EVERY WRITE. The obvious alternative —
+# "let the second-stamp refusal handle it" — refuses at the MANIFEST stage,
+# which is after `adopt_write_file` has `cat >`-overwritten `phase-state.json`
+# and the intake. Under D10 the clobbered `current_phase` is GATE-EARNED: the
+# operator crossed those boundaries with evidence, and no part of adoption can
+# give them back. Refusing after the damage is not refusing.
+#
+# THE ARMS ARE THREE SEPARATE FUNCTIONS ON THREE MARKED CALL LINES, so each has
+# exactly one thing a mutation proof can remove, and so that removing one
+# leaves the other two spelled exactly as they ship.
+adopt_preflight() {
+  local root="$1"
+  _adopt_preflight_adopted "$root" || return 1        # BL-242-PREFLIGHT-ARM1
+  _adopt_preflight_prior_archive "$root" || return 1  # BL-242-PREFLIGHT-ARM2
+  _adopt_preflight_managed "$root" || return 1        # BL-242-PREFLIGHT-ARM3
+  _adopt_preflight_templates || return 1              # BL-242-PREFLIGHT-TEMPLATES
+  _adopt_preflight_project_name "$root" || return 1   # BL-242-PREFLIGHT-NAME
+  return 0
+}
+
+# ── THE PROJECT NAME IS UNTRUSTED INPUT AND REACHES A GOVERNANCE DOCUMENT ──
+# `ADOPT_PROJECT_NAME` is `${root##*/}` — a directory basename — and A4 renders
+# it into `APPROVAL_LOG.md`, which `check-phase-gate.sh` PARSES for approval
+# evidence. A name containing a newline therefore injects arbitrary LINES into
+# that document, and `_cpg_gate_has_evidence` looks for exactly one shape: a
+# `## ` section header followed by a `| Date | YYYY-MM-DD |` row. A directory
+# named so as to carry those two lines makes the gate find approval evidence
+# nobody recorded — and `_cpg_record_gate_date` then SYNTHESISES that date into
+# `phase-state.json`, against its own header's rule that "a project with no
+# dated approval entry must NEVER get a date synthesized into phase-state.json".
+# The approval trail forging itself out of a folder name.
+#
+# A COMMENT IN THIS FILE ALREADY CLAIMED THIS REFUSED ("an embedded newline
+# still refuses loudly, which is correct"). IT DID NOT. What actually happened
+# on such a tree was an unrelated death further in, reporting `the scan report
+# classifies '' as ''` — a misleading message from a different mechanism, which
+# is how an unverified claim survived being written down as measured.
+#
+# Refused at step 0, before anything is asked or written, because a name of
+# this shape cannot be made safe by escaping at the render site alone: it also
+# flows into the intake, the manifest and the commit subject.
+_adopt_preflight_project_name() {
+  local root="$1" n stripped bad=""
+  n="${root##*/}"
+  # NOT a `case` pattern with `$(printf '\n')` in it — bash 3.2 mis-parses that
+  # construct and the resulting syntax error surfaces HUNDREDS OF LINES LATER,
+  # naming an innocent function. Strip the characters and compare instead:
+  # `tr -d` removes every newline and carriage return, so any name containing
+  # one differs from its stripped form.
+  stripped="$(printf '%s' "$n" | tr -d '\n\r')"
+  if [ -z "$n" ]; then
+    bad="it is empty"
+  elif [ "$stripped" != "$n" ]; then
+    bad="it contains a line break or carriage return"
+  fi
+  [ -n "$bad" ] || return 0
+  adopt_refuse "this project's directory name cannot be used: $bad"
+  adopt_note "Adoption writes the project's name into APPROVAL_LOG.md, PROJECT_INTAKE.md and"
+  adopt_note "the adoption commit. APPROVAL_LOG.md is the file the phase gate reads to decide"
+  adopt_note "whether a boundary was approved, so a name carrying line breaks could put rows"
+  adopt_note "into it that nobody approved."
+  adopt_blank
+  adopt_note "Rename the directory and run adoption again. Nothing has been written."
+  return 1
+}
+
+# NOT AN ARM — a precondition on the FRAMEWORK, not on the adoptee, and it is
+# here for the reason stated three functions below: "Refusing after the damage
+# is not refusing." Template presence is a static property of
+# `$ADOPT_FRAMEWORK_ROOT`, knowable before anything is asked or written. A
+# first cut checked it inside the state loop and MEASURED this on a checkout
+# without `templates/`: the refusal was honest and loud, and it arrived after
+# the archive was created and 74 files were on disk. The path is not
+# hypothetical — three of this repo's own test mirrors hit it in one build.
+#
+# BOTH templates are checked, not the tier-matched one: the tier is answered
+# after this point, so checking one would move the failure back into the state
+# loop for the other half of the operators.
+_adopt_preflight_templates() {
+  local t missing=""
+  # `-s`, NOT `-f`. A zero-byte template passes an existence check and then
+  # dies in the state loop with "the approval log rendered empty" — after the
+  # archive and 70 written files, which is precisely the failure this function
+  # was added to move earlier. Measured.
+  for t in approval-log-org approval-log-personal; do
+    [ -s "$ADOPT_FRAMEWORK_ROOT/templates/generated/$t.tmpl" ] && continue
+    # NEWLINE-DELIMITED, not space-delimited — see the loop that prints it.
+    missing="$missing$ADOPT_FRAMEWORK_ROOT/templates/generated/$t.tmpl
+"
+  done
+  [ -n "$missing" ] || return 0
+  adopt_refuse "this framework checkout is missing an approval-log template"
+  adopt_note "Adoption writes APPROVAL_LOG.md from a template shipped beside init.sh, and"
+  adopt_note "without it the adopted project could not run its own phase gate. Missing:"
+  # NOT `for t in $missing` — unquoted word-splitting breaks on the SPACE IN
+  # THIS REPOSITORY'S OWN PATH ("Claude Projects"), printing two nonexistent
+  # paths instead of one real one. CLAUDE.md's first environment trap, in a
+  # diagnostic this package added.
+  printf '%s' "$missing" | while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    adopt_note "  $t"
+  done
+  adopt_note "Nothing has been written. Check out the framework completely and run again."
+  return 1
+}
+
+# ARM 1 — already adopted. TWO WITNESSES, and the second is the point.
+# `soif_adoption_adopted` reads the WORKING COPY, which a hand edit can blank;
+# `_soif_adoption_head_copy_adopted` reads HEAD's copy, which it cannot. An
+# operator who deletes the `.adoption` block to "start over" defeats the flag
+# AND the restamp refusal together, and lands exactly in the case this arm
+# exists for. Either witness refuses.
+_adopt_preflight_adopted() {
+  local root="$1"
+  local witness=""
+  ( cd "$root" && soif_adoption_adopted ".claude/manifest.json" ) && witness="the manifest"
+  # ONE LINE, and deliberately not wrapped: a mutation proof replaces this
+  # whole line with `:`, and a continuation would leave the mutant unparseable
+  # and the proof reporting a setup failure instead of a result.
+  if [ -z "$witness" ]; then
+    ( cd "$root" && _soif_adoption_head_copy_adopted ".claude/manifest.json" ) && witness="the committed copy of the manifest (the working copy no longer says so)"   # BL-242-PREFLIGHT-WITNESS2
+  fi
+  [ -n "$witness" ] || return 0
+
+  adopt_refuse "this project has already been adopted — $witness records it"
+  adopt_note "Adoption is a one-time act. It archives your files, installs the framework and"
+  adopt_note "lands the project at phase 0; running it again would overwrite state you have"
+  adopt_note "since earned through the gates."
+  adopt_blank
+  adopt_note "What you probably want instead:"
+  adopt_note "  bash scripts/resume.sh        — continue where this project actually is"
+  adopt_note "  --re-add <path>               — put one archived file back"
+  return 1
+}
+
+# ARM 2 — an unstamped tree carrying a PRIOR archive: a first run that died
+# before the state stage. NAME THE DIRECTORY, because that archive's own
+# MANIFEST carries the restore line for every file it holds, and a refusal
+# that does not say where it is sends the operator hunting for it.
+_adopt_preflight_prior_archive() {
+  local root="$1" prior=""
+  # THE STAMP-ABSENT CONJUNCT, and it is here for the same reason arm 3 carries
+  # its own: a COMPLETED adoption necessarily leaves an adoption-archive behind,
+  # so an arm 2 without this catches arm 1's whole population — and then
+  # dropping arm 1 changes nothing observable and its mutation proof is green
+  # forever. §8.2 spells this arm "stamp absent but a prior archive present";
+  # the first cut of this function dropped the first half and the suite's PM1
+  # caught it. An adopted tree is ARM 1's, and it says something different.
+  ( cd "$root" && soif_adoption_adopted ".claude/manifest.json" ) && return 0
+  ( cd "$root" && _soif_adoption_head_copy_adopted ".claude/manifest.json" ) && return 0
+  [ -d "$root/.claude/adoption-archive" ] || return 0
+  prior="$(cd "$root" && ls -d .claude/adoption-archive/*/ 2>/dev/null | head -1)"
+  prior="${prior%/}"
+  [ -n "$prior" ] || return 0
+
+  adopt_refuse "this project already carries an adoption archive: $prior"
+  adopt_note "That directory is what an earlier adoption wrote before it stopped. Adopting"
+  adopt_note "again would archive the same files a second time, and the copies already there"
+  adopt_note "are the ones with your original contents."
+  adopt_blank
+  adopt_note "Read what it holds, and restore anything you want back, from:"
+  adopt_note "  $prior/MANIFEST.md"
+  adopt_blank
+  # ── WHAT TO SAY NEXT DEPENDS ON HOW FAR THE FIRST RUN GOT ────────────────
+  # A first cut ended "Then move or delete $prior and run this again." — true
+  # for a run that died between the archive and the install, and FALSE for the
+  # larger population that died anywhere after it. Measured: move the archive
+  # aside on a tree whose framework install completed and the re-run hits
+  # `every framework script is already present ... RESUMING AN INTERRUPTED
+  # ADOPTION IS NOT BUILT YET`. The operator followed the instruction exactly
+  # and is stuck. Before A1 the tripwire answered first and told them that.
+  # Derive which population this is instead of asserting one.
+  # `scripts/check-phase-gate.sh`, AND THE PATH IS THE WHOLE POINT — a draft
+  # tested `scripts/lib/adopt/`, which `adopt_install_framework` NEVER creates:
+  # its set is `soif_parse_shipped_scripts`'s 68 entries and **zero** of them
+  # live under `scripts/lib/adopt/` (derived, not assumed). So the predicate
+  # was false for 100% of the population and only the wrong branch could ever
+  # print — the exact failure it was written to fix, now wearing a derivation
+  # that cannot fire. Worse, the fixture that "verified both ways" created
+  # `scripts/lib/adopt/` BY HAND, so it measured the fixture and not the
+  # install. Test a path the install actually writes, and let the suite drive
+  # a REAL adoption rather than a hand-built shape.
+  if [ -f "$root/scripts/check-phase-gate.sh" ]; then
+    adopt_note "The framework's own scripts are ALREADY INSTALLED here, so the earlier run got"
+    adopt_note "past the install. Re-running will not resume it — resuming an interrupted"
+    adopt_note "adoption is not built yet — and moving $prior aside will not change that."
+    adopt_note "Restore what you need from the MANIFEST above and carry on with:"
+    adopt_note "  bash scripts/resume.sh"
+  else
+    adopt_note "The framework is not installed yet, so the earlier run stopped early. Move or"
+    adopt_note "delete $prior and run this again."
+  fi
+  return 1
+}
+
+# ARM 3 — ALREADY FRAMEWORK-MANAGED BUT NOT ADOPTED, and it was missed in
+# A1's first draft. On a SCAFFOLDED GREENFIELD project arms 1 and 2 are both
+# silent: there is no `.adoption` to read, and the archive this run is about to
+# create is not a PRIOR one. So adoption archives the scaffold's own framework
+# files AS THE OPERATOR'S, overwrites gate-earned state, stamps it (no
+# `.adoption` ⇒ no restamp refusal) and commits, at EXIT 0. Shipped v1 refused
+# that tree through `adopt_install_framework`'s `n_copied -eq 0` tripwire,
+# which D1's framework-wins install unreaches. Silent-success corruption, and
+# worse in kind than the noisy case A1 was written for.
+#
+# THE `not adopted` CONJUNCT IS LOAD-BEARING AND IS NOT DEFENSIVE CODING. A
+# stamped tree necessarily has a `phase-state.json`, so an arm 3 without it
+# would catch arm 1's population too — and then dropping arm 1 would change
+# nothing observable and arm 1's mutation proof would be green forever. The
+# suite's PM1 is what pins it: strip this conjunct and PM1 goes red while PM1b
+# stays green. (A draft credited PM1b, which drops arm 3 to prove arm 1 stands
+# ALONE — a different property, and the mis-citation this file's own rule about
+# citing by marker exists to prevent.)
+_adopt_preflight_managed() {
+  local root="$1" found=""
+  ( cd "$root" && soif_adoption_adopted ".claude/manifest.json" ) && return 0
+  ( cd "$root" && _soif_adoption_head_copy_adopted ".claude/manifest.json" ) && return 0
+
+  if [ -f "$root/.claude/phase-state.json" ]; then
+    # DECISIVE. `init.sh` and this driver are its only writers, so its presence
+    # on an unadopted tree means the project was scaffolded.
+    found=".claude/phase-state.json is present"
+  elif [ -f "$root/.claude/manifest.json" ]; then
+    # STRONG EVIDENCE, NOT PROOF — so the message says what was found and names
+    # both explanations rather than asserting one.
+    found=".claude/manifest.json is present"
+  else
+    # ── THE THIRD SIGNAL, AND IT IS A MAJORITY, NOT A SINGLE FILE ──────────
+    # §8.3a-A1 specifies this arm on the two `.claude/` files. An adoption
+    # interrupted after the framework install on a COLLISION-FREE adoptee has
+    # neither — no manifest, no phase-state, and no archive either, because the
+    # archive directory only materialises when something collides. All three
+    # arms were silent there and the operator was re-asked the tier question
+    # and every confirmation before the `n_copied -eq 0` tripwire refused,
+    # which is this function's own "neither re-interrogate nor destroy" promise
+    # going unmet.
+    #
+    # A FIRST CUT KEYED ON ONE FILE (`scripts/check-phase-gate.sh`) AND THAT
+    # WAS A FALSE-REFUSAL BUG. An adoptee that legitimately vendors a script of
+    # its own at that path adopted cleanly before this package
+    # (`Installed 67 framework script(s); left 1 of your own file(s)
+    # untouched.`) and was refused after — with a message naming two causes,
+    # BOTH false for them. It was asymmetric too: vendoring `scripts/resume.sh`
+    # instead, equally one of the shipped set, still adopted.
+    #
+    # AT LEAST HALF of the shipped set cannot be a coincidence and a handful can.
+    # (`n_present * 2 -ge n_total` — at exactly half it REFUSES, so "majority" is
+    # the wrong word for it and the suite pins both sides of that boundary.)
+    # ── COUNT THE SAME SET THE INSTALLER WOULD, OR THE TWO DISAGREE ────────
+    # `adopt_install_framework` skips any entry whose SOURCE is absent
+    # (`# BL-242-INSTALL-SET-KEY`, pinned by `P6i`/`P6i2`) and tests the
+    # destination with `-e`. `P6j` pins the PREFLIGHT's copy of that test, the
+    # one below — NOT the installer's own `[ -e "$dst" ]`, which nothing pins
+    # (measured: flipping it to `-f` leaves all eleven adoption suites green).
+    # A draft attached `P6j` to both clauses, which is the mis-citation this
+    # file's own rule exists to prevent, for the third time here. THE TWO
+    # ARE SYNC SIBLINGS AND NOTHING IN THE LANGUAGE BINDS THEM — a first cut of
+    # this comment claimed they "cannot drift", which was false: they are two
+    # copies of one predicate in two functions, and review reverted this half
+    # with every suite staying green. The markers are the binding, and
+    # **`P6h` in `tests/test-brownfield-wp9b-preflight-approval.sh`** is the
+    # fixture that makes a drift red — an incomplete framework root whose
+    # adoptee holds every installable entry. *(A draft of this line cited `I2`,
+    # which is a different fixture in a different section and stays GREEN under
+    # both drift mutants. Mis-citing the proof is the failure this file's own
+    # rule about citing by marker or function name exists to prevent, and it is
+    # the second time in this file.)* A first
+    # cut of this loop counted EVERY parsed line and tested `-f`, and the
+    # mismatch was not academic: against an INCOMPLETE framework root — the
+    # shape §0.3 warns about in as many words — the adoptee carried 24 of the
+    # 24 files that root could install, while this counted 24 against a
+    # denominator of 65, stayed silent, and let the run reach the `n_copied
+    # -eq 0` tripwire. Two predicates about "is the framework here" that
+    # disagree are worse than one, and a design sentence asserting the tripwire
+    # unreachable was written on the strength of the wrong one.
+    local n_present=0 n_total=0 _rel
+    while IFS= read -r _rel; do
+      [ -n "$_rel" ] || continue
+      [ -f "$ADOPT_FRAMEWORK_ROOT/$_rel" ] || continue   # BL-242-INSTALL-SET-KEY-SIBLING
+      n_total=$((n_total + 1))
+      [ -e "$root/$_rel" ] && n_present=$((n_present + 1))
+    done <<PREFLIGHT_SET
+$(soif_parse_shipped_scripts "$ADOPT_FRAMEWORK_ROOT/init.sh" "$ADOPT_FRAMEWORK_ROOT/scripts")
+PREFLIGHT_SET
+    if [ "$n_total" -gt 0 ] && [ $((n_present * 2)) -ge "$n_total" ]; then
+      found="$n_present of the framework's own $n_total scripts are already here"   # BL-242-PREFLIGHT-ARM3-INSTALLED
+    fi
+  fi
+  [ -n "$found" ] || return 0
+
+  adopt_refuse "this project already looks framework-managed: $found"
+  adopt_note "Adoption is for a project that has never been under this framework. What is"
+  adopt_note "here is one of these, and this script cannot tell them apart:"
+  adopt_note "  • a project scaffolded by init.sh — in which case it is already set up,"
+  adopt_note "    and adopting it would overwrite the phase it has earned;"
+  adopt_note "  • an earlier adoption that stopped part-way, leaving its state behind;"
+  adopt_note "  • files of your own that happen to sit where the framework's would."
+  adopt_blank
+  adopt_note "Check which by looking at what is here, then either run scripts/resume.sh to"
+  adopt_note "carry on, or move it aside if you are certain this project was never"
+  adopt_note "scaffolded and these files are not yours."
+  return 1
+}
+
+# ── Stage 0 — APPROVAL_LOG.md (A4) ──────────────────────────────────────────
+# adopt_write_approval_log ROOT — the tier-matched init.sh template, rendered.
+#
+# WHY IT EXISTS AT ALL. `check-phase-gate.sh` refuses on a
+# phase-state-present/log-absent tree and `exit 1`s SIX LINES BEFORE
+# `current_phase` is parsed. Without this file the resting state adoption
+# leaves behind cannot run its own phase gate — the project is adopted and its
+# gates are unusable.
+#
+# WHY NOT A FOURTH SPELLING. `init.sh` renders two tier-differentiated
+# templates and `verify-install.sh` carries a third writer (`fix_approval_log`)
+# whose shape must agree with them. An "empty, headed" fourth would drift from
+# both, so this renders THE SAME template `init.sh` does, with the same two
+# substitutions.
+#
+# WHY IT STILL BLOCKS THE GATE, WHICH IS CORRECT. The template's pre-condition
+# rows carry `__TODAY__` in a `| # | Pre-Condition | Status | Date | Notes |`
+# table — column-shaped cells, not the `| Date | … |` ROW that
+# `_cpg_gate_has_evidence` greps for (`# BL-115-DATE-CELL`). So a freshly
+# rendered log records no approval, and the gate says the gate date is not
+# recorded. Adoption approves nothing; it only makes the question answerable.
+# _adopt_approval_template — the tier-matched template path. Spelled once so
+# the preflight's existence check and the writer cannot disagree about which
+# file they mean.
+_adopt_approval_template() {
+  case "$ADOPT_DEPLOYMENT" in
+    organizational) printf '%s\n' "$ADOPT_FRAMEWORK_ROOT/templates/generated/approval-log-org.tmpl" ;;
+    *)              printf '%s\n' "$ADOPT_FRAMEWORK_ROOT/templates/generated/approval-log-personal.tmpl" ;;
+  esac
+}
+
+adopt_write_approval_log() {
+  local root="$1" tmpl today rendered
+  tmpl="$(_adopt_approval_template)"
+  if [ ! -f "$tmpl" ]; then
+    # Reachable only if the checkout changed under a running adoption — the
+    # preflight checks both templates at step 0 (# BL-242-PREFLIGHT-TEMPLATES).
+    adopt_refuse "the approval-log template is missing: $tmpl"
+    adopt_note "Without it the adopted project cannot run its own phase gate, so this"
+    adopt_note "adoption stops rather than landing a project whose gates refuse."
+    return 1
+  fi
+  today="$(date +%Y-%m-%d)"
+
+  # ── NOT `sed`, AND THE REASON IS THE INPUT, NOT A PREFERENCE ─────────────
+  # `ADOPT_PROJECT_NAME` is `${root##*/}` — a DIRECTORY BASENAME the operator
+  # chose — and it lands in a substitution's REPLACEMENT half, the one place
+  # in this driver where an operator string does (everything else uses
+  # `jq --arg` or `git commit -m`). A first cut used `sed -e "s,__X__,$name,g"`
+  # and justified the `,` delimiter against this repo's `|`-vs-`||` trap. That
+  # rationale was refuted by the very input it named. Measured, all three at
+  # the tip:
+  #
+  #   amp&co      rc 0  — `&` is THE WHOLE MATCH (CLAUDE.md names this trap),
+  #                       rendering `amp__PROJECT_NAME__co`: two unrendered
+  #                       placeholders, SILENTLY, in a committed document
+  #   comma,inc   rc 1  — the delimiter itself; `sed` dies with `bad flag in
+  #                       substitute command`, `cat` still succeeds on empty
+  #                       input, so a ZERO-BYTE APPROVAL_LOG.md is written and
+  #                       `adopt_refuse` is NEVER CALLED — 68 scripts on disk
+  #                       and no honest refusal, against BL-225's contract
+  #   back\slash  rc 0  — the backslash silently eaten
+  #
+  # ── THIS TOOK THREE ATTEMPTS AND EACH ONE CARRIED THE DEFECT ACROSS ──────
+  # Attempt 1, `sed -e "s,__X__,$name,g"`: `amp&co` rendered
+  # `amp__PROJECT_NAME__co` at rc 0 — `&` is THE WHOLE MATCH, the trap
+  # CLAUDE.md names — and `comma,inc` collided with the delimiter, leaving a
+  # ZERO-BYTE log at rc 1 with `adopt_refuse` never called.
+  #
+  # Attempt 2, `awk -v` + `gsub`: POSIX awk gives `&` in a `gsub` REPLACEMENT
+  # the same whole-match meaning, so `amp&co` failed identically — the tool
+  # changed and the defect did not.
+  #
+  # Attempt 3, `awk -v` + this `index`/`substr` loop: the loop is innocent and
+  # the value never reaches it intact. **`-v` PERFORMS ESCAPE-SEQUENCE
+  # PROCESSING ON THE VALUE** (gawk manual, *Other Command-Line Arguments*:
+  # "Variable values provided on the command line are processed for escape
+  # sequences"), so `back\slash` arrived as `backslash` and was committed that
+  # way in the YAML frontmatter and the title. A comment here asserted the
+  # opposite — "`-v` protects the value on the way IN" — which is backwards,
+  # and the assertion is why two rounds of review were needed to catch it.
+  #
+  # `ENVIRON` is NOT escape-processed, and combined with `index`/`substr`
+  # (which has no replacement-string semantics at all — no `&`, no escape, no
+  # delimiter) the operator's string is copied verbatim on both legs. Measured
+  # verbatim on this host for: `back\slash`, `amp&co`, `comma,inc`, `tab\there`,
+  # `pct%d`, `dq"uote`, `dollar$var`, `-leading-dash`, UTF-8. An embedded
+  # newline still refuses loudly, which is correct.
+  #
+  # `init.sh`'s `generate_approval_log` shares attempt 1's `&` exposure and not
+  # its `,` one; it is the sibling shape and is left to its own change rather
+  # than edited from here.
+  rendered="$(SOIF_ADOPT_LOG_NAME="$ADOPT_PROJECT_NAME" SOIF_ADOPT_LOG_TODAY="$today" awk '
+    BEGIN { n = ENVIRON["SOIF_ADOPT_LOG_NAME"]; t = ENVIRON["SOIF_ADOPT_LOG_TODAY"] }
+    function repl(line, tok, val,   out, i) {
+      out = ""
+      while ((i = index(line, tok)) > 0) {
+        out = out substr(line, 1, i - 1) val
+        line = substr(line, i + length(tok))
+      }
+      return out line
+    }
+    # ORDER IS LOAD-BEARING AND IT IS THE OPPOSITE OF THE OBVIOUS ONE.
+    # These are NESTED: the outer pass scans the INNER pass output, including
+    # whatever it just inserted. With the name substituted first, a directory
+    # called pre__TODAY__post had the date written INTO its own name --
+    # pre2026-09-01post -- in both the frontmatter and the title, at rc 0,
+    # while the same run commit subject carried the real name. Two artifacts
+    # of one adoption disagreeing about the project.
+    # The date goes FIRST because it is framework-controlled (date +%F) and
+    # cannot contain either placeholder; the operator string goes LAST, so
+    # nothing rescans it.
+    # NO APOSTROPHES ABOVE, DELIBERATELY: this comment is inside a
+    # SINGLE-QUOTED shell string, so one apostrophe ends the awk program and
+    # the syntax error surfaces hundreds of lines away naming another function.
+    { print repl(repl($0, "__TODAY__", t), "__PROJECT_NAME__", n) }
+  ' "$tmpl")" || {   # BL-242-APPROVAL-LOG-RENDER
+    adopt_refuse "could not render the approval log from $tmpl"
+    return 1
+  }
+  # AND THE OUTPUT IS CHECKED, because "the renderer exited 0" and "the
+  # renderer produced a document" are different facts — the empty-output case
+  # above is exactly how a zero-byte log reached disk while the run said
+  # nothing.
+  case "$rendered" in
+    '') adopt_refuse "the approval log rendered empty from $tmpl"; return 1 ;;   # BL-242-APPROVAL-LOG-NONEMPTY
+  esac
+  # ── WRITE IT, THEN LET THE STAGING GUARD DECIDE WHETHER IT IS COMMITTED ──
+  # `adopt_write_file` records every path it writes for staging, and
+  # `adopt_stage_and_commit` stages the recorded set in ONE `git add` — so a
+  # recorded path git refuses aborts the whole adoption. MEASURED as a
+  # REGRESSION: an adoptee whose `.gitignore` contains `APPROVAL_LOG.md`
+  # adopted cleanly at rc 0 on `main` and, with A4 as first written, got
+  # `[BLOCKED] git will not stage every file this adoption must commit` and NO
+  # adoption commit — while the same run's archive half correctly printed
+  # `your .gitignore covers: APPROVAL_LOG.md`. Two halves of one run, opposite
+  # rules, and `docs/adoption.md` ships the archive's half as a guarantee.
+  #
+  # `_adopt_record_if_stageable` is that guarantee's existing implementation
+  # (`# BL-225-ORACLE-SYNC`): it writes nothing, records only what `git add
+  # --dry-run` accepts, and DISCLOSES the withholding by name. Routing through
+  # it makes the log land on disk, be usable by the gate, and stay out of the
+  # commit when the operator's own rule says so — instead of making a
+  # previously-adoptable project unadoptable.
+  #
+  # The gate reads the WORKING TREE, so a withheld log still does its job; what
+  # is lost is only its presence in history, which is what the operator asked
+  # for.
+  printf '%s\n' "$rendered" > "$root/APPROVAL_LOG.md" || {
+    adopt_refuse "could not write APPROVAL_LOG.md"
+    return 1
+  }
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
+  _adopt_record_if_stageable "$root" "APPROVAL_LOG.md"   # BL-242-APPROVAL-LOG-STAGEABLE
   return 0
 }
 
@@ -566,6 +1046,12 @@ adopt_main() {
   adopt_note "Nothing is written until the questions are answered. If you stop partway,"
   adopt_note "this project ends up more strictly gated than it started, never less."
 
+  # §8.2 STEP 0 — THE RE-ADOPTION PREFLIGHT (A1), BEFORE THE TIER QUESTION AND
+  # BEFORE THE REPORT IS EVEN OBTAINED. Its position is the whole decision: a
+  # second run must neither re-interrogate the operator nor destroy what the
+  # first produced, and both of those start happening below this line.
+  adopt_preflight "$root" || return 1   # BL-242-PREFLIGHT-CALL
+
   report="$(adopt_obtain_report "$root" "$given_report")" || return 1
 
   # §4.2's evidence, which decides nothing and is printed anyway (A6): it is
@@ -622,6 +1108,7 @@ adopt_main() {
   while IFS= read -r stage; do
     [ -n "$stage" ] || continue
     case "$stage" in
+      approval_log) adopt_write_approval_log "$root" || return 1 ;;   # BL-242-APPROVAL-LOG-WRITE
       phase_state) adopt_write_phase_state "$root" || return 1 ;;
       intake)      adopt_write_intake "$root" "$report" || return 1 ;;
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;

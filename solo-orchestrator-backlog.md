@@ -13975,6 +13975,81 @@ same standard as code rather than waved through as "docs-only".
    **stricter** than any default would have been. A fallback would have
    weakened shipped behaviour to solve a case that cannot occur.
 
+### BL-242 residual — adoption follows a SYMLINK out of the project and overwrites its target
+
+**Recorded at WP9b's review (2026-09-01), NOT fixed here, and pre-existing rather
+than introduced.** `adopt_write_file` is `cat > "$root/$rel"`, and no adoption
+code anywhere handles symlinks — `grep -rn '\-L \|symlink\|readlink'
+scripts/lib/adopt/` returns nothing. So an adoptee whose `APPROVAL_LOG.md` is a
+symlink to a document OUTSIDE the repository has that outside document rewritten
+with the rendered template, at **rc 0**, while the disclosure names
+`APPROVAL_LOG.md` and never the target. Measured at review.
+
+**Why it is recorded and not fixed in WP9b.** The behaviour is a property of
+`adopt_write_file`, which every state writer shares and which predates this
+package; WP9b only made it reachable at one more path. Fixing it belongs with
+the archive/install semantics (WP11) or as its own entry, not inside a package
+whose scope row is the preflight and the approval log — and a symlink-following
+write is exactly the kind of thing that should be decided once, for every
+writer, rather than special-cased at the newest one.
+
+**What softens it, stated so nobody reads this as worse than it is:** the
+content is recoverable — the target's bytes are archived under
+`APPROVAL_LOG.md` with a restore line before the write. What is missing is that
+the operator is never told the file they lost was somewhere else.
+
+**A repo-root governance document is a likelier symlink than `.claude/settings.json`**,
+which is why this surfaced now rather than at WP6.
+
+### WP9b's build (2026-09-01) — the two dogfood blockers, closed and MEASURED
+
+**WP9b is A1's three-arm preflight and A4's `APPROVAL_LOG.md`.** The design
+carries the specification; this section records only the two things a reader of
+THIS entry needs, both of which were reported here as dogfood blockers on
+2026-09-01 and are now closed by execution rather than by argument.
+
+**BLOCKER 1 — adoption silently corrupted a framework-managed project.** Pointed
+at a scaffolded greenfield tree, adoption archived the scaffold's own framework
+files as the operator's, overwrote gate-earned state, stamped it and committed,
+at **exit 0**. Re-measured on the same fixture shape after WP9b:
+
+```
+rc=1     [REFUSED] this project already looks framework-managed:
+                   .claude/phase-state.json is present
+                   Adoption did not begin. Nothing was committed and nothing was written.
+phase now : 2  (was 2)          gate dates : both intact
+stamped   : no                  HEAD moved : NO
+```
+
+**BLOCKER 2 — an adopted project could not run its own phase gate.** It exited
+on `[FAIL] APPROVAL_LOG.md not found but .claude/phase-state.json exists.` —
+six lines before `current_phase` was parsed. Re-measured after WP9b: `adopt
+rc=0`, then the gate runs to `Current phase: 0` / `Adoption stamp present and
+intact` / **`Phase gates consistent.`**, rc 0, with `APPROVAL_LOG.md` in the
+adoption commit.
+
+**Two shipped behaviours changed as collateral, and both were caught by an
+existing suite going red rather than predicted.** They are written up in the
+design's §0.3 third pass; in one line each: A4 retires an *incidental* safety
+block (an interrupted adoption used to be "safe" because a file was missing —
+the property §8.4 protects is untouched and the commit-time ladder still reads
+`strict`), and A1 supersedes the `n_copied -eq 0` tripwire as the answer to a
+re-run, so the WP4 suite's `R1` now pins the property rather than which function
+said it.
+
+**One design-specified mutation could not have gone RED as written**, and the
+suite says so rather than quietly passing: §10-WP9's arm-1 proof ("drop arm 1 →
+phase-state reverts") is masked on an untouched adopted tree by that same
+`n_copied` tripwire — measured, and the proof was green against a build with no
+arm 1 at all. The fixture deletes one framework script so the tripwire does not
+fire; the RED is the specified one, and `PM1c` is the same-fixture control.
+
+**A trap for the next package:** the driver now reads
+`$ADOPT_FRAMEWORK_ROOT/templates/`, which no adoption code did before. Three
+suites mirrored the framework as `scripts/` + `init.sh` and every adoption
+against those mirrors began refusing. **A framework root is not `scripts/` plus
+`init.sh`.**
+
 ### WP9's build (2026-09-01) — what it settled, and the residual it created
 
 **The design document carries the changes; this section records only what a
@@ -14006,13 +14081,17 @@ reader of THIS entry needs and cannot get from the code.**
 **THE INIT-PARITY RESIDUAL — this is the part that is not recoverable from the
 code, and it is bigger than §10 implies.** §8.7's audit is delivered at §8.7a
 with the adoption half derived **by execution** (a shipped adoption run against
-a hermetic adoptee, tree diffed: **76** files written, 68 under `scripts/`,
-**eight** elsewhere) rather than by grep — grep having under-read this exact
-kind of surface twice already in this repository. **32 rows. Thirteen are
+a hermetic adoptee, tree diffed: **77** files written, 68 under `scripts/`,
+**nine** elsewhere) rather than by grep — grep having under-read this exact
+kind of surface twice already in this repository. **33 rows. Thirteen are
 UNOWNED, one UNSPECIFIED (`CHANGELOG.md`, which D3's reach ruling does not
 name), one PARTIAL (`.gitignore`).** *(75 / seven / thirty-one was the first
 measurement, taken before this package finished adding
-`.claude/orchestrator-source.json`. A measurement is only true of the tree it
+`.claude/orchestrator-source.json`; 76 / eight / 32 was the second, and it
+survived here for a further round because WP9b corrected the DESIGN's three
+carriers and never grepped this one — a FIFTH carrier, in an Open entry, of a
+number whose own paragraph is about carriers. A measurement is only true of the
+tree it
 was taken on, and this one outlived that tree by three commits.)* The five packages after WP9 close **none**
 of the thirteen. Three matter beyond bookkeeping:
 

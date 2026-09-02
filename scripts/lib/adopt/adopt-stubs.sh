@@ -138,15 +138,21 @@ adopt_stub_secrets_disposition() {
   adopt_note ".claude/adoption/scout-report.json's secrets section before you trust this repo."
 }
 
-# WP7 — the Adoption Record in APPROVAL_LOG.md, the audit rows, and the CI
-# carve-out. Named here because its absence has an immediate, visible effect:
-# check-phase-gate.sh exits 1 on a project with phase-state and no
-# APPROVAL_LOG.md, which is the SAFE direction but is not a finished adoption.
+# WP7 — the Adoption Record, the audit rows, and the CI carve-out.
+#
+# WHAT THIS USED TO SAY, AND WHY IT WAS WRONG AFTER WP9b. Both this comment and
+# the notice below asserted that `APPROVAL_LOG.md` "is not written, so the phase
+# gate will report it missing" — accurate until A4, and printed on every
+# successful run AFTER the state loop had written that very file and BEFORE the
+# commit that includes it. The stub told each operator the opposite of what the
+# same run had just done. What is still missing is the RECORD — the eight-clause
+# Adoption Record that WP7 appends INTO this log — not the log.
 adopt_stub_adoption_record() {
   adopt_stub_notice "the Adoption Record, the audit rows and the CI carve-out" "WP7" \
-    "APPROVAL_LOG.md is not written, so the phase gate will report it missing until WP7 lands."
-  adopt_note "That is the safe direction — a blocked project, not a silently-approved one — but it"
-  adopt_note "means this adoption is recorded in the manifest and nowhere else yet."
+    "APPROVAL_LOG.md exists and the phase gate reads it; what is missing is the Adoption Record INSIDE it."
+  adopt_note "The log this adoption wrote is the tier-matched template, carrying no approval of"
+  adopt_note "any kind — which is correct, because this adoption approved nothing. Until WP7"
+  adopt_note "lands, the adoption itself is recorded in the manifest and nowhere else."
 }
 
 # The fallback PRE-COMMIT hook. Not attributed to a work package, because §10

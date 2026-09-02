@@ -794,6 +794,25 @@ run_child_suite "tests/test-brownfield-wp9-act-boundaries.sh" \
   "Adoption WP9a act boundaries (chooser deleted, tier question kept, phase-0 landing, stamp v2)" \
   "Adoption WP9a act-boundary tests FAILED (run tests/test-brownfield-wp9-act-boundaries.sh for details)"
 
+# WP9b — A1's three-arm re-adoption preflight and A4's APPROVAL_LOG.md. Its
+# two arms that matter most are the ones whose MUTANTS EXIT ZERO: dropping
+# preflight arm 2 or arm 3 completes an adoption over a tree that must be
+# refused, so neither of those assertions may key on an exit code — they read
+# the tree hash and the state. DERIVE the mutant count, never quote it:
+#   grep -c '_mutate_state "\|_mutate_lib "' tests/test-brownfield-wp9b-preflight-approval.sh
+# NOT `grep -c 'pass "[A-Z0-9]* (MUTATION)'` — that class cannot match the
+# lowercase `d` in `PM1d`, so it under-counted by exactly the mutant review
+# forced this suite to add. A recipe that silently drops the newest member is
+# worse than no recipe — AND THIS ONE DID IT AGAIN one round later, when the
+# suite grew a second mutation helper (`_mutate_lib`, for adopt-archive.sh) and
+# the recipe still named only the first. Both are matched now; add the next one
+# HERE when you add it.
+# Runs the driver against fixtures and a scratch framework MIRROR; reads
+# init.sh but never invokes it -> both lanes.
+run_child_suite "tests/test-brownfield-wp9b-preflight-approval.sh" \
+  "Adoption WP9b preflight + approval log (A1's three arms, A4's tier-matched log written first)" \
+  "Adoption WP9b preflight/approval-log tests FAILED (run tests/test-brownfield-wp9b-preflight-approval.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------

@@ -272,17 +272,27 @@ verifies your Phase 2 setup). What holds is that the gates are **cumulative and
 keyed to evidence** — arriving at a rung without the evidence fails the gate on
 the evidence, regardless of what moved you there.
 
-**Today the gate refuses an adopted project even earlier, and for a different
-reason.** Adoption does not yet write `APPROVAL_LOG.md`, and the gate checks for
-it before it reads the phase at all:
+**Adoption now writes `APPROVAL_LOG.md`, and the gate runs.** Until WP9b it did
+not, and the gate exited on the missing file before it read the phase at all —
+so an adopted project could not run its own phase gate. Observed on a
+freshly-adopted project today:
 
 ```text
-[FAIL] APPROVAL_LOG.md not found but .claude/phase-state.json exists.
+$ bash scripts/check-phase-gate.sh
+Phase Gate Consistency Check
+Current phase: 0
+
+
+Adoption Stamp Integrity
+[OK] Adoption stamp present and intact (adopted: …)
+
+Phase gates consistent.
 ```
 
-That is still a refusal, and still the safe direction — but it names the
-approval log rather than the classification, so do not expect the gate to point
-you at Route 3 until that file is written.
+The log adoption writes is the **tier-matched template**, carrying no dated
+gate-approval row — because this adoption approved nothing. It makes the
+question answerable; it does not answer it. What is still missing is the
+Adoption **Record** inside that log, which is WP7's.
 
 **You will still be asked.** Three routes reach the question, and all three are
 exercised by the test suite rather than assumed:
@@ -317,19 +327,28 @@ coerced:
 
 ## What gets written, and in what order
 
-### The order is `phase-state.json` → intake → `manifest.json`
+### The order is `APPROVAL_LOG.md` → `phase-state.json` → intake → `manifest.json`
 
 That order is data in the driver, not scattered through it, and it is chosen
 because the two half-states are **not symmetrical**:
 
 | Partial state | `check-phase-gate.sh` | Enforcement tier | Net |
 |---|---|---|---|
-| **phase-state present, manifest absent** | Runs. `[FAIL] APPROVAL_LOG.md not found but .claude/phase-state.json exists.` → rc 1 | **strict** (missing file → strict) | **Gates live, strictest tier.** Blocked — the safe direction |
+| **phase-state present, manifest absent** | Runs to a verdict. At the resting state that is `Current phase: 0` / `Phase gates consistent.` → rc 0 | **strict** (missing manifest → strict) | **Gates live, strictest tier.** The commit-time ladder is what protects this row; before WP9b the phase gate appeared to block it, but only because `APPROVAL_LOG.md` was missing — an incidental refusal, not a consistency verdict |
 | **manifest present, phase-state absent** | `No .claude/phase-state.json found — skipping phase gate check.` → rc 0 | reads the field | **Gates entirely absent.** An adopted-looking project with no enforcement |
 
-Writing phase-state **first** means every interruption lands in the top row. That
-is what the help text means by *"it stops in the SAFE direction: the project ends
-up more strictly gated than it was, never less."*
+Writing the approval log and phase-state **before the manifest** means no
+interruption can land in the bottom row. That is what the help text means by
+*"it stops in the SAFE direction: the project ends up more strictly gated than
+it was, never less."*
+
+Since WP9b there is a third interruption point, between the approval log and
+phase-state, and it is inert: with no `.claude/phase-state.json` the gate prints
+`No .claude/phase-state.json found — skipping phase gate check.` and exits 0,
+exactly as it does on any project that has never been adopted. A log with no
+phase-state claims nothing. **That is why the log goes first** — written last,
+every death inside the state stage would land on phase-state-present /
+log-absent, which the gate hard-refuses.
 
 `init.sh` uses the opposite order, and that is not a counter-example: creation is
 one uninterrupted run ending in a commit, so it never leaves partial state
@@ -350,7 +369,7 @@ IDENTICAL — a halted run wrote nothing
 
 ```text
 ══ Committing exactly what was written
-   76 file(s), named one by one. Anything else you had in progress stays
+   77 file(s), named one by one. Anything else you had in progress stays
    exactly as you left it — unstaged, uncommitted, untouched.
 ```
 
@@ -360,20 +379,23 @@ counter-example this exists to avoid is `create_project()`'s
 your uncommitted work into a framework commit with verification bypassed.
 
 Observed on a completed run — one commit,
-`chore: adopt <project> into the Solo Orchestrator framework`, containing **76**
-files: the eight below, and the framework `scripts/` tree (68 of them).
+`chore: adopt <project> into the Solo Orchestrator framework`, containing **77**
+files: the nine below, and the framework `scripts/` tree (68 of them).
 **Your own files are not in it.**
 
 ```text
 .claude/adoption/scout-report.json   .claude/intake-progress.json
 .claude/manifest.json                .claude/orchestrator-source.json
 .claude/phase-state.json             .claude/process-state.json
-.claude/test-debt.json               PROJECT_INTAKE.md
+.claude/test-debt.json               APPROVAL_LOG.md
+PROJECT_INTAKE.md
 ```
 
-*(This list read six files and 69 until it was re-measured. It had been correct
-when written and was falsified twice over — by the test-debt ledger WP5b added,
-and by `orchestrator-source.json`, which **this package added**. An enumeration
+*(This list read six files and 69, then eight and 76, before each re-measure. It
+had been correct when written and has now been falsified three times over — by
+the test-debt ledger WP5b added, by `orchestrator-source.json`, and by
+`APPROVAL_LOG.md`, which **WP9b added while this very paragraph warned that
+whoever adds a writer must re-run the count**. An enumeration
 of what a run writes has to be re-run by whoever adds a writer; nothing checks
 it.)*
 
@@ -774,8 +796,18 @@ land on into `.claude/adoption-archive/<UTC-timestamp>-<pid>/`, mirroring your
 paths, and writes a `MANIFEST.json` and a `MANIFEST.md` beside them. The
 population is the archive-and-replace bucket: `.claude/settings.json`,
 `.claude/settings.local.json`, `.mcp.json`, your `.claude/skills/*/SKILL.md`,
-and every non-`.sample` file in `.git/hooks/`. **Only files that exist are
-archived** — an absent surface produces no file and no manifest row.
+every non-`.sample` file in `.git/hooks/`, and — since WP9b — `APPROVAL_LOG.md`.
+**Only files that exist are archived** — an absent surface produces no file and
+no manifest row.
+
+**`APPROVAL_LOG.md` is the one entry adoption REPLACES**, and its row says so:
+`disposition: "replaced"`, where every other entry reads `kept` (your file is
+still where it was) or `composed` (the framework appended a marked block to your
+commit-msg hook). Adoption writes its own tier-matched approval log at that path
+because the phase gate cannot run without one — so if you keep an approval
+record there already, **your copy is archived with a restore line and the
+framework's template is what sits at the path afterwards**. That is the only
+in-place replacement in the run.
 
 Nothing is deleted. Every entry carries a `restore` line you can paste, and
 every git-hook entry carries a short **advisory** description of what it
@@ -893,24 +925,38 @@ NOT DONE — the provenance headers on reconstructed documents
 
 NOT DONE — the Adoption Record, the audit rows and the CI carve-out
    Owner: WP7. This build does not do it, and does not pretend to.
-   APPROVAL_LOG.md is not written, so the phase gate will report it missing until WP7 lands.
-   That is the safe direction — a blocked project, not a silently-approved one — but it
-   means this adoption is recorded in the manifest and nowhere else yet.
+   APPROVAL_LOG.md exists and the phase gate reads it; what is missing is the Adoption Record INSIDE it.
+   The log this adoption wrote is the tier-matched template, carrying no approval of
+   any kind — which is correct, because this adoption approved nothing. Until WP7
+   lands, the adoption itself is recorded in the manifest and nowhere else.
 ```
 
-**The consequence is immediate and you will hit it.** Observed on a
-freshly-adopted project:
+**This no longer stops the gate.** Before WP9b, a freshly-adopted project got:
 
 ```text
 $ bash scripts/check-phase-gate.sh
 [FAIL] APPROVAL_LOG.md not found but .claude/phase-state.json exists.
 ```
 
-The gate stops there. That is the safe direction — a blocked project, not a
-silently-approved one — but it means an adopted project's phase gate does not
-pass until somebody writes an `APPROVAL_LOG.md`. It also means the **adoption
-stamp integrity check runs after that point**, so on a project with no
-`APPROVAL_LOG.md` the loss detector never gets to speak.
+Adoption no longer *creates* that state — it writes the log itself, first, so
+the gate reaches a verdict. Measured on a project adopted today:
+
+```text
+$ bash scripts/check-phase-gate.sh
+Phase Gate Consistency Check
+Current phase: 0
+
+
+Adoption Stamp Integrity
+[OK] Adoption stamp present and intact (adopted: …)
+
+Phase gates consistent.
+```
+
+The refusal above is still correct where it still applies: **delete the log and
+it returns**, at rc 1. That matters for the stamp check, which runs *after* the
+precondition — so on a project whose `APPROVAL_LOG.md` is genuinely missing, the
+adoption-loss detector never gets to speak.
 
 The **Adoption Record** itself — the one place a successor reads to understand
 how this project entered the framework, carrying the assessment's findings and
