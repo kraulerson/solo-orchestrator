@@ -1072,6 +1072,19 @@ adopt_main() {
   # the host.
   adopt_ask_audience || return 1   # BL-242-TIER-QUESTION
 
+  # §8.2 STEP 2 — TOOL RESOLUTION, AND ITS POSITION IS THE CONSTRAINT.
+  # BEFORE the secrets check that reads its result (§6.2) and BEFORE any
+  # writer, so a run abandoned here has changed the repository not at all and
+  # the host only if the operator said yes. AFTER the tier question, because
+  # that is step 1 and a run abandoned at the only question adoption asks
+  # should not have installed anything first.
+  adopt_resolve_tools "$root" "$report" || return 1   # BL-242-RESOLVER-CALL
+  # §6.2: if the step re-scanned, every later step reads the REFRESHED report —
+  # including the state writer that persists it and the stamp that records its
+  # hash, so "the persisted copy reflects what was actually acted on" is true
+  # by construction rather than by a second write.
+  [ -n "${ADOPT_REPORT_REFRESHED:-}" ] && report="$ADOPT_REPORT_REFRESHED"   # BL-242-RESOLVER-REFRESH
+
   adopt_run_reverse_intake "$report" || return 1
 
   adopt_stub_secrets_disposition "$report"
