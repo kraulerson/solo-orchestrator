@@ -5188,6 +5188,45 @@ list carrying the victim COMMENTED OUT must exit 1 and name the file; the same l
 exit 0. **Mutation proof:** revert the `!/^[[:space:]]*#/` predicate → the commented-out fixture
 flips from FAIL to PASS → RED → restore → GREEN.
 
+**Residual #2 ADDENDUM (2026-09-04, out of the `ci/bl242-rest-shard-repin` review).** The fix shape
+above closes the comment-body half and leaves the **scope-opening** half open, and the second one is
+ACTIVE ON THE MERGED TREE TODAY — not hypothetical.
+
+1. **The opening rule matches a comment, and ANCHORING ALONE IS NOT ENOUGH.** `/tests=\(/{f=1; next}`
+   is unanchored, so any comment line containing the literal token opens the scope, and the
+   `!/^[[:space:]]*#/` predicate cannot help — it filters what is COLLECTED, not what OPENS.
+   Anchoring the opener (`/^[[:space:]]*tests=\(/`) closes the COMMENT route ONLY: `[[:space:]]*`
+   still admits any real `tests=(` array below the canonical one. Proved by adding an ordinary
+   (uncommented) `tests=(…)` array to the `full` job's `run:` block — a plausible refactor, since
+   that job already loops `for t in tests/edge-cases-upgrade-input.sh …`: both spellings collect the
+   phantom, 183 → 184 entries, anchoring changes nothing. A mutation proof keyed only to a commented
+   path would pass while this route stayed open — the weak-proof class this entry already tracks.
+   **Anchor AND refuse when the opener count is not exactly 1**, mirroring the zero-entry refusal
+   `_build_unit_list_set` already carries ("parsed 0 entries from the tests.yml unit list … refusing
+   to claim a clean pass"). Today: unanchored openers 2, anchored 1 → passes; with a second array:
+   anchored 2 → refuses loudly. Anchoring alone leaves the hole; counting alone is red today because
+   of the line-324 comment. A `# UNIT-LIST-BEGIN/END` sentinel pair — the idiom
+   `# BL-154-UNIT-LANE-BEGIN`/`-END` already uses — is the more robust alternative.
+2. **It is open right now.** In `.github/workflows/tests.yml` the scope opens on the comment that
+   *explains this very hazard* ("scopes with awk between `tests=(` and `)` and does not strip
+   comments"), 25 lines above the real array, and the collected span therefore includes the comment
+   naming `tests/test-lint-no-live-remote.sh`. Verified by running both spellings over the merged
+   tree: anchored 183 entries, unanchored 183 entries — **identical only because that path is also a
+   genuine array member.** A comment naming a path that is NOT a member would silently become one.
+3. **End-to-end proof, so the mutation test has a target.** With a phantom fast test present in a
+   fixture, `scripts/lint-tests-registered.sh` reports `1 violation` (RED, "not listed in the
+   tests.yml unit lane"); add ONE comment line below the array carrying the token plus that path and
+   the same lint reports `OK: every test file is registered with an aggregator (or EXEMPT)` while
+   bash still never runs it. Membership set 183 → 184; the shard partition is unaffected, so no other
+   check notices.
+
+**Lane reachability:** no PR-blocking lane catches this — neither `.github/workflows/lint.yml` nor
+the `unit-shard`/`unit` chain. (The manual `full` job would still *execute* an aggregator-registered
+phantom, but executing it is not catching the defect, which is silent non-execution in the gating
+lane.) The prose rule in `tests.yml`
+("NOTHING BELOW THIS LINE MAY CONTAIN THE LITERAL ARRAY-OPENING TOKEN") is enforced by nothing.
+Fix both halves in one change, since one awk line carries both.
+
 ---
 
 ## BL-182: A ~958+ character repo-relative path is UNREPRESENTABLE in the BL-132 index temp tree — PATH_MAX aborts materialization and the whole commit goes NOTRUN (third instance of the same class)
@@ -14822,3 +14861,108 @@ whole cry-wolf objection go away, and it is worth designing before coding.
 **Related:** `## BL-230:` (the three arms that DO exist, and why this one was
 held back), `## BL-090:` (a warn-tier arm still waiting to be escalated),
 `## BL-112:` (a status that means something other than what the caller reads).
+
+---
+
+## BL-251: WP10a made every adoption pay a 6.8s tool-resolver subprocess it usually does not need — a 4.3x-5.3x step change, found only because it pushed a CI shard to 13s of slack
+
+**Status:** Open
+
+**Logged:** 2026-09-04, out of the adversarial review of the `rest`-shard re-pin
+(`ci/bl242-rest-shard-repin`). The re-pin's first draft explained the new pole
+as the brownfield family "growing a pole in nearly every work package". That
+explanation was wrong, and the review refused it: this is a **single-commit step
+change in shipped code**, and re-pinning the shard removes the only signal that
+was showing it.
+
+**Measured, per-suite, from the `::group::` spans of two CI runs — the test
+files are byte-identical between them** (`git diff 24dc321 4009790 --
+tests/test-brownfield-wp4-driver.sh tests/test-brownfield-wp9-act-boundaries.sh
+tests/test-brownfield-wp9b-preflight-approval.sh` is empty):
+
+| suite | run 33592497086 (`24dc321`, pre-WP10a) | run 33880279546 (`4009790`, WP10a) | factor |
+|---|---|---|---|
+| `test-brownfield-wp4-driver.sh` | 17.0s | 90.3s | **5.3x** |
+| `test-brownfield-wp9-act-boundaries.sh` | 15.3s | 66.0s | **4.3x** |
+| `test-brownfield-wp9b-preflight-approval.sh` | 47.2s | 222.6s | **4.7x** |
+
++299.4s across the three, against a `unit-shard` cap of 720s. Every other suite
+in the same leg moved within the +5%..+40% band that is ordinary runner drift.
+
+**Mechanism, and it is one line.** `# BL-242-RESOLVER-CALL` in
+`scripts/lib/adopt/adopt-state.sh` calls `adopt_resolve_tools` on **every**
+adoption, and `adopt_resolve_tools` invokes `scripts/resolve-tools.sh`
+**unconditionally, before it inspects anything**. Measured on this host:
+
+```
+$ time bash scripts/resolve-tools.sh --dev-os macos --platform web \
+      --language shell --track standard --phase 2 --matrix-dir templates/tool-matrix
+1.96s user 1.22s system 46% cpu 6.818 total
+```
+
+6.8s wall, of which only 3.2s is CPU — the rest is the resolver blocking. A
+suite that drives 20-odd adoptions pays it 20-odd times. The review confirmed
+the causal link independently by disabling that single call site: the suite went
+from 2m09s to 23s **and still passed 24/24**, because it does not assert on the
+resolver at all.
+
+**Why the cost is usually avoidable.** The step exists (design §6.2) to get a
+secret scanner in place so the history CAN be read. Everything it does is keyed
+to gitleaks — every `jq` select in `adopt_resolve_tools` hardcodes
+`(.name // "") == "gitleaks" or (.category // "") == "Secret Detection"`. So the
+resolver's payload is only needed for the **install recipe**, i.e. only when the
+scanner is ABSENT. When it is present, a `command -v` answers in microseconds
+what the 6.8s subprocess is being spawned to find out. **Note there is no such
+check on this path today** — `_adopt_tool_present` (the file's only `command -v`)
+is called exactly once, at `# BL-242-RESOLVER-VERIFY`, as a POST-INSTALL
+verification. The cheap predicate the fix needs does not exist yet; it has to be
+added, not merely moved. One layer down, `_adopt_rescan_secrets` does already
+carry the matching guard (`# BL-242-SECRETS-RESCAN` returns immediately when
+`.secrets.status` is `scanned`) — and the resolver call sits upstream of that
+one.
+
+**The equivalence holds — this was an open question and it is now answered.**
+`templates/tool-matrix/common.json`'s gitleaks entry is `phase: 1`,
+`tracks: [light, standard, full]`, `dev_os: [darwin, linux]`,
+`platforms: [all]`, `languages: [all]`, so the adopter's fixed
+`--phase 2 --track standard --platform web --language <any>` call always selects
+it; and its predicate is literally `"check_command": "command -v gitleaks"`,
+which `resolve-tools.sh` evaluates through `run_bounded`. So
+`command -v gitleaks` succeeding is equivalent to gitleaks landing in
+`.already_installed`, and the only divergence is the 10s evaluation deadline,
+which errs safe. **The semantics are not the risk. The seam is.**
+
+**Fix shape (not yet built; needs its own TDD + mutation proof).** Add the cheap
+predicate and take the existing already-installed arm directly, so
+`resolve-tools.sh` is never spawned when the scanner is present. **THE
+PLACEMENT IS THE WHOLE DIFFICULTY, and the obvious placement is wrong — this
+was measured, not reasoned:** hoisting a bare `_adopt_tool_present gitleaks`
+to the top of `adopt_resolve_tools`, immediately after `adopt_head`, puts a
+HOST PROBE ABOVE THE `SOIF_ADOPT_RESOLVER` SEAM. All 18 stub-driven cases in
+`tests/test-brownfield-wp10a-tool-resolution.sh` then stop reaching their stub,
+and the suite goes **25 passed / 9 failed** on a host that has gitleaks and
+**34 passed / 0 failed** on one that does not — the single variable being what
+happens to be installed. That is exactly the local-vs-CI divergence the seam's
+own comment was written to prevent, and CLAUDE.md's standing trap. It fails
+loudly rather than silently (gitleaks is on this Mac AND installed in every CI
+unit-shard leg, `tests.yml` gitleaks step), which is the only mercy.
+
+So the short-circuit must sit **behind the seam**: either gate it on
+`SOIF_ADOPT_RESOLVER` being unset, or route the probe through a seam-aware
+helper the suite can stub. The saving is real once it is placed correctly —
+the same hoist measured `test-brownfield-wp4-driver.sh` at **21.6s against a
+129.5s baseline, 24/24 passing**.
+
+One thing still to check: whether 6.8s is itself a defect in
+`resolve-tools.sh` (46% CPU says it blocks on something — establish on what
+before accepting the number as inherent).
+
+**Why this is filed rather than fixed in the re-pin:** the re-pin is a CI-config
+change to `.github/workflows/tests.yml`; this is product code on the adoption
+path and is owed tests. The pin should still land — `rest` is at 13s of slack
+and a cancelled leg reports nothing at all — but it must not be read as having
+addressed this.
+
+**Related:** `## BL-242:` (the work package that introduced it), `## BL-112:`
+(a scan that did not run must never read as a scan that found nothing — the
+doctrine the re-scan arm implements).

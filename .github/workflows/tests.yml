@@ -614,13 +614,98 @@ jobs:
             #    "highest" is therefore NOT stable from a single sample; take two
             #    before re-pinning anything on it.
             #
-            #    AND `rest` HAS NO POLE TO MOVE. Its 526s is 158 suites whose
+            #    AND `rest` HAS NO POLE TO MOVE.  <<< SUPERSEDED 2026-09-04 —
+            #    FALSE SINCE WP10a; the measurement that refutes it is in the
+            #    re-pin note at the bottom of this array. Read that before
+            #    acting on the next SIX lines (through "afternoon hunting for a
+            #    long pole that does not exist"). >>>
+            #    Its 526s is 158 suites whose
             #    largest is 40s — flat, ~3.3s mean. If the complement ever binds,
             #    re-pinning cannot fix it: there is nothing to pin. That would
             #    need a different mechanism (more shards, or splitting the
             #    complement), and it is worth knowing BEFORE someone spends an
             #    afternoon hunting for a long pole that does not exist.
             tests/test-delta-wp5-hotfix-retro.sh   # 185s measured (run 32048687734) — the pole; opens and closes deltas dozens of times, and each open also renders a brief and seeds a ledger row, so it grew with the feature rather than with the test
+            # ── Re-pinned 2026-09-04, and this note REFUTES the paragraph
+            #    directly above it. "`rest` HAS NO POLE TO MOVE … 158 suites
+            #    whose largest is 40s, flat, ~3.3s mean" was true when it was
+            #    written and is now false by measurement. Run 33880279546's
+            #    `rest` log, per-suite from the ::group:: timestamps:
+            #      163 suites, 686.15s of the leg's 707s
+            #      test-brownfield-wp4-driver.sh        90.3s  <- the pole, 2.25x the claim
+            #      test-brownfield-wp9-act-boundaries   66.0s  <- the second
+            #      the next seven                     27-38s each (396.18s for the top nine)
+            #      the remaining 154                  289.97s TOTAL (1.88s mean)
+            #    The flat tail the old note described is still there underneath.
+            #    What sits on top of it is NOT family growth — that was this
+            #    note's first draft and it is wrong. It is a ONE-COMMIT STEP
+            #    CHANGE, and the pin is removing the only signal that showed
+            #    it. Same two suites, test files BYTE-IDENTICAL between the
+            #    two commits (`git diff 24dc321 4009790 -- <the suites>` is
+            #    empty):
+            #      suite                run 33592497086   run 33880279546
+            #                           (24dc321, pre-)   (4009790, WP10a)
+            #      wp4-driver                    17.0s             90.3s  5.3x
+            #      wp9-act-boundaries            15.3s             66.0s  4.3x
+            #      wp9b-preflight-approval       47.2s            222.6s  4.7x
+            #    (wp9b's two spans are from DIFFERENT LEGS — it sat in `rest`
+            #    on the first run and was pinned to `lint-scan` before the
+            #    second. Both legs are `ubuntu-latest` running the same suite
+            #    serially, so the comparison stands; it is named because a
+            #    reader tracing the figures back will otherwise find them in
+            #    two different job logs and assume one is a typo.)
+            #    Every other suite in the leg moved +5%..+40% — ordinary runner
+            #    drift. The cause is `# BL-242-RESOLVER-CALL`: WP10a made every
+            #    adoption spawn `scripts/resolve-tools.sh` unconditionally, at
+            #    6.8s wall per invocation, before it inspects anything. Filed
+            #    as `## BL-251:` WITH the fix shape; it is product code on the
+            #    adoption path and is owed its own tests, so it is not fixed
+            #    here. THIS PIN DOES NOT ADDRESS IT — do not read it as having.
+            #
+            #    WHY HERE. Same-run legs against the 720s cap:
+            #      lint-sweep  312s (43%)  <- this leg, the most headroom
+            #      sast        354s (49%)
+            #      slow-misc   469s (65%)
+            #      lint-scan   503s (70%)
+            #      rest        707s (98%)  <- 13s of slack
+            #    Moving both: lint-sweep -> ~468s (65%), rest -> ~551s (77%).
+            #    Nothing else was considered close: lint-scan would go to 92%
+            #    and slow-misc to 87%. Splitting the pair across lint-sweep and
+            #    sast distributes marginally better but does not move the
+            #    binding constraint, which is `rest` at ~551s either way.
+            #
+            #    THE TWO ERRORS THIS CORRECTS. The 2026-09-02 note in
+            #    `pin_lint_scan` missed BOTH its landing points, and they failed
+            #    for DIFFERENT reasons — a first draft of this paragraph blamed
+            #    one cause for both, which would have left the live one unnamed.
+            #      (a) `rest`: predicted ~539s, measured 707s (-168s). This one
+            #          IS arithmetic: ~539s was 733 - 194, and 733s was a
+            #          CANCELLED leg — killed at the cap mid-run, so it is a
+            #          FLOOR on that leg's runtime, not a total. Subtracting
+            #          from a floor yields a floor. NEVER DERIVE A LANDING POINT
+            #          FROM A CANCELLED LEG.
+            #      (b) `lint-scan`: predicted ~439s, measured 503s (+64s). 733
+            #          DOES NOT APPEAR in that sum — it was 245 + 194 — so the
+            #          cancelled leg cannot explain it even in principle. This
+            #          one is MEASUREMENT: the 194s was a local->CI
+            #          extrapolation, and wp9b actually ran 222.6s against the
+            #          "~174s on the runner" written beside it, 28% low. Real
+            #          total 245 + 252.7 = 497.7s vs 503s measured — the rest is
+            #          noise. A local stopwatch scaled by a remembered ratio is
+            #          not a CI measurement; this file says so two arrays up and
+            #          the estimate was made anyway.
+            #    The figures in THIS note come from uncancelled runs and from
+            #    per-suite CI spans, not from either of those methods.
+            #
+            #    ONE-SAMPLE CAVEAT, per the paragraph above: the LEG totals
+            #    carry ~100s of run-to-run noise (`rest` measured 493s/582s/
+            #    597s/597s across the four most recent main runs before this).
+            #    The SUITE figures do not — they are per-::group:: spans, and
+            #    90.3s vs a 40s claim is far outside that band. The move is
+            #    justified on the suite measurement; the leg percentages above
+            #    are context, not the evidence.
+            tests/test-brownfield-wp4-driver.sh            # 90.3s in CI (run 33880279546) — THE pole
+            tests/test-brownfield-wp9-act-boundaries.sh    # 66.0s in CI (run 33880279546) — the second
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
@@ -669,7 +754,9 @@ jobs:
             #    to the cap, not `rest`.
             tests/test-bl235-tool-matrix-probes.sh       # leg measured 245s/720s (34%) with this suite in it — run 32046301464
             # ── Re-pinned 2026-09-02, and this is the case the note in
-            #    `pin_slow_misc` said could not arise. `rest` was described as
+            #    `pin_lint_sweep` said could not arise (that note is in
+            #    `pin_lint_sweep`, not `pin_slow_misc` — this line named the
+            #    wrong array until 2026-09-04). `rest` was described as
             #    having NO POLE TO MOVE — "158 suites whose largest is 40s,
             #    flat, ~3.3s mean". THE BROWNFIELD ADOPTION SUITES BUILT THAT
             #    POLE: each of their cases runs a whole adoption, so they are
@@ -698,9 +785,24 @@ jobs:
             #    That is the family-coherence choice and it was rejected on the
             #    doctrine: `pin_slow_misc` already carries wp5b and wp6, and
             #    adding ~194s would take that leg to ~576s (80%) — the band its
-            #    own note calls "the leg to watch". `lint-scan` lands at ~439s
-            #    (61%) and `rest` falls to ~539s (75%), so no leg becomes the
-            #    next re-pin. Keeping a family together is worth less than not
+            #    own note calls "the leg to watch". `lint-scan` was predicted to
+            #    land at ~439s (61%) and `rest` to fall to ~539s (75%), so no
+            #    leg would become the next re-pin.
+            #      MEASURED ON RUN 33880279546 AND BOTH FIGURES WERE WRONG:
+            #      lint-scan 503s (70%) and `rest` 707s (98%) — 13s under the
+            #      cap, i.e. still the next re-pin, which is what the 2026-09-04
+            #      note in `pin_lint_sweep` then had to fix. THE TWO MISSES HAVE
+            #      DIFFERENT CAUSES and the diagnosis is NOT repeated here,
+            #      because a one-line version of it was wrong: an earlier draft
+            #      of this very block said "the cause is arithmetic, not
+            #      measurement", which is true of the `rest` miss and false of
+            #      the `lint-scan` one — 439 was 245 + 194 and never contained
+            #      733. Both are worked through, separately and with the
+            #      measurements, in the 2026-09-04 note in `pin_lint_sweep`;
+            #      read it there rather than trusting a summary here. The
+            #      `lint-scan` half of the decision below still holds; the "no
+            #      leg becomes the next re-pin" conclusion did not.
+            #    Keeping a family together is worth less than not
             #    creating the same problem one shard over. *(A draft of this
             #    comment said wp10a belongs "beside its sibling" — it does not:
             #    its siblings are in `slow-misc`, which is the leg this pin
