@@ -519,6 +519,7 @@ jobs:
             tests/test-bl225-staging-preflight.sh
             tests/test-brownfield-wp9-act-boundaries.sh
             tests/test-brownfield-wp9b-preflight-approval.sh
+            tests/test-brownfield-wp10a-tool-resolution.sh
             tests/test-bl233-mcp-outcome-enforcement.sh
             tests/test-bl233-wpb-accumulation.sh
             tests/test-pr-review-gate.sh
@@ -667,6 +668,45 @@ jobs:
             #    NOTE FOR THE NEXT RE-PIN: `slow-misc` at 79% is now the closest
             #    to the cap, not `rest`.
             tests/test-bl235-tool-matrix-probes.sh       # leg measured 245s/720s (34%) with this suite in it — run 32046301464
+            # ── Re-pinned 2026-09-02, and this is the case the note in
+            #    `pin_slow_misc` said could not arise. `rest` was described as
+            #    having NO POLE TO MOVE — "158 suites whose largest is 40s,
+            #    flat, ~3.3s mean". THE BROWNFIELD ADOPTION SUITES BUILT THAT
+            #    POLE: each of their cases runs a whole adoption, so they are
+            #    tens of times the complement's mean. Measured on run
+            #    33657275895 (PR #373), where `rest` was CANCELLED at 733s
+            #    against the 720s cap with every suite in it PASSING — the cap
+            #    fired, nothing failed, which is this file's own RE-PIN signal
+            #    rather than a reason to raise it.
+            #
+            #    Same run's legs, which is why they land here and not elsewhere:
+            #      lint-scan   245s (34%)  <- this leg, the most headroom
+            #      slow-misc   382s (53%)
+            #      lint-sweep  397s (55%)
+            #      sast        488s (68%)
+            #      rest        733s        <- CANCELLED
+            #
+            #    Measured locally, and the disparity is the whole argument:
+            #      wp9b  334s   <- 8x the complement's previous largest member
+            #      wp9a   99s
+            #      wp10a  30s
+            #    `wp9b` alone is the pole; `wp10a` follows it because a suite
+            #    that drives full adoptions does not belong in a leg whose mean
+            #    is ~3.3s.
+            #
+            #    WHY NOT `slow-misc`, WHERE THE OTHER BROWNFIELD SUITES LIVE.
+            #    That is the family-coherence choice and it was rejected on the
+            #    doctrine: `pin_slow_misc` already carries wp5b and wp6, and
+            #    adding ~194s would take that leg to ~576s (80%) — the band its
+            #    own note calls "the leg to watch". `lint-scan` lands at ~439s
+            #    (61%) and `rest` falls to ~539s (75%), so no leg becomes the
+            #    next re-pin. Keeping a family together is worth less than not
+            #    creating the same problem one shard over. *(A draft of this
+            #    comment said wp10a belongs "beside its sibling" — it does not:
+            #    its siblings are in `slow-misc`, which is the leg this pin
+            #    deliberately avoids.)*
+            tests/test-brownfield-wp9b-preflight-approval.sh   # 334s local / ~174s on the runner — THE pole
+            tests/test-brownfield-wp10a-tool-resolution.sh     #  30s local / ~20s on the runner
             #    The BL-221 suite that landed alongside this one is NOT pinned
             #    and is deliberately not named as a path here: it measures under
             #    a second, pinning it would buy nothing, and a commented path

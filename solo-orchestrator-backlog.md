@@ -13975,6 +13975,88 @@ same standard as code rather than waved through as "docs-only".
    **stricter** than any default would have been. A fallback would have
    weakened shipped behaviour to solve a case that cannot occur.
 
+### BL-242 residual — `resolve-tools.sh` files a documentation URL in the `auto_install` bucket, and `init.sh` executes that bucket
+
+**Found at WP10a's review (2026-09-02), NOT fixed there, and it is the shared
+resolver's defect rather than adoption's.** `scripts/resolve-tools.sh` builds
+`INSTALL_KEYS` with `manual` as its LAST entry, so the key loop treats the
+matrix's `manual` value — for gitleaks,
+`https://github.com/gitleaks/gitleaks/releases` — as a found install command
+and leaves `TOOL_AUTO` at the tool's own `auto_installable: true`. The entry
+therefore lands in **`auto_install`**, not `manual_install`. The fallback ten
+lines below (`if [ -z "$INSTALL_CMD" ] … TOOL_AUTO="false"`) is the arm that
+would have classified it correctly, and it is unreachable for any tool whose
+matrix entry has a `manual` key.
+
+**MEASURED**, real resolver, real matrix, darwin host:
+
+```
+brew present, gitleaks absent → auto_install[0].install_cmd = "brew install gitleaks"
+brew ABSENT,  gitleaks absent → auto_install[0].install_cmd = "https://github.com/gitleaks/gitleaks/releases"
+```
+
+*(Measuring this needs care: stripping gitleaks from `PATH` removes brew too —
+same directory — so the naive probe sees only the second row and concludes the
+matrix has no darwin recipe. A symlink shim of the brew directory minus one
+file is what separates them.)*
+
+**WHY IT MATTERS BEYOND ADOPTION.** `init.sh`'s installer loop reads
+`.auto_install[$i].install_cmd` and runs it. On a host without the package
+manager, that is a URL going to a shell. WP10a defends its own consumer with a
+URL-scheme refusal plus a post-install probe (`# BL-242-RESOLVER-NO-EXEC`,
+`# BL-242-RESOLVER-VERIFY`), but the defect is upstream of both consumers.
+
+**THE FIX IS ONE LINE AND ITS BLAST RADIUS IS NOT.** Dropping `manual` from
+`INSTALL_KEYS` sends the URL through the existing `TOOL_AUTO="false"` arm and
+into `manual_install` with the `instructions` field — after which `auto_install`
+means "runnable" by construction and no consumer needs to guess. **Eleven test files
+reference this resolver and SIX execute it** (`test-bl033-install-cmds-shape.sh`
+pins the `install_cmd`/`install_cmds` shape directly), so it wants its own
+change with its own proofs, not a drive-by inside a package whose §10 boundary
+is to *invoke* the resolver. **NO SINGLE GREP GETS THE SECOND NUMBER, and that is
+why it is enumerated rather than recipe'd.** This line has now been wrong
+THREE TIMES: "eight test files exercise this resolver"; then "seven invoke it",
+published beside a recipe that returns **three**; and then a "fix" that wrote
+the correct figure into a paragraph BELOW while leaving the bolded seven where
+it was — a correction appended under the sentence it corrects, so the operative
+clause still asserted the refuted number. The FIRST TWO were counts of grep
+hits rather than classifications (the third was a correction that never touched
+its subject), and two files defeat every pattern —
+`test-bl235-tool-matrix-probes.sh` matches on a COMMENT (`# init.sh EXECUTES
+it …`) and a mode check while never running it, and
+`test-bl137-ci-tools-scope.sh` runs it INDIRECTLY, by copying it into a fixture
+and invoking `check-phase-gate.sh`, which executes it. The references figure is
+derivable and the invokers figure is not:
+
+```
+grep -rl 'resolve-tools' tests/ | wc -l            # references: 11 (derivable)
+```
+
+**FIVE files execute it directly** — `test-bl033-install-cmds-shape.sh`,
+`edge-case-test-suite.sh`, `edge-cases-scripts.sh`, `full-project-test-suite.sh`,
+`upgrade-path-tests.sh` (the first and last through a `$RESOLVER` variable, which
+is why a `bash .*resolve-tools\.sh` pattern misses them) — **and one more
+indirectly**, `test-bl137-ci-tools-scope.sh`. **Six in total.** Re-classify by
+reading, not by counting matches.
+
+**A SECOND RESIDUAL, FOUND AT THE SAME REVIEW AND RECORDED RATHER THAN FIXED:
+the Linux recipe adoption now offers is an unpinned, unverified root install.**
+`curl -sSfL "…/releases/latest/…" | sudo tar -xz -C /usr/local/bin gitleaks` —
+no version pin, no checksum, extracted as root, and the consent prompt does not
+say it will elevate. This repository's OWN CI pins the identical artefact by
+version and checksum (`GITLEAKS_VERSION`, `GITLEAKS_SHA256`, verified through
+`scripts/ci-verify-sha256.sh`) and carries a comment explaining why a floating
+one is unacceptable — so the standard already exists here and the matrix does
+not meet it. The string is the matrix's, not WP10a's; what WP10a changed is
+that adoption can now run it. Fixing it belongs with the matrix and the
+resolver, in the same change as the row above.
+
+**A SECOND, SMALLER ROW IN THE SAME AREA:** the two buckets use DIFFERENT FIELD
+NAMES — `auto_install` carries `install_cmd`, `manual_install` carries
+`instructions` — which is a trap for every reader. WP10a reads
+`.install_cmd // .instructions`; a consumer that reads only the first prints
+nothing where the resolver handed it a reference.
+
 ### BL-242 residual — adoption follows a SYMLINK out of the project and overwrites its target
 
 **Recorded at WP9b's review (2026-09-01), NOT fixed here, and pre-existing rather

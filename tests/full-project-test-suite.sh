@@ -813,6 +813,18 @@ run_child_suite "tests/test-brownfield-wp9b-preflight-approval.sh" \
   "Adoption WP9b preflight + approval log (A1's three arms, A4's tier-matched log written first)" \
   "Adoption WP9b preflight/approval-log tests FAILED (run tests/test-brownfield-wp9b-preflight-approval.sh for details)"
 
+# WP10a — tool resolution at §8.2 step 2, and §6.2's re-scan-after-install.
+# Its sharpest assertion is a CANARY, not a string: `install_cmd` is not always
+# a command (the tool matrix ships a `manual` URL fallback), and X2 proves the
+# driver never pipes it to a shell. DERIVE the mutant count, never quote it:
+#   grep -c '_mutate "' tests/test-brownfield-wp10a-tool-resolution.sh
+# Drives the driver against fixtures and a scratch mirror, with the resolver
+# itself stubbed through SOIF_ADOPT_RESOLVER so no test installs anything on
+# the host -> both lanes.
+run_child_suite "tests/test-brownfield-wp10a-tool-resolution.sh" \
+  "Adoption WP10a tool resolution (resolver at step 2, no non-command ever executed, §6.2 re-scan)" \
+  "Adoption WP10a tool-resolution tests FAILED (run tests/test-brownfield-wp10a-tool-resolution.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
