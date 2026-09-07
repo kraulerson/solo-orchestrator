@@ -738,6 +738,393 @@ else
   esac
 fi
 
+echo "=== S — the fast path: a scanner already on the host costs no resolver run ==="
+
+# `## BL-251:` — WP10a spawned scripts/resolve-tools.sh on EVERY adoption,
+# unconditionally, before inspecting anything: 6.8s wall per invocation, and
+# the matrix's own gitleaks predicate is literally `command -v gitleaks`, so
+# the expensive subprocess was being paid to learn what one builtin already
+# knows. These cases pin the short-circuit AND the seam that keeps it out of
+# the other eighteen cases' way.
+#
+# THE OBVIOUS PLACEMENT IS WRONG AND THAT IS WHY THE SEAM ARM EXISTS. Hoisting
+# a bare `command -v gitleaks` to the top of adopt_resolve_tools puts a HOST
+# PROBE ABOVE `SOIF_ADOPT_RESOLVER`; every stub-driven case above then stops
+# reaching its stub. Measured with the seam arm neutered: ELEVEN failures on
+# a host WITH gitleaks against FOUR on a host without — the delta is exactly
+# X2b, X4, X5(linux), X5(brew), X6b, X7, X9, X9b and M2, the nine this file's
+# header enumerates. FAILURE COUNTS AND NAMES ONLY: a passed-count written
+# beside them went stale twice across tree changes while labelled "measured
+# on this tree" — the exact failure mode the header above lectures about.
+# The local-vs-CI divergence the seam comment was written to prevent. S2 is
+# what keeps it fixed.
+#
+# DO NOT WRITE "34 / 0" HERE. An earlier draft did, in three places, meaning
+# "the suite is host-independent without gitleaks". It is not: main's own
+# 34-assertion suite measures 32 passed / 2 failed on a gitleaks-free host.
+# R1 and R2 fail there through SCOUT, not through the resolver — a
+# PRE-EXISTING host-dependence in a suite whose header claims the opposite.
+# Recorded on `## BL-251:`; do not let a tidy tally hide it again.
+#
+# NEITHER CASE DEPENDS ON WHAT THIS HOST HAPPENS TO HAVE INSTALLED. A shim
+# directory is PREPENDED to PATH so `command -v gitleaks` is true either way,
+# and each case asserts the shim actually resolves before trusting the result.
+# (Prepending is safe where CLAUDE.md's PATH-isolation warning is not: that
+# trap is about a fixture that RE-ADDS the real PATH and so fails to remove a
+# tool. This adds one.)
+
+# _mk_gitleaks_shim <dir> → 0 if the shim is on PATH and resolves first
+_mk_gitleaks_shim() {
+  local d="$1"
+  mkdir -p "$d" || return 1
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$d/gitleaks"
+  chmod +x "$d/gitleaks" || return 1
+  [ "$(PATH="$d:$PATH" command -v gitleaks 2>/dev/null)" = "$d/gitleaks" ] || return 1
+  return 0
+}
+
+# _mk_sentinel_resolver <path> <sentinel> [bucket] → a resolver stub that
+# RECORDS having been run and still emits a valid payload, so a case can tell
+# "did not run" from "ran and broke".
+#
+# IT PROVES ITSELF, to the standard `_mk_resolver` above sets ("a builder that
+# silently produced an empty stub is worse than one that failed"). A first cut
+# checked only that the file was non-empty — so a stub whose sentinel path was
+# unwritable ran, wrote nothing, and every "the resolver did not run" assertion
+# printed PASS over a resolver that HAD run. Measured: builder rc=0, stub rc=0,
+# sentinel absent, JSON valid. It now runs the stub once against a throwaway
+# path and requires the sentinel to appear AND the payload to parse.
+_mk_sentinel_resolver() {
+  local out="$1" sentinel="$2" bucket="${3:-already}" payload probe
+  case "$bucket" in
+    already) payload="$(jq -nc '{already_installed: [{name: "gitleaks", version: "8.30.1", category: "Secret Detection"}], auto_install: [], manual_install: [], deferred: []}')" ;;
+    auto)    payload="$(jq -nc '{already_installed: [], auto_install: [{name: "gitleaks", category: "Secret Detection", install_cmd: "true", install_cmds: ["true"]}], manual_install: [], deferred: []}')" ;;
+    *) return 1 ;;
+  esac
+  [ -n "$payload" ] || return 1
+  # THE SELF-TEST PROBES THE SENTINEL'S OWN DIRECTORY, not the stub's. A cut
+  # that probed `dirname "$out"` proved the wrong directory writable: in every
+  # real case those differ (the stub lives under fw/scripts, the sentinel under
+  # the case root), so a sentinel in a nonexistent directory still produced
+  # builder rc=0, stub rc=0, no sentinel, valid JSON — the false negative,
+  # intact. Measured.
+  probe="${sentinel}.selftest"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf ': > "${SENTINEL_PATH:-%s}"\n' "$sentinel"
+    printf 'cat <<%s\n' "'RESOLVERJSON'"
+    printf '%s\n' "$payload"
+    printf 'RESOLVERJSON\n'
+  } > "$out"
+  chmod +x "$out"
+  rm -f "$probe" 2>/dev/null
+  SENTINEL_PATH="$probe" "$out" 2>/dev/null | jq -e . >/dev/null 2>&1 || return 1
+  [ -e "$probe" ] || return 1
+  rm -f "$probe" 2>/dev/null
+  return 0
+}
+
+# ── S1 — PRODUCTION SHAPE: seam UNSET, scanner present, resolver must not run.
+# The framework is mirrored and its OWN scripts/resolve-tools.sh replaced, so
+# `_adopt_resolver_path`'s default branch is the one under test — this is the
+# path a real operator takes, not a seam-driven approximation.
+S1="$(newtmp)"
+mkdir -p "$S1/fw" "$S1/p" "$S1/bin"
+if ! mk_mirror "$S1/fw"; then
+  fail_ "S1 setup" "could not mirror the framework"
+elif ! _mk_gitleaks_shim "$S1/bin"; then
+  fail_ "S1 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! _mk_sentinel_resolver "$S1/fw/scripts/resolve-tools.sh" "$S1/ran"; then
+  fail_ "S1 setup" "the sentinel resolver did not build"
+elif ! mk_adoptee "$S1/p"; then
+  fail_ "S1 setup" "could not build the adoptee"
+else
+  _ans 1 > "$S1/answers"
+  run_adopt "$S1/p" "$S1/answers" "$REPORT" "$S1/fw" "PATH=$S1/bin:$PATH"
+  S1_RC="$RUN_RC"
+  if [ -e "$S1/ran" ]; then
+    fail_ "S1" "the resolver RAN even though gitleaks is on PATH — the fast path did not fire"
+  else
+    pass "S1 — a present scanner short-circuits: resolve-tools.sh was never spawned"
+  fi
+  [ "$S1_RC" -eq 0 ] \
+    && pass "S1b — the adoption still completes (rc=0) on the fast path" \
+    || fail_ "S1b" "adoption exited $S1_RC on the fast path"
+  if grep -q "already installed" "$RUN_OUT" 2>/dev/null; then
+    pass "S1c — the fast path still SAYS the scanner is present"
+  else
+    fail_ "S1c" "the fast path went silent about the scanner it found"
+  fi
+fi
+
+# ── S2 — THE SEAM OUTRANKS THE HOST PROBE. With SOIF_ADOPT_RESOLVER set, the
+# resolver runs even though gitleaks is on PATH. This is the assertion that
+# stops the fast path from reaching past the seam and re-breaking the other
+# eighteen cases; `# BL-251-PROBE-SEAM` is the line it pins.
+S2="$(newtmp)"
+mkdir -p "$S2/p" "$S2/bin"
+if ! _mk_gitleaks_shim "$S2/bin"; then
+  fail_ "S2 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! _mk_sentinel_resolver "$S2/resolver" "$S2/ran"; then
+  fail_ "S2 setup" "the sentinel resolver did not build"
+elif ! mk_adoptee "$S2/p"; then
+  fail_ "S2 setup" "could not build the adoptee"
+else
+  _ans 1 > "$S2/answers"
+  run_adopt "$S2/p" "$S2/answers" "$REPORT" "$REPO_ROOT" \
+    "SOIF_ADOPT_RESOLVER=$S2/resolver" "PATH=$S2/bin:$PATH"
+  if [ -e "$S2/ran" ]; then
+    pass "S2 — a stubbed resolver still runs: the fast path sits BEHIND the seam"
+  else
+    fail_ "S2" "the fast path reached past SOIF_ADOPT_RESOLVER — every stub-driven case above is now host-dependent"
+  fi
+fi
+
+# ── S3 — THE FAST PATH IS NOT A SHORTCUT PAST THE RE-SCAN. Skipping the
+# resolver must not also skip `_adopt_rescan_secrets`; a degraded survey is
+# exactly the state a present scanner exists to refresh.
+S3="$(newtmp)"
+mkdir -p "$S3/fw" "$S3/p" "$S3/bin"
+if ! mk_mirror "$S3/fw"; then
+  fail_ "S3 setup" "could not mirror the framework"
+elif ! _mk_gitleaks_shim "$S3/bin"; then
+  fail_ "S3 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! _mk_sentinel_resolver "$S3/fw/scripts/resolve-tools.sh" "$S3/ran"; then
+  fail_ "S3 setup" "the sentinel resolver did not build"
+elif ! mk_adoptee "$S3/p"; then
+  fail_ "S3 setup" "could not build the adoptee"
+else
+  jq '.secrets.status = "tool-unavailable"' "$REPORT" > "$S3/report.json" 2>/dev/null
+  _ans 1 > "$S3/answers"
+  run_adopt "$S3/p" "$S3/answers" "$S3/report.json" "$S3/fw" "PATH=$S3/bin:$PATH"
+  if grep -q "The scan was re-run" "$RUN_OUT" 2>/dev/null; then
+    pass "S3 — the fast path still reaches the re-scan on a degraded survey"
+  else
+    fail_ "S3" "the fast path skipped the re-scan a degraded survey exists to trigger"
+  fi
+fi
+
+# ── S4 — THE SCANNER-ABSENT BRANCH, which the first cut of this fix asserted
+# NOWHERE. Every S/MS case above runs with gitleaks present, so neutering
+# `# BL-251-PROBE-HOST` to `true` survived the whole suite AND every
+# PR-blocking check — while making a gitleaks-free host print "Secret
+# detection: already installed." and, three lines later, "the scanner is not
+# installed." CI installs gitleaks unconditionally, so no required check could
+# have seen it. `SOIF_ADOPT_SCANNER_BIN` makes absence assertable WITHOUT
+# depending on what this host has, which a PATH-subtraction fixture cannot do
+# safely (CLAUDE.md's PATH-isolation trap).
+S4="$(newtmp)"
+mkdir -p "$S4/fw" "$S4/p" "$S4/bin"
+if ! mk_mirror "$S4/fw"; then
+  fail_ "S4 setup" "could not mirror the framework"
+elif ! _mk_gitleaks_shim "$S4/bin"; then
+  fail_ "S4 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! _mk_sentinel_resolver "$S4/fw/scripts/resolve-tools.sh" "$S4/ran" auto; then
+  fail_ "S4 setup" "the sentinel resolver did not build"
+elif ! mk_adoptee "$S4/p"; then
+  fail_ "S4 setup" "could not build the adoptee"
+else
+  # gitleaks IS on PATH (the shim). The probe is pointed at a name that is not,
+  # so the case asserts the ABSENT branch on any host, in either direction.
+  _ans_install 1 2 > "$S4/answers"
+  run_adopt "$S4/p" "$S4/answers" "$REPORT" "$S4/fw" \
+    "PATH=$S4/bin:$PATH" "SOIF_ADOPT_SCANNER_BIN=gitleaks-bl251-absent"
+  if [ -e "$S4/ran" ]; then
+    pass "S4 — an absent scanner still reaches the resolver: the fast path is not unconditional"
+  else
+    fail_ "S4" "the fast path fired with NO scanner present — the resolver was never consulted"
+  fi
+  if grep -q "already installed" "$RUN_OUT" 2>/dev/null; then
+    fail_ "S4b" "a host with no scanner was told the scanner is already installed"
+  else
+    pass "S4b — an absent scanner is never announced as present"
+  fi
+fi
+
+# ── S5 — THE PLACEMENT IS PINNED, NOT ASSERTED. The fast path sits BELOW the
+# resolver-existence arm so a broken framework checkout keeps its diagnostic
+# on a host that has the scanner. A cut of this fix had it above, lost the
+# diagnostic, and shipped under a comment claiming behaviour-identity; the
+# review found it by running main and the branch side by side. Moving the
+# block back above the arm passed 51/0 — nothing here could see it. This case
+# is the regression test: it fails on that ordering directly, so it needs no
+# mutant of its own.
+S5="$(newtmp)"
+mkdir -p "$S5/fw" "$S5/p" "$S5/bin"
+if ! mk_mirror "$S5/fw"; then
+  fail_ "S5 setup" "could not mirror the framework"
+elif ! _mk_gitleaks_shim "$S5/bin"; then
+  fail_ "S5 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! mk_adoptee "$S5/p"; then
+  fail_ "S5 setup" "could not build the adoptee"
+else
+  rm -f "$S5/fw/scripts/resolve-tools.sh"
+  if [ -e "$S5/fw/scripts/resolve-tools.sh" ]; then
+    fail_ "S5 setup" "could not remove the mirror's resolver"
+  else
+    _ans 1 > "$S5/answers"
+    run_adopt "$S5/p" "$S5/answers" "$REPORT" "$S5/fw" "PATH=$S5/bin:$PATH"
+    if grep -q "The tool resolver is not where it should be" "$RUN_OUT" 2>/dev/null; then
+      pass "S5 — a missing resolver is still diagnosed when the scanner is present: the fast path sits below that arm"
+    else
+      fail_ "S5" "the fast path fired past a missing resolver — a broken checkout lost its only diagnostic"
+    fi
+    [ "$RUN_RC" -eq 0 ] \
+      && pass "S5b — and the adoption still completes (rc=0)" \
+      || fail_ "S5b" "adoption exited $RUN_RC on the missing-resolver arm"
+  fi
+fi
+
+echo "=== MS — mutation proofs for the fast path ==="
+
+# ── MS1 — remove the short-circuit and S1's non-execution assertion must die.
+MS1_MARK="# BL-251-FAST-PATH"
+MS1="$(newtmp)"
+mkdir -p "$MS1/fw" "$MS1/p" "$MS1/bin"
+if ! mk_mirror "$MS1/fw"; then
+  fail_ "MS1 setup" "could not mirror the framework"
+elif [ "$(_mutate "$MS1/fw" "adopt-tools.sh" "$MS1_MARK" "  if false; then   $MS1_MARK")" != "1" ]; then
+  fail_ "MS1 setup" "the fast-path mutation did not apply cleanly"
+elif ! _mk_gitleaks_shim "$MS1/bin"; then
+  fail_ "MS1 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! _mk_sentinel_resolver "$MS1/fw/scripts/resolve-tools.sh" "$MS1/ran"; then
+  fail_ "MS1 setup" "the sentinel resolver did not build"
+elif ! mk_adoptee "$MS1/p"; then
+  fail_ "MS1 setup" "could not build the adoptee"
+else
+  _ans 1 > "$MS1/answers"
+  run_adopt "$MS1/p" "$MS1/answers" "$REPORT" "$MS1/fw" "PATH=$MS1/bin:$PATH"
+  if [ -e "$MS1/ran" ]; then
+    pass "MS1 (MUTATION) — without the short-circuit the resolver IS spawned: S1 is what stops it"
+  else
+    fail_ "MS1 (MUTATION)" "disabling the short-circuit changed nothing — S1 may be passing for another reason"
+  fi
+fi
+
+# ── MS2 — remove the SEAM arm of the probe and S2 must die. This is the
+# defect the review measured: without this line the host probe outranks
+# SOIF_ADOPT_RESOLVER and nine assertions above turn host-dependent.
+MS2_MARK="# BL-251-PROBE-SEAM"
+MS2="$(newtmp)"
+mkdir -p "$MS2/fw" "$MS2/p" "$MS2/bin"
+if ! mk_mirror "$MS2/fw"; then
+  fail_ "MS2 setup" "could not mirror the framework"
+elif [ "$(_mutate "$MS2/fw" "adopt-tools.sh" "$MS2_MARK" "  :   $MS2_MARK")" != "1" ]; then
+  fail_ "MS2 setup" "the probe-seam mutation did not apply cleanly"
+elif ! _mk_gitleaks_shim "$MS2/bin"; then
+  fail_ "MS2 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! _mk_sentinel_resolver "$MS2/resolver" "$MS2/ran"; then
+  fail_ "MS2 setup" "the sentinel resolver did not build"
+elif ! mk_adoptee "$MS2/p"; then
+  fail_ "MS2 setup" "could not build the adoptee"
+else
+  _ans 1 > "$MS2/answers"
+  run_adopt "$MS2/p" "$MS2/answers" "$REPORT" "$MS2/fw" \
+    "SOIF_ADOPT_RESOLVER=$MS2/resolver" "PATH=$MS2/bin:$PATH"
+  if [ -e "$MS2/ran" ]; then
+    fail_ "MS2 (MUTATION)" "removing the seam arm changed nothing — S2 may be passing for another reason"
+  else
+    pass "MS2 (MUTATION) — without the seam arm the stub is bypassed: S2 is what keeps the suite host-independent"
+  fi
+fi
+
+# ── MS4 — the fast path must not become a shortcut past the re-scan. S3 is a
+# regression guard that passes on a tree with no fast path at all, so it needs
+# a mutant of its own or it proves nothing.
+MS4_MARK="# BL-251-FAST-PATH-RESCAN"
+MS4="$(newtmp)"
+mkdir -p "$MS4/fw" "$MS4/p" "$MS4/bin"
+if ! mk_mirror "$MS4/fw"; then
+  fail_ "MS4 setup" "could not mirror the framework"
+elif [ "$(_mutate "$MS4/fw" "adopt-tools.sh" "$MS4_MARK" "    :   $MS4_MARK")" != "1" ]; then
+  fail_ "MS4 setup" "the fast-path-rescan mutation did not apply cleanly"
+elif ! _mk_gitleaks_shim "$MS4/bin"; then
+  fail_ "MS4 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! _mk_sentinel_resolver "$MS4/fw/scripts/resolve-tools.sh" "$MS4/ran"; then
+  fail_ "MS4 setup" "the sentinel resolver did not build"
+elif ! mk_adoptee "$MS4/p"; then
+  fail_ "MS4 setup" "could not build the adoptee"
+else
+  jq '.secrets.status = "tool-unavailable"' "$REPORT" > "$MS4/report.json" 2>/dev/null
+  _ans 1 > "$MS4/answers"
+  run_adopt "$MS4/p" "$MS4/answers" "$MS4/report.json" "$MS4/fw" "PATH=$MS4/bin:$PATH"
+  if grep -q "The scan was re-run" "$RUN_OUT" 2>/dev/null; then
+    fail_ "MS4 (MUTATION)" "dropping the re-scan changed nothing — S3 may be passing for another reason"
+  else
+    pass "MS4 (MUTATION) — without the re-scan call a degraded survey is left stale: S3 is what stops it"
+  fi
+fi
+
+# ── MS5 — neuter the host probe and S4 must die. This is the mutant the first
+# cut of this fix did not have: it survived the entire suite and every
+# PR-blocking check, on the secret-scanner surface.
+MS5_MARK="# BL-251-PROBE-HOST"
+MS5="$(newtmp)"
+mkdir -p "$MS5/fw" "$MS5/p" "$MS5/bin"
+if ! mk_mirror "$MS5/fw"; then
+  fail_ "MS5 setup" "could not mirror the framework"
+elif [ "$(_mutate "$MS5/fw" "adopt-tools.sh" "$MS5_MARK" "  true   $MS5_MARK")" != "1" ]; then
+  fail_ "MS5 setup" "the probe-host mutation did not apply cleanly"
+elif ! _mk_gitleaks_shim "$MS5/bin"; then
+  fail_ "MS5 setup" "the gitleaks shim did not resolve first on PATH"
+elif ! _mk_sentinel_resolver "$MS5/fw/scripts/resolve-tools.sh" "$MS5/ran" auto; then
+  fail_ "MS5 setup" "the sentinel resolver did not build"
+elif ! mk_adoptee "$MS5/p"; then
+  fail_ "MS5 setup" "could not build the adoptee"
+else
+  _ans_install 1 2 > "$MS5/answers"
+  run_adopt "$MS5/p" "$MS5/answers" "$REPORT" "$MS5/fw" \
+    "PATH=$MS5/bin:$PATH" "SOIF_ADOPT_SCANNER_BIN=gitleaks-bl251-absent"
+  if [ -e "$MS5/ran" ]; then
+    fail_ "MS5 (MUTATION)" "neutering the host probe changed nothing — S4 may be passing for another reason"
+  else
+    pass "MS5 (MUTATION) — with the probe forced true an absent scanner is announced as present: S4 is what stops it"
+  fi
+fi
+
+# ── MS3 — the four SINGLE-SITE markers are unique and end-of-line anchored, so the
+# mutations above cannot silently hit a second site.
+for _m in "$MS1_MARK" "$MS2_MARK" "$MS4_MARK" "$MS5_MARK"; do
+  _n="$(_sites "$L_TOOLS" "$_m")"
+  [ "$_n" = "1" ] \
+    && pass "MS3 — '$_m' occurs exactly once at end-of-line in adopt-tools.sh" \
+    || fail_ "MS3" "'$_m' occurs $_n times in adopt-tools.sh (need exactly 1)"
+done
+
+# ── MS7 — THE PROBE'S DEFAULT IS THE MATRIX'S OWN SCANNER NAME, derived rather
+# than transcribed. Every absence case sets SOIF_ADOPT_SCANNER_BIN explicitly
+# and every presence case is satisfied by whatever binary happens to exist, so
+# the literal default was asserted by NOTHING: changing it to `git` (always
+# present) survived the whole suite while a gitleaks-free host was told the
+# scanner was already installed. A typo or a rename would fail SAFE (the probe
+# stops matching and the resolver runs) — only a nonsense substitution is
+# dangerous — which is why this is a name-tie rather than a mutant: it also
+# pins the one hardcoded `gitleaks` in this file that has no category
+# fallback to the entry the resolver actually keys off.
+_mx="$(jq -r '[.tools[]|select(.substitution_category=="Secret Detection")|.name]|first // ""' "$REPO_ROOT/templates/tool-matrix/common.json" 2>/dev/null)"
+if [ -z "$_mx" ]; then
+  fail_ "MS7 setup" "could not derive the Secret Detection tool name from templates/tool-matrix/common.json"
+elif grep -q "SOIF_ADOPT_SCANNER_BIN:-${_mx}}\"   # BL-251-PROBE-HOST\$" "$L_TOOLS" 2>/dev/null; then
+  pass "MS7 — the probe's default is the matrix's own scanner name ($_mx)"
+else
+  fail_ "MS7" "the fast path probes for a different tool than the matrix resolves (matrix says '$_mx')"
+fi
+
+# ── MS6 — `# BL-251-ALREADY-LINE` is a SYNC-SIBLING marker, so its invariant is
+# TWO sites, not one: the fast path and the resolver's already-installed arm
+# print byte-identical text, and this repo's convention for text duplicated in
+# lockstep is a grep-able marker (`# BL-084-TIER-KEY`, "SYNC SIBLINGS") rather
+# than a prose pointer. If one line moves without the other the count changes.
+_al_sites="$(_sites "$L_TOOLS" "# BL-251-ALREADY-LINE")"
+[ "$_al_sites" = "2" ] \
+  && pass "MS6 — '# BL-251-ALREADY-LINE' marks both sync siblings (2 sites)" \
+  || fail_ "MS6" "'# BL-251-ALREADY-LINE' occurs $_al_sites times in adopt-tools.sh (need exactly 2)"
+
+_al_text="$(grep -c '^ *adopt_note "Secret detection: already installed\. The history scan can run\."   # BL-251-ALREADY-LINE$' "$L_TOOLS" 2>/dev/null)"
+[ "$(_num "$_al_text")" = "2" ] \
+  && pass "MS6b — both sync siblings still carry byte-identical operator text" \
+  || fail_ "MS6b" "the two '# BL-251-ALREADY-LINE' sites have drifted apart"
+
 echo ""
 if [ "$FAILED" -eq 0 ]; then
   echo "Results: $PASSED passed, $FAILED failed"
