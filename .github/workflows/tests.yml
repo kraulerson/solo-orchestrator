@@ -808,7 +808,7 @@ jobs:
             #    its siblings are in `slow-misc`, which is the leg this pin
             #    deliberately avoids.)*
             tests/test-brownfield-wp9b-preflight-approval.sh   # 334s local / ~174s on the runner — THE pole
-            tests/test-brownfield-wp10a-tool-resolution.sh     #  30s local / ~20s on the runner
+            tests/test-brownfield-wp10a-tool-resolution.sh     #  45s local (S/MS block added nine adoptions) / ~30s on the runner
             #    The BL-221 suite that landed alongside this one is NOT pinned
             #    and is deliberately not named as a path here: it measures under
             #    a second, pinning it would buy nothing, and a commented path
