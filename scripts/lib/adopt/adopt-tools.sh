@@ -108,6 +108,50 @@ _adopt_tool_present() {
   command -v "$name" >/dev/null 2>&1
 }
 
+# ── `## BL-251:` — IS THE SCANNER ALREADY HERE, ANSWERED WITHOUT A SUBPROCESS ─
+# WP10a spawned the resolver on EVERY adoption before inspecting anything, at
+# 6.8s wall per invocation (3.2s of it CPU), to learn something a builtin knows
+# instantly: `templates/tool-matrix/common.json`'s gitleaks entry is selected by
+# every call this step makes (`phase: 1`, all tracks, both dev_os, all platforms
+# and languages) and its predicate is literally `"check_command": "command -v
+# gitleaks"`. So `command -v gitleaks` succeeding is equivalent to gitleaks
+# landing in `.already_installed`; the only divergence is the resolver's 10s
+# evaluation deadline (`RESOLVE_TOOLS_EVAL_TIMEOUT`), which errs toward saying
+# absent — i.e. toward the slow path, never toward a false all-clear.
+#
+# THE HOST PROBE MUST SIT BEHIND THE SEAM, AND THAT IS NOT A STYLE PREFERENCE.
+# Hoisting a bare `command -v gitleaks` to the top of `adopt_resolve_tools` —
+# the obvious placement, and the one this fix's own backlog entry proposed
+# before it was measured — puts a host probe ABOVE `SOIF_ADOPT_RESOLVER`. Every
+# stub-driven case in tests/test-brownfield-wp10a-tool-resolution.sh then stops
+# reaching its stub. Measured with the seam arm neutered: eleven failures on
+# a host WITH gitleaks, four on a host without, and the set of cases that fail
+# ONLY when gitleaks is present — derived by set difference, not subtraction —
+# is exactly X2b, X4, X5(linux), X5(brew), X6b, X7, X9, X9b and M2, the nine
+# the suite's header enumerates. Failure counts and names only, on purpose: a
+# passed-count written beside them went stale twice across tree changes while
+# labelled "measured", which is the failure mode that suite's header lectures
+# about. This is the local-vs-CI divergence the seam above was written to
+# prevent, and CLAUDE.md's standing trap. (A gitleaks-free host is not clean
+# either: R1/R2 fail there through the SCOUT seam, recorded on `## BL-251:`.)
+# S2 and MS2 in that suite hold this line in place.
+_adopt_scanner_present() {
+  # A stubbed resolver means the suite is driving this step deliberately; the
+  # host is not evidence about the case it is asserting.
+  [ -z "${SOIF_ADOPT_RESOLVER:-}" ] || return 1   # BL-251-PROBE-SEAM
+  # `SOIF_ADOPT_SCANNER_BIN` is the SECOND seam, and it exists because the
+  # scanner-ABSENT branch is the one a new operator actually takes and it was
+  # asserted NOWHERE in the first cut of this fix: every case ran with gitleaks
+  # present, so neutering the line below to `true` survived every PR-blocking
+  # check — while producing "Secret detection: already installed." and, three
+  # lines later, "the scanner is not installed", on the surface this package
+  # exists to make trustworthy. CI installs gitleaks unconditionally, so no
+  # required check could ever have seen it. Same shape as scout's own
+  # `SCOUT_GITLEAKS_BIN` (scripts/lib/scout/scout-secrets.sh); production sets
+  # neither.
+  _adopt_tool_present "${SOIF_ADOPT_SCANNER_BIN:-gitleaks}"   # BL-251-PROBE-HOST
+}
+
 # ── Step 2 ──────────────────────────────────────────────────────────────────
 # adopt_resolve_tools ROOT REPORT
 #
@@ -129,6 +173,36 @@ adopt_resolve_tools() {
     # HOST: gitleaks may well be installed, and a first cut returned here
     # without asking, losing a legitimate refresh.
     _adopt_rescan_secrets "$root" "$report"
+    return 0
+  fi
+
+  # `## BL-251:` — THE FAST PATH. When the scanner is on PATH the resolver
+  # reports it in `.already_installed` on the same predicate (see
+  # `_adopt_scanner_present`), the install arm does not run, and the step ends
+  # in exactly the two lines below — so taking them directly costs no
+  # subprocess. The re-scan is NOT skipped with it: `_adopt_rescan_secrets`
+  # carries its own `# BL-242-SECRETS-RESCAN` guard and is the whole point of
+  # resolving a scanner, so a degraded survey is still refreshed here.
+  #
+  # IT SITS BELOW THE RESOLVER-EXISTENCE ARM ON PURPOSE, AND THE FIRST CUT DID
+  # NOT. Above it, a broken framework checkout on a host that HAS gitleaks lost
+  # its only diagnostic ("The tool resolver is not where it should be") — a
+  # measured behaviour change under a comment that claimed to be
+  # behaviour-identical. Two `test` builtins is not a cost worth a false claim.
+  #
+  # ONE ARM IS STILL TRADED AWAY, AND IT IS STATED RATHER THAN DENIED: the
+  # empty-output arm below ("The tool resolver did not produce a result") is
+  # unreachable when the scanner is present. For a resolver that RUNS and
+  # returns nothing, that cannot be preserved — reaching it means having
+  # already paid the 6.8s this fix exists to avoid. The same arm also used to
+  # catch a resolver that is present but NOT RUNNABLE (a file the existence
+  # guard above lets through, `chmod 000` being the measured case); that
+  # sub-case is traded with it, and on a host that has the scanner it is a
+  # framework-checkout diagnostic lost, not a scan lost — the re-scan below
+  # still runs. S5 in the WP10a suite pins the arm this block sits UNDER.
+  if _adopt_scanner_present; then   # BL-251-FAST-PATH
+    adopt_note "Secret detection: already installed. The history scan can run."   # BL-251-ALREADY-LINE
+    _adopt_rescan_secrets "$root" "$report"   # BL-251-FAST-PATH-RESCAN
     return 0
   fi
 
@@ -162,7 +236,7 @@ adopt_resolve_tools() {
   # "already installed" and skip the bucket where gitleaks was actually
   # sitting, in the same payload. The scanner has a name; use it.
   if printf '%s' "$out" | jq -e '[.already_installed[]? | select((.name // "") == "gitleaks" or (.category // "") == "Secret Detection")] | length > 0' >/dev/null 2>&1; then
-    adopt_note "Secret detection: already installed. The history scan can run."
+    adopt_note "Secret detection: already installed. The history scan can run."   # BL-251-ALREADY-LINE
     _adopt_rescan_secrets "$root" "$report"
     return 0
   fi

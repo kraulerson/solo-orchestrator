@@ -14941,8 +14941,9 @@ to the top of `adopt_resolve_tools`, immediately after `adopt_head`, puts a
 HOST PROBE ABOVE THE `SOIF_ADOPT_RESOLVER` SEAM. All 18 stub-driven cases in
 `tests/test-brownfield-wp10a-tool-resolution.sh` then stop reaching their stub,
 and the suite goes **25 passed / 9 failed** on a host that has gitleaks and
-**34 passed / 0 failed** on one that does not — the single variable being what
-happens to be installed. That is exactly the local-vs-CI divergence the seam's
+**32 passed / 2 failed** on one that does not *(this line said "34 / 0" until 2026-09-06 — the
+suite is not host-independent at the scout seam, see the residual below)* — the single variable being
+what happens to be installed. That is exactly the local-vs-CI divergence the seam's
 own comment was written to prevent, and CLAUDE.md's standing trap. It fails
 loudly rather than silently (gitleaks is on this Mac AND installed in every CI
 unit-shard leg, `tests.yml` gitleaks step), which is the only mercy.
@@ -14963,6 +14964,101 @@ path and is owed tests. The pin should still land — `rest` is at 13s of slack
 and a cancelled leg reports nothing at all — but it must not be read as having
 addressed this.
 
+**Build note (2026-09-04 → 2026-09-06, branch `fix/bl251-resolver-fast-path`, three review rounds).**
+Built to the shape above, with the placement correction the review forced — and then a second
+placement correction the next round forced. Five markers in `scripts/lib/adopt/adopt-tools.sh`:
+`# BL-251-FAST-PATH` (the short-circuit — **below** the resolver-existence arm, NOT immediately after
+`adopt_head`: above it, a broken framework checkout on a host that has gitleaks lost its "The tool
+resolver is not where it should be" diagnostic, a measured behaviour change under a comment that
+claimed none); `# BL-251-PROBE-SEAM` (yields to `SOIF_ADOPT_RESOLVER`); `# BL-251-PROBE-HOST` (reads
+`SOIF_ADOPT_SCANNER_BIN`, a second test seam in scout's `SCOUT_GITLEAKS_BIN` idiom, added because
+the scanner-ABSENT branch was asserted nowhere in the first cut — forcing the probe to `true`
+survived every PR-blocking check); `# BL-251-FAST-PATH-RESCAN`; and `# BL-251-ALREADY-LINE` at
+exactly two sites (a sync-sibling marker on the duplicated operator line). Five cases (S1–S5) and six
+mutants (MS1–MS6) in `tests/test-brownfield-wp10a-tool-resolution.sh`; S2, S3 and S4 each pass on a
+tree with no fast path at all, so each carries its own mutant, and S5 is the regression test for the
+placement itself (it fails on the first cut's ordering directly). Neither `SOIF_ADOPT_RESOLVER` nor
+`SOIF_ADOPT_SCANNER_BIN` is set by any template, workflow, or `init.sh`; the new one is strictly less
+powerful than the old (a name, not an executable), so it opens no exposure class `main` did not
+already permit through X1's seam.
+
+**Measured on this host, same session, baseline taken from a `git worktree` at `main` (`c986595`)
+rather than from memory:**
+
+| suite | before | after | |
+|---|---|---|---|
+| `test-brownfield-wp4-driver.sh` | 133s | 22s | 6.0x |
+| `test-brownfield-wp9-act-boundaries.sh` | 95s | 20s | 4.8x |
+| `test-brownfield-wp9b-preflight-approval.sh` | 317s | 58s | 5.5x |
+
+545s → 100s, with the assertion counts unchanged (24 / 29 / 103, all passing). Every brownfield and
+adoption-touching suite green (13 suites, BL-225's T9 staging preflight included) and all 15 repo
+lints pass.
+
+**THE `pin_lint_scan` / `pin_lint_sweep` PINS STAY — do not revert them as "no longer needed".**
+Derived rather than assumed, and keyed to THIS BRANCH'S BASE rather than a remembered figure: run
+`33913600868` (`c986595`) measured `rest` 536s (74%), slow-misc 468s, sast 464s, lint-sweep 447s,
+lint-scan 418s. A first draft of this note said "unchanged at 567s" — a number that appears in the
+repo once, in `pin_lint_sweep`'s 2026-08-15 note, for a differently-composed complement; the
+conclusion survived the correction but the base was unattributable.
+
+`rest` really is unchanged: it holds exactly two suites that name `adopt-project.sh`
+(`test-bl221-tier-fail-closed.sh`, `test-lint-module-dependencies.sh`) and NEITHER runs an adoption,
+so the fast path cannot touch that leg. Applying the measured ratios: `lint-sweep` 447 → ~319s and
+`lint-scan` 418 → ~243s, leaving `rest` at 536s (74%) as the highest leg. Returning `wp4-driver` and
+`wp9-act-boundaries` to the complement would put it at ~564s (78%). The pins were the right response
+to the symptom even though this was the cause.
+
+**RESIDUAL SURFACED WHILE MEASURING THIS FIX — the WP10a suite is NOT host-independent, and its own
+header says it is.** `tests/test-brownfield-wp10a-tool-resolution.sh` states host-independence as a
+design invariant and pays real attention to it at the resolver seam. It does not hold at the SCOUT
+seam: on a host with no `gitleaks` on PATH, main's own 34-assertion suite measures **32 passed / 2
+failed** — R1 ("the persisted report still says 'tool-unavailable'") and R2 ("the secrets section was
+rewritten on a report that was already 'scanned'") both fail, through `scout_secrets_scan` rather
+than through `_adopt_resolver_path`. Every CI `unit-shard` leg installs gitleaks unconditionally, so
+no PR-blocking check sees it; it is a laptop-only red.
+
+This is recorded here rather than fixed because it predates the fast path and is a different seam.
+Note for whoever takes it: a draft of this entry wrote "34 / 0" for that condition in three places,
+meaning "the suite is host-independent without gitleaks". It is not, and the tidy tally is exactly
+what hid it. `scripts/lib/scout/scout-secrets.sh` already carries `SCOUT_GITLEAKS_BIN`, which is
+probably the lever.
+
 **Related:** `## BL-242:` (the work package that introduced it), `## BL-112:`
 (a scan that did not run must never read as a scan that found nothing — the
 doctrine the re-scan arm implements).
+
+---
+
+## BL-252: BL-125's commit-time test arm filters on a source-extension list with no shell extensions, so it is structurally inert for every product commit in THIS repository
+
+**Status:** Open
+
+**Logged:** 2026-09-06, out of the adversarial review of `fix/bl251-resolver-fast-path`. Noticed
+because a commit that staged `scripts/lib/adopt/adopt-tools.sh` printed
+`[OK] BL-125: no source files staged — project tests not required for this commit.`
+
+**Not a defect in that branch — the predicate did exactly what it says.**
+`scripts/lib/hook-templates.sh` (`# BL-179-TESTARM-FILTER`) counts staged files matching
+`\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|kts|swift|cs|dart|c|h|cc|cpp|hpp|php|scala|vue|svelte)$`.
+`sh` is absent. Applied to a commit staging a `.sh` library plus a `.md`, the count is 0, the arm
+skips, and it prints its receipt.
+
+**Why it matters here specifically.** This framework repo's product code is *entirely* `.sh`, and
+there is no `.claude/test-command` in it. So the arm is inert for **every** product commit in this
+repository — the one place the framework is actually built. That is the same shape as `## BL-233:`
+(enforcement wired into generated projects only, never running where the framework is written).
+
+**The receipt is the sharper half.** "no source files staged" is TRUE as a predicate and FALSE as
+English, on a commit that staged 67 lines of shell. Per `docs/messaging-standard.md` and
+`# BL-112-SAST-NOTRUN`'s doctrine, a check that did not run must never read as a check that found
+nothing — and "no source files staged" reads as the latter to anyone who did stage source.
+
+**Fix shape (unbuilt):** add `sh|bash|zsh` to the extension list, or add a `.claude/test-command` to
+this repo, or both — and re-word the receipt to name the predicate ("no files matching the test-arm
+extension list were staged") so it cannot be read as a clean result. Check the downstream blast
+radius before widening the list: every generated project shares this arm, and a project whose shell
+scripts are incidental would start requiring a test command it does not have.
+
+**Related:** `## BL-125:` (the arm), `## BL-179:` (the filter), `## BL-233:` (enforcement that ran
+downstream only), `## BL-112:` (a check that did not run must not read as a clean one).
