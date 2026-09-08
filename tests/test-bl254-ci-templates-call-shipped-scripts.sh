@@ -61,9 +61,53 @@ shipped_set() { soif_parse_shipped_scripts "$1" "$2"; }
 # unshipped script as `sh scripts/…` or `./scripts/…` slipped past T1. No
 # template uses those forms today, which is exactly when a parser should be
 # widened rather than after one does.
+#
+# COMMENTS ARE STRIPPED FIRST. Widening the spellings made the interpreter
+# optional, and the very next review showed the parser reading `#     scripts/
+# check-gate.sh --setup-ci-token` — comment text — as an invocation: a false
+# RED on a documentation edit (`## BL-224:`'s over-matching class). A shell
+# comment is `#` at line start or after whitespace; everything from there to
+# end-of-line is dropped before the match. A quoted path (`bash "scripts/x.sh"`)
+# is also accepted, since it is an ordinary spelling; a variable-prefixed path
+# (`$GITHUB_WORKSPACE/scripts/x.sh`) is deliberately NOT — resolving shell
+# variables is the road back to over-matching.
 template_calls() {
-  grep -rhoE '(^|[[:space:]])((bash|sh)[[:space:]]+)?\.?/?scripts/[A-Za-z0-9_./-]+\.sh' "$1" --include='*.yml' 2>/dev/null \
-    | sed -E 's/^[[:space:]]*//; s/^(bash|sh)[[:space:]]+//; s#^\./##; s#^/##' | LC_ALL=C sort -u
+  find "$1" -name '*.yml' -type f -print0 2>/dev/null | xargs -0 cat 2>/dev/null \
+    | sed -E 's/(^|[[:space:]])#.*$//' \
+    | grep -oE '(^|[[:space:]])((bash|sh)[[:space:]]+["'"'"']?)?\.?/?scripts/[A-Za-z0-9_./-]+\.sh' \
+    | sed -E 's/^[[:space:]]*//; s/^(bash|sh)[[:space:]]+["'"'"']?//; s#^\./##; s#^/##' | LC_ALL=C sort -u
+}
+
+# governance_gaps <templates_dir> → one line per CI template MISSING a
+# governance step it must carry. T1 (a subset check) and T2 (an absence
+# check) are both monotone in the "less content" direction, so under review
+# DELETING all 24 steps passed the suite 8/0. This is the floor that stops the
+# fix being silently undone, or a new GitHub template being added without the
+# steps.
+#
+# GITHUB IS DERIVED, GITLAB IS A CENSUS — and the difference is stated rather
+# than papered over. Every ci/github/*.yml carries both steps, so that arm
+# walks the file list. Only FOUR of the ten ci/gitlab/*.yml carry the
+# changelog step (go, python, rust, typescript — all ten have a governance
+# job, six never had this step in it) and no Bitbucket template carries it
+# at all: a pre-existing asymmetry this suite did not create and does not
+# widen (`## BL-254:` residual 6). A first cut asserted "every GitLab template"
+# and failed on six files for a claim that was never true. The GitLab arm
+# therefore pins the four that DO carry it, by name, in bl147's
+# documented-census idiom, so the fix cannot be undone in any of them.
+GITLAB_CHANGELOG_CENSUS="go python rust typescript"
+governance_gaps() {
+  local d="$1" f n
+  for f in "$d"/ci/github/*.yml; do
+    [ -f "$f" ] || continue
+    grep -qE '^[[:space:]]*run: bash scripts/check-changelog\.sh$' "$f"     || printf '%s: missing check-changelog step\n' "${f#$d/}"
+    grep -qE '^[[:space:]]*run: bash scripts/check-session-state\.sh$' "$f" || printf '%s: missing check-session-state step\n' "${f#$d/}"
+  done
+  for n in $GITLAB_CHANGELOG_CENSUS; do
+    f="$d/ci/gitlab/$n.yml"
+    [ -f "$f" ] || { printf 'ci/gitlab/%s.yml: census file absent\n' "$n"; continue; }
+    grep -qE '^[[:space:]]*- bash scripts/check-changelog\.sh$' "$f" || printf '%s: missing check-changelog step\n' "${f#$d/}"
+  done
 }
 
 # swallowed_governance <templates_dir> → lines where a governance script's
@@ -116,6 +160,16 @@ for g in check-changelog.sh check-session-state.sh; do
   fi
 done
 
+# T4 — the governance steps EXIST, in every template that must carry them
+n_gh=$(ls "$REPO_ROOT"/templates/pipelines/ci/github/*.yml 2>/dev/null | wc -l | tr -d ' ')
+n_gl=$(ls "$REPO_ROOT"/templates/pipelines/ci/gitlab/*.yml 2>/dev/null | wc -l | tr -d ' ')
+gaps="$(governance_gaps "$REPO_ROOT/templates/pipelines")"
+if [ "$(_num "$n_gh")" -gt 0 ] && [ "$(_num "$n_gl")" -gt 0 ] && [ -z "$gaps" ]; then
+  pass "T4 — every GitHub CI template ($n_gh) carries both governance steps; the four census GitLab templates ($GITLAB_CHANGELOG_CENSUS) carry the changelog step"
+else
+  fail_ "T4" "governance steps missing (github=$n_gh gitlab=$n_gl): $(printf '%s' "$gaps" | tr '\n' ';' | cut -c1-200)"
+fi
+
 echo "=== MT — mutation proofs on a mirror ==="
 
 # MT1 — remove one governance cp line from the mirror's init.sh: T1 and T3
@@ -150,13 +204,35 @@ if ! mk_mirror "$MT3"; then
   fail_ "MT3 setup" "could not mirror the framework"
 else
   tgt="$MT3/templates/pipelines/ci/github/typescript.yml"
-  printf '      - name: Probe A\n        run: sh scripts/never-shipped-a.sh\n      - name: Probe B\n        run: ./scripts/never-shipped-b.sh\n' >> "$tgt"
+  printf '      - name: Probe A\n        run: sh scripts/never-shipped-a.sh\n      - name: Probe B\n        run: ./scripts/never-shipped-b.sh\n      - name: Probe C\n        run: bash "scripts/never-shipped-c.sh"\n        # scripts/never-shipped-in-a-comment.sh is only mentioned here\n' >> "$tgt"
   m_calls="$(template_calls "$MT3/templates/pipelines")"
-  for probe in never-shipped-a never-shipped-b; do
+  for probe in never-shipped-a never-shipped-b never-shipped-c; do
     printf '%s\n' "$m_calls" | grep -qx "scripts/$probe.sh" \
       && pass "MT3 (MUTATION) — a template invoking scripts/$probe.sh in an alternative spelling is seen by T1's parser" \
       || fail_ "MT3 (MUTATION)" "T1's parser missed scripts/$probe.sh — an unshipped script called that way would pass"
   done
+  # and a path that appears ONLY in a comment must NOT register (the false-RED the review found)
+  printf '%s\n' "$m_calls" | grep -qx "scripts/never-shipped-in-a-comment.sh" \
+    && fail_ "MT3b" "T1's parser read a COMMENT as an invocation — a documentation edit would block a PR" \
+    || pass "MT3b — a script named only in a comment is not read as an invocation"
+fi
+
+# MT5 — delete one governance step from a mirrored template: T4 must name it.
+MT5="$(newtmp)/fw"
+if ! mk_mirror "$MT5"; then
+  fail_ "MT5 setup" "could not mirror the framework"
+else
+  tgt="$MT5/templates/pipelines/ci/github/go.yml"
+  before="$(mktemp)"; cp "$tgt" "$before"
+  grep -v 'run: bash scripts/check-session-state.sh$' "$before" > "$tgt"
+  if [ "$(_changed_lines "$before" "$tgt")" -lt 1 ]; then
+    fail_ "MT5 setup" "the mirror's go.yml had no session-state step to delete — is T4 passing for another reason?"
+  else
+    m_gaps="$(governance_gaps "$MT5/templates/pipelines")"
+    printf '%s' "$m_gaps" | grep -q "ci/github/go.yml: missing check-session-state step" \
+      && pass "MT5 (MUTATION) — with one governance step deleted, T4 names the template and the step" \
+      || fail_ "MT5 (MUTATION)" "deleting a governance step changed nothing — T4 is not deriving what it claims to"
+  fi
 fi
 
 # MT2 — re-add `|| true` to one governance step in the mirror: T2 must fire.

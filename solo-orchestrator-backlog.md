@@ -15229,14 +15229,33 @@ user guide made the "Automatic (CI)" claim; the generated CLAUDE.md never mentio
    that does not exist satisfies T1, T3 and the new lint alike (review M-E). Pre-existing in the shared
    lib; `test-scaffold-source-closure.sh` checks source existence for reference docs only. Caught today
    only by the full-lane `e2e-init*` trio. Worth its own line in that lib.
+6. **The governance steps are not uniform across hosts, and this entry did not make them so.** All 10
+   GitHub CI templates carry both steps. All 10 GitLab templates have a governance job (they run
+   `check-phase-gate.sh`), but only **four** (go, python, rust, typescript) also carry the changelog
+   step and none carries the session-state one; **no** Bitbucket template carries either. Surfaced by
+   T4's first cut, which asserted "every GitLab template" and failed on six files for a claim that was
+   never true. T4 now derives the GitHub arm from the file list and pins the GitLab arm as a named
+   census (bl147's idiom), so the fix cannot be undone in any template that has it — and nothing here
+   adds the step to the sixteen that do not. Whether they should carry it is a template-parity
+   question for whoever next opens the CI templates, not a defect of this fix.
 
 **Build note (2026-09-08, branch `fix/bl254-ship-governance-checks`).** RED measured before any product
-change: `tests/test-bl254-ci-templates-call-shipped-scripts.sh` **0 passed / 6 failed** (T1 named exactly
-the two phantoms; T2 counted exactly 24 swallowed steps; T3 ×2; both mutant setups refused because the
-lines they mutate did not yet exist in the shape expected); `scripts/lint-user-guide-scripts.sh` on the
-repo: 2 phantoms + 22 missing, exit 1. GREEN: suite **8 / 0** with MT1/MT2 killing and MT3 ×2 pinning the
-`sh scripts/…` and `./scripts/…` spellings (both slipped a first cut's `bash scripts/`-only parser under
-review); lint `OK … 41 row(s), 41 shipped top-level script(s)` (39 + the two now shipped);
+change with the suite as it then stood (six cases): `tests/test-bl254-ci-templates-call-shipped-scripts.sh`
+**0 passed / 6 failed** (T1 named exactly the two phantoms; T2 counted exactly 24 swallowed steps; T3 ×2;
+both mutant setups refused because the lines they mutate did not yet exist in the shape expected).
+Against `main` with the branch's FINAL file, measured in a worktree at `d4e1466`: **4 passed / 8
+failed** — the four passes are MT3 ×3 and MT3b, mirror-only parser proofs that are defect-independent;
+the eight failures are the original six plus T4 (no bare governance step exists on main) and MT5's
+setup (no bare line to delete). The six original failures are the invariant. `scripts/lint-user-guide-scripts.sh` on the repo: 2 phantoms
++ 22 missing, exit 1. GREEN: suite **12 / 0** — MT1/MT2 killing; MT3 ×3 pinning the `sh scripts/…`,
+`./scripts/…` and `bash "scripts/…"` spellings (the first two slipped a first cut's `bash scripts/`-only
+parser under review); MT3b pinning that a path named ONLY in a comment is NOT read as an invocation (the
+widened parser's own regression, found in the next round: a false RED on a documentation edit); **T4**
+asserting every GitHub CI template carries both governance steps and every GitLab one the changelog
+step, derived from the file list — under review, DELETING all 24 steps had passed the suite because T1
+is a subset check and T2 an absence check, both monotone in the less-content direction; MT5 deletes one
+step and T4 names the template and the step. Lint `OK … 41 row(s), 41 shipped top-level script(s)` (39 +
+the two now shipped);
 `tests/test-lint-user-guide-scripts.sh` **12 / 0** (U1–U8 incl. the decoy-section and renamed-heading
 refusals and U8's tight-shape phantom row — invisible to a first cut's row regex, found under review —
 M0 ×2, M1/M2 killing). **Review round 1: `major_concerns`** — the core fix held under every attack
