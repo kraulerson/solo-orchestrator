@@ -531,6 +531,7 @@ jobs:
             tests/test-bl239-contributor-hooks.sh
             tests/test-bl230-workflow-html-lint-surface.sh
             tests/host-drivers/error-translate.test.sh
+            tests/test-bl253-adoption-state-parity.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

@@ -825,6 +825,14 @@ run_child_suite "tests/test-brownfield-wp10a-tool-resolution.sh" \
   "Adoption WP10a tool resolution (resolver at step 2, no non-command ever executed, §6.2 re-scan)" \
   "Adoption WP10a tool-resolution tests FAILED (run tests/test-brownfield-wp10a-tool-resolution.sh for details)"
 
+# BL-253: an adopted project is born with a scaffolded project's state — the
+# tier key's second half is null for production, as init.sh writes it, so
+# --start-phase4 does not refuse every adoptee and the organizational
+# Pre-Phase-0 guard fires. Oracle is init.sh's emitter read as source.
+run_child_suite "tests/test-bl253-adoption-state-parity.sh" \
+  "BL-253 adoption state parity (poc_mode null like init.sh; --start-phase4 and the org Pre-Phase-0 guard)" \
+  "BL-253 adoption state-parity tests FAILED (run tests/test-bl253-adoption-state-parity.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
