@@ -128,6 +128,21 @@ run_lint "$U7"
   && pass "U7 — a renamed heading is a loud refusal, not a clean pass (vacuity floor)" \
   || fail_ "U7" "rc=$RC out=$(printf '%s' "$OUT" | head -1)"
 
+U8="$(newtmp)"; mk_fixture "$U8"
+# a phantom row in the TIGHT shape — no spaces around the pipes — inside the section
+python3 - "$U8/user-guide.md" <<'PY' 2>/dev/null || true
+import sys, io
+p=sys.argv[1]; s=io.open(p,encoding="utf-8").read()
+s=s.replace("| `b.sh` | does b | `bash scripts/b.sh` | Any |\n","| `b.sh` | does b | `bash scripts/b.sh` | Any |\n|`tight-ghost.sh`|x|x|x|\n",1)
+io.open(p,"w",encoding="utf-8").write(s)
+PY
+run_lint "$U8"
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "phantom: tight-ghost.sh"; then
+  pass "U8 — a phantom row written WITHOUT spaces around the pipes is still caught"
+else
+  fail_ "U8" "a tight-shape phantom row was invisible — rc=$RC out=$(printf '%s' "$OUT" | head -1)"
+fi
+
 echo "=== M — mutation proofs on a copy of the lint ==="
 
 M_PH="# BL-254-PHANTOM-ROW"

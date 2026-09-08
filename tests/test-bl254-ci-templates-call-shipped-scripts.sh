@@ -55,10 +55,15 @@ fi
 shipped_set() { soif_parse_shipped_scripts "$1" "$2"; }
 
 # template_calls <templates_dir> → one "scripts/<rel>" per line, every script a
-# CI template invokes with `bash scripts/…`
+# CI template invokes — in any of the spellings a step can use: `bash
+# scripts/x.sh`, `sh scripts/x.sh`, `./scripts/x.sh`, `bash ./scripts/x.sh`. A
+# first cut matched `bash scripts/` only; under review a template calling an
+# unshipped script as `sh scripts/…` or `./scripts/…` slipped past T1. No
+# template uses those forms today, which is exactly when a parser should be
+# widened rather than after one does.
 template_calls() {
-  grep -rhoE 'bash scripts/[A-Za-z0-9_./-]+\.sh' "$1" --include='*.yml' 2>/dev/null \
-    | sed 's/^bash //' | LC_ALL=C sort -u
+  grep -rhoE '(^|[[:space:]])((bash|sh)[[:space:]]+)?\.?/?scripts/[A-Za-z0-9_./-]+\.sh' "$1" --include='*.yml' 2>/dev/null \
+    | sed -E 's/^[[:space:]]*//; s/^(bash|sh)[[:space:]]+//; s#^\./##; s#^/##' | LC_ALL=C sort -u
 }
 
 # swallowed_governance <templates_dir> → lines where a governance script's
@@ -135,6 +140,23 @@ else
       fail_ "MT1 (MUTATION)" "removing the cp line changed nothing — T1 is not reading the shipped set it claims to"
     fi
   fi
+fi
+
+# MT3 — a template calling an UNSHIPPED script in each alternative spelling
+# must be named by T1's parser. These are the two forms the review slipped
+# past a first cut with.
+MT3="$(newtmp)/fw"
+if ! mk_mirror "$MT3"; then
+  fail_ "MT3 setup" "could not mirror the framework"
+else
+  tgt="$MT3/templates/pipelines/ci/github/typescript.yml"
+  printf '      - name: Probe A\n        run: sh scripts/never-shipped-a.sh\n      - name: Probe B\n        run: ./scripts/never-shipped-b.sh\n' >> "$tgt"
+  m_calls="$(template_calls "$MT3/templates/pipelines")"
+  for probe in never-shipped-a never-shipped-b; do
+    printf '%s\n' "$m_calls" | grep -qx "scripts/$probe.sh" \
+      && pass "MT3 (MUTATION) — a template invoking scripts/$probe.sh in an alternative spelling is seen by T1's parser" \
+      || fail_ "MT3 (MUTATION)" "T1's parser missed scripts/$probe.sh — an unshipped script called that way would pass"
+  done
 fi
 
 # MT2 — re-add `|| true` to one governance step in the mirror: T2 must fire.

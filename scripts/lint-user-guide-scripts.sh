@@ -66,10 +66,14 @@ if [ -z "$shipped_top" ]; then
 fi
 
 # The table's rows: first backticked cell of each row inside the one section.
+# The row regex tolerates a TIGHT table (`|`x.sh`|…`) as well as the padded
+# one: a first cut required `| ` and ` |`, so a phantom row written without
+# the spaces was invisible — a false green in the unsafe direction. Measured
+# under review; U8 in the fixture suite pins it.
 rows="$(awk '
   /^## Quick Reference — Scripts/ { in_sec = 1; next }
   in_sec && /^## / { in_sec = 0 }
-  in_sec && /^\| `[^`]+` \|/ { sub(/^\| `/, ""); sub(/`.*$/, ""); print }
+  in_sec && /^[[:space:]]*\|[[:space:]]*`[^`]+`[[:space:]]*\|/ { sub(/^[[:space:]]*\|[[:space:]]*`/, ""); sub(/`.*$/, ""); print }
 ' "$GUIDE" | LC_ALL=C sort -u)"
 if [ -z "$rows" ]; then
   echo "[FAIL] lint-user-guide-scripts: no rows found under '## Quick Reference — Scripts' in $GUIDE — the heading or table shape has changed; refusing to claim a clean pass" >&2

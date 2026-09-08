@@ -15206,20 +15206,46 @@ user guide made the "Automatic (CI)" claim; the generated CLAUDE.md never mentio
    demanded as rows — internals no operator invokes. If one becomes operator-facing it needs a row by
    hand; the lint will not ask.
 2. The Invocation and Phase cells of the 22 new rows are hand-written from each script's header;
-   the lint enforces presence, not cell accuracy. Eight of the shipped scripts have no `--help`
-   handler (review U5), so several rows give the bare invocation.
-3. `check-changelog.sh` diffs against `origin/$GITHUB_BASE_REF` or `HEAD~1`; all 22 CI templates
-   check out with `fetch-depth: 0`, so both bases resolve — but a template that ever drops to a
-   shallow checkout would make the script's `|| echo ""` arm report "no source changed" rather than
-   fail. That is the script's own silent-success residual, unchanged here.
+   the lint enforces presence, not cell accuracy — and the review proved that gap bites: four of the
+   new rows said "Automatic (CI)" for lints that run in NO generated pipeline (two run in the
+   generated pre-commit hook; two are shipped but wired into nothing), and three gave a bare
+   invocation where `--help` exists. All seven corrected before push, plus one pre-existing wrong cell
+   (`resolve-tools.sh --help`, which has no such handler). **23 of the 41** shipped top-level scripts
+   have no `--help` handler (a first draft said eight), so the bare form is correct for those; a
+   cell-accuracy lint would need each script to declare its own invocation, which none do.
+3. `check-changelog.sh` diffs against `origin/$GITHUB_BASE_REF`, else `HEAD~1`, else `--cached`.
+   Of the 30 CI templates, only the **10 GitHub** ones carry `fetch-depth: 0` (a first draft said
+   "all 22" — a number that matches nothing; `fetch-depth` is a GitHub Actions input and cannot appear
+   in a GitLab or Bitbucket pipeline). The 4 GitLab templates whose `|| true` this removes resolve
+   `HEAD~1` under GitLab's default shallow depth, which is enough for the script's second arm. A
+   checkout of depth 1 would make its `|| echo ""` arm report "no source changed" rather than fail —
+   the script's own silent-success residual, unchanged here. The review also confirmed from GitLab's
+   documentation that a non-zero `script:` command fails the job, so the GitLab half of the fix
+   restores blocking exactly as the GitHub half does.
+4. `lint-fixture-envelopes.sh` and `lint-review-manifest.sh` are shipped into every generated project
+   and wired into nothing there (no hook, no pipeline). Whether to wire them or stop shipping them is
+   a separate call; the table now says so rather than claiming "Automatic (CI)".
+5. `soif_parse_shipped_scripts` prints a non-glob `cp` source unconditionally — a `cp` line for a file
+   that does not exist satisfies T1, T3 and the new lint alike (review M-E). Pre-existing in the shared
+   lib; `test-scaffold-source-closure.sh` checks source existence for reference docs only. Caught today
+   only by the full-lane `e2e-init*` trio. Worth its own line in that lib.
 
 **Build note (2026-09-08, branch `fix/bl254-ship-governance-checks`).** RED measured before any product
 change: `tests/test-bl254-ci-templates-call-shipped-scripts.sh` **0 passed / 6 failed** (T1 named exactly
 the two phantoms; T2 counted exactly 24 swallowed steps; T3 ×2; both mutant setups refused because the
 lines they mutate did not yet exist in the shape expected); `scripts/lint-user-guide-scripts.sh` on the
-repo: 2 phantoms + 22 missing, exit 1. GREEN: suite **6 / 0** with both mutants killing; lint `OK … 41
-row(s), 41 shipped top-level script(s)` (39 + the two now shipped); `tests/test-lint-user-guide-scripts.sh`
-**11 / 0** (U1–U7 incl. the decoy-section and renamed-heading refusal, M0 ×2, M1/M2 killing). The
+repo: 2 phantoms + 22 missing, exit 1. GREEN: suite **8 / 0** with MT1/MT2 killing and MT3 ×2 pinning the
+`sh scripts/…` and `./scripts/…` spellings (both slipped a first cut's `bash scripts/`-only parser under
+review); lint `OK … 41 row(s), 41 shipped top-level script(s)` (39 + the two now shipped);
+`tests/test-lint-user-guide-scripts.sh` **12 / 0** (U1–U8 incl. the decoy-section and renamed-heading
+refusals and U8's tight-shape phantom row — invisible to a first cut's row regex, found under review —
+M0 ×2, M1/M2 killing). **Review round 1: `major_concerns`** — the core fix held under every attack
+(seven no-strict repo states all exit 0; GitLab `script:` semantics confirmed from its docs; the 24-line
+edit verified as exactly the six removal/addition shapes), but four of the 22 new table rows repeated
+this entry's own defect class ("Automatic (CI)" for lints no generated pipeline runs), three cells
+omitted a `--help` that exists, and two numbers in the residuals were wrong. All corrected before push
+(residuals 2–5 below carry the corrected figures); the two scripts were also added to init.sh's
+`chmod +x` list, where every sibling already was. The
 24-line template edit was asserted by count (24 swallowed → 0; 24 bare invocations after), not by
 sed's exit status. Consumers of the shipped set re-run green: `test-scaffold-source-closure` 9/0,
 `test-bl147-ci-template-integrity` 84/0, `test-check-changelog-filter` 8/0, `test-lint-tests-registered`

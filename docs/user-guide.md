@@ -1489,20 +1489,20 @@ All scripts live in `scripts/` and can be run with `bash scripts/<name>.sh`. Scr
 | `intake-wizard.sh` | Interactive project intake questionnaire | `bash scripts/intake-wizard.sh` | Pre-0 |
 | `upgrade-project.sh` | Track/deployment upgrade (Light→Standard, personal→org) | `bash scripts/upgrade-project.sh --help` | Any |
 | `reconfigure-project.sh` | Regenerate CLAUDE.md, APPROVAL_LOG header, intake-progress, CI/release pipelines on name/platform/language change (track/deployment use upgrade-project.sh) | `bash scripts/reconfigure-project.sh --help` | Any |
-| `resolve-tools.sh` | Tool matrix resolution by platform/language/track/phase | `bash scripts/resolve-tools.sh --help` | Any |
+| `resolve-tools.sh` | Tool matrix resolution by platform/language/track/phase | `bash scripts/resolve-tools.sh --dev-os <os> --platform <p> --language <l> --track <t> --phase <n>` (no `--help` handler) | Any |
 | `resume.sh` | Generate session resume context for copy/paste | `bash scripts/resume.sh` | Any |
-| `check-gate.sh` | Host-aware remediation helper for gate failures (branch protection and friends) | `bash scripts/check-gate.sh` | Any |
+| `check-gate.sh` | Host-aware remediation helper for gate failures (branch protection and friends) | `bash scripts/check-gate.sh --help` | Any |
 | `check-maintenance.sh` | Maintenance cadence check | `bash scripts/check-maintenance.sh` | 4+ |
 | `check-pr-review.sh` | The push-time review gate — refuses a push with no adversarial review recorded against HEAD | Automatic (pre-push hook) | 2+ |
 | `cut-release.sh` | The post-1.0 release cut | `bash scripts/cut-release.sh` | 4+ |
-| `delta.sh` | The post-1.0 delta track's operator front door (open, close and cut deltas) | `bash scripts/delta.sh` | 4+ |
+| `delta.sh` | The post-1.0 delta track's operator front door (open, close and cut deltas) | `bash scripts/delta.sh --help` | 4+ |
 | `detect-out-of-band-commits.sh` | Records user-terminal commits made outside the hooks (BL-030) | Automatic (SessionStart hook) | 2+ |
-| `escalate-to-user.sh` | The documented alternative to bypassing a gate — hands the decision to you (BL-029) | `bash scripts/escalate-to-user.sh` | Any |
+| `escalate-to-user.sh` | The documented alternative to bypassing a gate — hands the decision to you (BL-029) | `bash scripts/escalate-to-user.sh --help` | Any |
 | `install-filesystem-gates.sh` | Installs the strict-mode git hooks (BL-030) | `bash scripts/install-filesystem-gates.sh` | Any |
-| `lint-backlog-references.sh` | Closed backlog entries must cite a PR or SHA | Automatic (CI) | Any |
-| `lint-counter-antipattern.sh` | Fails CI on the `((x++))`-under-`set -e` class of counter bug | Automatic (CI) | Any |
-| `lint-fixture-envelopes.sh` | Fails CI on test fixtures still using the retired envelope shape | Automatic (CI) | Any |
-| `lint-review-manifest.sh` | Schema lint for the Phase 3→4 review manifest (BL-073) | Automatic (CI) | 3+ |
+| `lint-backlog-references.sh` | Closed backlog entries must cite a PR or SHA (in a generated project it self-declares nothing to validate unless a backlog file exists) | Automatic (pre-commit hook) | Any |
+| `lint-counter-antipattern.sh` | Refuses the `((x++))`-under-`set -e` class of counter bug in shell scripts | Automatic (pre-commit hook) | Any |
+| `lint-fixture-envelopes.sh` | Refuses test fixtures still using the retired envelope shape — shipped, but wired into no hook or pipeline in a generated project; run it by hand | `bash scripts/lint-fixture-envelopes.sh` | Any |
+| `lint-review-manifest.sh` | Schema lint for the Phase 3→4 review manifest (BL-073) — shipped, but wired into no hook or pipeline in a generated project; run it by hand before the Phase 3→4 gate | `bash scripts/lint-review-manifest.sh --help` | 3+ |
 | `lint-uat-scenarios.sh` | Pattern lint for a populated UAT scenario file | `bash scripts/lint-uat-scenarios.sh <file>` | 3+ |
 | `pending-approval.sh` | Pending-approval sentinel helper (BL-015) | `bash scripts/pending-approval.sh` | Any |
 | `print-prepush-recipe.sh` | Prints the pre-push capture-and-replay block | `bash scripts/print-prepush-recipe.sh` | 2+ |
