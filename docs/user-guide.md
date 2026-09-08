@@ -1482,8 +1482,8 @@ All scripts live in `scripts/` and can be run with `bash scripts/<name>.sh`. Scr
 | `session-version-check.sh` | Tool version check at session start | Automatic (SessionStart hook) | Any |
 | `session-test-gate-check.sh` | Test gate status + tool usage reset at session start | Automatic (SessionStart hook) | 2+ |
 | `session-end-qdrant-reminder.sh` | Qdrant storage reminder + tool usage summary | Automatic (Stop hook) | 2+ |
-| `check-changelog.sh` | CHANGELOG.md currency check | Automatic (CI) | 2+ |
-| `check-session-state.sh` | Session state freshness check | Automatic (CI) | 2+ |
+| `check-changelog.sh` | CHANGELOG.md currency check — warns when source changed without a changelog entry; `SOIF_STRICT_CHANGELOG=true` turns the warning into a failing step | Automatic (CI) | 2+ |
+| `check-session-state.sh` | CLAUDE.md freshness check — warns when it lags HEAD by more than N commits / T hours; `SOIF_STRICT_SESSION=true` turns the warning into a failing step | Automatic (CI) | 2+ |
 | `check-versions.sh` | Tool version comparison against minimums | `bash scripts/check-versions.sh` | Any |
 | `check-updates.sh` | Framework update availability check | `bash scripts/check-updates.sh` | Any |
 | `intake-wizard.sh` | Interactive project intake questionnaire | `bash scripts/intake-wizard.sh` | Pre-0 |
@@ -1491,6 +1491,30 @@ All scripts live in `scripts/` and can be run with `bash scripts/<name>.sh`. Scr
 | `reconfigure-project.sh` | Regenerate CLAUDE.md, APPROVAL_LOG header, intake-progress, CI/release pipelines on name/platform/language change (track/deployment use upgrade-project.sh) | `bash scripts/reconfigure-project.sh --help` | Any |
 | `resolve-tools.sh` | Tool matrix resolution by platform/language/track/phase | `bash scripts/resolve-tools.sh --help` | Any |
 | `resume.sh` | Generate session resume context for copy/paste | `bash scripts/resume.sh` | Any |
+| `check-gate.sh` | Host-aware remediation helper for gate failures (branch protection and friends) | `bash scripts/check-gate.sh` | Any |
+| `check-maintenance.sh` | Maintenance cadence check | `bash scripts/check-maintenance.sh` | 4+ |
+| `check-pr-review.sh` | The push-time review gate — refuses a push with no adversarial review recorded against HEAD | Automatic (pre-push hook) | 2+ |
+| `cut-release.sh` | The post-1.0 release cut | `bash scripts/cut-release.sh` | 4+ |
+| `delta.sh` | The post-1.0 delta track's operator front door (open, close and cut deltas) | `bash scripts/delta.sh` | 4+ |
+| `detect-out-of-band-commits.sh` | Records user-terminal commits made outside the hooks (BL-030) | Automatic (SessionStart hook) | 2+ |
+| `escalate-to-user.sh` | The documented alternative to bypassing a gate — hands the decision to you (BL-029) | `bash scripts/escalate-to-user.sh` | Any |
+| `install-filesystem-gates.sh` | Installs the strict-mode git hooks (BL-030) | `bash scripts/install-filesystem-gates.sh` | Any |
+| `lint-backlog-references.sh` | Closed backlog entries must cite a PR or SHA | Automatic (CI) | Any |
+| `lint-counter-antipattern.sh` | Fails CI on the `((x++))`-under-`set -e` class of counter bug | Automatic (CI) | Any |
+| `lint-fixture-envelopes.sh` | Fails CI on test fixtures still using the retired envelope shape | Automatic (CI) | Any |
+| `lint-review-manifest.sh` | Schema lint for the Phase 3→4 review manifest (BL-073) | Automatic (CI) | 3+ |
+| `lint-uat-scenarios.sh` | Pattern lint for a populated UAT scenario file | `bash scripts/lint-uat-scenarios.sh <file>` | 3+ |
+| `pending-approval.sh` | Pending-approval sentinel helper (BL-015) | `bash scripts/pending-approval.sh` | Any |
+| `print-prepush-recipe.sh` | Prints the pre-push capture-and-replay block | `bash scripts/print-prepush-recipe.sh` | 2+ |
+| `probe-tool.sh` | Asks a tool whether it WORKS, not merely whether it is installed | `bash scripts/probe-tool.sh <tool>` | Any |
+| `record-pr-review.sh` | Records an adversarial PR review verdict against HEAD for the push gate | `bash scripts/record-pr-review.sh --verdict <verdict> --head <sha>` | 2+ |
+| `run-phase3-validation.sh` | Runs every registered Phase-3 scanner and aggregates the verdict | `bash scripts/run-phase3-validation.sh` (also CI) | 3 |
+| `session-cadence-check.sh` | Delta-track cadence reminder (§8.3) | Automatic (SessionStart hook) | 4+ |
+| `session-freshness-check.sh` | Currency-system freshness check | Automatic (SessionStart hook) | Any |
+| `session-intake-check.sh` | Intake / Phase-0 onboarding state | Automatic (SessionStart hook) | Pre-0 |
+| `session-mcp-gate.sh` | Blocks Write/Edit until the required MCP tools have SUCCEEDED this session (BL-233) | Automatic (PreToolUse hook) | 2+ |
+
+This table is lint-enforced: `scripts/lint-user-guide-scripts.sh` fails CI if a row names a script the scaffold does not ship, or a shipped top-level script has no row. The shipped set is derived from `init.sh`'s `cp` lines, never hand-listed.
 
 ---
 

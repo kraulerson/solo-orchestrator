@@ -15152,3 +15152,80 @@ wp5b 57, wp6 45, wp9 29, wp9b 103, wp10a 54, bl221 12, bl225 35, lint-module-dep
 
 **Related:** `## BL-242:` (the package that wrote the constant), `## BL-249:` (the sibling invariants),
 `## BL-221:` (the shape half of the same key), `## BL-084:` (the tier key), `## BL-095:` (the readers).
+
+---
+
+## BL-254: 24 generated CI steps call two governance scripts the scaffold never ships, behind `2>/dev/null || true` — a silent no-op in every generated project, listed as "Automatic (CI)" in a user-guide table that names 19 of 39 shipped scripts
+
+**Status:** Open
+
+**Logged:** 2026-09-08, out of the adversarial codebase review (pass 1 headline #2 → G0/G2/R4; verified
+by the single-agent second pass, counts exact: 14 templates call `check-changelog.sh` — 10 GitHub +
+4 GitLab — and 10 call `check-session-state.sh`, GitHub only). Ranked #2 of the verified review's top
+ten.
+
+**The defect, precisely.** `scripts/check-changelog.sh` (warns when source changed without a
+CHANGELOG entry) and `scripts/check-session-state.sh` (warns when CLAUDE.md lags HEAD) both exist in
+this repo, both have a documented strict mode (`SOIF_STRICT_CHANGELOG=true` /
+`SOIF_STRICT_SESSION=true` → exit 1), and `check-changelog.sh` has a unit test. Every generated CI
+pipeline invoked them as `bash scripts/<x>.sh 2>/dev/null || true`. `init.sh` had **zero** `cp` lines
+for either, so the derived shipped set (`scripts/lib/scaffold-shipped-set.sh`) never contained them and
+no generated project ever received them. The `|| true` did double duty: it hid "No such file" from the
+operator, AND it made the strict mode a no-op even where the file existed — a governance check whose
+failure is discarded is `# BL-112-SAST-NOTRUN`'s class one surface over. The user guide listed both
+as "Automatic (CI)".
+
+**The second half — the table itself.** `docs/user-guide.md`'s "Quick Reference — Scripts" table was
+the one surface that read the shipped set from memory: 19 rows for 39 shipped top-level scripts,
+including the two phantoms. Every other consumer of that set derives it (`test-scaffold-source-closure`,
+`upgrade-project.sh --sync-framework`, both adoption writers). Pass 1 overstated one detail: only the
+user guide made the "Automatic (CI)" claim; the generated CLAUDE.md never mentions either script.
+
+**Fix (built on this branch).**
+1. Two `cp` lines in `create_project`, beside `validate.sh`, with the reason on them — they flow into
+   the derived shipped set with no other wiring.
+2. All 24 template steps lose ` 2>/dev/null || true`. Default behaviour is unchanged (both scripts exit
+   0 in warn mode); the strict env vars now do what the comment beneath each step has always claimed.
+3. `tests/test-bl254-ci-templates-call-shipped-scripts.sh` — two invariants derived from the shipped
+   set, never a hand list: every `bash scripts/<x>.sh` a template invokes is shipped (T1), and neither
+   governance invocation ends in `|| true` (T2); T3 names the two scripts so the failure reads as the
+   defect it was. Mutants on a mirror: remove a cp line → T1 names the phantom; restore `|| true` on one
+   step → T2 fires.
+4. `scripts/lint-user-guide-scripts.sh` + `tests/test-lint-user-guide-scripts.sh` — the table must equal
+   the shipped TOP-LEVEL set in both directions (phantom rows; missing rows), scoped to the one section
+   so the evaluation-prompts table (`compose.sh`, `run-reviews.sh` — which live under
+   `evaluation-prompts/`, not `scripts/`) is not misread. Vacuity floor: an empty derived set or a
+   renamed heading REFUSES rather than passing. Two markers (`# BL-254-PHANTOM-ROW`,
+   `# BL-254-MISSING-ROW`), two mutants. Wired into `lint.yml` as `user-guide-scripts-lint`
+   (not a required check — that is Karl's call, as with `bl-markers-lint`) and picked up by
+   `run-lints.sh` by glob.
+5. The table gains 22 rows and the two governance rows say what "Automatic (CI)" now actually means.
+
+**Residuals:**
+1. `scripts/lib/*`, `scripts/hooks/*` and `scripts/host-drivers/*` are shipped but deliberately not
+   demanded as rows — internals no operator invokes. If one becomes operator-facing it needs a row by
+   hand; the lint will not ask.
+2. The Invocation and Phase cells of the 22 new rows are hand-written from each script's header;
+   the lint enforces presence, not cell accuracy. Eight of the shipped scripts have no `--help`
+   handler (review U5), so several rows give the bare invocation.
+3. `check-changelog.sh` diffs against `origin/$GITHUB_BASE_REF` or `HEAD~1`; all 22 CI templates
+   check out with `fetch-depth: 0`, so both bases resolve — but a template that ever drops to a
+   shallow checkout would make the script's `|| echo ""` arm report "no source changed" rather than
+   fail. That is the script's own silent-success residual, unchanged here.
+
+**Build note (2026-09-08, branch `fix/bl254-ship-governance-checks`).** RED measured before any product
+change: `tests/test-bl254-ci-templates-call-shipped-scripts.sh` **0 passed / 6 failed** (T1 named exactly
+the two phantoms; T2 counted exactly 24 swallowed steps; T3 ×2; both mutant setups refused because the
+lines they mutate did not yet exist in the shape expected); `scripts/lint-user-guide-scripts.sh` on the
+repo: 2 phantoms + 22 missing, exit 1. GREEN: suite **6 / 0** with both mutants killing; lint `OK … 41
+row(s), 41 shipped top-level script(s)` (39 + the two now shipped); `tests/test-lint-user-guide-scripts.sh`
+**11 / 0** (U1–U7 incl. the decoy-section and renamed-heading refusal, M0 ×2, M1/M2 killing). The
+24-line template edit was asserted by count (24 swallowed → 0; 24 bare invocations after), not by
+sed's exit status. Consumers of the shipped set re-run green: `test-scaffold-source-closure` 9/0,
+`test-bl147-ci-template-integrity` 84/0, `test-check-changelog-filter` 8/0, `test-lint-tests-registered`
+24/0; `run-lints.sh` **16 / 16** (the new lint discovered by glob); `init.sh` parses; both workflow YAMLs
+parse.
+
+**Related:** `## BL-108:` (source-closure — the derived set this now feeds), `## BL-199:` (the class of
+docs naming things that do not ship), `## BL-112:` (a check that did not run must not read as clean),
+`## BL-196:` (the marker lint, the same shape one surface over).

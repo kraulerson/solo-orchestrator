@@ -1378,6 +1378,16 @@ create_project() {
   # any check runs. tests/test-scaffold-source-closure.sh enforces it.
   cp "$SCRIPT_DIR/scripts/lib/accumulation.sh"         scripts/lib/
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
+  # `## BL-254:` — the Tier-1.5 governance checks every generated CI pipeline
+  # already invoked (14 templates call check-changelog.sh, 10 call
+  # check-session-state.sh) and the user guide listed as "Automatic (CI)",
+  # shipped by NOTHING: zero cp lines, so every one of those steps was a
+  # silent no-op behind `2>/dev/null || true`. Both are warn-only by default
+  # and block only under SOIF_STRICT_CHANGELOG / SOIF_STRICT_SESSION. These two
+  # lines flow into the derived shipped set (scaffold-shipped-set.sh) and are
+  # pinned by tests/test-bl254-ci-templates-call-shipped-scripts.sh.
+  cp "$SCRIPT_DIR/scripts/check-changelog.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/check-session-state.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
   # BL-088: check-phase-gate.sh's Phase-3→4 gate auto-runs (and points the
   # operator at) scripts/run-phase3-validation.sh via P3_DRIVER="$SCRIPT_DIR/

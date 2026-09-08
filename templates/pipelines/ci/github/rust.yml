@@ -157,10 +157,10 @@ jobs:
           bash scripts/check-phase-gate.sh
 
       - name: Governance - Changelog check
-        run: bash scripts/check-changelog.sh 2>/dev/null || true
+        run: bash scripts/check-changelog.sh
 
       - name: Governance - Session state check
-        run: bash scripts/check-session-state.sh 2>/dev/null || true
+        run: bash scripts/check-session-state.sh
 
   # BL-148: SAST runs in the semgrep/semgrep container (replaces the archived
   # Semgrep GitHub Action). The scan's config + severity flags MIRROR the local

@@ -165,11 +165,11 @@ jobs:
           bash scripts/check-phase-gate.sh
 
       - name: Governance - Changelog check
-        run: bash scripts/check-changelog.sh 2>/dev/null || true
+        run: bash scripts/check-changelog.sh
         # Tier 1.5: warning only. Set SOIF_STRICT_CHANGELOG=true to block.
 
       - name: Governance - Session state check
-        run: bash scripts/check-session-state.sh 2>/dev/null || true
+        run: bash scripts/check-session-state.sh
         # Tier 1.5: warning only. Set SOIF_STRICT_SESSION=true to block.
 
   # BL-148: SAST runs in the semgrep/semgrep container (replaces the archived
