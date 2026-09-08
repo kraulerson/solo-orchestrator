@@ -426,12 +426,23 @@ else
   fi
 fi
 
+# ── S3/S4 RUN ON THE PERSONAL TIER, AND THE REASON IS `## BL-253:`. This
+# file's `_ans` defaults to organizational, and until BL-253 an organizational
+# adoptee was born with `poc_mode: "production"` — a string the Pre-Phase-0
+# guard reads as a POC mode, so it never fired and the gate said "Phase gates
+# consistent" (rc 0) for a project that had cleared none of its six named
+# pre-conditions. That rc 0 was an artifact of the bug. With `poc_mode: null`
+# (init.sh's value) the organizational verdict is CORRECTLY a block, which is
+# not what §8.4 is about: §8.4 is the interruption ORDER, and its "reaches a
+# verdict, rc 0" clause is true of the personal tier. The organizational
+# verdict is pinned where it belongs, tests/test-bl253-adoption-state-parity.sh
+# P3/MP1b.
 S3D="$(newtmp)"
 if ! mk_adoptee "$S3D/p"; then
   fail_ "S3" "fixture setup failed"
 else
   report_with_phase 2 "$S3D/report.json"
-  _ans > "$S3D/answers"
+  _ans 1 > "$S3D/answers"
   run_adopt "$S3D/p" "$S3D/answers" "$S3D/report.json" phase_state
   _assert_safe_row "S3 (interruption after phase-state)" "$S3D/p"
 fi
@@ -441,7 +452,7 @@ if ! mk_adoptee "$S4D/p"; then
   fail_ "S4" "fixture setup failed"
 else
   report_with_phase 2 "$S4D/report.json"
-  _ans > "$S4D/answers"
+  _ans 1 > "$S4D/answers"
   run_adopt "$S4D/p" "$S4D/answers" "$S4D/report.json" intake
   _assert_safe_row "S4 (interruption after intake)" "$S4D/p"
 fi

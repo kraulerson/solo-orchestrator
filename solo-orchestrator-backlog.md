@@ -15062,3 +15062,82 @@ scripts are incidental would start requiring a test command it does not have.
 
 **Related:** `## BL-125:` (the arm), `## BL-179:` (the filter), `## BL-233:` (enforcement that ran
 downstream only), `## BL-112:` (a check that did not run must not read as a clean one).
+
+---
+
+## BL-253: adoption stamps every project `poc_mode: "production"` — a value init.sh never writes and every reader takes as the NAME of a POC mode — so `--start-phase4` refuses every adoptee and the organizational Pre-Phase-0 guard skips its six pre-conditions
+
+**Status:** Open
+
+**Logged:** 2026-09-08, out of the adversarial codebase review (pass 1 headline #3, reproduced end-to-end
+on `main` `c61edb1` by the single-agent second pass, both tiers). Ranked #1 of the verified review's
+top ten: every adoptee, two gates read the key, S effort, unfiled — `## BL-249:` pins five other
+adoption invariants including D10's landing, not this one.
+
+**The defect, precisely.** The tier key is `deployment` + `poc_mode` (`# BL-084-TIER-KEY`). For a
+production project `init.sh` writes JSON **null** into both state files — `poc_json="null"` in
+`create_project`'s phase-state heredoc, and the explicit `poc_mode:null` branch in
+`prepare_initial_state_for_commit` — because its own comment says so: *"the interactive flow maps
+'Production' -> POC_MODE='' because Production is not a POC mode."* `adopt-state.sh` carried
+`ADOPT_POC_MODE="production"` and wrote that STRING into `phase-state.json` and `manifest.json`.
+Every consumer spells the test as *non-null ⇒ a POC*: `process-checklist.sh`'s `start_phase4`
+(`[ -n "$poc_mode" ] && [ "$poc_mode" != "null" ]` → `[FAIL] Phase 4 (production release) is blocked —
+project is in production mode… run upgrade-project.sh --to-production`, a dead end with a nonsense
+remedy), and `check-phase-gate.sh`'s organizational guard (`[ -z "$poc_mode_val" ] || … = "null"` →
+the six named Pre-Phase-0 pre-conditions), which therefore printed **zero** `Pre-Phase 0` lines for
+an organizational adoptee and four issues once the value was nulled by hand.
+
+**Why nothing caught it.** The design's headline promise ("indistinguishable from a scaffolded
+project in what the gates demand") was asserted in `docs/designs/2026-08-23-brownfield-adoption-v2.md`
+and `docs/adoption.md` and executed by no test: no suite diffs an adopted `phase-state.json` /
+`manifest.json` against a scaffolded one. `## BL-221:` (`# BL-221-ADOPT-TIER-KEYS`) made the manifest
+carry the same two keys as phase-state — "so the two birth paths produce the same shape" — and
+pinned the *shape* while leaving the *value* to the same wrong constant. And `init.sh` cannot be
+sourced for its emitter (it ends in an unconditional `main "$@"`), so a parity oracle was never cheap.
+
+**Fix shape (built on this branch; see the build note).** `ADOPT_POC_MODE=""` with the reason on the
+line, and both writers emit **null, not ""** via init.sh's own `poc_json` idiom (`--argjson`), so the
+readers' leniency toward `""` is never relied on. Parity suite
+`tests/test-bl253-adoption-state-parity.sh`: the oracle is init.sh's phase-state heredoc lifted by its
+`PHEOF` fence and parsed with jq — read as source, never executed, so the suite is hermetic and
+unit-lane. It pins the key set, every birth constant, `poc_mode == null` in both files, the two
+consumers by behaviour (`--start-phase4` no longer says "in production mode"; the organizational gate
+prints `Pre-Phase 0`), and three mutants (restore the string; write `""` in each writer).
+
+**Residuals, stated rather than hidden:**
+1. Adoption still asks no POC question (D9: one question). An adopted `sponsored_poc` /
+   `private_poc` project cannot be expressed at adoption; it lands as production and must be moved
+   with `upgrade-project.sh`. Whether that is a second question at step 1 is a design call, not a
+   defect in this fix.
+2. `tests/test-brownfield-wp5b-test-debt.sh`'s `set_tier` fixtures hand-write
+   `"poc_mode":"production"` into manifests as INPUT to the ratchet's tier read — a shape no birth path
+   produces after this fix. They do not fail (the ratchet only tests for `sponsored_poc`), but they
+   encode the wrong idiom and should be re-spelled `null` when that file is next opened.
+3. The parity oracle covers `phase-state.json` by value and `manifest.json` by key set + `poc_mode`;
+   `init.sh`'s manifest writer also stamps host/mode/currency fields adoption legitimately differs on,
+   so a full manifest value-diff is deliberately not asserted.
+
+**Build note (2026-09-08, branch `fix/bl253-adoption-poc-mode-parity`).** Three markers in
+`scripts/lib/adopt/adopt-state.sh`: `# BL-253-POC-MODE` (the constant, now `""`, with the reason on the
+comment above it), `# BL-253-POC-NULL` and `# BL-253-POC-NULL-MANIFEST` (init.sh's `poc_json` idiom in
+each writer, `--argjson`, so null is emitted rather than `""`). Suite
+`tests/test-bl253-adoption-state-parity.sh`: **RED against main 5 passed / 12 failed** (the oracle O0/O1/O1b
+and the key-set checks P1c/P1e already passed — only the VALUE differed), **GREEN 18 / 0** with four
+mutants (MP1 restores the string → P2's dead end returns AND P3's guard goes quiet; MP2/MP3 write `""`
+in each writer → the parity oracle rejects it while the readers would have forgiven it). Registered in
+`tests/full-project-test-suite.sh` and the `tests.yml` unit lane by hand — the suite NAMES `init.sh` on an
+executed line (the awk that lifts the heredoc) and never invokes it; `lint-tests-registered.sh --list`
+shows it `registered`, not exempt.
+
+**One existing suite was green because of the bug.** `tests/test-brownfield-wp4-driver.sh` S3/S4
+(interruption after phase-state / after intake) use that file's `_ans`, which defaults to the
+ORGANIZATIONAL tier, and asserted the gate reaches "Phase gates consistent" rc 0 — true only because the
+Pre-Phase-0 guard was being skipped. With `poc_mode: null` the organizational verdict is correctly a
+block ("named pre-condition(s) without a dated approval row: AI deployment path, Insurance, Liability,
+Sponsor, Backup maintainer, ITSM"). Since §8.4 is about interruption ORDER, S3/S4 now run on the personal
+tier (`_ans 1`) with the reason in a comment, and the organizational verdict is pinned in this entry's
+suite (P3, MP1b). 13 adoption-touching suites green (wp1 35, wp2 53, wp3-arms 33, wp3-regen 4, wp4 24,
+wp5b 57, wp6 45, wp9 29, wp9b 103, wp10a 54, bl221 12, bl225 35, lint-module-dependencies 43); 15/15 lints.
+
+**Related:** `## BL-242:` (the package that wrote the constant), `## BL-249:` (the sibling invariants),
+`## BL-221:` (the shape half of the same key), `## BL-084:` (the tier key), `## BL-095:` (the readers).
