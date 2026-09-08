@@ -686,7 +686,20 @@ adopt_write_approval_log() {
 # safety rule, so silently omitting them would ship the adoptee a weaker gate
 # than the operator chose — the exact direction §8.4 exists to prevent.
 ADOPT_DEPLOYMENT=""
-ADOPT_POC_MODE="production"
+# `## BL-253:` — PRODUCTION IS THE ABSENCE OF A POC MODE, and it is spelled
+# that way because every reader spells it that way. init.sh maps "Production"
+# to POC_MODE="" (collect_inputs_non_interactive: `production) POC_MODE=""`)
+# and writes JSON null into both state files; process-checklist.sh's
+# --start-phase4 and check-phase-gate.sh's organizational Pre-Phase-0 guard
+# both read a non-null value as THE NAME OF A POC MODE. This constant was
+# "production" for the whole of WP9a–WP10a, so every adoptee was refused at
+# Phase 4 ("project is in production mode… run --to-production") and every
+# organizational adoptee skipped six pre-conditions. Reproduced on main
+# c61edb1, both tiers, by the 2026-09-08 review's second pass; pinned by
+# tests/test-bl253-adoption-state-parity.sh against init.sh's own emitter.
+# Adoption asks no POC question (D9: one question), so this is a constant —
+# the sponsored_poc / private_poc rungs are a residual on the entry.
+ADOPT_POC_MODE=""   # BL-253-POC-MODE
 ADOPT_PROJECT_NAME=""
 
 ADOPT_AUDIENCE_Q="Who is this project for?"
@@ -711,7 +724,12 @@ adopt_ask_audience() {
 adopt_write_phase_state() {
   local root="$1"
   local adopt_landing=0   # BL-242-PHASE0-LANDING
-  jq -n --arg p "$ADOPT_PROJECT_NAME" --arg d "$ADOPT_DEPLOYMENT" --arg m "$ADOPT_POC_MODE" \
+  # NULL, NOT "" — init.sh's own idiom (`poc_json="null"` in create_project).
+  # The readers forgive an empty string; the parity oracle in the BL-253 suite
+  # does not, because a scaffolded project never carries one.
+  local poc_json='null'   # BL-253-POC-NULL
+  [ -n "$ADOPT_POC_MODE" ] && poc_json="\"$ADOPT_POC_MODE\""
+  jq -n --arg p "$ADOPT_PROJECT_NAME" --arg d "$ADOPT_DEPLOYMENT" --argjson m "$poc_json" \
         --argjson phase "$adopt_landing" \
     '{project: $p, framework_version: "1.0", current_phase: $phase, track: "full",
       deployment: $d, poc_mode: $m, compliance_ready: false, review_gate_enforced: true,
@@ -777,13 +795,16 @@ adopt_write_manifest() {
   # phase record cannot disagree about the tier. `enforcement_level` seeds to
   # `strict`, which is init.sh's default and the direction this framework
   # fails in.
-  local poc="$ADOPT_POC_MODE"
+  # NULL, NOT "" — the same idiom as adopt_write_phase_state, for the same
+  # reason: init.sh's prepare_initial_state_for_commit writes `poc_mode:null`.
+  local poc_json='null'   # BL-253-POC-NULL-MANIFEST
+  [ -n "$ADOPT_POC_MODE" ] && poc_json="\"$ADOPT_POC_MODE\""
   if [ -f "$root/.claude/manifest.json" ]; then
     adopt_jq_edit "$root" ".claude/manifest.json" \
       '.host = $h | .mode = $m | .deployment = $d | .poc_mode = $p | .enforcement_level = (.enforcement_level // "strict")' \
-      --arg h "$host" --arg m "$mode" --arg d "$mode" --arg p "$poc" || return 1
+      --arg h "$host" --arg m "$mode" --arg d "$mode" --argjson p "$poc_json" || return 1
   else
-    jq -n --arg h "$host" --arg m "$mode" --arg p "$poc" \
+    jq -n --arg h "$host" --arg m "$mode" --argjson p "$poc_json" \
       '{host: $h, mode: $m, remote_url: "", deployment: $m, poc_mode: $p, enforcement_level: "strict"}' \
       | adopt_write_file "$root" ".claude/manifest.json" || return 1
   fi
