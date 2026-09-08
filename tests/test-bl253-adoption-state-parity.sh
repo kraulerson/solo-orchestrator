@@ -3,8 +3,9 @@
 #
 # `## BL-253:` — an ADOPTED project must be born with the same state an
 # init.sh-SCAFFOLDED one is born with. The design's headline promise
-# (docs/designs/2026-08-23-brownfield-adoption-v2.md: "indistinguishable from a
-# scaffolded project in what the gates demand") was asserted in two documents
+# (docs/designs/2026-08-23-brownfield-adoption-v2.md, verbatim: "an adopted
+# project is indistinguishable from a scaffolded one in what the gates demand
+# of it"; its v1 ancestor carries the same sentence) was asserted in the design
 # and executed by no test, and the one key it got wrong was the tier key's
 # second half: init.sh writes `poc_mode: null` for a production project
 # (`poc_json="null"` in create_project; `poc_mode:null` in
@@ -22,8 +23,11 @@
 # would make this suite non-hermetic and full-lane-only. Instead the
 # phase-state heredoc is lifted out of create_project by its `PHEOF` fence,
 # its shell interpolations substituted with the values adoption would use, and
-# the result parsed with jq. If init.sh's emitter moves or changes shape, O0
-# fails LOUDLY and says so — that is the canary, not a defect in this suite.
+# the result parsed with jq. TWO CANARIES, AND THEY CATCH DIFFERENT THINGS:
+# O0 fails when the emitter moves or its shape stops parsing as JSON (an
+# UNQUOTED new interpolation, a renamed fence); a QUOTED new interpolation
+# still parses, so O0 passes and P1c is what fails, naming the new key.
+# Measured both ways under review. Either is loud; neither is a defect here.
 # This file therefore NAMES init.sh on executed lines (the awk below) and is
 # registered in the tests.yml unit lane by hand: it reads init.sh, it never
 # invokes it.
@@ -204,12 +208,15 @@ if adopt_one 1; then
   else
     fail_ "P1b" "adopted manifest.json has poc_mode $(jq -c '.poc_mode' "$P1/.claude/manifest.json" 2>/dev/null) — init.sh writes null"
   fi
-  # key-by-key against the oracle, allowing only what adoption adds on top
+  # key-by-key against the oracle — STRICT equality. Adoption's stamp lives in
+  # manifest.json, not here, so phase-state.json carries nothing on top of
+  # init.sh's set; a first cut allowed `.adoption` and that allowance was a
+  # no-op. If either side gains a key, this is the line that says which.
   if [ -n "$ORACLE_PS" ]; then
     ok_keys="$(printf '%s' "$ORACLE_PS" | jq -r 'keys | sort | join(",")')"
-    ad_keys="$(jq -r 'del(.adoption) | keys | sort | join(",")' "$P1/.claude/phase-state.json")"
+    ad_keys="$(jq -r 'keys | sort | join(",")' "$P1/.claude/phase-state.json")"
     [ "$ok_keys" = "$ad_keys" ] \
-      && pass "P1c — adopted phase-state.json has exactly init.sh's key set (minus .adoption)" \
+      && pass "P1c — adopted phase-state.json has exactly init.sh's key set" \
       || fail_ "P1c" "key sets differ — init.sh: [$ok_keys]  adoption: [$ad_keys]"
     # the constants a fresh project is born with must be byte-equal
     diffs="$(jq -rn --argjson o "$ORACLE_PS" --slurpfile a "$P1/.claude/phase-state.json" \
@@ -224,6 +231,19 @@ if adopt_one 1; then
     pass "P1e — adopted manifest.json carries init.sh's six tier/host keys"
   else
     fail_ "P1e" "adopted manifest.json is missing one of init.sh's six keys: $(jq -c 'keys' "$P1/.claude/manifest.json" 2>/dev/null)"
+  fi
+  # P1f — THE TWO FILES AGREE ON THE TIER KEY. `# BL-221-ADOPT-TIER-KEYS` made
+  # the manifest carry the same two keys as phase-state "so the two birth paths
+  # produce the same shape"; this pins that they carry the same VALUE. Under
+  # review, deleting the manifest writer's guard line survived every case
+  # above — an equivalent mutant while ADOPT_POC_MODE is a constant "", but the
+  # moment adoption learns a POC mode (the entry's residual #1) it would write
+  # sponsored_poc into phase-state and null into the manifest. This is the
+  # line that catches that, and it kills that mutant today.
+  if jq -e --slurpfile m "$P1/.claude/manifest.json" '.poc_mode == $m[0].poc_mode and .deployment == $m[0].deployment' "$P1/.claude/phase-state.json" >/dev/null 2>&1; then
+    pass "P1f — phase-state.json and manifest.json agree on deployment and poc_mode"
+  else
+    fail_ "P1f" "tier key disagrees across files — phase-state: $(jq -c '{deployment,poc_mode}' "$P1/.claude/phase-state.json") manifest: $(jq -c '{deployment,poc_mode}' "$P1/.claude/manifest.json" 2>/dev/null)"
   fi
 
   # P2 — the consumer that turned the string into a dead end.
@@ -279,7 +299,7 @@ else
     M1_OUT="$( cd "$M1" && bash scripts/process-checklist.sh --start-phase4 </dev/null 2>&1 )" || true
     printf '%s' "$M1_OUT" | grep -q "project is in production mode" \
       && pass "MP1 (MUTATION) — with the string restored, --start-phase4 refuses the adoptee again: P2 is what stops it" \
-      || fail_ "MP1 (MUTATION)" "restoring the string did not bring the dead end back — P2 may be passing for another reason"
+      || fail_ "MP1 (MUTATION)" "restoring the string did not bring the dead end back — P2 may be passing for another reason, or the phase-state poc_json guard line was removed so the constant never reached the file"
   fi
   if adopt_one 2 "$MP1/fw"; then
     M1o="$ADOPTED"

@@ -15087,10 +15087,12 @@ remedy), and `check-phase-gate.sh`'s organizational guard (`[ -z "$poc_mode_val"
 the six named Pre-Phase-0 pre-conditions), which therefore printed **zero** `Pre-Phase 0` lines for
 an organizational adoptee and four issues once the value was nulled by hand.
 
-**Why nothing caught it.** The design's headline promise ("indistinguishable from a scaffolded
-project in what the gates demand") was asserted in `docs/designs/2026-08-23-brownfield-adoption-v2.md`
-and `docs/adoption.md` and executed by no test: no suite diffs an adopted `phase-state.json` /
-`manifest.json` against a scaffolded one. `## BL-221:` (`# BL-221-ADOPT-TIER-KEYS`) made the manifest
+**Why nothing caught it.** The design's headline promise — verbatim, "an adopted project is
+indistinguishable from a scaffolded one in what the gates demand of it"
+(`docs/designs/2026-08-23-brownfield-adoption-v2.md`, with the same sentence in its v1 ancestor;
+`docs/adoption.md` makes narrower claims about the script set and commit-time treatment, not this one)
+— was executed by no test: no suite diffs an adopted `phase-state.json` / `manifest.json` against a
+scaffolded one. `## BL-221:` (`# BL-221-ADOPT-TIER-KEYS`) made the manifest
 carry the same two keys as phase-state — "so the two birth paths produce the same shape" — and
 pinned the *shape* while leaving the *value* to the same wrong constant. And `init.sh` cannot be
 sourced for its emitter (it ends in an unconditional `main "$@"`), so a parity oracle was never cheap.
@@ -15122,9 +15124,18 @@ prints `Pre-Phase 0`), and three mutants (restore the string; write `""` in each
 comment above it), `# BL-253-POC-NULL` and `# BL-253-POC-NULL-MANIFEST` (init.sh's `poc_json` idiom in
 each writer, `--argjson`, so null is emitted rather than `""`). Suite
 `tests/test-bl253-adoption-state-parity.sh`: **RED against main 5 passed / 12 failed** (the oracle O0/O1/O1b
-and the key-set checks P1c/P1e already passed — only the VALUE differed), **GREEN 18 / 0** with four
+and the key-set checks P1c/P1e already passed — only the VALUE differed), **GREEN 19 / 0** with four
 mutants (MP1 restores the string → P2's dead end returns AND P3's guard goes quiet; MP2/MP3 write `""`
-in each writer → the parity oracle rejects it while the readers would have forgiven it). Registered in
+in each writer → the parity oracle rejects it while the readers would have forgiven it). **P1f was added
+under review:** the reviewer's own mutant — delete the manifest writer's guard line — survived every
+case, an equivalent mutant while `ADOPT_POC_MODE` is a constant `""`, but combined with residual #1
+(`ADOPT_POC_MODE="sponsored_poc"`) it wrote `sponsored_poc` into phase-state and `null` into the
+manifest, the exact cross-file disagreement `## BL-221:` and `## BL-249:` item 2 exist to prevent. P1f
+asserts the two files agree on `deployment` and `poc_mode`; measured, that mutant now dies at P1f
+(14 / 5). The review also found P1c's `del(.adoption)` was a no-op (the stamp lives in
+`manifest.json`), so P1c is now strict key equality; and that O0 is the canary for shape breaks that
+stop parsing while P1c is the canary for a QUOTED new interpolation — both measured. Verdict
+`minor_concerns`, all findings folded in before push. Registered in
 `tests/full-project-test-suite.sh` and the `tests.yml` unit lane by hand — the suite NAMES `init.sh` on an
 executed line (the awk that lifts the heredoc) and never invokes it; `lint-tests-registered.sh --list`
 shows it `registered`, not exempt.
