@@ -14866,7 +14866,7 @@ held back), `## BL-090:` (a warn-tier arm still waiting to be escalated),
 
 ## BL-251: WP10a made every adoption pay a 6.8s tool-resolver subprocess it usually does not need — a 4.3x-5.3x step change, found only because it pushed a CI shard to 13s of slack
 
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-09-07 (PR #375, merge `028d70e`). `# BL-251-FAST-PATH` takes the already-installed arm without spawning `resolve-tools.sh` when `command -v gitleaks` succeeds; measured 545s → 100s across the three affected suites with assertion counts unchanged, transcripts byte-identical. Three adversarial review rounds (`major_concerns` → `major_concerns` → `minor_concerns`); the two placement lessons — the probe must sit BEHIND `SOIF_ADOPT_RESOLVER`, and the fast path BELOW the resolver-existence arm — are recorded in the build note below with the measurements that forced them. **Two residuals stay open on this entry:** the WP10a suite is not host-independent at the scout seam (R1/R2 fail on a gitleaks-free host — 32/2 on the 34-assertion suite as it stood at `c986595`; the merged suite is 54 assertions and that figure has not been re-measured against it), and whether `resolve-tools.sh`'s 6.8s is itself a defect (46% CPU — it blocks on something) was not established.
 
 **Logged:** 2026-09-04, out of the adversarial review of the `rest`-shard re-pin
 (`ci/bl242-rest-shard-repin`). The re-pin's first draft explained the new pole
