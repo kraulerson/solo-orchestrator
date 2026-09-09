@@ -68,16 +68,25 @@ here.
   pattern instead (`lhs="${s%%"$pat"*}"; rhs="${s#*"$pat"}"`), which has no
   `&` rule in any version — and **assert the replacement LANDED**, by its
   own literal text, not by a line count. `soif_sed_repl_esc` in
-  `helpers-core.sh` is unaffected, but **not for the reason you would guess,
-  and the difference is the whole trap**: its `${t//&/\&}` is byte-identical
-  across versions ONLY because the pattern is the single character `&`, so
-  "the whole match" happens to BE `&`. The `\` does not survive as an escape
-  on 5.2 — it is consumed at quote removal and the bare `&` that remains is
-  the match. Measured, same script both hosts: with pattern `x` and that same
-  replacement, 3.2 gives `a \ & b` and 5.2 gives `a \ x b`. So `\&` is not a
-  portable way to write a literal `&`; that one call site is safe by
-  coincidence of its pattern, and `tests/test-bl255-sed-replacement-escape.sh`
-  pins its bytes in the unit lane, which is what would catch a change to it.
+  `helpers-core.sh` is unaffected, but **do not try to read that off the
+  spelling** — two drafts of this bullet reasoned about it and both were
+  wrong. Measure it. Double-quoted, `t='R&D tools'`, `u='one TWO three'`:
+  ```
+  replacement, as written   what it is        bash 3.2      bash 5.2
+  ${t//&/\\&}   <- REAL      two backslashes   R\&D tools    R\&D tools
+  ${t//&/\&}                  one backslash     R\&D tools    R&D tools
+  ${u//TWO/\\&}              two backslashes   one \& three  one \TWO three
+  ${u//TWO/&}                 bare &            one & three   one TWO three
+  ```
+  On 5.2, `\\` collapses at quote removal to a LITERAL backslash that does not
+  escape, so `\\&` is backslash-plus-*whole match*; a single `\&` is an escaped
+  `&` and yields a literal `&` with the backslash consumed; a bare `&` is the
+  whole match. On 3.2 all three are literal. So the real source line —
+  `t="${t//&/\\&}"`, two backslashes — is byte-identical across versions ONLY
+  because its pattern is the single character `&`, which makes "the whole
+  match" happen to be `&`. Change that pattern and the versions diverge in
+  silence. `tests/test-bl255-sed-replacement-escape.sh` pins those bytes in
+  the unit lane, and that is what would catch it.
   Reproduce the runner's bash on this host:
   ```
   docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash -c 'apt-get update -qq \

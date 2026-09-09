@@ -15532,9 +15532,12 @@ in any version) and refuses when the replacement did not land literally, so a du
 MU5/MU6/MP3 gained explicit `grep -cF` content assertions (of the other nine, eight already asserted the mutated
 text and MU2 is a line-addressed `Nd` delete with a content PRE-check, where shape is content — which is why only
 MU5 broke); and the trap is now the second bullet of CLAUDE.md's ENVIRONMENT TRAPS with a container recipe,
-corrected in round 6 to say WHY `soif_sed_repl_esc` survives: not because `\&` escapes on 5.2 (it does not — the
-backslash is consumed and the bare `&` is the match) but because its pattern is the single character `&`, so the
-whole match IS `&`. Round 6 also found the `chmod 555` sites inside MU1/MU3 carried no root guard, so as root those
+whose explanation of why `soif_sed_repl_esc` survives took THREE drafts: round 6 refuted the first, round 7 the
+second — both for the same class of error the bullet exists to prevent, and the second also misquoted the source
+line (`${t//&/\\&}` carries TWO backslashes, not one). Measured directly on both versions rather than reasoned
+about: on 5.2 `\\&` is a literal backslash plus THE WHOLE MATCH, a single `\&` is an escaped literal `&` with the
+backslash consumed, and a bare `&` is the whole match; on 3.2 all three are literal. The helper is byte-identical
+across versions only because its pattern is the single character `&`, so the whole match happens to BE `&`. Round 6 also found the `chmod 555` sites inside MU1/MU3 carried no root guard, so as root those
 two passed vacuously while claiming a read-only `.claude/` (43/4 — contained, because the four guarded sites turn
 the suite red under root either way); both now guard, and the suite is loud on all six.
 Both directions verified rather than argued — `ubuntu:24.04` (bash 5.2.21), as a non-root user so the `chmod 555`
