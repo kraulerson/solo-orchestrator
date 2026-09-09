@@ -15685,10 +15685,15 @@ release-variable reader is duplicated where one `get_release_vars` lib would do.
 **#7 — block messages.** `SOIF_PHASE_GATES=warn` is advertised but not recorded when used; the
 remediation text is not per-arm, so a reader gets generic advice for a specific block; and `--help`
 is handled AFTER the guard in some scripts, so asking one how to use it can be refused by the gate it
-is asking about. The note named no script; a sweep for a first `exit 1` preceding the `--help` arm
-surfaces `adopt-project.sh`, `delta.sh`, `intake-wizard.sh` and `lint-tests-registered.sh` as
-candidates, while `pre-commit-gate.sh` (`# BL-096-GATE-HELP`) and `check-phase-gate.sh` already get it
-right — so start from that sweep, not from the note. Compare `# WALK-ISSUE-017-HATCH`, where advertising an escape without its precondition cost a
+is asking about. The note named no script. Measured by RUNNING each
+one rather than by reading it: `adopt-project.sh`, `delta.sh` and `intake-wizard.sh` all answer
+`--help` with rc 1 and `[FAIL] Refusing to operate inside the Solo Orchestrator framework repo.` —
+`guard_not_in_framework || exit 1` fires before the help arm — while `pre-commit-gate.sh`
+(`# BL-096-GATE-HELP`), `check-phase-gate.sh` and `lint-tests-registered.sh` all answer rc 0. **Do not
+derive this set with `grep -n 'exit 1' | head -1`:** that predicate is comment-blind and a first cut of
+this line wrongly accused `lint-tests-registered.sh` on the strength of the word "exit 1" inside a
+COMMENT, the same class as `_build_unit_list_set`'s comment-blind awk in CLAUDE.md's HOUSE RULES. In
+`delta.sh` the same naive grep matches a comment reading `exit 10`. Run the scripts. Compare `# WALK-ISSUE-017-HATCH`, where advertising an escape without its precondition cost a
 walk agent real time.
 
 **#8 — permissions posture. NEEDS KARL'S DECISION, not an implementation.** The review flagged the
@@ -15699,8 +15704,14 @@ downgraded the severity accordingly. Do not "fix" this without asking.
 **#9 — `--sync-framework` runs inside the snapshot trap**, so a failure there is attributed to the
 snapshot. The note's second half named `soif_state_update`, **which has never existed on any ref**
 (`git log --all -S` finds it only in this entry). The real function is `delta_state_update`
-(`scripts/lib/delta-state.sh`), called from `process-checklist.sh` — and that surface is **already
-filed as `## BL-257:`**, so do not re-file it here; #9 is the snapshot-trap half only.
+(`scripts/lib/delta-state.sh`), called from `process-checklist.sh` — and **it already checks its
+write**, so there is nothing to file: a missing filter or a failed `jq` returns 1 after printing
+"nothing was written", the writer checks its own rename (`# DELTA-STATE-ATOMIC-RENAME`), and the call
+site is bare with no receipt to be unearned. It is also **not** one of `## BL-257:`'s sites — those are
+the `"$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv` shape and this call contains no `PROCESS_STATE` at
+all. A first cut of this line said the surface was "already filed as `## BL-257:`", which was itself an
+unearned receipt: it would have sent an implementer to a queue that does not contain it, to fix code
+that is already right. **#9 is the snapshot-trap half only.**
 
 **#10 — CI coverage gaps.** No `macos-latest` smoke leg, so this repo's own dev host is the one
 platform CI never exercises — the git-config and bash-version traps in CLAUDE.md are both
@@ -15720,10 +15731,14 @@ gets struck from this one with the measurement that refuted it. When the last is
 
 **Residual — a lint hole this entry walked into.** Its first cut carried two marker-shaped citations
 that resolve to nothing, `# BL-057-` (real spelling `# BL-057:`) and a hybrid `# BL-231:` (an entry, so
-`## BL-231:`), and `scripts/lint-bl-markers.sh` passed anyway. Its prose-citation matcher is
-`BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_-]*`, which requires a LETTER after the hyphen — so a truncation to
-a bare trailing hyphen, and a `# BL-NNN:` hybrid, are both invisible to the one lint built to catch
-dangling citations. CLAUDE.md's CITATION RULE records that a *bare* `BL-NNN-suffix` token is invisible;
+`## BL-231:`), and `scripts/lint-bl-markers.sh` passed anyway. Its prose-citation
+matcher is the `EXTRACT_CITES` awk under `# BL-196-PROSE-CITE-BEGIN`, whose three alternatives each
+require a backtick, a `#`, or a `<!--` before the id AND a LETTER after the hyphen —
+`BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_*-]*`. So a truncation to a bare trailing hyphen, and a `# BL-NNN:`
+hybrid, are both invisible to the one lint built to catch dangling citations. (A first cut of this
+residual quoted the file's OTHER regex — the code-surface extractor, whose class omits the `*` — and
+called it the prose matcher. Two similar lines, and the wrong one copied: the same mistake this entry
+made twice before, in the residual recording it.) CLAUDE.md's CITATION RULE records that a *bare* `BL-NNN-suffix` token is invisible;
 these two shapes are a second, narrower hole in the same matcher and are recorded nowhere. Both were
 caught by review, not by the lint.
 
