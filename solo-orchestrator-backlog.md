@@ -15067,7 +15067,15 @@ downstream only), `## BL-112:` (a check that did not run must not read as a clea
 
 ## BL-253: adoption stamps every project `poc_mode: "production"` — a value init.sh never writes and every reader takes as the NAME of a POC mode — so `--start-phase4` refuses every adoptee and the organizational Pre-Phase-0 guard skips its six pre-conditions
 
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-09-08 (PR #377, merge `d4e1466`). `ADOPT_POC_MODE` is `""` and both
+writers emit JSON `null` via `--argjson` (`# BL-253-POC-MODE`, `# BL-253-POC-NULL`, `# BL-253-POC-NULL-MANIFEST`), so
+an adopted project's tier key is byte-identical to what `init.sh` writes for the same answers. Suite
+`tests/test-bl253-adoption-state-parity.sh` 19/0 against RED 5/12, four mutants. Two adversarial rounds
+(`major_concerns` → `minor_concerns`): round 1 found the wp4-driver cases passing BECAUSE of the bug, and its own
+surviving mutant — deleting the manifest writer's guard — forced **P1f**, which asserts the two files agree on
+`deployment` and `poc_mode` and is the case that kills it. **Residuals 1-3 below stay open on this entry**, chiefly
+that adoption still asks no POC question, so an adopted POC lands as production and must be moved with
+`upgrade-project.sh`.
 
 **Logged:** 2026-09-08, out of the adversarial codebase review (pass 1 headline #3, reproduced end-to-end
 on `main` `c61edb1` by the single-agent second pass, both tiers). Ranked #1 of the verified review's
@@ -15157,7 +15165,13 @@ wp5b 57, wp6 45, wp9 29, wp9b 103, wp10a 54, bl221 12, bl225 35, lint-module-dep
 
 ## BL-254: 24 generated CI steps call two governance scripts the scaffold never ships, behind `2>/dev/null || true` — a silent no-op in every generated project, listed as "Automatic (CI)" in a user-guide table that names 19 of 39 shipped scripts
 
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-09-09 (PR #378, merge `c6da463`). The two governance scripts 24
+generated CI steps already called are now shipped by the scaffold, and the GitLab half's `|| true` is gone, so a
+failing check blocks the job as the GitHub half always did. One adversarial round (`major_concerns` →
+`minor_concerns`) found the user-guide table committing the exact defect the entry is about: four of the 22 new rows
+said "Automatic (CI)" for lints that run in NO generated pipeline. All corrected before push, plus one pre-existing
+wrong cell. **Residuals 1-6 below stay open**, chiefly that the governance steps are still not uniform across the
+three hosts and that the table's Invocation and Phase cells are enforced for presence, not accuracy.
 
 **Logged:** 2026-09-08, out of the adversarial codebase review (pass 1 headline #2 → G0/G2/R4; verified
 by the single-agent second pass, counts exact: 14 templates call `check-changelog.sh` — 10 GitHub +
@@ -15279,7 +15293,16 @@ docs naming things that do not ship), `## BL-112:` (a check that did not run mus
 
 ## BL-255: `--description` and the interactive project name reach `sed` as a raw REPLACEMENT — `R&D tools` renders as `R__PROJECT_DESCRIPTION__D tools`, and `a|w <path>|` writes a file and empties the description
 
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-09-09 (PR #379, merge `e3b2be5`). `soif_sed_repl_esc`
+(`# BL-255-SED-REPL-ESC`) escapes `&`, `\` and the delimiter by pure parameter expansion at all eleven
+replacement-position sites carrying operator text. Suite `tests/test-bl255-sed-replacement-escape.sh` 24/0 against
+RED 2/14. Two adversarial rounds (`major_concerns` → `minor_concerns`): round 1 found four of the eleven sites
+unguarded, and a `tr|sed` draft of the helper turning a loud failure into silent truncation. **Residuals stay open**
+— the rename's *pattern* side (`--old`) needs a regex escape this helper is not — and one more, found later by
+`## BL-256:`'s round 8 and worth reading before trusting a local green: **this suite's discrimination is
+version-dependent.** Mutate the helper's `${t//&/\\&}` to `\&` and it stays GREEN 24/0 on a bash-3.2 host and goes
+red 16/8 only on the 5.2 runner (measured in `ubuntu:24.04`). The suite that guards the `&` trap is itself subject
+to it; see CLAUDE.md's ENVIRONMENT TRAPS bullet on `${var/pat/rep}`.
 
 **Logged:** 2026-09-08, out of the adversarial codebase review (S6; pass 2 adjudicated it medium, not
 high: the file-write primitive is real, GNU sed's `e`-flag RCE plausible but not reproduced on BSD sed).
@@ -15377,7 +15400,16 @@ aggregator and the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `re
 
 ## BL-256: two shipped gates hand out receipts they did not earn — `_p3_scan_semgrep` (and its twin `_p3_scan_snyk`) counts an unreadable archive as "0 findings → PASS", and the UAT solo attestation prints "RECORDED" whether or not the record was written
 
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-09-09 (PR #380, merge `74be423`). Four receipts that were printed
+without the thing they attest to: the semgrep and snyk finding counts (`# BL-256-P3-COUNT-RECEIPT`,
+`# BL-256-P3-SNYK-COUNT-RECEIPT`) now count only when the key is present AND an array, every other outcome being a
+FAIL that says NOTHING WAS COUNTED; the UAT solo attestation and the general step write
+(`# BL-256-UAT-ATTEST-RECEIPT`/`-REFUSE`, `# BL-256-STEP-RECEIPT`/`-REFUSE`) print only inside the success arm and
+refuse at rc 1 otherwise. Suite `tests/test-bl256-unearned-receipts.sh` **49 / 0** against RED **11 / 38**, twelve
+mutants. **Nine adversarial rounds** — rounds 2, 3 and 4 each broke the code the round before had just added, and
+each of those mutants is now a permanent case; rounds 6-9 were all one paragraph of trap documentation that took
+three drafts to state correctly. **Residuals 1-6 below stay open**, chiefly `_p3_scan_zap` carrying the same hole by
+a different route, and `## BL-257:` for the other 23 unchecked state writes.
 
 **Logged:** 2026-09-08, out of the adversarial codebase review (ST2 + R2, both confirmed by the
 single-agent second pass). Ranked #4 of the verified review's top ten. Both are instances of the
@@ -15445,7 +15477,18 @@ was one. The four MCP/review attestations already refuse when they cannot record
    file. Reachable only for a step with no prior requirements (priors fail `step_is_completed` first).
    `jq -e` on both writes (exit 4 on no output; the filter's output is the whole document, never
    null/false) closes it; not folded here — fold it into `## BL-257:`'s helper.
-5. `SOLO_TDD_ATTESTED` and `SOLO_LICENSE_ATTESTED` are recorded and fail-closed but do not require a
+5. (review round 5, R5-2) The suite does not pin the `>` truncate atom on the guarded step write: `>` → `>>`
+   survives 49/0. Not a no-op — with a stale `.tmp` in a **writable** `.claude/` that mutant yields rc 0, a receipt,
+   and a two-document state file. The two stale-`.tmp` cases (U2c, U4d) are both read-only-dir cases, so nothing
+   exercises the truncate. Shipped code is correct here; this is coverage, and it needs an already-corrupt
+   workspace (a crash between the redirect and the rename). One case — stale `.tmp` + writable dir, asserting the
+   state file is a single document — closes it.
+6. (review round 5, R5-3) MU5/MU6 anchor on `marker_line - 1`, a position rather than the guard's identity, and 24
+   lines in `process-checklist.sh` carry MU5's literal. A restructure putting a different `jq … > tmp && mv`
+   directly above the receipt would mutate the wrong line while still changing 2 lines and passing `bash -n`.
+   Bounded — MU5's own assertion then fails, so it is a red test with a misleading diagnostic, never a false
+   green. Anchor on the guard's own text when either mutant is next touched.
+7. `SOLO_TDD_ATTESTED` and `SOLO_LICENSE_ATTESTED` are recorded and fail-closed but do not require a
    reason; `SOLO_BP_ATTESTED` is missing from the inventory the review built. The review's proposed
    single table of every `_ATTESTED` escape with its three properties (reason-mandatory / recorded /
    fail-closed), plus a lint that every grep hit appears in it, is filed here as the follow-up.
