@@ -833,6 +833,16 @@ run_child_suite "tests/test-bl253-adoption-state-parity.sh" \
   "BL-253 adoption state parity (poc_mode null like init.sh; --start-phase4 and the org Pre-Phase-0 guard)" \
   "BL-253 adoption state-parity tests FAILED (run tests/test-bl253-adoption-state-parity.sh for details)"
 
+# BL-254: a generated CI pipeline may only call scripts the scaffold ships,
+# and a governance check may not swallow its own failure; plus the lint that
+# keeps the user guide's script table equal to the derived shipped set.
+run_child_suite "tests/test-bl254-ci-templates-call-shipped-scripts.sh" \
+  "BL-254 CI templates call only shipped scripts; governance steps not swallowed" \
+  "BL-254 CI-template/shipped-set tests FAILED (run tests/test-bl254-ci-templates-call-shipped-scripts.sh for details)"
+run_child_suite "tests/test-lint-user-guide-scripts.sh" \
+  "BL-254 lint-user-guide-scripts (table rows == shipped top-level set, both directions)" \
+  "BL-254 lint-user-guide-scripts tests FAILED (run tests/test-lint-user-guide-scripts.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------

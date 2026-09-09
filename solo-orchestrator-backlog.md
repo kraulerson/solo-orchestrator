@@ -15152,3 +15152,125 @@ wp5b 57, wp6 45, wp9 29, wp9b 103, wp10a 54, bl221 12, bl225 35, lint-module-dep
 
 **Related:** `## BL-242:` (the package that wrote the constant), `## BL-249:` (the sibling invariants),
 `## BL-221:` (the shape half of the same key), `## BL-084:` (the tier key), `## BL-095:` (the readers).
+
+---
+
+## BL-254: 24 generated CI steps call two governance scripts the scaffold never ships, behind `2>/dev/null || true` — a silent no-op in every generated project, listed as "Automatic (CI)" in a user-guide table that names 19 of 39 shipped scripts
+
+**Status:** Open
+
+**Logged:** 2026-09-08, out of the adversarial codebase review (pass 1 headline #2 → G0/G2/R4; verified
+by the single-agent second pass, counts exact: 14 templates call `check-changelog.sh` — 10 GitHub +
+4 GitLab — and 10 call `check-session-state.sh`, GitHub only). Ranked #2 of the verified review's top
+ten.
+
+**The defect, precisely.** `scripts/check-changelog.sh` (warns when source changed without a
+CHANGELOG entry) and `scripts/check-session-state.sh` (warns when CLAUDE.md lags HEAD) both exist in
+this repo, both have a documented strict mode (`SOIF_STRICT_CHANGELOG=true` /
+`SOIF_STRICT_SESSION=true` → exit 1), and `check-changelog.sh` has a unit test. Every generated CI
+pipeline invoked them as `bash scripts/<x>.sh 2>/dev/null || true`. `init.sh` had **zero** `cp` lines
+for either, so the derived shipped set (`scripts/lib/scaffold-shipped-set.sh`) never contained them and
+no generated project ever received them. The `|| true` did double duty: it hid "No such file" from the
+operator, AND it made the strict mode a no-op even where the file existed — a governance check whose
+failure is discarded is `# BL-112-SAST-NOTRUN`'s class one surface over. The user guide listed both
+as "Automatic (CI)".
+
+**The second half — the table itself.** `docs/user-guide.md`'s "Quick Reference — Scripts" table was
+the one surface that read the shipped set from memory: 19 rows for 39 shipped top-level scripts,
+including the two phantoms. Every other consumer of that set derives it (`test-scaffold-source-closure`,
+`upgrade-project.sh --sync-framework`, both adoption writers). Pass 1 overstated one detail: only the
+user guide made the "Automatic (CI)" claim; the generated CLAUDE.md never mentions either script.
+
+**Fix (built on this branch).**
+1. Two `cp` lines in `create_project`, beside `validate.sh`, with the reason on them — they flow into
+   the derived shipped set with no other wiring.
+2. All 24 template steps lose ` 2>/dev/null || true`. Default behaviour is unchanged (both scripts exit
+   0 in warn mode); the strict env vars now do what the comment beneath each step has always claimed.
+3. `tests/test-bl254-ci-templates-call-shipped-scripts.sh` — two invariants derived from the shipped
+   set, never a hand list: every `bash scripts/<x>.sh` a template invokes is shipped (T1), and neither
+   governance invocation ends in `|| true` (T2); T3 names the two scripts so the failure reads as the
+   defect it was. Mutants on a mirror: remove a cp line → T1 names the phantom; restore `|| true` on one
+   step → T2 fires.
+4. `scripts/lint-user-guide-scripts.sh` + `tests/test-lint-user-guide-scripts.sh` — the table must equal
+   the shipped TOP-LEVEL set in both directions (phantom rows; missing rows), scoped to the one section
+   so the evaluation-prompts table (`compose.sh`, `run-reviews.sh` — which live under
+   `evaluation-prompts/`, not `scripts/`) is not misread. Vacuity floor: an empty derived set or a
+   renamed heading REFUSES rather than passing. Two markers (`# BL-254-PHANTOM-ROW`,
+   `# BL-254-MISSING-ROW`), two mutants. Wired into `lint.yml` as `user-guide-scripts-lint`
+   (not a required check — that is Karl's call, as with `bl-markers-lint`) and picked up by
+   `run-lints.sh` by glob.
+5. The table gains 22 rows and the two governance rows say what "Automatic (CI)" now actually means.
+
+**Residuals:**
+1. `scripts/lib/*`, `scripts/hooks/*` and `scripts/host-drivers/*` are shipped but deliberately not
+   demanded as rows — internals no operator invokes. If one becomes operator-facing it needs a row by
+   hand; the lint will not ask.
+2. The Invocation and Phase cells of the 22 new rows are hand-written from each script's header;
+   the lint enforces presence, not cell accuracy — and the review proved that gap bites: four of the
+   new rows said "Automatic (CI)" for lints that run in NO generated pipeline (two run in the
+   generated pre-commit hook; two are shipped but wired into nothing), and three gave a bare
+   invocation where `--help` exists. All seven corrected before push, plus one pre-existing wrong cell
+   (`resolve-tools.sh --help`, which has no such handler). **23 of the 41** shipped top-level scripts
+   have no `--help` handler (a first draft said eight), so the bare form is correct for those; a
+   cell-accuracy lint would need each script to declare its own invocation, which none do.
+3. `check-changelog.sh` diffs against `origin/$GITHUB_BASE_REF`, else `HEAD~1`, else `--cached`.
+   Of the 30 CI templates, only the **10 GitHub** ones carry `fetch-depth: 0` (a first draft said
+   "all 22" — a number that matches nothing; `fetch-depth` is a GitHub Actions input and cannot appear
+   in a GitLab or Bitbucket pipeline). The 4 GitLab templates whose `|| true` this removes resolve
+   `HEAD~1` under GitLab's default shallow depth, which is enough for the script's second arm. A
+   checkout of depth 1 would make its `|| echo ""` arm report "no source changed" rather than fail —
+   the script's own silent-success residual, unchanged here. The review also confirmed from GitLab's
+   documentation that a non-zero `script:` command fails the job, so the GitLab half of the fix
+   restores blocking exactly as the GitHub half does.
+4. `lint-fixture-envelopes.sh` and `lint-review-manifest.sh` are shipped into every generated project
+   and wired into nothing there (no hook, no pipeline). Whether to wire them or stop shipping them is
+   a separate call; the table now says so rather than claiming "Automatic (CI)".
+5. `soif_parse_shipped_scripts` prints a non-glob `cp` source unconditionally — a `cp` line for a file
+   that does not exist satisfies T1, T3 and the new lint alike (review M-E). Pre-existing in the shared
+   lib; `test-scaffold-source-closure.sh` checks source existence for reference docs only. Caught today
+   only by the full-lane `e2e-init*` trio. Worth its own line in that lib.
+6. **The governance steps are not uniform across hosts, and this entry did not make them so.** All 10
+   GitHub CI templates carry both steps. All 10 GitLab templates have a governance job (they run
+   `check-phase-gate.sh`), but only **four** (go, python, rust, typescript) also carry the changelog
+   step and none carries the session-state one; **no** Bitbucket template carries either. Surfaced by
+   T4's first cut, which asserted "every GitLab template" and failed on six files for a claim that was
+   never true. T4 now derives the GitHub arm from the file list and pins the GitLab arm as a named
+   census (bl147's idiom), so the fix cannot be undone in any template that has it — and nothing here
+   adds the step to the sixteen that do not. Whether they should carry it is a template-parity
+   question for whoever next opens the CI templates, not a defect of this fix.
+
+**Build note (2026-09-08, branch `fix/bl254-ship-governance-checks`).** RED measured before any product
+change with the suite as it then stood (six cases): `tests/test-bl254-ci-templates-call-shipped-scripts.sh`
+**0 passed / 6 failed** (T1 named exactly the two phantoms; T2 counted exactly 24 swallowed steps; T3 ×2;
+both mutant setups refused because the lines they mutate did not yet exist in the shape expected).
+Against `main` with the branch's FINAL file, measured in a worktree at `d4e1466`: **4 passed / 8
+failed** — the four passes are MT3 ×3 and MT3b, mirror-only parser proofs that are defect-independent;
+the eight failures are the original six plus T4 (no bare governance step exists on main) and MT5's
+setup (no bare line to delete). The six original failures are the invariant. `scripts/lint-user-guide-scripts.sh` on the repo: 2 phantoms
++ 22 missing, exit 1. GREEN: suite **12 / 0** — MT1/MT2 killing; MT3 ×3 pinning the `sh scripts/…`,
+`./scripts/…` and `bash "scripts/…"` spellings (the first two slipped a first cut's `bash scripts/`-only
+parser under review); MT3b pinning that a path named ONLY in a comment is NOT read as an invocation (the
+widened parser's own regression, found in the next round: a false RED on a documentation edit); **T4**
+asserting every GitHub CI template carries both governance steps and every GitLab one the changelog
+step, derived from the file list — under review, DELETING all 24 steps had passed the suite because T1
+is a subset check and T2 an absence check, both monotone in the less-content direction; MT5 deletes one
+step and T4 names the template and the step. Lint `OK … 41 row(s), 41 shipped top-level script(s)` (39 +
+the two now shipped);
+`tests/test-lint-user-guide-scripts.sh` **12 / 0** (U1–U8 incl. the decoy-section and renamed-heading
+refusals and U8's tight-shape phantom row — invisible to a first cut's row regex, found under review —
+M0 ×2, M1/M2 killing). **Review round 1: `major_concerns`** — the core fix held under every attack
+(seven no-strict repo states all exit 0; GitLab `script:` semantics confirmed from its docs; the 24-line
+edit verified as exactly the six removal/addition shapes), but four of the 22 new table rows repeated
+this entry's own defect class ("Automatic (CI)" for lints no generated pipeline runs), three cells
+omitted a `--help` that exists, and two numbers in the residuals were wrong. All corrected before push
+(residuals 2–5 below carry the corrected figures); the two scripts were also added to init.sh's
+`chmod +x` list, where every sibling already was. The
+24-line template edit was asserted by count (24 swallowed → 0; 24 bare invocations after), not by
+sed's exit status. Consumers of the shipped set re-run green: `test-scaffold-source-closure` 9/0,
+`test-bl147-ci-template-integrity` 84/0, `test-check-changelog-filter` 8/0, `test-lint-tests-registered`
+24/0; `run-lints.sh` **16 / 16** (the new lint discovered by glob); `init.sh` parses; both workflow YAMLs
+parse.
+
+**Related:** `## BL-108:` (source-closure — the derived set this now feeds), `## BL-199:` (the class of
+docs naming things that do not ship), `## BL-112:` (a check that did not run must not read as clean),
+`## BL-196:` (the marker lint, the same shape one surface over).

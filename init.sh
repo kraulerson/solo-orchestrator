@@ -1378,6 +1378,16 @@ create_project() {
   # any check runs. tests/test-scaffold-source-closure.sh enforces it.
   cp "$SCRIPT_DIR/scripts/lib/accumulation.sh"         scripts/lib/
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
+  # `## BL-254:` — the Tier-1.5 governance checks every generated CI pipeline
+  # already invoked (14 templates call check-changelog.sh, 10 call
+  # check-session-state.sh) and the user guide listed as "Automatic (CI)",
+  # shipped by NOTHING: zero cp lines, so every one of those steps was a
+  # silent no-op behind `2>/dev/null || true`. Both are warn-only by default
+  # and block only under SOIF_STRICT_CHANGELOG / SOIF_STRICT_SESSION. These two
+  # lines flow into the derived shipped set (scaffold-shipped-set.sh) and are
+  # pinned by tests/test-bl254-ci-templates-call-shipped-scripts.sh.
+  cp "$SCRIPT_DIR/scripts/check-changelog.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/check-session-state.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
   # BL-088: check-phase-gate.sh's Phase-3→4 gate auto-runs (and points the
   # operator at) scripts/run-phase3-validation.sh via P3_DRIVER="$SCRIPT_DIR/
@@ -1530,7 +1540,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host-errors.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh scripts/check-pr-review.sh scripts/record-pr-review.sh scripts/print-prepush-recipe.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh scripts/check-pr-review.sh scripts/record-pr-review.sh scripts/print-prepush-recipe.sh scripts/check-changelog.sh scripts/check-session-state.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions

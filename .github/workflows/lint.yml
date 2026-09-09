@@ -213,6 +213,18 @@ jobs:
       - name: Lint review-manifest schema (BL-073)
         run: bash scripts/lint-review-manifest.sh
 
+  # BL-254: the user guide's script table must match the derived shipped set
+  # in both directions (no phantom rows, no shipped top-level script unlisted).
+  user-guide-scripts-lint:
+    name: user-guide-scripts-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
+
+      - name: Lint user-guide script table against the shipped set (BL-254)
+        run: bash scripts/lint-user-guide-scripts.sh
+
       - name: Show roster (on failure)
         if: failure()
         run: bash scripts/lint-review-manifest.sh --list || true

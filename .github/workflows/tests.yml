@@ -532,6 +532,8 @@ jobs:
             tests/test-bl230-workflow-html-lint-surface.sh
             tests/host-drivers/error-translate.test.sh
             tests/test-bl253-adoption-state-parity.sh
+            tests/test-bl254-ci-templates-call-shipped-scripts.sh
+            tests/test-lint-user-guide-scripts.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

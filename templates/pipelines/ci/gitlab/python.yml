@@ -82,7 +82,7 @@ governance:
     # `scripts/check-gate.sh --setup-ci-token` prints these steps for GitLab.
     # A warning nobody clears is a check nobody reads.
     - bash scripts/check-phase-gate.sh
-    - bash scripts/check-changelog.sh 2>/dev/null || true
+    - bash scripts/check-changelog.sh
     # APPROVAL_LOG.md append-only enforcement
     - |
       # BL-147: resolve the base explicitly, fail LOUDLY if unresolvable, no stderr silencer.
