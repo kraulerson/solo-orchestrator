@@ -15685,11 +15685,17 @@ release-variable reader is duplicated where one `get_release_vars` lib would do.
 **#7 — block messages.** `SOIF_PHASE_GATES=warn` is advertised but not recorded when used; the
 remediation text is not per-arm, so a reader gets generic advice for a specific block; and `--help`
 is handled AFTER the guard in some scripts, so asking one how to use it can be refused by the gate it
-is asking about. The note named no script. Measured by RUNNING each
-one rather than by reading it: `adopt-project.sh`, `delta.sh` and `intake-wizard.sh` all answer
-`--help` with rc 1 and `[FAIL] Refusing to operate inside the Solo Orchestrator framework repo.` —
-`guard_not_in_framework || exit 1` fires before the help arm — while `pre-commit-gate.sh`
-(`# BL-096-GATE-HELP`), `check-phase-gate.sh` and `lint-tests-registered.sh` all answer rc 0. **Do not
+is asking about. The note named no script. **This half may not be a defect at all, and the
+precondition is the whole story.** Measured by RUNNING each one: **from the framework repo root**,
+`adopt-project.sh`, `delta.sh` and `intake-wizard.sh` answer `--help` with rc 1 and `[FAIL] Refusing to
+operate inside the Solo Orchestrator framework repo.`, because `guard_not_in_framework || exit 1` fires
+before the help arm. **From any other directory the same three answer rc 0 with usage** — measured — so
+no user ever sees this; only a contributor standing inside this repo does. And `adopt-project.sh`'s own
+header declares the posture DELIBERATE with a rationale ("THE GUARD FIRES BEFORE ARGUMENT PARSING,
+DELIBERATELY (§8.1) … because the failure it prevents is writing framework state into the framework").
+So treat this as a contributor-ergonomics DECISION, not a defect to fix, and do not "correct" it without
+asking. `pre-commit-gate.sh` (`# BL-096-GATE-HELP`), `check-phase-gate.sh` and
+`lint-tests-registered.sh` answer rc 0 everywhere. **Do not
 derive this set with `grep -n 'exit 1' | head -1`:** that predicate is comment-blind and a first cut of
 this line wrongly accused `lint-tests-registered.sh` on the strength of the word "exit 1" inside a
 COMMENT, the same class as `_build_unit_list_set`'s comment-blind awk in CLAUDE.md's HOUSE RULES. In
@@ -15705,9 +15711,10 @@ downgraded the severity accordingly. Do not "fix" this without asking.
 snapshot. The note's second half named `soif_state_update`, **which has never existed on any ref**
 (`git log --all -S` finds it only in this entry). The real function is `delta_state_update`
 (`scripts/lib/delta-state.sh`), called from `process-checklist.sh` — and **it already checks its
-write**, so there is nothing to file: a missing filter or a failed `jq` returns 1 after printing
-"nothing was written", the writer checks its own rename (`# DELTA-STATE-ATOMIC-RENAME`), and the call
-site is bare with no receipt to be unearned. It is also **not** one of `## BL-257:`'s sites — those are
+write**, so there is nothing to file: a failed `jq` returns 1 after printing "the jq filter failed —
+nothing was written", an ABSENT filter returns 2 with "a jq filter is required" (a different branch,
+a different code — and one the seam's own argument check reaches first), the writer checks its own
+rename (`# DELTA-STATE-ATOMIC-RENAME`), and the call site is bare with no receipt to be unearned. It is also **not** one of `## BL-257:`'s sites — those are
 the `"$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv` shape and this call contains no `PROCESS_STATE` at
 all. A first cut of this line said the surface was "already filed as `## BL-257:`", which was itself an
 unearned receipt: it would have sent an implementer to a queue that does not contain it, to fix code
@@ -15728,6 +15735,19 @@ chase.
 
 **Fix:** none here. Each item becomes its own entry with its own reproduction when it is picked up, or
 gets struck from this one with the measurement that refuted it. When the last is resolved, close this.
+
+**Read this before adding detail to this entry.** It took FOUR correction cycles to get right, and
+every cycle's errors were in the sentences that cycle had just added, never in the terse notes it
+started from. The tally: two identifiers that never existed on any ref, two marker citations that
+resolve to nothing, one mechanism described backwards, one "already filed" pointing at a queue that
+does not contain it (aimed at code that was already correct), one script accused on the strength of the
+words "exit 1" inside a COMMENT, one regex copied from the wrong of two similar lines, one return code
+and message attributed to the wrong branch, and one behaviour stated without the cwd precondition that
+is its whole meaning. Every one was caught by review, none by a lint. **The lesson is not "be more
+careful" — it is that added prose is a failure surface.** Add a measurement here only when it makes a
+lead LOCATABLE (a real identifier, a real file). Anything more — a mechanism, a rationale, a
+cross-reference to another entry's scope — belongs in the entry that gets opened when the lead is
+actually picked up and reproduced.
 
 **Residual — a lint hole this entry walked into.** Its first cut carried two marker-shaped citations
 that resolve to nothing, `# BL-057-` (real spelling `# BL-057:`) and a hybrid `# BL-231:` (an entry, so
