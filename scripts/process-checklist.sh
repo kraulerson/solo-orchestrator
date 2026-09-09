@@ -1215,7 +1215,9 @@ BL120EOF
            && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE" 2>/dev/null; then
           print_ok "results_received: SOLO-MODE attested and RECORDED (reason: $uat_reason) — no external submissions required."   # BL-256-UAT-ATTEST-RECEIPT
         else
-          rm -f "$PROCESS_STATE.tmp" 2>/dev/null
+          # `|| true`: under set -e a stale .tmp in a now read-only dir makes
+          # this rm fail and would exit BEFORE the refusal is printed (R3-2)
+          rm -f "$PROCESS_STATE.tmp" 2>/dev/null || true
           print_fail "results_received: SOLO-MODE attestation REFUSED — it could not be recorded to $PROCESS_STATE (jq/disk/permissions). An attested escape must be durably logged; nothing was marked complete."   # BL-256-UAT-ATTEST-REFUSE
           exit 1
         fi
@@ -1316,7 +1318,7 @@ BL120EOF
   " "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"; then
     print_ok "Step '$step_id' completed for $process ($new_step_num/${#steps[@]})"   # BL-256-STEP-RECEIPT
   else
-    rm -f "$PROCESS_STATE.tmp" 2>/dev/null
+    rm -f "$PROCESS_STATE.tmp" 2>/dev/null || true
     print_fail "Step '$step_id' NOT recorded for $process — $PROCESS_STATE could not be written (jq/disk/permissions); nothing was marked complete."   # BL-256-STEP-REFUSE
     exit 1
   fi

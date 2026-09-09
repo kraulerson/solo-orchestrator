@@ -15446,29 +15446,32 @@ was one. The four MCP/review attestations already refuse when they cannot record
    fail-closed), plus a lint that every grep hit appears in it, is filed here as the follow-up.
 
 **Build note (2026-09-08/09, branch `fix/bl256-unearned-receipts`).** RED measured with the branch's
-final test file in a worktree at `e3b2be5`: **10 passed / 30 failed** — S3 (no `.results` key → PASS "0
+final test file in a worktree at `e3b2be5`: **11 passed / 34 failed** — S3 (no `.results` key → PASS "0
 findings"), S4 (not JSON → PASS), S5 (no jq on PATH → PASS), S6 (`.results` an object → PASS), S7
 (`.results` a string → PASS), S8 (two concatenated documents → PASS), S9 (a top-level array → PASS), N3
 (snyk: no `.vulnerabilities` key → PASS "0 vulnerabilities"), N4 (`.vulnerabilities` an object → PASS),
 N5 (a top-level array → PASS), N6 (no jq → PASS), U2 (read-only `.claude/` → "RECORDED" at rc 0 with
 the state file byte-identical), U3 (rename fails → "RECORDED"), U4 (non-solo path, read-only `.claude/`
-→ "Step … completed" at rc 0), U3b (the `.tmp` left behind), M0 ×6, MP1–MP6/MU1–MU3 setups. The ten
-passes are the honest-outcome cases (S0/N0 shim resolution, S1/N1 empty array PASS, S2/S2b/N2 findings
-FAIL, U1 writable recorded, U2b/U4b state unchanged — a failed write changes nothing on main too) — true
-on main by construction and not discriminators. **S6/S7 exist because a reviewer mutant survived the
+→ "Step … completed" at rc 0), U3b (the `.tmp` left behind), U4c (rename fails → "completed" at rc 0),
+U2c/U4d (a stale `.tmp` in a read-only `.claude/` → rc 1 with NO refusal text: the unguarded `rm -f`
+under `set -e` exited first), M0 ×6, MP1–MP6/MU1–MU4 setups. The eleven passes are the honest-outcome
+cases (S0/N0 shim resolution, S1/N1 empty array PASS, S2/S2b/N2 findings FAIL, U1/U1b healthy writes
+recorded, U2b/U4b state unchanged — a failed write changes nothing on main too) — true on main by
+construction and not discriminators. **S6/S7 exist because a reviewer mutant survived the
 first cut at 14/0**: it weakened the type check to a PRESENCE check (`has("results") and .results !=
 null`) and the suite could not tell, because no case fed a `.results` that was present but not an
 array — under that weakening `{"results":{}}` counts 0 → PASS and `{"results":"abcdefgh"}` counts the
 STRING'S LENGTH as eight findings. MP2 now applies exactly that mutant and S6/S7 kill it. (The reviewer
 that found it stalled mid-run and was killed 19 hours later; its last recorded words were "X4 survives
 14/0 and re-opens the defect" — the finding was recovered from its transcript, not from a verdict.)
-GREEN **40 / 0**: all nine mutants kill (MP1 restores the old `// 0 || echo 0` count → S3 reads PASS
+GREEN **45 / 0**: all ten mutants kill (MP1 restores the old `// 0 || echo 0` count → S3 reads PASS
 again; MP2 the presence check → S6 PASS, S7 "8 semgrep finding(s)"; MP3 drops the `*[!0-9]*` sanitiser
 arm → S8's two-document archive reads PASS again; MP4/MP5 are MP1/MP2 applied to the snyk marker → N3 /
 N4 read PASS again; MP6 is round 2's surviving x10 — a top-level-array arm — → N5 reads PASS again; MU1
 turns the attestation REFUSE arm back into the unconditional receipt → U2 is announced RECORDED again;
 MU2 drops the `rm -f` on that path → U3b finds the `.tmp`; MU3 turns the step REFUSE arm back into the
-receipt → U4 is announced completed again). The suite drives the REAL driver and the REAL checklist: PATH shims `semgrep` (writes
+receipt → U4 is announced completed again; MU4 is round 3's surviving m5 — the step guard covers only
+`jq` and tolerates a failed `mv` — → U4c is announced completed at rc 0 again). The suite drives the REAL driver and the REAL checklist: PATH shims `semgrep` (writes
 the canned archive to `--output`) and `snyk` (answers `config get api` with a token and `test --json`
 with the canned report on stdout) on a host-mirrored PATH minus real semgrep/snyk/docker/go-licenses
 (minus jq for S5), the exclusion asserted before measuring; a process-state fixture at
@@ -15483,9 +15486,20 @@ semgrep finding (a `-gt 1` mutant survived) → S2b (re-verified ad hoc on a mir
 one-finding archive reads PASS, which S2b rejects); R2-3 the general step write on the same command path → fix +
 U4/U4b + MU3, the other 23 sites → residual 3 / `## BL-257:`; R2-5 the `rm -f` on the refuse path
 untested → U3/U3b + MU2, which also REFUTED round 1's R-2 note that the fixture needed a "same-dir
-permission split" — a PATH `mv` shim that refuses only `process-state.json` is portable and the command
-path calls `mv` exactly once; R2-6 the snyk no-jq arm untested → N6; R2-4 / R2-7 corrected residuals 1
-and 2 (the zap harness exists; `paths.skipped` needs `--verbose`). All **66**
+permission split" — a PATH `mv` shim that refuses only `process-state.json` is portable — every `mv` on
+the path targets that file, once before the refusal exits and twice on a healthy solo run (the
+attestation write, then the step write; round 3 corrected "exactly once"); R2-6 the snyk no-jq arm
+untested → N6; R2-4 / R2-7 corrected residuals 1 and 2 (the zap harness exists; `paths.skipped` needs
+`--verbose`). **Round 3 (single agent, `major_concerns` — do-not-push)**, on the code round 2 added:
+R3-1 the step guard's RENAME half was unpinned — a mutant that guarded only `jq` and tolerated a failed
+`mv` (m5) announced "completed" at rc 0 and survived the BL-256 suite AND all 66 lane suites → U4c (the
+`mv` shim on the non-solo path) + MU4 = m5; R3-2 both refuse arms ran `rm -f "$PROCESS_STATE.tmp"`
+unguarded under `set -e`, so a stale `.tmp` inside a now read-only `.claude/` exited BEFORE the refusal
+was printed (rc honest, text missing) → `|| true` on both, pinned by U2c/U4d; R3-3 no healthy-path
+control for the step write (a guard refusing EVERY completion passed this suite) → U1b asserts rc 0,
+"completed", four steps; R3-4 the "exactly once" wording above. Round 3 also confirmed round 2's folds
+(MP6 = x10 kills; the `-gt 1` mutant reads PASS on S2b's archive and S2b rejects it; MU2's line-number
+mutation fails LOUD under four reformats) and the 66-suite claim in full. All **66**
 unit-lane suites that drive `run-phase3-validation.sh` or `process-checklist.sh` (this one included) re-run green
 (incl. `test-phase3-validation-gate` 51/0, `test-bl114-bl115-bl127-gate-integrity` 17/0, the three
 BL-070 scanner suites 51/48/26, `test-bl233-wpb-accumulation` 100/0); registered in the aggregator and
