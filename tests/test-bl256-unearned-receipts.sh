@@ -14,7 +14,9 @@
 #   (b) scripts/process-checklist.sh's uat_session:results_received solo escape
 #       appended its attestation with `jq … > tmp && mv` and then printed
 #       "attested and RECORDED" unconditionally — a read-only .claude/ left no
-#       record while the operator was told there was one.
+#       record while the operator was told there was one. The general step
+#       write at the end of complete_step had the same shape (review round 2,
+#       R2-3): "Step … completed" at rc 0 with the state file untouched.
 #
 # Both drive the REAL scripts on fixtures. (a) uses a PATH shim `semgrep` that
 # writes a canned archive to --output, on a PATH mirrored from the host MINUS
@@ -216,6 +218,17 @@ else
     fail_ "S7" "summary line: ${l:-<none>}"
   fi
 
+  # S2b — ONE finding must be FAIL (the `-gt 0` boundary; a `-gt 1` mutant
+  # survived review round 2 because only 0 and 2 were pinned)
+  printf '{"results":[{"check_id":"only-one"}],"errors":[]}\n' > "$ARCH/one.json"
+  F2b="$(newtmp)"; mk_p3_fixture "$F2b"; run_p3 "$F2b" "$ARCH/one.json" "$PATH_S"
+  l="$(semgrep_line)"
+  if printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "1 semgrep finding"; then
+    pass "S2b — an archive with ONE result is FAIL, '1 semgrep finding(s)' (the >0 boundary)"
+  else
+    fail_ "S2b" "summary line: ${l:-<none>}"
+  fi
+
   # S8 — a MULTI-DOCUMENT archive (two JSON documents concatenated). jq emits
   # one count per document, so `findings` becomes "0\n0": the `*[!0-9]*`
   # sanitiser arm is the only thing between that and `[ "0\n0" -gt 0 ]`
@@ -230,6 +243,18 @@ else
     pass "S8 — a multi-document archive is FAIL and says NOTHING WAS COUNTED"
   else
     fail_ "S8" "summary line: ${l:-<none>}"
+  fi
+
+  # S9 — a TOP-LEVEL ARRAY archive (no object to carry .results) must not count
+  printf '[]\n' > "$ARCH/toparray.json"
+  F9="$(newtmp)"; mk_p3_fixture "$F9"; run_p3 "$F9" "$ARCH/toparray.json" "$PATH_S"
+  l="$(semgrep_line)"
+  if printf '%s' "$l" | grep -q "PASS"; then
+    fail_ "S9" "a top-level array archive read as PASS — an unearned receipt: ${l}"
+  elif printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "NOTHING WAS COUNTED"; then
+    pass "S9 — a top-level ARRAY archive is FAIL and says NOTHING WAS COUNTED"
+  else
+    fail_ "S9" "summary line: ${l:-<none>}"
   fi
 
   # S5 — no jq at all must NOT read as 0 findings
@@ -310,6 +335,36 @@ else
   else
     fail_ "N4" "summary line: ${l:-<none>}"
   fi
+
+  # N5 — a TOP-LEVEL ARRAY report (the `--all-projects` shape this arm never
+  # asks for) must not be counted as clean. Review round 2's surviving mutant
+  # (x10) added an `if type == "array"` arm that summed `.[]?.vulnerabilities[]?`
+  # and read `[{"vulnerabilities":[]}]` as PASS — no case fed a top-level array.
+  printf '[{"ok":true,"vulnerabilities":[],"dependencyCount":3}]\n' > "$ARCH/snyk-toparray.json"
+  FN5="$(newtmp)"; mk_p3_fixture "$FN5"; run_p3 "$FN5" "$ARCH/snyk-toparray.json" "$PATH_N"
+  l="$(snyk_line)"
+  if printf '%s' "$l" | grep -q "PASS"; then
+    fail_ "N5" "a top-level array report read as PASS — an unearned receipt: ${l}"
+  elif printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "NOTHING WAS COUNTED"; then
+    pass "N5 — a top-level ARRAY report (the --all-projects shape) is FAIL and says NOTHING WAS COUNTED"
+  else
+    fail_ "N5" "summary line: ${l:-<none>}"
+  fi
+
+  # N6 — no jq: the snyk row must say so (not "schema drift"), mirroring S5
+  if [ -z "${CLEAN5:-}" ]; then
+    fail_ "N6 setup" "no jq-less PATH from S5"
+  else
+    FN6="$(newtmp)"; mk_p3_fixture "$FN6"; run_p3 "$FN6" "$ARCH/snyk-empty.json" "$SNYKD:$SHIMD:$CLEAN5"
+    l="$(snyk_line)"
+    if printf '%s' "$l" | grep -q "PASS"; then
+      fail_ "N6" "with no jq on PATH the snyk scan read as PASS — an unearned receipt: ${l}"
+    elif printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -qi "jq is not on PATH"; then
+      pass "N6 — with no jq the snyk scan is FAIL and says jq is not on PATH (not schema drift)"
+    else
+      fail_ "N6" "summary line: ${l:-<none>}"
+    fi
+  fi
 fi
 
 echo "=== U — (b) the UAT solo attestation is announced only when it was recorded ==="
@@ -329,11 +384,35 @@ STATE
   printf '{"project":"p","current_phase":2,"track":"light","deployment":"personal","poc_mode":null,"gates":{}}\n' > "$d/.claude/phase-state.json"
   return 0
 }
-# run_uat <fixture> [checklist] → UAT_OUT, UAT_RC
+# run_uat <fixture> [checklist] [PATH] → UAT_OUT, UAT_RC (the solo-attested path)
 run_uat() {
-  local fx="$1" pc="${2:-$PC}"
-  UAT_OUT="$( cd "$fx" && env SOLO_UAT_SOLO_ATTESTED=1 SOLO_UAT_REASON="bl256-test" bash "$pc" --complete-step uat_session:results_received 2>&1 )"; UAT_RC=$?
+  local fx="$1" pc="${2:-$PC}" path="${3:-$PATH}"
+  UAT_OUT="$( cd "$fx" && env PATH="$path" SOLO_UAT_SOLO_ATTESTED=1 SOLO_UAT_REASON="bl256-test" bash "$pc" --complete-step uat_session:results_received 2>&1 )"; UAT_RC=$?
   return 0
+}
+# run_step <fixture> [checklist] → UAT_OUT, UAT_RC (the NON-solo path: a real
+# submission file is present, so only the general step write is exercised)
+run_step() {
+  local fx="$1" pc="${2:-$PC}"
+  UAT_OUT="$( cd "$fx" && bash "$pc" --complete-step uat_session:results_received 2>&1 )"; UAT_RC=$?
+  return 0
+}
+# mk_mv_shim <dir> — an `mv` that refuses only when its LAST argument ends in
+# process-state.json (so jq succeeds and the rename fails — review round 2 showed
+# this is a portable fixture, not a "same-dir permission split"); everything
+# else is delegated to /bin/mv
+mk_mv_shim() {
+  local d="$1"
+  mkdir -p "$d" || return 1
+  cat > "$d/mv" <<'SHIM'
+#!/bin/sh
+# test shim: refuse to replace process-state.json; delegate everything else
+for last; do :; done
+case "$last" in *process-state.json) echo "mv: simulated failure" >&2; exit 1 ;; esac
+exec /bin/mv "$@"
+SHIM
+  chmod +x "$d/mv"
+  [ -x "$d/mv" ]
 }
 
 U1="$(newtmp)"; mk_uat_fixture "$U1"; run_uat "$U1"
@@ -363,13 +442,61 @@ else
     || fail_ "U2b" "the state file changed under a refused attestation"
 fi
 
+# U3 — jq succeeds, the rename fails: REFUSED, and the .tmp is not left behind
+MVD="$(newtmp)/mvshim"
+if ! mk_mv_shim "$MVD"; then
+  fail_ "U3 setup" "could not build the mv shim"
+else
+  U3="$(newtmp)"; mk_uat_fixture "$U3"
+  before="$(cat "$U3/.claude/process-state.json")"
+  run_uat "$U3" "$PC" "$MVD:$PATH"
+  if printf '%s' "$UAT_OUT" | grep -q "RECORDED"; then
+    fail_ "U3" "the attestation was announced as RECORDED after mv failed — an unearned receipt (rc=$UAT_RC)"
+  elif [ "$UAT_RC" -ne 0 ] && printf '%s' "$UAT_OUT" | grep -q "REFUSED"; then
+    pass "U3 — with jq succeeding and the rename failing the attestation is REFUSED (rc=$UAT_RC)"
+  else
+    fail_ "U3" "rc=$UAT_RC out: $(printf '%s' "$UAT_OUT" | grep -i 'results_received\|REFUSED' | head -2 | tr '\n' ' ')"
+  fi
+  if [ ! -e "$U3/.claude/process-state.json.tmp" ] && [ "$(cat "$U3/.claude/process-state.json")" = "$before" ]; then
+    pass "U3b — no .tmp is left behind and the state file is byte-identical"
+  else
+    fail_ "U3b" "tmp-left-behind=$([ -e "$U3/.claude/process-state.json.tmp" ] && echo yes || echo no); state-unchanged=$([ "$(cat "$U3/.claude/process-state.json")" = "$before" ] && echo yes || echo no)"
+  fi
+fi
+
+# U4 — the NON-solo path (a real submission file, no attestation): the general
+# step write at the end of complete_step must not announce "completed" when the
+# state file could not be written (review round 2, R2-3)
+U4="$(newtmp)"; mk_uat_fixture "$U4"
+printf 'tester A results\n' > "$U4/tests/uat/sessions/s1/submissions/tester-a.md"
+before="$(cat "$U4/.claude/process-state.json")"
+chmod 555 "$U4/.claude"
+if [ -w "$U4/.claude" ]; then
+  fail_ "U4 setup" ".claude stayed writable after chmod 555 (running as root?)"
+else
+  run_step "$U4"
+  chmod 755 "$U4/.claude"
+  if printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed"; then
+    fail_ "U4" "the step was announced as completed with a read-only .claude/ — an unearned receipt (rc=$UAT_RC)"
+  elif [ "$UAT_RC" -ne 0 ] && printf '%s' "$UAT_OUT" | grep -q "NOT recorded"; then
+    pass "U4 — with a read-only .claude/ the step completion is refused (rc=$UAT_RC), never announced"
+  else
+    fail_ "U4" "rc=$UAT_RC out: $(printf '%s' "$UAT_OUT" | grep -i 'results_received\|recorded' | head -2 | tr '\n' ' ')"
+  fi
+  [ "$(cat "$U4/.claude/process-state.json")" = "$before" ] \
+    && pass "U4b — and the state file is byte-identical to before" \
+    || fail_ "U4b" "the state file changed under a refused step completion"
+fi
+
 echo "=== M — mutation proofs on a mirror ==="
 
 M_P3="# BL-256-P3-COUNT-RECEIPT"
 M_PN="# BL-256-P3-SNYK-COUNT-RECEIPT"
 M_UR="# BL-256-UAT-ATTEST-RECEIPT"
 M_UF="# BL-256-UAT-ATTEST-REFUSE"
-for pair in "$P3|$M_P3" "$P3|$M_PN" "$PC|$M_UR" "$PC|$M_UF"; do
+M_SR="# BL-256-STEP-RECEIPT"
+M_SF="# BL-256-STEP-REFUSE"
+for pair in "$P3|$M_P3" "$P3|$M_PN" "$PC|$M_UR" "$PC|$M_UF" "$PC|$M_SR" "$PC|$M_SF"; do
   f="${pair%%|*}"; m="${pair#*|}"
   n="$(_sites "$f" "$m")"
   [ "$n" = "1" ] \
@@ -491,6 +618,75 @@ else
     printf '%s' "$l" | grep -q "PASS" \
       && pass "MP5 (MUTATION) — with a presence check, a .vulnerabilities object reads PASS again: N4 is what stops it" \
       || fail_ "MP5 (MUTATION)" "the snyk presence-check mutant did not re-open the defect: ${l:-<none>}"
+  fi
+fi
+
+# MP6 — review round 2's surviving mutant x10: an `if type == "array"` arm that
+# sums `.[]?.vulnerabilities[]?` over a top-level array. N5 must catch it.
+MP6="$(newtmp)/fw"
+if ! mk_mirror "$MP6"; then
+  fail_ "MP6 setup" "could not mirror scripts/"
+else
+  tgt="$MP6/scripts/run-phase3-validation.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  sed "s~^.*${M_PN}\$~  findings=\$(jq -e 'if type == \"array\" then ([.[]?.vulnerabilities[]?] | length) elif (.vulnerabilities | type) == \"array\" then (.vulnerabilities | length) else error(\"x\") end' \"\$archive\" 2>/dev/null) || findings=\"\"   ${M_PN}~" "$before" > "$tgt"
+  if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null || ! grep -q 'if type == "array" then (\[\.\[\]?\.vulnerabilities' "$tgt"; then
+    fail_ "MP6 setup" "the top-level-array mutation did not apply cleanly"
+  elif [ -z "${PATH_N:-}" ]; then
+    fail_ "MP6 setup" "no isolated PATH from section N"
+  else
+    FM6="$(newtmp)"; mk_p3_fixture "$FM6"; run_p3 "$FM6" "$ARCH/snyk-toparray.json" "$PATH_N" "$tgt"
+    l="$(snyk_line)"
+    printf '%s' "$l" | grep -q "PASS" \
+      && pass "MP6 (MUTATION) — with a top-level-array arm accepted, the --all-projects shape reads PASS again: N5 is what stops it" \
+      || fail_ "MP6 (MUTATION)" "the top-level-array mutant did not re-open the defect: ${l:-<none>}"
+  fi
+fi
+
+# MU2 — drop the `rm -f "$PROCESS_STATE.tmp"` on the attestation REFUSE path
+# (the line before the marker) on a mirror: U3b must see the .tmp left behind.
+MU2="$(newtmp)/fw"
+if ! mk_mirror "$MU2"; then
+  fail_ "MU2 setup" "could not mirror scripts/"
+else
+  tgt="$MU2/scripts/process-checklist.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  mline="$(grep -n "${M_UF}\$" "$before" | head -1 | cut -d: -f1)"
+  rmline=$(( ${mline:-0} - 1 ))
+  if [ "$rmline" -lt 1 ] || ! sed -n "${rmline}p" "$before" | grep -q 'rm -f "\$PROCESS_STATE.tmp"'; then
+    fail_ "MU2 setup" "the line before the REFUSE marker is not the rm -f"
+  else
+    sed "${rmline}d" "$before" > "$tgt"
+    if [ "$(_changed_lines "$before" "$tgt")" -ne 1 ] || ! bash -n "$tgt" 2>/dev/null; then
+      fail_ "MU2 setup" "the rm -f deletion did not apply cleanly"
+    elif [ -z "${MVD:-}" ]; then
+      fail_ "MU2 setup" "no mv shim from U3"
+    else
+      UM2="$(newtmp)"; mk_uat_fixture "$UM2"
+      run_uat "$UM2" "$tgt" "$MVD:$PATH"
+      [ -e "$UM2/.claude/process-state.json.tmp" ] \
+        && pass "MU2 (MUTATION) — with the rm -f dropped, a failed rename leaves the .tmp behind: U3b is what stops it" \
+        || fail_ "MU2 (MUTATION)" "dropping the rm -f left no .tmp — U3b may be passing for another reason (rc=$UAT_RC)"
+    fi
+  fi
+fi
+
+# MU3 — turn the step-completion REFUSE arm back into the old unconditional
+# receipt on a mirror: U4's read-only case must announce "completed" again.
+MU3="$(newtmp)/fw"
+if ! mk_mirror "$MU3"; then
+  fail_ "MU3 setup" "could not mirror scripts/"
+else
+  tgt="$MU3/scripts/process-checklist.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  sed "s~^.*${M_SF}\$~    print_ok \"Step '\$step_id' completed for \$process (\$new_step_num/\${#steps[@]})\"   ${M_SF}~" "$before" > "$tgt"
+  if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null || [ "$(grep -c "print_ok \"Step '\$step_id' completed for" "$tgt")" -ne 2 ]; then
+    fail_ "MU3 setup" "the step refuse-arm mutation did not apply cleanly"
+  else
+    UM3="$(newtmp)"; mk_uat_fixture "$UM3"
+    printf 'tester A results\n' > "$UM3/tests/uat/sessions/s1/submissions/tester-a.md"
+    chmod 555 "$UM3/.claude"
+    run_step "$UM3" "$tgt"; chmod 755 "$UM3/.claude"
+    printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed" \
+      && pass "MU3 (MUTATION) — with the step refuse arm turned back into a receipt, a read-only .claude/ is announced as completed: U4 is what stops it" \
+      || fail_ "MU3 (MUTATION)" "the mutant did not produce the false receipt — U4 may be passing for another reason"
   fi
 fi
 
