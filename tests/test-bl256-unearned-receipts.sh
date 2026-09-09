@@ -393,8 +393,8 @@ run_uat() {
 # run_step <fixture> [checklist] → UAT_OUT, UAT_RC (the NON-solo path: a real
 # submission file is present, so only the general step write is exercised)
 run_step() {
-  local fx="$1" pc="${2:-$PC}"
-  UAT_OUT="$( cd "$fx" && bash "$pc" --complete-step uat_session:results_received 2>&1 )"; UAT_RC=$?
+  local fx="$1" pc="${2:-$PC}" path="${3:-$PATH}"
+  UAT_OUT="$( cd "$fx" && env PATH="$path" bash "$pc" --complete-step uat_session:results_received 2>&1 )"; UAT_RC=$?
   return 0
 }
 # mk_mv_shim <dir> — an `mv` that refuses only when its LAST argument ends in
@@ -422,6 +422,19 @@ else
   fail_ "U1" "rc=$UAT_RC; recorded=$(jq -c '.uat_session.solo_attestations' "$U1/.claude/process-state.json" 2>/dev/null); out: $(printf '%s' "$UAT_OUT" | grep -i 'results_received' | head -2 | tr '\n' ' ')"
 fi
 
+# U1b — the healthy NON-solo path: the step write lands and is announced (the
+# control for U4/U4c — without it a guard that refuses EVERY completion would
+# pass this suite; review round 3, R3-3)
+U1b="$(newtmp)"; mk_uat_fixture "$U1b"
+printf 'tester A results\n' > "$U1b/tests/uat/sessions/s1/submissions/tester-a.md"
+run_step "$U1b"
+if [ "$UAT_RC" -eq 0 ] && printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed" \
+   && [ "$(jq -r '.uat_session.steps_completed | length' "$U1b/.claude/process-state.json" 2>/dev/null)" = "4" ]; then
+  pass "U1b — on the healthy non-solo path the step is recorded (4 steps) AND announced (rc=0)"
+else
+  fail_ "U1b" "rc=$UAT_RC steps=$(jq -c '.uat_session.steps_completed' "$U1b/.claude/process-state.json" 2>/dev/null); out: $(printf '%s' "$UAT_OUT" | grep -i 'results_received' | head -2 | tr '\n' ' ')"
+fi
+
 U2="$(newtmp)"; mk_uat_fixture "$U2"
 before="$(cat "$U2/.claude/process-state.json")"
 chmod 555 "$U2/.claude"
@@ -440,6 +453,29 @@ else
   [ "$(cat "$U2/.claude/process-state.json")" = "$before" ] \
     && pass "U2b — and the state file is byte-identical to before" \
     || fail_ "U2b" "the state file changed under a refused attestation"
+fi
+
+# U2c — a STALE .tmp (crash mid-write) inside a .claude/ that is now read-only:
+# jq's redirect into the writable file succeeds, mv fails, and the rm -f of
+# the .tmp fails too — under set -e that rm used to exit the script BEFORE
+# the refusal was printed (review round 3, R3-2). rc was honest; the text
+# was missing.
+U2c="$(newtmp)"; mk_uat_fixture "$U2c"
+printf '{"stale":true}\n' > "$U2c/.claude/process-state.json.tmp"
+before="$(cat "$U2c/.claude/process-state.json")"
+chmod 555 "$U2c/.claude"
+if [ -w "$U2c/.claude" ]; then
+  fail_ "U2c setup" ".claude stayed writable after chmod 555 (running as root?)"
+else
+  run_uat "$U2c"
+  chmod 755 "$U2c/.claude"
+  if printf '%s' "$UAT_OUT" | grep -q "RECORDED"; then
+    fail_ "U2c" "announced as RECORDED with a stale .tmp in a read-only .claude/ (rc=$UAT_RC)"
+  elif [ "$UAT_RC" -ne 0 ] && printf '%s' "$UAT_OUT" | grep -q "REFUSED" && [ "$(cat "$U2c/.claude/process-state.json")" = "$before" ]; then
+    pass "U2c — with a stale .tmp in a read-only .claude/ the refusal is still PRINTED (rc=$UAT_RC), state unchanged"
+  else
+    fail_ "U2c" "rc=$UAT_RC refused=$(printf '%s' "$UAT_OUT" | grep -c REFUSED) out: $(printf '%s' "$UAT_OUT" | tail -2 | tr '\n' ' ')"
+  fi
 fi
 
 # U3 — jq succeeds, the rename fails: REFUSED, and the .tmp is not left behind
@@ -486,6 +522,46 @@ else
   [ "$(cat "$U4/.claude/process-state.json")" = "$before" ] \
     && pass "U4b — and the state file is byte-identical to before" \
     || fail_ "U4b" "the state file changed under a refused step completion"
+fi
+
+# U4c — the step write's OTHER failure half: jq succeeds, the rename fails
+# (review round 3, R3-1: a guard that covered only jq and tolerated mv
+# announced "completed" at rc 0 and survived 40/0 — U4 only fails the jq half)
+if [ -z "${MVD:-}" ]; then
+  fail_ "U4c setup" "no mv shim from U3"
+else
+  U4c="$(newtmp)"; mk_uat_fixture "$U4c"
+  printf 'tester A results\n' > "$U4c/tests/uat/sessions/s1/submissions/tester-a.md"
+  before="$(cat "$U4c/.claude/process-state.json")"
+  run_step "$U4c" "$PC" "$MVD:$PATH"
+  if printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed"; then
+    fail_ "U4c" "the step was announced as completed after mv failed — an unearned receipt (rc=$UAT_RC)"
+  elif [ "$UAT_RC" -ne 0 ] && printf '%s' "$UAT_OUT" | grep -q "NOT recorded" \
+       && [ "$(cat "$U4c/.claude/process-state.json")" = "$before" ] && [ ! -e "$U4c/.claude/process-state.json.tmp" ]; then
+    pass "U4c — with jq succeeding and the rename failing the step is refused (rc=$UAT_RC), state unchanged, no .tmp"
+  else
+    fail_ "U4c" "rc=$UAT_RC tmp=$([ -e "$U4c/.claude/process-state.json.tmp" ] && echo yes || echo no) out: $(printf '%s' "$UAT_OUT" | grep -i 'recorded\|completed' | head -2 | tr '\n' ' ')"
+  fi
+fi
+
+# U4d — the stale-.tmp + read-only case on the STEP arm (R3-2, step half)
+U4d="$(newtmp)"; mk_uat_fixture "$U4d"
+printf 'tester A results\n' > "$U4d/tests/uat/sessions/s1/submissions/tester-a.md"
+printf '{"stale":true}\n' > "$U4d/.claude/process-state.json.tmp"
+before="$(cat "$U4d/.claude/process-state.json")"
+chmod 555 "$U4d/.claude"
+if [ -w "$U4d/.claude" ]; then
+  fail_ "U4d setup" ".claude stayed writable after chmod 555 (running as root?)"
+else
+  run_step "$U4d"
+  chmod 755 "$U4d/.claude"
+  if printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed"; then
+    fail_ "U4d" "announced as completed with a stale .tmp in a read-only .claude/ (rc=$UAT_RC)"
+  elif [ "$UAT_RC" -ne 0 ] && printf '%s' "$UAT_OUT" | grep -q "NOT recorded" && [ "$(cat "$U4d/.claude/process-state.json")" = "$before" ]; then
+    pass "U4d — with a stale .tmp in a read-only .claude/ the step refusal is still PRINTED (rc=$UAT_RC), state unchanged"
+  else
+    fail_ "U4d" "rc=$UAT_RC notrec=$(printf '%s' "$UAT_OUT" | grep -c 'NOT recorded') out: $(printf '%s' "$UAT_OUT" | tail -2 | tr '\n' ' ')"
+  fi
 fi
 
 echo "=== M — mutation proofs on a mirror ==="
@@ -687,6 +763,34 @@ else
     printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed" \
       && pass "MU3 (MUTATION) — with the step refuse arm turned back into a receipt, a read-only .claude/ is announced as completed: U4 is what stops it" \
       || fail_ "MU3 (MUTATION)" "the mutant did not produce the false receipt — U4 may be passing for another reason"
+  fi
+fi
+
+# MU4 — review round 3's surviving m5: the step guard covers only jq and
+# tolerates a failed mv (`mv … || true` on its own line). U4c must catch it.
+MU4="$(newtmp)/fw"
+if ! mk_mirror "$MU4"; then
+  fail_ "MU4 setup" "could not mirror scripts/"
+else
+  tgt="$MU4/scripts/process-checklist.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  mline="$(grep -n "${M_SR}\$" "$before" | head -1 | cut -d: -f1)"
+  gline=$(( ${mline:-0} - 1 ))
+  if [ "$gline" -lt 1 ] || ! sed -n "${gline}p" "$before" | grep -qF '&& mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"; then'; then
+    fail_ "MU4 setup" "the line before the STEP-RECEIPT marker is not the guarded write"
+  else
+    awk -v L="$gline" 'NR==L { sub(/ && mv "\$PROCESS_STATE\.tmp" "\$PROCESS_STATE"; then/, "; then"); print; print "    mv \"$PROCESS_STATE.tmp\" \"$PROCESS_STATE\" 2>/dev/null || true"; next } { print }' "$before" > "$tgt"
+    if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null || [ "$(grep -cF 'mv "$PROCESS_STATE.tmp" "$PROCESS_STATE" 2>/dev/null || true' "$tgt")" -ne 1 ]; then
+      fail_ "MU4 setup" "the jq-only-guard mutation did not apply cleanly"
+    elif [ -z "${MVD:-}" ]; then
+      fail_ "MU4 setup" "no mv shim from U3"
+    else
+      UM4="$(newtmp)"; mk_uat_fixture "$UM4"
+      printf 'tester A results\n' > "$UM4/tests/uat/sessions/s1/submissions/tester-a.md"
+      run_step "$UM4" "$tgt" "$MVD:$PATH"
+      [ "$UAT_RC" -eq 0 ] && printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed" \
+        && pass "MU4 (MUTATION) — with the guard covering only jq, a failed rename is announced as completed at rc 0: U4c is what stops it" \
+        || fail_ "MU4 (MUTATION)" "the jq-only guard did not produce the false receipt (rc=$UAT_RC) — U4c may be passing for another reason"
+    fi
   fi
 fi
 
