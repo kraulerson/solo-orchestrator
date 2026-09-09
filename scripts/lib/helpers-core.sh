@@ -938,6 +938,48 @@ prompt_install() {
   fi
 }
 
+# ── `## BL-255:` — OPERATOR TEXT USED AS A sed REPLACEMENT ────────────────────
+# soif_sed_repl_esc <text> [delim]
+#   Prints <text> escaped for use as the REPLACEMENT half of a sed `s` command
+#   whose delimiter is <delim> (default `|`). Three characters are special
+#   there and every one of them reached sed raw from `--description` and the
+#   interactive project name: `&` (the whole match — so "R&D tools" rendered as
+#   "R__PROJECT_DESCRIPTION__D tools"), `\` (starts an escape), and the
+#   delimiter itself (ends the replacement; what follows is parsed as FLAGS, so
+#   "a|w <path>|" wrote a file named "<path>||g" and emptied the description;
+#   GNU sed's `e` flag makes the same shape run a command). A newline would end
+#   the expression, so it becomes a space — descriptions are one sentence.
+#
+#   This is the replacement-side escape ONLY. Operator text used as the
+#   PATTERN half (reconfigure-project.sh's rename) needs a regex escape, which
+#   this is not; that site is recorded on the entry, not fixed here.
+#
+#   PURE BASH, NO FORKS, BYTE-SAFE — and the first cut was none of those. It
+#   piped through `tr | sed`, and under review a description carrying a byte
+#   invalid in the current locale (latin-1 é pasted from a document) made `tr`
+#   fail while the pipeline's last element succeeded: rc 0, description
+#   silently TRUNCATED, a complete-looking CLAUDE.md. Before the fix the same
+#   input failed loudly (`sed: RE error: illegal byte sequence`, empty file).
+#   Turning a loud failure into silent data loss inverts this repo's rule, so
+#   the helper is now parameter expansion only: locale-independent, no
+#   subprocess, and a `^` or `]` delimiter (which broke the bracket expression)
+#   is just another literal. Backslash FIRST, or the escapes it adds are
+#   escaped again.
+#
+#   Measured, not reasoned: tests/test-bl255-sed-replacement-escape.sh pins the
+#   table (H) and both renderers end to end (E), and its M1 neuters the marked
+#   line below to prove E1's `&` case is what holds it.
+soif_sed_repl_esc() {
+  local t="$1" delim="${2:-|}"
+  t="${t//\\/\\\\}"
+  t="${t//&/\\&}"
+  # `&` and `\` are already escaped above; escaping them again as the
+  # delimiter would double the backslash (measured under review).
+  case "$delim" in '&'|'\') ;; *) t="${t//"$delim"/\\$delim}" ;; esac
+  t="${t//$'\n'/ }"
+  printf '%s' "$t"   # BL-255-SED-REPL-ESC
+}
+
 # BL-095-STATE-READERS-BEGIN
 # ONE parsing surface for top-level phase-state keys — nine files previously
 # parsed `deployment`/`poc_mode` inline (three different grep-sed variants, a

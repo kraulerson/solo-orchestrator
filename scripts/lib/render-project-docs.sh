@@ -27,6 +27,20 @@
 # <out>.bak, which is removed). NO globals are read EXCEPT where a birth-only
 # code path (the tooling summary's resolver output) is explicitly passed in.
 
+# ── `## BL-255:` — THIS FILE NOW DEPENDS ON helpers-core.sh ─────────────────
+# Both renderers call soif_sed_repl_esc. Every production caller reaches it
+# through helpers.sh, but sourced ALONE (as the "pure renderers" contract above
+# once allowed) the call is `command not found` inside a `$(…)`, and the render
+# then completes with rc 0 and an EMPTY name and description — measured under
+# review. The guard below is the idiom the sibling libs use: source the core
+# helpers from this file's own directory if the function is not yet defined.
+_soif_rpd_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! command -v soif_sed_repl_esc >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  [ -f "$_soif_rpd_dir/helpers-core.sh" ] && . "$_soif_rpd_dir/helpers-core.sh"
+fi
+unset _soif_rpd_dir
+
 # ── CLAUDE.md (A1) ───────────────────────────────────────────────────────────
 # soif_render_claude_md <template> <out> \
 #     <project_name> <description> <platform> <track> <language> \
@@ -37,8 +51,11 @@
 soif_render_claude_md() {
   local tmpl="$1" out="$2" name="$3" desc="$4" platform="$5" track="$6" \
         language="$7" test_interval="$8" deployment="$9"
-  sed -e "s|__PROJECT_NAME__|$name|g" \
-      -e "s|__PROJECT_DESCRIPTION__|$desc|g" \
+  # `## BL-255:` — name and description are OPERATOR TEXT and are escaped for
+  # the replacement position (`&`, `\`, the `|` delimiter, newlines). The four
+  # values below them are init.sh-validated enums/integers and are not.
+  sed -e "s|__PROJECT_NAME__|$(soif_sed_repl_esc "$name" "|")|g" \
+      -e "s|__PROJECT_DESCRIPTION__|$(soif_sed_repl_esc "$desc" "|")|g" \
       -e "s|__PLATFORM__|$platform|g" \
       -e "s|__TRACK__|$track|g" \
       -e "s|__LANGUAGE__|$language|g" \
@@ -145,9 +162,11 @@ soif_render_project_intake() {
   local deployment_display
   deployment_display="$(echo "${deployment:0:1}" | tr '[:lower:]' '[:upper:]')${deployment:1}"
 
+  # `## BL-255:` — name and description are OPERATOR TEXT, escaped for the
+  # replacement position of a `~`-delimited expression.
   sed -i.bak \
-    -e "s~| \*\*Project name\*\* | |~| **Project name** | $name |~" \
-    -e "s~| \*\*One-sentence description\*\* | _What does this do, in plain language?_ |~| **One-sentence description** | $desc |~" \
+    -e "s~| \*\*Project name\*\* | |~| **Project name** | $(soif_sed_repl_esc "$name" "~") |~" \
+    -e "s~| \*\*One-sentence description\*\* | _What does this do, in plain language?_ |~| **One-sentence description** | $(soif_sed_repl_esc "$desc" "~") |~" \
     -e "s~| \*\*Project track\*\* | Light / Standard / Full .*~| **Project track** | $track_display |~" \
     -e "s~| \*\*Platform type\*\* | Web / Desktop / Mobile / CLI / Other: .*~| **Platform type** | $platform |~" \
     -e "s~| \*\*Platform Module\*\* | SOI-PM-WEB / SOI-PM-DESKTOP / SOI-PM-MOBILE / None .*~| **Platform Module** | $platform_module |~" \

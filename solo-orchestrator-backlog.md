@@ -15274,3 +15274,101 @@ parse.
 **Related:** `## BL-108:` (source-closure — the derived set this now feeds), `## BL-199:` (the class of
 docs naming things that do not ship), `## BL-112:` (a check that did not run must not read as clean),
 `## BL-196:` (the marker lint, the same shape one surface over).
+
+---
+
+## BL-255: `--description` and the interactive project name reach `sed` as a raw REPLACEMENT — `R&D tools` renders as `R__PROJECT_DESCRIPTION__D tools`, and `a|w <path>|` writes a file and empties the description
+
+**Status:** Open
+
+**Logged:** 2026-09-08, out of the adversarial codebase review (S6; pass 2 adjudicated it medium, not
+high: the file-write primitive is real, GNU sed's `e`-flag RCE plausible but not reproduced on BSD sed).
+Ranked #3 of the verified review's top ten. Reproduced on `main` `c6da463`.
+
+**The defect, precisely.** `soif_render_claude_md` and `soif_render_project_intake`
+(`scripts/lib/render-project-docs.sh`) splice the project name and one-sentence description into
+templates with `sed "s|__X__|$var|g"` and `s~…~$var~`. In a sed replacement three things are special and
+all three arrived raw: `&` is the whole match, `\` starts an escape, and the delimiter ends the
+replacement — what follows is parsed as FLAGS. Measured on this host (BSD sed 2.6.0):
+- description `R&D tools` → CLAUDE.md line `- **Description:** R__PROJECT_DESCRIPTION__D tools`;
+- description `a|w <scratch>/pwned|` → a **file written** at `<scratch>/pwned||g` (21 bytes — the `w`
+  filename runs to end-of-expression, so it picked up the trailing `|g`) and the description rendered
+  as `- **Description:** a`;
+- project name `acme&co` → `# CLAUDE.md — acme__PROJECT_NAME__co`.
+`--description` is unvalidated (`collect_inputs_non_interactive` regex-checks `ARG_PROJECT` only); the
+interactive project name is `tr`-normalised only (lower-case, spaces → hyphens), so `a&b` and `a|b`
+pass. The same raw splice sat in `init.sh` (two APPROVAL_LOG renders), `scripts/verify-install.sh`
+(its CLAUDE.md re-render on `--auto-fix`), and `scripts/reconfigure-project.sh` (the rename's new name).
+
+**Fix (built on this branch).** One helper, `soif_sed_repl_esc <text> [delim]` in
+`scripts/lib/helpers-core.sh` (`# BL-255-SED-REPL-ESC`): escapes `&`, `\` and the given delimiter,
+folds a newline to a space (a newline ends a sed expression; descriptions are one sentence), and picks
+its own internal delimiter so a caller delimiter of `/` is safe. Applied at every replacement-position
+site that carries operator text: both renderers (name + description; the four enum/integer values are
+init.sh-validated and left alone), `init.sh`'s two APPROVAL_LOG renders, `verify-install.sh`'s
+re-render (name + description), and `reconfigure-project.sh`'s two rename sites (replacement side).
+Suite `tests/test-bl255-sed-replacement-escape.sh`: the helper by table (H), both renderers end to end
+(E — `&`, the `|w` payload writes nothing and renders verbatim, a `&` in the name, `&`+`~` through the
+intake renderer), the scaffold-only name sites pinned by grep (G), and two mutants on a mirror (M1
+neuters the helper → the `&` splice returns; M2 bypasses the helper at the render site → the `w`-flag
+writes a file again).
+
+**Residuals, stated rather than hidden:**
+1. **The PATTERN side of the rename is still raw, and it is a raw CLI argument.** `reconfigure-project.sh`
+   runs `s|$old_name|$new_name|g`; the new name is now escaped, the old name is a regex pattern and
+   needs a different escape (`[]\.*^$/|` and friends). `old_name` comes ONLY from the `--old` flag —
+   never auto-derived, never validated — so `reconfigure-project.sh --field name --old '<regex>'` puts
+   arbitrary operator text in the pattern position directly. (A first draft of this residual tied it
+   to `--project`'s validation; it is unrelated to `--project`.)
+2. **Validation would be the stronger fix and is not done here.** Escaping makes any description
+   render verbatim; it does not decide whether a description containing `|` or a control character is
+   something the framework should accept. That is an intake-policy call.
+3. **Seventeen `sed … $var` sites in product code, not eighteen** (a first draft miscounted): eleven now
+   escaped, six untouched. Of the six, three are PATTERN-side or literal-replacement and were never in
+   this class — `hook-templates.sh` (`${soif_idx_tree}`, empty replacement), `lint-bl-markers.sh`
+   (`$WF_NORMALISED`, literal replacement), `probe-tool.sh` (`${pkg}`, pattern) — and three are
+   replacement-side with generated or validated values: `intake-wizard.sh` (`$today`), `test-gate.sh`
+   (`${n}`, an integer), and `delta.sh`'s `_brief_render`, which splices SEVEN variables (`$id`, a
+   `_slugify`'d `$slug`, and `$class $at $risk $level $sev`, each enum-validated by `_set_attr` →
+   `_rank`). Listed so the next reader does not re-audit them.
+4. **`render-project-docs.sh` now depends on `helpers-core.sh`**, and its header once called it a pure
+   renderer. Every production caller reaches the helper through `helpers.sh`, but sourced alone the
+   `$(soif_sed_repl_esc …)` was `command not found` and the render completed at rc 0 with an EMPTY name
+   and description (measured under review). The file now guard-sources `helpers-core.sh` from its own
+   directory, the sibling libs' idiom. `test-scaffold-source-closure.sh` cannot see this class of
+   dependency (it derives from `$SCRIPT_DIR/…` path references), so it stays stated here.
+
+**Build note (2026-09-08, branch `fix/bl255-escape-sed-replacements`).** RED, measured with the branch's
+FINAL test file in a worktree at `c6da463`: **2 passed / 14 failed**. The two passes are the two cases
+that guard against mistakes made DURING this work rather than against main: M2 mirrors the tree under
+test, and on main the render site already carries the raw line, so its mutating `sed` is a no-op and
+the "mutant" writes the file; E6b guards against the round-1 `tr | sed` helper's silent truncation,
+and main's raw sed already failed loudly on the invalid byte. Neither is a fixed-vs-unfixed
+discriminator, and both are recorded as such. (Earlier drafts wrote "0 / 11" and then "1 / 14" — each
+time a non-discriminating case was counted as if it discriminated; the review re-derived it twice.) The fourteen failures: H0 (no helper), E1 (`R__PROJECT_DESCRIPTION__D tools`), E2 (a file
+written at `…/pwned||g`), E2b (description rendered as `a`), E3 (`# CLAUDE.md — acme__PROJECT_NAME__co`),
+E4/E5 (intake description and name), E6a, G ×4, M0, M1 setup.
+
+**Review round 1: `major_concerns`, and the blocker was coverage, not the fix.** The reviewer reverted the
+escape at each of the eleven sites in turn; at FOUR of them every PR-blocking check stayed green —
+the intake renderer's NAME (E4 covered its description only), verify-install's DESCRIPTION (G greped
+`__PROJECT_NAME__` only), and both reconfigure sites (nothing mentioned the file). Closed by E5 (the
+intake name row, behavioural) and a rebuilt G that pins each file × placeholder at an EXACT escaped
+count with a delimiter-agnostic raw regex (`${VAR}` and `#`/`~` delimiters had slipped a first cut).
+Two more findings taken: the `tr | sed` helper turned a loud failure on a byte invalid in the locale
+into a description silently TRUNCATED at rc 0 (measured with latin-1 é) — the helper is now pure
+parameter expansion, byte-transparent, no forks, and E6a/E6b pin "complete under LC_ALL=C; complete
+or LOUD under the caller's locale, never cut short" (the harness runs the renderer under `set -e`, as
+every production caller does, so sed's own failure surfaces as the rc); and `render-project-docs.sh`
+sourced alone rendered an EMPTY name and description at rc 0 because the helper was `command not
+found` inside `$(…)` — it now guard-sources `helpers-core.sh` (residual 4). **The M2 harness itself
+fell into CLAUDE.md's sed trap on its first cut** — `|` as the delimiter with `|` in the pattern — and
+sed emitted an EMPTY mirror file that `bash -n` accepted and the changed-line count read as an
+applied mutation; it now uses `#` and asserts the resulting SHAPE. Related suites green: plan-staging
+25/0, reconfigure-field-handlers rc 0, enforcement-level-reconfigure 12/0, walk003 render 5/0,
+verify-install bl030 8/0 / eval-factory 4/0 / fix-functions 16/0, scaffold-source-closure 9/0,
+currency-manifest 53/0; `run-lints` 16/16; all five edited product files parse; registered in the
+aggregator and the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `registered`).
+
+**Related:** `## BL-164:` (shell-injectable generated CI from scaffold values — the sibling sink),
+`## BL-234:` (`_qdrant_key_escape` — the same escape-at-the-sink discipline one surface over).

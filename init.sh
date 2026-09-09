@@ -2946,12 +2946,14 @@ generate_approval_log() {
   local today
   today=$(date +%Y-%m-%d)
 
+  # `## BL-255:` — the project name is operator text (the interactive path is
+  # tr-normalised only) and is escaped for the replacement position.
   if [ "$DEPLOYMENT" = "organizational" ]; then
-    sed -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
+    sed -e "s|__PROJECT_NAME__|$(soif_sed_repl_esc "$PROJECT_NAME" "|")|g" \
         -e "s|__TODAY__|$today|g" \
         "$SCRIPT_DIR/templates/generated/approval-log-org.tmpl" > APPROVAL_LOG.md
   else
-    sed -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
+    sed -e "s|__PROJECT_NAME__|$(soif_sed_repl_esc "$PROJECT_NAME" "|")|g" \
         -e "s|__TODAY__|$today|g" \
         "$SCRIPT_DIR/templates/generated/approval-log-personal.tmpl" > APPROVAL_LOG.md
   fi
@@ -3296,7 +3298,7 @@ generate_release() {
       -e "s|__SETUP_VERSION_VALUE__|$RELEASE_SETUP_VERSION_VALUE|g" \
       -e "s|__INSTALL_COMMAND__|$RELEASE_INSTALL_COMMAND|g" \
       -e "s|__BUILD_COMMAND__|$RELEASE_BUILD_COMMAND|g" \
-      -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
+      -e "s|__PROJECT_NAME__|$(soif_sed_repl_esc "$PROJECT_NAME" "|")|g" \
       "$release_template" > "$_rendered"
 
   # How the rendered steps reach the runner differs per host, and getting this

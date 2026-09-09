@@ -843,6 +843,12 @@ run_child_suite "tests/test-lint-user-guide-scripts.sh" \
   "BL-254 lint-user-guide-scripts (table rows == shipped top-level set, both directions)" \
   "BL-254 lint-user-guide-scripts tests FAILED (run tests/test-lint-user-guide-scripts.sh for details)"
 
+# BL-255: operator text (project name, description) is escaped before it is
+# used as a sed replacement — `&`, `\`, the delimiter, newlines.
+run_child_suite "tests/test-bl255-sed-replacement-escape.sh" \
+  "BL-255 sed replacement escape (soif_sed_repl_esc; both renderers end to end; name sites pinned)" \
+  "BL-255 sed-replacement-escape tests FAILED (run tests/test-bl255-sed-replacement-escape.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------

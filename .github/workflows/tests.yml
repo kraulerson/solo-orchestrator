@@ -534,6 +534,7 @@ jobs:
             tests/test-bl253-adoption-state-parity.sh
             tests/test-bl254-ci-templates-call-shipped-scripts.sh
             tests/test-lint-user-guide-scripts.sh
+            tests/test-bl255-sed-replacement-escape.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
