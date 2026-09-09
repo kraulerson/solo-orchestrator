@@ -9,8 +9,9 @@
 # "the whole match", `\` starts an escape, the delimiter ends the replacement
 # and whatever follows is parsed as FLAGS — so a description of `R&D tools`
 # rendered as `R__PROJECT_DESCRIPTION__D tools` (measured), and `a|w <path>|`
-# wrote a file named `<path>|g` and emptied the description (measured; GNU
-# sed's `e` flag makes the same shape run a command). `--description` is
+# wrote a 21-byte file named `<path>||g` and rendered the description as `a`
+# (measured; GNU sed's `e` flag makes the same shape run a command).
+# `--description` is
 # unvalidated; the interactive project name is `tr`-normalised only. Found by
 # the 2026-09-07 codebase review (S6), reproduced on main c6da463.
 #
@@ -46,15 +47,23 @@ done
 [ -f "$TMPL_INTAKE" ] || TMPL_INTAKE="$(grep -o '"\$SCRIPT_DIR/templates/[^"]*intake[^"]*"' "$REPO_ROOT/init.sh" | head -1 | sed 's|"\$SCRIPT_DIR/|'"$REPO_ROOT"'/|; s|"$||')"
 
 # A fresh subshell per call so a mutated mirror can be sourced in isolation.
+# `set -e` INSIDE the subshell, because every production caller of these
+# renderers (init.sh, verify-install.sh, reconfigure-project.sh,
+# upgrade-project.sh) runs under `set -euo pipefail`: a sed that fails inside
+# the renderer aborts them. Without it here, the renderer's trailing `if`
+# returned 0 over an empty file and E6b could not tell "failed loudly" from
+# "produced nothing and said nothing".
 # render_claude <lib_root> <desc> <name> <out>
 render_claude() {
-  ( . "$1/scripts/lib/helpers-core.sh" >/dev/null 2>&1
+  ( set -e
+    . "$1/scripts/lib/helpers-core.sh" >/dev/null 2>&1
     . "$1/scripts/lib/render-project-docs.sh" >/dev/null 2>&1
     soif_render_claude_md "$TMPL_CLAUDE" "$4" "$3" "$2" web standard typescript 3 personal ) 2>/dev/null
 }
 # render_intake <lib_root> <desc> <name> <out>
 render_intake() {
-  ( . "$1/scripts/lib/helpers-core.sh" >/dev/null 2>&1
+  ( set -e
+    . "$1/scripts/lib/helpers-core.sh" >/dev/null 2>&1
     . "$1/scripts/lib/render-project-docs.sh" >/dev/null 2>&1
     soif_render_project_intake "$TMPL_INTAKE" "$4" "$3" "$2" standard web personal 2026-09-08 ) 2>/dev/null
 }
@@ -122,24 +131,83 @@ if [ -f "$TMPL_INTAKE" ]; then
   grep -q "R&D ~ tools" "$E4/PROJECT_INTAKE.md" 2>/dev/null \
     && pass "E4 — the intake renderer (~ delimiter) renders a description with & and ~ verbatim" \
     || fail_ "E4" "rendered as: $(grep -m1 'One-sentence' "$E4/PROJECT_INTAKE.md" 2>/dev/null | cut -c1-120)"
+  # E5 — the intake renderer's NAME splice. Under review, reverting this one
+  # site passed every check: E4 exercises the description only and G's grep
+  # covers only the `__PROJECT_NAME__` shape in init.sh / verify-install.sh.
+  E5="$(newtmp)"
+  render_intake "$REPO_ROOT" "plain" "acme&co" "$E5/PROJECT_INTAKE.md"
+  grep -q '| \*\*Project name\*\* | acme&co |' "$E5/PROJECT_INTAKE.md" 2>/dev/null \
+    && pass "E5 — the intake renderer renders a project name containing & verbatim in its own row" \
+    || fail_ "E5" "name row rendered as: $(grep -m1 'Project name' "$E5/PROJECT_INTAKE.md" 2>/dev/null | cut -c1-120)"
 else
-  fail_ "E4 setup" "no intake template found under templates/generated/"
+  fail_ "E4 setup" "no intake template found (looked at $TMPL_INTAKE)"
+fi
+
+# E6 — a byte that is invalid in the current locale must NEVER be silently
+# truncated. The first cut of the helper piped through `tr | sed`; `tr` failed
+# on latin-1 é, the pipeline's last element succeeded, and the description
+# came back cut short at rc 0 — silent data loss where the old code failed
+# loudly (`sed: RE error: illegal byte sequence`, empty file). Pure parameter
+# expansion is byte-transparent, so the helper no longer truncates; what the
+# OUTER sed then does is locale-dependent and either outcome is acceptable:
+#   under LC_ALL=C   the whole render is byte-wise and must be COMPLETE (E6a)
+#   under the caller's locale  it must be complete OR loud — a Description line
+#                              that exists but is cut short is the one forbidden
+#                              outcome (E6b)
+E6="$(newtmp)"
+E6_IN="$(printf 'Rapport g\xe9n\xe9ral for R&D')"
+LC_ALL=C render_claude "$REPO_ROOT" "$E6_IN" "acme" "$E6/CLAUDE.md"
+if LC_ALL=C grep -q 'Rapport g.n.ral for R&D' "$E6/CLAUDE.md" 2>/dev/null; then
+  pass "E6a — under LC_ALL=C a description with latin-1 bytes renders complete"
+else
+  fail_ "E6a" "rendered as: $(LC_ALL=C grep -m1 'Description' "$E6/CLAUDE.md" 2>/dev/null | cut -c1-100)"
+fi
+E6B="$(newtmp)"
+render_claude "$REPO_ROOT" "$E6_IN" "acme" "$E6B/CLAUDE.md"; e6b_rc=$?
+e6b_line="$(LC_ALL=C grep -m1 'Description' "$E6B/CLAUDE.md" 2>/dev/null)"
+if [ -n "$e6b_line" ] && ! printf '%s' "$e6b_line" | LC_ALL=C grep -q 'Rapport g.n.ral for R&D'; then
+  fail_ "E6b" "SILENT TRUNCATION: rc=$e6b_rc and the description line is cut short: $(printf '%s' "$e6b_line" | cut -c1-100)"
+elif [ -n "$e6b_line" ]; then
+  pass "E6b — under the caller's locale the description rendered complete"
+elif [ "$e6b_rc" -ne 0 ]; then
+  pass "E6b — under the caller's locale the render failed LOUDLY (rc=$e6b_rc, no description line) rather than truncating"
+else
+  fail_ "E6b" "rc=0 with no description line — a render that produced nothing and said nothing"
 fi
 
 echo "=== G — the name sites that only run inside a scaffold are pinned by grep ==="
 
-# init.sh renders the project name into two files at birth; verify-install.sh
-# re-renders it on --auto-fix. Neither can be driven here without running
-# init.sh, so the ESCAPE CALL is pinned at the site rather than the behaviour.
-for site in "init.sh" "scripts/verify-install.sh"; do
-  n_raw="$(grep -cE 's\|__PROJECT_NAME__\|\$(PROJECT_NAME|proj_name)\|' "$REPO_ROOT/$site" 2>/dev/null)"
-  n_esc="$(grep -cE 's\|__PROJECT_NAME__\|\$\(soif_sed_repl_esc ' "$REPO_ROOT/$site" 2>/dev/null)"
-  if [ "$(_num "$n_raw")" -eq 0 ] && [ "$(_num "$n_esc")" -ge 1 ]; then
-    pass "G — $site splices the project name through soif_sed_repl_esc ($n_esc site(s)), never raw"
+# init.sh renders the project name into three files at birth; verify-install.sh
+# re-renders name and description on --auto-fix; reconfigure-project.sh splices
+# the NEW name on rename. None can be driven here without a scaffold, so the
+# ESCAPE CALL is pinned at each site rather than the behaviour — and pinned
+# EXACTLY: a first cut asserted `>= 1` escaped and greped one shape with one
+# delimiter, so deleting two of init.sh's three calls passed, `${PROJECT_NAME}`
+# and a `#` delimiter slipped, and verify-install's description and both
+# reconfigure sites had no arm at all (reviewer mutants MX7/MX8 survived
+# every PR-blocking check). Each row: file | placeholder-or-shape | expected
+# escaped count. Raw = any `s<d>…<d>$VAR<d>` or `${VAR}` with ANY delimiter.
+_g_check() {   # _g_check <file> <label> <raw-regex> <esc-regex> <want-esc>
+  local f="$REPO_ROOT/$1" n_raw n_esc
+  n_raw="$(grep -cE "$3" "$f" 2>/dev/null)"; n_esc="$(grep -cE "$4" "$f" 2>/dev/null)"
+  if [ "$(_num "$n_raw")" -eq 0 ] && [ "$(_num "$n_esc")" -eq "$5" ]; then
+    pass "G — $1 $2: escaped at exactly $5 site(s), never raw"
   else
-    fail_ "G — $site" "raw name replacements: $n_raw, escaped: $n_esc"
+    fail_ "G — $1 $2" "raw: $n_raw (want 0), escaped: $n_esc (want $5)"
   fi
-done
+}
+_g_check init.sh "project name" \
+  's(.)__PROJECT_NAME__\1\$\{?(PROJECT_NAME|proj_name|name)\}?\1' \
+  's(.)__PROJECT_NAME__\1\$\(soif_sed_repl_esc ' 3
+_g_check scripts/verify-install.sh "project name" \
+  's(.)__PROJECT_NAME__\1\$\{?(PROJECT_NAME|proj_name|name)\}?\1' \
+  's(.)__PROJECT_NAME__\1\$\(soif_sed_repl_esc ' 1
+_g_check scripts/verify-install.sh "description" \
+  's(.)__PROJECT_DESCRIPTION__\1\$\{?(PROJECT_DESCRIPTION|proj_desc|desc)\}?\1' \
+  's(.)__PROJECT_DESCRIPTION__\1\$\(soif_sed_repl_esc ' 1
+_g_check scripts/reconfigure-project.sh "rename (new name)" \
+  's(.)\$\{?old_name\}?\1\$\{?new_name\}?\1' \
+  's(.)\$\{?old_name\}?\1\$\(soif_sed_repl_esc "\$new_name" ' 2
 
 echo "=== M — mutation proofs on a mirror ==="
 

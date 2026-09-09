@@ -27,6 +27,19 @@
 # <out>.bak, which is removed). NO globals are read EXCEPT where a birth-only
 # code path (the tooling summary's resolver output) is explicitly passed in.
 
+# ── `## BL-255:` — THIS FILE NOW DEPENDS ON helpers-core.sh ─────────────────
+# Both renderers call soif_sed_repl_esc. Every production caller reaches it
+# through helpers.sh, but sourced ALONE (as the "pure renderers" contract above
+# once allowed) the call is `command not found` inside a `$(…)`, and the render
+# then completes with rc 0 and an EMPTY name and description — measured under
+# review. The guard below is the idiom the sibling libs use: source the core
+# helpers from this file's own directory if the function is not yet defined.
+_soif_rpd_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! command -v soif_sed_repl_esc >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  [ -f "$_soif_rpd_dir/helpers-core.sh" ] && . "$_soif_rpd_dir/helpers-core.sh"
+fi
+
 # ── CLAUDE.md (A1) ───────────────────────────────────────────────────────────
 # soif_render_claude_md <template> <out> \
 #     <project_name> <description> <platform> <track> <language> \

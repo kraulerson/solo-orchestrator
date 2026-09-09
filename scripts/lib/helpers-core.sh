@@ -954,13 +954,28 @@ prompt_install() {
 #   PATTERN half (reconfigure-project.sh's rename) needs a regex escape, which
 #   this is not; that site is recorded on the entry, not fixed here.
 #
+#   PURE BASH, NO FORKS, BYTE-SAFE — and the first cut was none of those. It
+#   piped through `tr | sed`, and under review a description carrying a byte
+#   invalid in the current locale (latin-1 é pasted from a document) made `tr`
+#   fail while the pipeline's last element succeeded: rc 0, description
+#   silently TRUNCATED, a complete-looking CLAUDE.md. Before the fix the same
+#   input failed loudly (`sed: RE error: illegal byte sequence`, empty file).
+#   Turning a loud failure into silent data loss inverts this repo's rule, so
+#   the helper is now parameter expansion only: locale-independent, no
+#   subprocess, and a `^` or `]` delimiter (which broke the bracket expression)
+#   is just another literal. Backslash FIRST, or the escapes it adds are
+#   escaped again.
+#
 #   Measured, not reasoned: tests/test-bl255-sed-replacement-escape.sh pins the
 #   table (H) and both renderers end to end (E), and its M1 neuters the marked
 #   line below to prove E1's `&` case is what holds it.
 soif_sed_repl_esc() {
-  local text="$1" delim="${2:-|}" d='/'
-  [ "$delim" = '/' ] && d='#'
-  printf '%s' "$text" | tr '\n' ' ' | sed -e 's/[\\&]/\\&/g' -e "s${d}[${delim}]${d}\\\\&${d}g"   # BL-255-SED-REPL-ESC
+  local t="$1" delim="${2:-|}"
+  t="${t//\\/\\\\}"
+  t="${t//&/\\&}"
+  t="${t//"$delim"/\\$delim}"
+  t="${t//$'\n'/ }"
+  printf '%s' "$t"   # BL-255-SED-REPL-ESC
 }
 
 # BL-095-STATE-READERS-BEGIN
