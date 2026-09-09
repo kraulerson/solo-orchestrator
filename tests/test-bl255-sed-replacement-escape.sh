@@ -96,6 +96,9 @@ else
   check_esc "the ~ delimiter is escaped"            'home ~ sweet'         '~' 'home \~ sweet'
   check_esc "a delimiter that is not the delimiter passes" 'a|b'           '~' 'a|b'
   check_esc "a newline becomes a space"             "$(printf 'one\ntwo')" '|' 'one two'
+  # `&` as the DELIMITER: sed permits it, and a first cut escaped it twice
+  # (the & step ran, then the delimiter step re-escaped the backslash it added)
+  check_esc "an & delimiter is escaped exactly once" 'a&b'                 '&' 'a\&b'
 fi
 
 echo "=== E — end to end through the renderers ==="
@@ -189,7 +192,11 @@ echo "=== G — the name sites that only run inside a scaffold are pinned by gre
 # escaped count. Raw = any `s<d>…<d>$VAR<d>` or `${VAR}` with ANY delimiter.
 _g_check() {   # _g_check <file> <label> <raw-regex> <esc-regex> <want-esc>
   local f="$REPO_ROOT/$1" n_raw n_esc
-  n_raw="$(grep -cE "$3" "$f" 2>/dev/null)"; n_esc="$(grep -cE "$4" "$f" 2>/dev/null)"
+  # COMMENTS ARE STRIPPED BEFORE COUNTING — the BL-181 class, and the review
+  # planted a decoy comment carrying the escaped shape that inflated n_esc and
+  # masked a deleted call. Whole-line and trailing comments both go.
+  n_raw="$(grep -vE '^[[:space:]]*#' "$f" | sed 's/[[:space:]][[:space:]]*#.*$//' | grep -cE "$3" 2>/dev/null)"
+  n_esc="$(grep -vE '^[[:space:]]*#' "$f" | sed 's/[[:space:]][[:space:]]*#.*$//' | grep -cE "$4" 2>/dev/null)"
   if [ "$(_num "$n_raw")" -eq 0 ] && [ "$(_num "$n_esc")" -eq "$5" ]; then
     pass "G — $1 $2: escaped at exactly $5 site(s), never raw"
   else

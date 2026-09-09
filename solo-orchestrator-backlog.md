@@ -15339,12 +15339,13 @@ writes a file again).
    dependency (it derives from `$SCRIPT_DIR/…` path references), so it stays stated here.
 
 **Build note (2026-09-08, branch `fix/bl255-escape-sed-replacements`).** RED, measured with the branch's
-FINAL test file in a worktree at `c6da463`: **1 passed / 14 failed**. The one pass is M2 — it mirrors the
-tree under test, and on main the render site already carries the raw line, so its mutating `sed` is a
-no-op and the "mutant" writes the file: M2 is a fixed-tree site-proof, not a fixed-vs-unfixed
-discriminator, and it is recorded as such. (A first draft wrote "0 / 11" — the count of a
-then-11-case file, and wrong even for that file, since M2 passed on base then too; the review
-re-derived it.) The fourteen failures: H0 (no helper), E1 (`R__PROJECT_DESCRIPTION__D tools`), E2 (a file
+FINAL test file in a worktree at `c6da463`: **2 passed / 14 failed**. The two passes are the two cases
+that guard against mistakes made DURING this work rather than against main: M2 mirrors the tree under
+test, and on main the render site already carries the raw line, so its mutating `sed` is a no-op and
+the "mutant" writes the file; E6b guards against the round-1 `tr | sed` helper's silent truncation,
+and main's raw sed already failed loudly on the invalid byte. Neither is a fixed-vs-unfixed
+discriminator, and both are recorded as such. (Earlier drafts wrote "0 / 11" and then "1 / 14" — each
+time a non-discriminating case was counted as if it discriminated; the review re-derived it twice.) The fourteen failures: H0 (no helper), E1 (`R__PROJECT_DESCRIPTION__D tools`), E2 (a file
 written at `…/pwned||g`), E2b (description rendered as `a`), E3 (`# CLAUDE.md — acme__PROJECT_NAME__co`),
 E4/E5 (intake description and name), E6a, G ×4, M0, M1 setup.
 

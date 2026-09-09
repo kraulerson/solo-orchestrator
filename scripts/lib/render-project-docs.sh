@@ -39,6 +39,7 @@ if ! command -v soif_sed_repl_esc >/dev/null 2>&1; then
   # shellcheck source=/dev/null
   [ -f "$_soif_rpd_dir/helpers-core.sh" ] && . "$_soif_rpd_dir/helpers-core.sh"
 fi
+unset _soif_rpd_dir
 
 # ── CLAUDE.md (A1) ───────────────────────────────────────────────────────────
 # soif_render_claude_md <template> <out> \

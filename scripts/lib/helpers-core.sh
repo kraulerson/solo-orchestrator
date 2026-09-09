@@ -973,7 +973,9 @@ soif_sed_repl_esc() {
   local t="$1" delim="${2:-|}"
   t="${t//\\/\\\\}"
   t="${t//&/\\&}"
-  t="${t//"$delim"/\\$delim}"
+  # `&` and `\` are already escaped above; escaping them again as the
+  # delimiter would double the backslash (measured under review).
+  case "$delim" in '&'|'\') ;; *) t="${t//"$delim"/\\$delim}" ;; esac
   t="${t//$'\n'/ }"
   printf '%s' "$t"   # BL-255-SED-REPL-ESC
 }
