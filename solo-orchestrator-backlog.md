@@ -15648,3 +15648,120 @@ return 0 once the helper is in). Lint or test, not prose — a "use the helper" 
 what the 23 sites already ignored.
 
 **Related:** `## BL-256:`, `## BL-233:` (`# BL-233-ATTEST-REFUSE`), `## BL-182:`.
+
+## BL-258: the adversarial codebase review's ranked findings #5-#10 were never filed — six leads recorded here before they are lost
+
+**Status:** Open
+
+**Logged:** 2026-09-09. The 2026-09-08 adversarial codebase review (one agent, second pass also one
+agent) produced a ranked top ten. **The second pass adjudicated #1-#4 — that is what "the verified
+review's top ten" on those four entries refers to; #5-#10 were not re-measured by it.** **#1-#4 became entries and all four have now
+shipped** — `## BL-253:` (#1, PR #377), `## BL-254:` (#2, PR #378), `## BL-255:` (#3, PR #379),
+`## BL-256:` (#4, PR #380). **#5-#10 were never filed.** The review's own scratch files were deleted
+on Karl's instruction once the top ten was agreed, and no `Reports/**` artifact was written, so the
+only surviving record of six ranked findings was one session's working notes. This entry exists so
+that record is durable. Filing it is not the same as fixing it.
+
+**READ THIS BEFORE ACTING ON ANY ITEM BELOW.** These six are **transcribed from the ranked list as it
+was recorded in session, NOT independently reproduced against the code**, and they are terse because
+the notes were terse. That is exactly the distinction `## BL-256:` spent nine review rounds learning
+to keep: an unverified lead written down as a lead is useful, and an unverified lead written down as a
+defect is an unearned receipt. **Reproduce each one first.** Where a symptom below does not reproduce,
+say so on this entry and strike it rather than quietly fixing something adjacent.
+
+**#5 — first-screen fixes.** Four items the review grouped as "what a new user hits first":
+`verify-install.sh` parses in the wrong order; the `# BL-057:` early return in
+`resolve_and_install_tools()` (`init.sh` line 972, with the assignment at 1171 in the SAME function)
+SKIPS the `RESOLVER_OUTPUT` assignment rather than setting it, so its three readers — all
+`${RESOLVER_OUTPUT:-}`-guarded, hence silent — see nothing; `validate.sh`'s phase inference is wrong; and the resolver's `@tsv` output is
+consumed with a shifted field index. Ranked #5, and the one to do next: it is the first screen, so a
+defect here is seen by every user before anything else.
+
+**#6 — `_bl072_tier_bypassable` conflates absent with unparseable**, so a state file that cannot be
+read takes the same branch as one that is not there — the `## BL-231:` "tracking file absent, no
+enforcement, silently" family, and the same class `## BL-256:` fixed for scanner counts. Plus: the
+release-variable reader is duplicated where one `get_release_vars` lib would do.
+
+**#7 — block messages.** `SOIF_PHASE_GATES=warn` is advertised but not recorded when used; the
+remediation text is not per-arm, so a reader gets generic advice for a specific block; and `--help`
+is handled AFTER the guard in some scripts, so asking one how to use it can be refused by the gate it
+is asking about. The note named no script. **This half may not be a defect at all, and the
+precondition is the whole story.** Measured by RUNNING each one: **from the framework repo root**,
+`adopt-project.sh`, `delta.sh` and `intake-wizard.sh` answer `--help` with rc 1 and `[FAIL] Refusing to
+operate inside the Solo Orchestrator framework repo.`, because `guard_not_in_framework || exit 1` fires
+before the help arm. **From any other directory the same three answer rc 0 with usage** — measured — so
+no user ever sees this; only a contributor standing inside this repo does. And `adopt-project.sh`'s own
+header declares the posture DELIBERATE with a rationale ("THE GUARD FIRES BEFORE ARGUMENT PARSING,
+DELIBERATELY (§8.1) … because the failure it prevents is writing framework state into the framework").
+So treat this as a contributor-ergonomics DECISION, not a defect to fix, and do not "correct" it without
+asking. `pre-commit-gate.sh` (`# BL-096-GATE-HELP`), `check-phase-gate.sh` and
+`lint-tests-registered.sh` answer rc 0 everywhere. **Do not
+derive this set with `grep -n 'exit 1' | head -1`:** that predicate is comment-blind and a first cut of
+this line wrongly accused `lint-tests-registered.sh` on the strength of the word "exit 1" inside a
+COMMENT, the same class as `_build_unit_list_set`'s comment-blind awk in CLAUDE.md's HOUSE RULES. In
+`delta.sh` the same naive grep matches a comment reading `exit 10`. Run the scripts. Compare `# WALK-ISSUE-017-HATCH`, where advertising an escape without its precondition cost a
+walk agent real time.
+
+**#8 — permissions posture. NEEDS KARL'S DECISION, not an implementation.** The review flagged the
+allow-list shape; Karl's 2026-09-09 settings change (bare `Bash` in the allow list, 32 deletion
+shapes in `ask`, four root/home wipes in `deny`) was a deliberate decision, and the second pass
+downgraded the severity accordingly. Do not "fix" this without asking.
+
+**#9 — `--sync-framework` runs inside the snapshot trap**, so a failure there is attributed to the
+snapshot. The note's second half named `soif_state_update`, **which has never existed on any ref**
+(`git log --all -S` finds it only in this entry). The real function is `delta_state_update`
+(`scripts/lib/delta-state.sh`), called from `process-checklist.sh` — and **it already checks its
+write**, so there is nothing to file: a failed `jq` returns 1 after printing "the jq filter failed —
+nothing was written", an ABSENT filter returns 2 with "a jq filter is required" (a different branch,
+a different code — and one the seam's own argument check reaches first), the writer checks its own
+rename (`# DELTA-STATE-ATOMIC-RENAME`), and the call site is bare with no receipt to be unearned. It is also **not** one of `## BL-257:`'s sites — those are
+the `"$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv` shape and this call contains no `PROCESS_STATE` at
+all. A first cut of this line said the surface was "already filed as `## BL-257:`", which was itself an
+unearned receipt: it would have sent an implementer to a queue that does not contain it, to fix code
+that is already right. **#9 is the snapshot-trap half only.**
+
+**#10 — CI coverage gaps.** No `macos-latest` smoke leg, so this repo's own dev host is the one
+platform CI never exercises — the git-config and bash-version traps in CLAUDE.md are both
+host-divergence bugs that only CI or only the Mac can see. One `grep -oP` call that fails on BSD grep, at
+`scripts/check-versions.sh` line 136 — **already logged 2026-04-08 as `CC3-030` in
+`Reports/phase-audits/re-audit-round3-2026-04-08/cross-cutting-re-audit.md` and still unfixed**, so
+this is a re-discovery, not a new find.
+The file-scheme `e2e-init*` trio is red on main for unrelated reasons and full-lane only.
+**STRUCK: "a `default_branch` key is unread".** No such key exists in any spelling on any ref
+(`git log --all -S'default_branch'` returns only this entry; the nearest real things are git-config
+`defaultBranch = main` in three host-driver fixtures). That note is unlocatable rather than
+unreproduced, so it is struck here under this entry's own rule rather than left as a lead nobody can
+chase.
+
+**Fix:** none here. Each item becomes its own entry with its own reproduction when it is picked up, or
+gets struck from this one with the measurement that refuted it. When the last is resolved, close this.
+
+**Read this before adding detail to this entry.** It took FOUR correction cycles to get right, and
+every cycle's errors were in the sentences that cycle had just added, never in the terse notes it
+started from. The tally: two identifiers that never existed on any ref, two marker citations that
+resolve to nothing, one mechanism described backwards, one "already filed" pointing at a queue that
+does not contain it (aimed at code that was already correct), one script accused on the strength of the
+words "exit 1" inside a COMMENT, one regex copied from the wrong of two similar lines, one return code
+and message attributed to the wrong branch, and one behaviour stated without the cwd precondition that
+is its whole meaning. Every one was caught by review, none by a lint. **The lesson is not "be more
+careful" — it is that added prose is a failure surface.** Add a measurement here only when it makes a
+lead LOCATABLE (a real identifier, a real file). Anything more — a mechanism, a rationale, a
+cross-reference to another entry's scope — belongs in the entry that gets opened when the lead is
+actually picked up and reproduced.
+
+**Residual — a lint hole this entry walked into.** Its first cut carried two marker-shaped citations
+that resolve to nothing, `# BL-057-` (real spelling `# BL-057:`) and a hybrid `# BL-231:` (an entry, so
+`## BL-231:`), and `scripts/lint-bl-markers.sh` passed anyway. Its prose-citation
+matcher is the `EXTRACT_CITES` awk under `# BL-196-PROSE-CITE-BEGIN`, whose three alternatives each
+require a backtick, a `#`, or a `<!--` before the id AND a LETTER after the hyphen —
+`BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_*-]*`. So a truncation to a bare trailing hyphen, and a `# BL-NNN:`
+hybrid, are both invisible to the one lint built to catch dangling citations. (A first cut of this
+residual quoted the file's OTHER regex — the code-surface extractor, whose class omits the `*` — and
+called it the prose matcher. Two similar lines, and the wrong one copied: the same mistake this entry
+made twice before, in the residual recording it.) CLAUDE.md's CITATION RULE records that a *bare* `BL-NNN-suffix` token is invisible;
+these two shapes are a second, narrower hole in the same matcher and are recorded nowhere. Both were
+caught by review, not by the lint.
+
+**Related:** `## BL-253:`, `## BL-254:`, `## BL-255:`, `## BL-256:` (the four that shipped),
+`## BL-257:` (filed out of BL-256's review, same wave), `## BL-231:` (#6's family),
+`## BL-181:` (#10's full-lane blind spot).
