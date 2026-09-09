@@ -478,6 +478,23 @@ else
   fi
 fi
 
+# U2d — the attestation write's jq half on a WRITABLE dir (review round 4,
+# R4-1): `.solo_attestations` is a string, so `(… // []) + [{…}]` is a jq
+# error; a guard that tolerated it (`; mv`) would rename an EMPTY .tmp over
+# the state file and print RECORDED. rc≠0, REFUSED, byte-identical, no .tmp.
+U2d="$(newtmp)"; mk_uat_fixture "$U2d"
+jq '.uat_session.solo_attestations = "corrupt"' "$U2d/.claude/process-state.json" > "$U2d/.claude/ps.new" && mv "$U2d/.claude/ps.new" "$U2d/.claude/process-state.json"
+before="$(cat "$U2d/.claude/process-state.json")"
+run_uat "$U2d"
+if printf '%s' "$UAT_OUT" | grep -q "RECORDED"; then
+  fail_ "U2d" "announced as RECORDED after jq failed on a corrupt solo_attestations (rc=$UAT_RC, state bytes=$(wc -c < "$U2d/.claude/process-state.json" | tr -d ' '))"
+elif [ "$UAT_RC" -ne 0 ] && printf '%s' "$UAT_OUT" | grep -q "REFUSED" \
+     && [ "$(cat "$U2d/.claude/process-state.json")" = "$before" ] && [ ! -e "$U2d/.claude/process-state.json.tmp" ]; then
+  pass "U2d — with jq failing on a writable dir the attestation is REFUSED (rc=$UAT_RC), state byte-identical, no .tmp"
+else
+  fail_ "U2d" "rc=$UAT_RC refused=$(printf '%s' "$UAT_OUT" | grep -c REFUSED) tmp=$([ -e "$U2d/.claude/process-state.json.tmp" ] && echo yes || echo no) out: $(printf '%s' "$UAT_OUT" | tail -2 | tr '\n' ' ')"
+fi
+
 # U3 — jq succeeds, the rename fails: REFUSED, and the .tmp is not left behind
 MVD="$(newtmp)/mvshim"
 if ! mk_mv_shim "$MVD"; then
@@ -524,9 +541,11 @@ else
     || fail_ "U4b" "the state file changed under a refused step completion"
 fi
 
-# U4c — the step write's OTHER failure half: jq succeeds, the rename fails
-# (review round 3, R3-1: a guard that covered only jq and tolerated mv
-# announced "completed" at rc 0 and survived 40/0 — U4 only fails the jq half)
+# U4c — the step write's rename half: jq succeeds, the rename fails (review
+# round 3, R3-1: a guard that covered only jq and tolerated mv announced
+# "completed" at rc 0 and survived 40/0). U4 fails BOTH halves at once — the
+# shell cannot even create the .tmp in a read-only dir — so it pins neither
+# half on its own; U4c is the rename-only case and U4e the jq-only case.
 if [ -z "${MVD:-}" ]; then
   fail_ "U4c setup" "no mv shim from U3"
 else
@@ -562,6 +581,26 @@ else
   else
     fail_ "U4d" "rc=$UAT_RC notrec=$(printf '%s' "$UAT_OUT" | grep -c 'NOT recorded') out: $(printf '%s' "$UAT_OUT" | tail -2 | tr '\n' ' ')"
   fi
+fi
+
+# U4e — the step write's jq half on a WRITABLE dir (review round 4, R4-1):
+# `steps_completed` is a STRING carrying the prior names — the prior-step
+# check is jq `index($step)`, a substring search on a string, so it passes,
+# and the write's `+= [$step]` is the first jq to fail. A guard that
+# tolerated it (`> tmp || true && mv`) would rename an EMPTY .tmp over the
+# state file and print "completed": that mutant survived 45/0.
+U4e="$(newtmp)"; mk_uat_fixture "$U4e"
+printf 'tester A results\n' > "$U4e/tests/uat/sessions/s1/submissions/tester-a.md"
+jq '.uat_session.steps_completed = "agents_dispatched template_generated orchestrator_notified"' "$U4e/.claude/process-state.json" > "$U4e/.claude/ps.new" && mv "$U4e/.claude/ps.new" "$U4e/.claude/process-state.json"
+before="$(cat "$U4e/.claude/process-state.json")"
+run_step "$U4e"
+if printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed"; then
+  fail_ "U4e" "announced as completed after jq failed on a corrupt steps_completed (rc=$UAT_RC, state bytes=$(wc -c < "$U4e/.claude/process-state.json" | tr -d ' '))"
+elif [ "$UAT_RC" -ne 0 ] && printf '%s' "$UAT_OUT" | grep -q "NOT recorded" \
+     && [ "$(cat "$U4e/.claude/process-state.json")" = "$before" ] && [ ! -e "$U4e/.claude/process-state.json.tmp" ]; then
+  pass "U4e — with jq failing on a writable dir the step is refused (rc=$UAT_RC), state byte-identical, no .tmp"
+else
+  fail_ "U4e" "rc=$UAT_RC notrec=$(printf '%s' "$UAT_OUT" | grep -c 'NOT recorded') tmp=$([ -e "$U4e/.claude/process-state.json.tmp" ] && echo yes || echo no) out: $(printf '%s' "$UAT_OUT" | grep -i 'recorded\|completed\|jq' | head -2 | tr '\n' ' ')"
 fi
 
 echo "=== M — mutation proofs on a mirror ==="
@@ -790,6 +829,69 @@ else
       [ "$UAT_RC" -eq 0 ] && printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed" \
         && pass "MU4 (MUTATION) — with the guard covering only jq, a failed rename is announced as completed at rc 0: U4c is what stops it" \
         || fail_ "MU4 (MUTATION)" "the jq-only guard did not produce the false receipt (rc=$UAT_RC) — U4c may be passing for another reason"
+    fi
+  fi
+fi
+
+# _mutate_line <src> <dst> <lineno> <literal-pattern> <replacement> — rewrite
+# one line by literal substitution (bash expansion, no sed/awk metachars —
+# the replacements below carry `&&`, `|`, `$` and `"`); returns 1 if the
+# pattern is not on that line
+_mutate_line() {
+  local src="$1" dst="$2" ln="$3" pat="$4" rep="$5" orig mut
+  orig="$(sed -n "${ln}p" "$src")"
+  case "$orig" in *"$pat"*) ;; *) return 1 ;; esac
+  mut="${orig/"$pat"/$rep}"
+  { head -n $((ln - 1)) "$src"; printf '%s\n' "$mut"; tail -n +$((ln + 1)) "$src"; } > "$dst"
+}
+
+# MU5 — review round 4's surviving x1b: the step guard tolerates a jq failure
+# (`> tmp || true && mv`), so a failed jq renames an EMPTY .tmp over the state
+# file and prints the receipt. U4e must catch it.
+MU5="$(newtmp)/fw"
+if ! mk_mirror "$MU5"; then
+  fail_ "MU5 setup" "could not mirror scripts/"
+else
+  tgt="$MU5/scripts/process-checklist.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  mline="$(grep -n "${M_SR}\$" "$before" | head -1 | cut -d: -f1)"
+  gline=$(( ${mline:-0} - 1 ))
+  if [ "$gline" -lt 1 ] || ! _mutate_line "$before" "$tgt" "$gline" '> "$PROCESS_STATE.tmp" && mv' '> "$PROCESS_STATE.tmp" || true && mv' \
+     || [ "$(_changed_lines "$before" "$tgt")" -ne 2 ] || ! bash -n "$tgt" 2>/dev/null; then
+    fail_ "MU5 setup" "the jq-tolerant step-guard mutation did not apply cleanly"
+  else
+    UM5="$(newtmp)"; mk_uat_fixture "$UM5"
+    printf 'tester A results\n' > "$UM5/tests/uat/sessions/s1/submissions/tester-a.md"
+    jq '.uat_session.steps_completed = "agents_dispatched template_generated orchestrator_notified"' "$UM5/.claude/process-state.json" > "$UM5/.claude/ps.new" && mv "$UM5/.claude/ps.new" "$UM5/.claude/process-state.json"
+    run_step "$UM5" "$tgt"
+    if [ "$UAT_RC" -eq 0 ] && printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed" && [ ! -s "$UM5/.claude/process-state.json" ]; then
+      pass "MU5 (MUTATION) — with the step guard tolerating jq, a failed jq zero-bytes the state file and is announced as completed: U4e is what stops it"
+    else
+      fail_ "MU5 (MUTATION)" "the jq-tolerant mutant did not produce the false receipt (rc=$UAT_RC, bytes=$(wc -c < "$UM5/.claude/process-state.json" | tr -d ' ')) — U4e may be passing for another reason"
+    fi
+  fi
+fi
+
+# MU6 — round 4's surviving x3: the attestation guard's `&& mv` becomes `; mv`
+# (the if-list's status is mv's), so a failed jq is RECORDED over an empty
+# state file. U2d must catch it.
+MU6="$(newtmp)/fw"
+if ! mk_mirror "$MU6"; then
+  fail_ "MU6 setup" "could not mirror scripts/"
+else
+  tgt="$MU6/scripts/process-checklist.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  mline="$(grep -n "${M_UR}\$" "$before" | head -1 | cut -d: -f1)"
+  gline=$(( ${mline:-0} - 1 ))
+  if [ "$gline" -lt 1 ] || ! _mutate_line "$before" "$tgt" "$gline" '&& mv "$PROCESS_STATE.tmp"' '; mv "$PROCESS_STATE.tmp"' \
+     || [ "$(_changed_lines "$before" "$tgt")" -ne 2 ] || ! bash -n "$tgt" 2>/dev/null; then
+    fail_ "MU6 setup" "the jq-tolerant attestation-guard mutation did not apply cleanly"
+  else
+    UM6="$(newtmp)"; mk_uat_fixture "$UM6"
+    jq '.uat_session.solo_attestations = "corrupt"' "$UM6/.claude/process-state.json" > "$UM6/.claude/ps.new" && mv "$UM6/.claude/ps.new" "$UM6/.claude/process-state.json"
+    run_uat "$UM6" "$tgt"
+    if printf '%s' "$UAT_OUT" | grep -q "RECORDED" && [ ! -s "$UM6/.claude/process-state.json" ]; then
+      pass "MU6 (MUTATION) — with the attestation guard tolerating jq, a failed jq zero-bytes the state file and is announced as RECORDED: U2d is what stops it"
+    else
+      fail_ "MU6 (MUTATION)" "the jq-tolerant mutant did not produce the false receipt (rc=$UAT_RC, bytes=$(wc -c < "$UM6/.claude/process-state.json" | tr -d ' ')) — U2d may be passing for another reason"
     fi
   fi
 fi
