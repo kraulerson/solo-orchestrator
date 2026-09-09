@@ -15375,7 +15375,7 @@ aggregator and the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `re
 
 ---
 
-## BL-256: two shipped gates hand out receipts they did not earn — `_p3_scan_semgrep` counts an unreadable archive as "0 findings → PASS", and the UAT solo attestation prints "RECORDED" whether or not the record was written
+## BL-256: two shipped gates hand out receipts they did not earn — `_p3_scan_semgrep` (and its twin `_p3_scan_snyk`) counts an unreadable archive as "0 findings → PASS", and the UAT solo attestation prints "RECORDED" whether or not the record was written
 
 **Status:** Open
 
@@ -15403,7 +15403,10 @@ was one. The four MCP/review attestations already refuse when they cannot record
 - (a) The count is taken only when `.results` is present AND an array (`jq -e … if type == "array"`,
   `# BL-256-P3-COUNT-RECEIPT`); no jq, no array, or unparseable JSON → `P3_STATUS="FAIL"` with a note
   that says NOTHING WAS COUNTED and names the archive. Never SKIP (SKIP means "could not run" and
-  routes to the attestation path; this scan ran), never PASS.
+  routes to the attestation path; this scan ran), never PASS. **`_p3_scan_snyk` carried the identical
+  count one function below** (`(.vulnerabilities | length) // 0` + `|| echo 0` + sanitise-to-0) — the
+  pre-PR reviewer's R-3 — and now takes the same shape (`# BL-256-P3-SNYK-COUNT-RECEIPT`): counted only
+  when `.vulnerabilities` is an array, else FAIL / NOTHING WAS COUNTED; no jq → FAIL.
 - (b) The receipt is inside the `if jq … && mv …; then` (`# BL-256-UAT-ATTEST-RECEIPT`); the else arm
   removes the temp file, prints a REFUSED line naming the state file and the reason class, and
   exits 1 (`# BL-256-UAT-ATTEST-REFUSE`) — nothing is marked complete.
@@ -15412,36 +15415,55 @@ was one. The four MCP/review attestations already refuse when they cannot record
   process-state fixture at the `results_received` step with a writable and then a read-only `.claude/`.
 
 **Residuals:**
-1. The other Phase-3 scanners' count arms were not audited here; `_p3_scan_semgrep` was the one the
-   review named. The pattern (`// 0` + sanitise-to-0 + `0 → PASS`) should be greped for across
-   `_p3_scan_*` by whoever next opens that file.
+1. The `_p3_scan_*` count arms were greped for the pattern (`// 0` + sanitise-to-0 + `0 → PASS`) on
+   this branch: semgrep and snyk carried it and are fixed above; license / threat-model do not count
+   via jq at all. **`_p3_scan_zap` has the same hole by a different route and is NOT fixed here:** it
+   FAILs an unparseable report (`# BL-122-ZAP-RISK-FILTER`, pinned by `T-zap-malformed-report-fail`),
+   but its `.site[]?.alerts[]?` optional iterators turn a renamed or non-array `.site` into "0 Medium+
+   alerts → PASS" (verified: `{"sites":[{"alerts":[{"riskcode":"3"}]}]}` counts 0), and a multi-document
+   report reaches the surviving `case … findings=0` sanitiser. The fix is the semgrep shape (count only
+   when `.site` is an array) plus a docker-shim harness this suite does not build; filed here as
+   follow-up rather than folded, so the scope stays the two arms the review and its reviewer named.
+3. Currency (reviewer R-4): a semgrep archive can carry `.errors[]` / `paths.skipped[]` — a scan that
+   FINISHED but skipped files, or hit rule errors, still reads as "0 findings" when `.results` is an
+   empty array. That is a real scan with a real count, so it is a PASS on the rule this entry fixes, but
+   it is a weaker receipt than it looks; surfacing the skipped/error counts in `P3_NOTE` is follow-up.
 2. `SOLO_TDD_ATTESTED` and `SOLO_LICENSE_ATTESTED` are recorded and fail-closed but do not require a
    reason; `SOLO_BP_ATTESTED` is missing from the inventory the review built. The review's proposed
    single table of every `_ATTESTED` escape with its three properties (reason-mandatory / recorded /
    fail-closed), plus a lint that every grep hit appears in it, is filed here as the follow-up.
 
 **Build note (2026-09-08/09, branch `fix/bl256-unearned-receipts`).** RED measured with the branch's
-final test file in a worktree at `e3b2be5`: **5 passed / 12 failed** — S3 (no `.results` key → PASS "0
+final test file in a worktree at `e3b2be5`: **8 passed / 19 failed** — S3 (no `.results` key → PASS "0
 findings"), S4 (not JSON → PASS), S5 (no jq on PATH → PASS), S6 (`.results` an object → PASS), S7
-(`.results` a string → PASS), U2 (read-only `.claude/` → "RECORDED" at rc 0 with the state file
-byte-identical), M0 ×3, MP1/MP2/MU1 setups. The five passes are the honest-outcome cases (S0 shim
-resolution, S1 empty array PASS, S2 two findings FAIL, U1 writable recorded, U2b state unchanged) — true
-on main by construction and not discriminators. **S6/S7 exist because a reviewer mutant survived the
+(`.results` a string → PASS), S8 (two concatenated documents → PASS), N3 (snyk: no `.vulnerabilities`
+key → PASS "0 vulnerabilities"), N4 (snyk: `.vulnerabilities` an object → PASS), U2 (read-only
+`.claude/` → "RECORDED" at rc 0 with the state file byte-identical), M0 ×4, MP1–MP5/MU1 setups. The
+eight passes are the honest-outcome cases (S0/N0 shim resolution, S1/N1 empty array PASS, S2/N2 two
+findings FAIL, U1 writable recorded, U2b state unchanged) — true on main by construction and not
+discriminators. **S6/S7 exist because a reviewer mutant survived the
 first cut at 14/0**: it weakened the type check to a PRESENCE check (`has("results") and .results !=
 null`) and the suite could not tell, because no case fed a `.results` that was present but not an
 array — under that weakening `{"results":{}}` counts 0 → PASS and `{"results":"abcdefgh"}` counts the
 STRING'S LENGTH as eight findings. MP2 now applies exactly that mutant and S6/S7 kill it. (The reviewer
 that found it stalled mid-run and was killed 19 hours later; its last recorded words were "X4 survives
 14/0 and re-opens the defect" — the finding was recovered from its transcript, not from a verdict.)
-GREEN **17 / 0**: all three mutants kill (MP1 restores the old `// 0 || echo 0` count → S3 reads PASS
-again; MP2 the presence check → S6 PASS, S7 "8 semgrep finding(s)"; MU1 turns the REFUSE arm back into
-the unconditional receipt → U2 is announced RECORDED again). The suite drives the REAL driver and the
-REAL checklist: a PATH shim `semgrep` on a host-mirrored PATH minus real semgrep/snyk/docker/go-licenses
+GREEN **27 / 0**: all six mutants kill (MP1 restores the old `// 0 || echo 0` count → S3 reads PASS
+again; MP2 the presence check → S6 PASS, S7 "8 semgrep finding(s)"; MP3 drops the `*[!0-9]*` sanitiser
+arm → S8's two-document archive reads PASS again; MP4/MP5 are MP1/MP2 applied to the snyk marker → N3 /
+N4 read PASS again; MU1 turns the REFUSE arm back into the unconditional receipt → U2 is announced
+RECORDED again). The suite drives the REAL driver and the REAL checklist: PATH shims `semgrep` (writes
+the canned archive to `--output`) and `snyk` (answers `config get api` with a token and `test --json`
+with the canned report on stdout) on a host-mirrored PATH minus real semgrep/snyk/docker/go-licenses
 (minus jq for S5), the exclusion asserted before measuring; a process-state fixture at
-`results_received` on the Light track, writable then `chmod 555`. Both mutants use `~` as the sed
+`results_received` on the Light track, writable then `chmod 555`. The sed mutants use `~` as the
 delimiter because the markers carry `#` and the replacements `|` and `/` — the first cut hit
-CLAUDE.md's trap on that line and sed refused it, reported honestly as "did not apply cleanly". All
-**65** unit-lane suites that drive `run-phase3-validation.sh` or `process-checklist.sh` re-run green
+CLAUDE.md's trap on that line and sed refused it, reported honestly as "did not apply cleanly". **Pre-PR
+review round 1 (single agent, `minor_concerns`)** folded before push: R-1 the untested multi-document
+sanitiser arm → S8 + MP3; R-3 the snyk twin → fix + section N + MP4/MP5; R-2 (the `.tmp` cleanup on the
+refuse path is untested — a fixture that makes `mv` fail after `jq` succeeds needs a same-dir
+permission split the suite does not build) left as noted; R-4 recorded as residual 3. All **66**
+unit-lane suites that drive `run-phase3-validation.sh` or `process-checklist.sh` (this one included) re-run green
 (incl. `test-phase3-validation-gate` 51/0, `test-bl114-bl115-bl127-gate-integrity` 17/0, the three
 BL-070 scanner suites 51/48/26, `test-bl233-wpb-accumulation` 100/0); registered in the aggregator and
 the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `registered`).

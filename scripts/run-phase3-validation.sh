@@ -1049,11 +1049,24 @@ _p3_scan_snyk() {
     P3_STATUS="FAIL"; P3_NOTE="snyk execution error (rc=$rc) — no usable report; treat as a scan failure, not a skip"
     return
   fi
-  local findings=0
-  if command -v jq >/dev/null 2>&1; then
-    findings=$(jq '(.vulnerabilities | length) // 0' "$archive" 2>/dev/null || echo 0)
-    case "$findings" in ''|*[!0-9]*) findings=0 ;; esac
+  # `## BL-256:` — the same count-receipt as `_p3_scan_semgrep`
+  # (`# BL-256-P3-COUNT-RECEIPT`): the first cut read `// 0` + `|| echo 0` and
+  # sanitised anything non-numeric to 0, so a renamed key, an unparseable
+  # report, or a host with no jq read as "0 vulnerabilities" → PASS. The count
+  # is taken ONLY when `.vulnerabilities` is present and is an array (a single
+  # `snyk test --json` emits one object; `--all-projects`, which this arm does
+  # not pass, would emit an ARRAY of them and must never count as clean here).
+  if ! command -v jq >/dev/null 2>&1; then
+    P3_STATUS="FAIL"; P3_NOTE="snyk ran but jq is not on PATH, so the report could not be counted — NOT a clean result; install jq and re-run"
+    return
   fi
+  local findings
+  findings=$(jq -e 'if (.vulnerabilities | type) == "array" then (.vulnerabilities | length) else error("no vulnerabilities array") end' "$archive" 2>/dev/null) || findings=""   # BL-256-P3-SNYK-COUNT-RECEIPT
+  case "$findings" in
+    ''|*[!0-9]*)
+      P3_STATUS="FAIL"; P3_NOTE="snyk ran but its report carries no .vulnerabilities array (schema drift or an unparseable report) — NOTHING WAS COUNTED, this is not a clean result; inspect $archive"
+      return ;;
+  esac
   if [ "$findings" -gt 0 ]; then
     P3_STATUS="FAIL"; P3_NOTE="$findings snyk vulnerability finding(s) — review $archive"
   else
