@@ -15372,3 +15372,217 @@ aggregator and the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `re
 
 **Related:** `## BL-164:` (shell-injectable generated CI from scaffold values — the sibling sink),
 `## BL-234:` (`_qdrant_key_escape` — the same escape-at-the-sink discipline one surface over).
+
+---
+
+## BL-256: two shipped gates hand out receipts they did not earn — `_p3_scan_semgrep` (and its twin `_p3_scan_snyk`) counts an unreadable archive as "0 findings → PASS", and the UAT solo attestation prints "RECORDED" whether or not the record was written
+
+**Status:** Open
+
+**Logged:** 2026-09-08, out of the adversarial codebase review (ST2 + R2, both confirmed by the
+single-agent second pass). Ranked #4 of the verified review's top ten. Both are instances of the
+rule this repo already spells out at `# BL-182-NO-UNEARNED-RECEIPT` and `# BL-112-SAST-NOTRUN`: a
+check that did not run, or whose result could not be read, must never read as a clean one.
+
+**(a) `scripts/run-phase3-validation.sh::_p3_scan_semgrep`.** After semgrep wrote its archive, the
+finding count was `jq '(.results | length) // 0' "$archive" 2>/dev/null || echo 0`, then anything
+non-numeric was sanitised to 0, and `0 → P3_STATUS="PASS"`. So a renamed key on a future semgrep major
+(`.results` → anything), an archive that is not valid JSON, or a host with no `jq` at all every one
+produced `PASS — 0 findings (full-tree --config auto)`: a clean bill of health for a scan nobody
+could read, in the Phase-3 gate that decides production release. The same file already refuses a
+SKIP that would clear a prior FAIL; this arm was the one that did not refuse.
+
+**(b) `scripts/process-checklist.sh`, `uat_session:results_received`.** The Light/solo escape
+(`SOLO_UAT_SOLO_ATTESTED=1`) appends to `uat_session.solo_attestations[]` with `jq … > tmp && mv`, and
+then printed `results_received: SOLO-MODE attested and RECORDED` **unconditionally** — a read-only
+`.claude/`, a full disk, or a corrupt state file left no record while the operator was told there
+was one. The four MCP/review attestations already refuse when they cannot record
+(`# BL-233-ATTEST-REFUSE`); this one announced instead.
+
+**Fix (built on this branch).**
+- (a) The count is taken only when `.results` is present AND an array (`jq -e … if type == "array"`,
+  `# BL-256-P3-COUNT-RECEIPT`); no jq, no array, or unparseable JSON → `P3_STATUS="FAIL"` with a note
+  that says NOTHING WAS COUNTED and names the archive. Never SKIP (SKIP means "could not run" and
+  routes to the attestation path; this scan ran), never PASS. **`_p3_scan_snyk` carried the identical
+  count one function below** (`(.vulnerabilities | length) // 0` + `|| echo 0` + sanitise-to-0) — the
+  pre-PR reviewer's R-3 — and now takes the same shape (`# BL-256-P3-SNYK-COUNT-RECEIPT`): counted only
+  when `.vulnerabilities` is an array, else FAIL / NOTHING WAS COUNTED; no jq → FAIL.
+- (b) The receipt is inside the `if jq … && mv …; then` (`# BL-256-UAT-ATTEST-RECEIPT`); the else arm
+  removes the temp file, prints a REFUSED line naming the state file and the reason class, and
+  exits 1 (`# BL-256-UAT-ATTEST-REFUSE`) — nothing is marked complete. **The general step write at the
+  end of `complete_step`** — the same command path, the same `jq … && mv` followed by an unconditional
+  "Step … completed" (review round 2, R2-3) — now has the same shape (`# BL-256-STEP-RECEIPT` /
+  `# BL-256-STEP-REFUSE`): a state file that could not be written is "NOT recorded", rc 1.
+- Suite `tests/test-bl256-unearned-receipts.sh` drives the real driver and the real checklist on
+  fixtures: a PATH shim `semgrep` that writes a canned archive (no network, no real semgrep), and a
+  process-state fixture at the `results_received` step with a writable and then a read-only `.claude/`.
+
+**Residuals:**
+1. The `_p3_scan_*` count arms were greped for the pattern (`// 0` + sanitise-to-0 + `0 → PASS`) on
+   this branch: semgrep and snyk carried it and are fixed above; license / threat-model do not count
+   via jq at all. **`_p3_scan_zap` has the same hole by a different route and is NOT fixed here:** it
+   FAILs an unparseable report (`# BL-122-ZAP-RISK-FILTER`, pinned by `T-zap-malformed-report-fail`),
+   but its `.site[]?.alerts[]?` optional iterators turn a renamed or non-array `.site` into "0 Medium+
+   alerts → PASS" (verified: `{"sites":[{"alerts":[{"riskcode":"3"}]}]}` counts 0), and a multi-document
+   report reaches the surviving `case … findings=0` sanitiser. The fix is the semgrep shape (count only
+   when `.site` is an array) plus one case in the harness that ALREADY exists in the PR-blocking lane
+   (`tests/test-bl070-snyk-zap-scanners.sh`, `setup_zap web with-docker` / `T-zap-malformed-report-fail`
+   — review round 2 corrected the first draft of this line, which claimed no harness). Not folded here
+   is a scope choice: the branch stays on the arms the review and its reviewers named. Follow-up.
+2. Currency (reviewer R-4): a semgrep archive can carry `.errors[]` — a scan that FINISHED but hit rule
+   or parse errors still reads as "0 findings" when `.results` is an empty array. That is a real scan
+   with a real count, so it is a PASS on the rule this entry fixes, but it is a weaker receipt than it
+   looks; surfacing `.errors | length` in the PASS note is a two-line follow-up. (`paths.skipped` is
+   emitted only under `--verbose`, which the driver does not pass — round 2 corrected that half.)
+3. `scripts/process-checklist.sh` carries **23 more** one-line `jq … > "$PROCESS_STATE.tmp" && mv …`
+   state writes with no check on the write (grep the literal `PROCESS_STATE.tmp" && mv`); the one on
+   this branch's command path is guarded, the rest still announce success on a write that may not have
+   landed. A lost non-terminal step is caught by the next step's prior-steps check; a process's LAST
+   step and the "Build loop closed" receipt are not. Filed as `## BL-257:` (one `_pc_write_state`
+   helper, every site through it).
+4. (review round 4, R4-2) Both guarded writes use plain `jq`, which exits 0 with NO output on an
+   already-empty state file — so a 0-byte `process-state.json` earns a receipt over another 0-byte
+   file. Reachable only for a step with no prior requirements (priors fail `step_is_completed` first).
+   `jq -e` on both writes (exit 4 on no output; the filter's output is the whole document, never
+   null/false) closes it; not folded here — fold it into `## BL-257:`'s helper.
+5. `SOLO_TDD_ATTESTED` and `SOLO_LICENSE_ATTESTED` are recorded and fail-closed but do not require a
+   reason; `SOLO_BP_ATTESTED` is missing from the inventory the review built. The review's proposed
+   single table of every `_ATTESTED` escape with its three properties (reason-mandatory / recorded /
+   fail-closed), plus a lint that every grep hit appears in it, is filed here as the follow-up.
+
+**Build note (2026-09-08/09, branch `fix/bl256-unearned-receipts`).** RED measured with the branch's
+final test file in a worktree at `e3b2be5`: **11 passed / 38 failed** — S3 (no `.results` key → PASS "0
+findings"), S4 (not JSON → PASS), S5 (no jq on PATH → PASS), S6 (`.results` an object → PASS), S7
+(`.results` a string → PASS), S8 (two concatenated documents → PASS), S9 (a top-level array → PASS), N3
+(snyk: no `.vulnerabilities` key → PASS "0 vulnerabilities"), N4 (`.vulnerabilities` an object → PASS),
+N5 (a top-level array → PASS), N6 (no jq → PASS), U2 (read-only `.claude/` → "RECORDED" at rc 0 with
+the state file byte-identical), U3 (rename fails → "RECORDED"), U4 (non-solo path, read-only `.claude/`
+→ "Step … completed" at rc 0), U3b (the `.tmp` left behind), U4c (rename fails → "completed" at rc 0),
+U2c/U4d (a stale `.tmp` in a read-only `.claude/` → rc 1 with NO refusal text: the unguarded `rm -f`
+under `set -e` exited first), U2d/U4e (jq fails on a WRITABLE dir — a corrupt `solo_attestations` /
+`steps_completed` — → "RECORDED" / "completed" at rc 0, the old `jq … && mv` short-circuiting past the
+rename and straight into the receipt), M0 ×6, MP1–MP6/MU1–MU6 setups. The eleven passes are the honest-outcome
+cases (S0/N0 shim resolution, S1/N1 empty array PASS, S2/S2b/N2 findings FAIL, U1/U1b healthy writes
+recorded, U2b/U4b state unchanged — a failed write changes nothing on main too) — true on main by
+construction and not discriminators. **S6/S7 exist because a reviewer mutant survived the
+first cut at 14/0**: it weakened the type check to a PRESENCE check (`has("results") and .results !=
+null`) and the suite could not tell, because no case fed a `.results` that was present but not an
+array — under that weakening `{"results":{}}` counts 0 → PASS and `{"results":"abcdefgh"}` counts the
+STRING'S LENGTH as eight findings. MP2 now applies exactly that mutant and S6/S7 kill it. (The reviewer
+that found it stalled mid-run and was killed 19 hours later; its last recorded words were "X4 survives
+14/0 and re-opens the defect" — the finding was recovered from its transcript, not from a verdict.)
+GREEN **49 / 0**: all twelve mutants kill (MP1 restores the old `// 0 || echo 0` count → S3 reads PASS
+again; MP2 the presence check → S6 PASS, S7 "8 semgrep finding(s)"; MP3 drops the `*[!0-9]*` sanitiser
+arm → S8's two-document archive reads PASS again; MP4/MP5 are MP1/MP2 applied to the snyk marker → N3 /
+N4 read PASS again; MP6 is round 2's surviving x10 — a top-level-array arm — → N5 reads PASS again; MU1
+turns the attestation REFUSE arm back into the unconditional receipt → U2 is announced RECORDED again;
+MU2 drops the `rm -f` on that path → U3b finds the `.tmp`; MU3 turns the step REFUSE arm back into the
+receipt → U4 is announced completed again; MU4 is round 3's surviving m5 — the step guard covers only
+`jq` and tolerates a failed `mv` — → U4c is announced completed at rc 0 again; MU5/MU6 are round 4's
+x1b/x3 — each guard tolerating a failed `jq` (`> tmp || true && mv`, `; mv`) — → a failed jq renames an
+EMPTY `.tmp` over the state file and U4e / U2d are announced completed / RECORDED over a 0-byte file). The suite drives the REAL driver and the REAL checklist: PATH shims `semgrep` (writes
+the canned archive to `--output`) and `snyk` (answers `config get api` with a token and `test --json`
+with the canned report on stdout) on a host-mirrored PATH minus real semgrep/snyk/docker/go-licenses
+(minus jq for S5), the exclusion asserted before measuring; a process-state fixture at
+`results_received` on the Light track, writable then `chmod 555`. The sed mutants use `~` as the
+delimiter because the markers carry `#` and the replacements `|` and `/` — the first cut hit
+CLAUDE.md's trap on that line and sed refused it, reported honestly as "did not apply cleanly". **Pre-PR
+review round 1 (single agent, `minor_concerns`)** folded before push: R-1 the untested multi-document
+sanitiser arm → S8 + MP3; R-3 the snyk twin → fix + section N + MP4/MP5; R-4 recorded as residual 2.
+**Round 2 (single agent, `major_concerns` — do-not-push)**: R2-1 a mutant that accepts a top-level
+array on the snyk line survived 27/0 and the BL-070 suite 48/0 → N5 + S9 + MP6; R2-2 no case pinned ONE
+semgrep finding (a `-gt 1` mutant survived) → S2b (re-verified ad hoc on a mirror: under `-gt 1` the
+one-finding archive reads PASS, which S2b rejects); R2-3 the general step write on the same command path → fix +
+U4/U4b + MU3, the other 23 sites → residual 3 / `## BL-257:`; R2-5 the `rm -f` on the refuse path
+untested → U3/U3b + MU2, which also REFUTED round 1's R-2 note that the fixture needed a "same-dir
+permission split" — a PATH `mv` shim that refuses only `process-state.json` is portable — every `mv` on
+the path targets that file, once before the refusal exits and twice on a healthy solo run (the
+attestation write, then the step write; round 3 corrected "exactly once"); R2-6 the snyk no-jq arm
+untested → N6; R2-4 / R2-7 corrected residuals 1 and 2 (the zap harness exists; `paths.skipped` needs
+`--verbose`). **Round 3 (single agent, `major_concerns` — do-not-push)**, on the code round 2 added:
+R3-1 the step guard's RENAME half was unpinned — a mutant that guarded only `jq` and tolerated a failed
+`mv` (m5) announced "completed" at rc 0 and survived the BL-256 suite AND all 66 lane suites → U4c (the
+`mv` shim on the non-solo path) + MU4 = m5; R3-2 both refuse arms ran `rm -f "$PROCESS_STATE.tmp"`
+unguarded under `set -e`, so a stale `.tmp` inside a now read-only `.claude/` exited BEFORE the refusal
+was printed (rc honest, text missing) → `|| true` on both, pinned by U2c/U4d; R3-3 no healthy-path
+control for the step write (a guard refusing EVERY completion passed this suite) → U1b asserts rc 0,
+"completed", four steps; R3-4 the "exactly once" wording above. Round 3 also confirmed round 2's folds
+(MP6 = x10 kills; the `-gt 1` mutant reads PASS on S2b's archive and S2b rejects it; MU2's line-number
+mutation fails LOUD under four reformats) and the 66-suite claim in full. **Round 4 (single agent,
+`major_concerns`)** verified every round-3 fold exactly (m3/m4/m5/m6/m9 all killed; each `|| true`
+removal killed by its named case and nothing else) and found the JQ half of both guards unpinned: U4
+fails both halves at once (the shell cannot create the `.tmp` in a read-only dir), so a guard that
+tolerated a jq failure survived 45/0 while renaming an empty `.tmp` over the state file — R4-1 → U2d /
+U4e (jq fails on a writable dir: `solo_attestations` / `steps_completed` a string; the prior-step check
+is a jq `index()` substring search, so it passes and the write is the first jq to fail) + MU5/MU6, and
+the U4c comment corrected; R4-2 (an already-EMPTY state file earns a receipt on the tip itself, jq on
+empty input exiting 0 with no output — `jq -e` on both writes would refuse it) recorded as residual 4;
+R4-3 (dropping the attestation `exit 1` is behaviourally equivalent — the step write on the same file
+fails next) no action. Round 4 was test-only; the 66-suite lane was not re-run for it (round 3's
+measurement stands: the only file that changed is this suite, 49/0). **Round 5 returned `approve`** and the branch
+was pushed as PR #380 — where the `rest` unit shard came back RED on the suite's own MU5, at 48/1, having been
+49/0 on this Mac. Cause: `_mutate_line` built the mutant with `${orig/"$pat"/$rep}`, and **since bash 5.2 an
+unescaped `&` in the replacement of a pattern substitution means THE WHOLE MATCH** — the same rule as `sed`, which
+bash 3.2 does not have. Every shell guard's replacement carries `&&`, so on the 5.2 runner the mutant's line became
+`… || true > "$PROCESS_STATE.tmp" && mv> "$PROCESS_STATE.tmp" && mv mv …`: still one changed line, still `bash -n`
+clean, still 2 diff lines — and no longer a mutant, so MU5's own assertion failed and reported it. The harness had
+asserted the SHAPE of the edit and not its CONTENT, which is exactly the half of CLAUDE.md's sed rule that was not
+carried over. Fixed three ways: `_mutate_line` splits on the pattern (`${s%%"$pat"*}` / `${s#*"$pat"}`, no `&` rule
+in any version) and refuses when the replacement did not land literally, so a dud mutation is a LOUD setup failure;
+MU5/MU6/MP3 gained explicit `grep -cF` content assertions (of the other nine, eight already asserted the mutated
+text and MU2 is a line-addressed `Nd` delete with a content PRE-check, where shape is content — which is why only
+MU5 broke); and the trap is now the second bullet of CLAUDE.md's ENVIRONMENT TRAPS with a container recipe,
+whose explanation of why `soif_sed_repl_esc` survives took THREE drafts: round 6 refuted the first, round 7 the
+second — both for the same class of error the bullet exists to prevent, and the second also misquoted the source
+line (`${t//&/\\&}` carries TWO backslashes, not one). Measured directly on both versions rather than reasoned
+about: on 5.2 `\\&` is a literal backslash plus THE WHOLE MATCH, a single `\&` is an escaped literal `&` with the
+backslash consumed, and a bare `&` is the whole match; on 3.2 all three are literal. The helper is byte-identical
+across versions only because its pattern is the single character `&`, so the whole match happens to BE `&`. Round 8
+(`approve`) reproduced that table on 3.2 and on 5.2 (5.2.21 and 5.2.37) and caught one more error above it: the
+rule arrives in **5.2**, not 5.1 — measured absent in 5.0.18 and 5.1.16, and the `patsub_replacement` shopt that
+governs it does not exist before 5.2. It also measured a residual worth keeping: mutate the helper's `\\&` to `\&`
+and `test-bl255-sed-replacement-escape.sh` stays GREEN on this Mac, going red only on the runner — the suite that
+guards the trap is itself subject to it. Round 6 also found the `chmod 555` sites inside MU1/MU3 carried no root guard, so as root those
+two passed vacuously while claiming a read-only `.claude/` (43/4 — contained, because the four guarded sites turn
+the suite red under root either way); both now guard, and the suite is loud on all six.
+Both directions verified rather than argued — `ubuntu:24.04` (bash 5.2.21), as a non-root user so the `chmod 555`
+fixtures bite: the pre-fix file reproduces CI exactly (48/1, same MU5 message, `rc=1 bytes=463`) and the fixed file
+is **49 / 0** on Linux and on this Mac. `soif_sed_repl_esc` (`## BL-255:`) was checked for the same hazard in the
+same container and is unaffected: its `\&` is a literal backslash under both 3.2 and 5.2. All **66**
+unit-lane suites that drive `run-phase3-validation.sh` or `process-checklist.sh` (this one included) re-run green
+(incl. `test-phase3-validation-gate` 51/0, `test-bl114-bl115-bl127-gate-integrity` 17/0, the three
+BL-070 scanner suites 51/48/26, `test-bl233-wpb-accumulation` 100/0); registered in the aggregator and
+the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `registered`).
+
+**Related:** `## BL-182:`, `## BL-112:`, `## BL-233:` (the refuse-when-unrecordable posture),
+`## BL-185:` (the other unrecorded escape), `## BL-070:` (the atomic attestation write this file
+already does for Phase-3 attestations — the shape (b) now follows), `## BL-257:` (the other 23 writes).
+
+## BL-257: `process-checklist.sh` — 23 state writes announce success without checking that the write landed
+
+**Status:** Open
+
+**Logged:** 2026-09-09, out of the BL-256 pre-PR review (round 2, R2-3). Every state mutation in
+`scripts/process-checklist.sh` is a one-line `jq … "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv
+"$PROCESS_STATE.tmp" "$PROCESS_STATE"` followed by an unconditional `print_ok`. On a read-only `.claude/`,
+a full disk, or a corrupt state file the write fails, the `.tmp` may be left behind, and the operator is
+told the step completed. BL-256 guarded the two sites on the `uat_session:results_received` path
+(`# BL-256-UAT-ATTEST-REFUSE`, `# BL-256-STEP-REFUSE`); this entry is the remaining **23** (count them,
+never transcribe — and use `-F`, a BRE `$P…` silently matches nothing on this host's grep:
+`grep -cF 'PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"' scripts/process-checklist.sh`
+returned 24 on 2026-09-09, of which 1 — the `; then` one, `# BL-256-STEP-RECEIPT` — is guarded;
+the attestation arm is split over two lines and does not match the literal).
+
+**Exposure.** A lost NON-terminal step is caught by the next `--complete-step`'s prior-steps check (the
+step is simply not there). A process's LAST step — `feature_recorded`'s "Build loop closed",
+`phase2_init.verified = true`, the phase-4 release steps — and the `--start-*` initialisers have no later
+check, so a silent failure there is a false receipt that nothing self-corrects.
+
+**Proposed fix.** One `_pc_write_state <jq-filter> [jq args…]` helper that does the `jq > tmp && mv`,
+removes the `.tmp` on failure, prints a NOT-recorded line naming the state file, and returns 1; every
+site routed through it; the BL-256 suite's `mv` shim (`mk_mv_shim`) and read-only fixture reused for a
+site-count test that fails when a new bare `> "$PROCESS_STATE.tmp" && mv` appears (the grep above must
+return 0 once the helper is in). Lint or test, not prose — a "use the helper" rule in CONTRIBUTING.md is
+what the 23 sites already ignored.
+
+**Related:** `## BL-256:`, `## BL-233:` (`# BL-233-ATTEST-REFUSE`), `## BL-182:`.

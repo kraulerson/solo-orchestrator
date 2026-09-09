@@ -53,6 +53,54 @@ here.
   an unescaped `&&` splices the original line back in, and that mutant passes
   `bash -n`. See `## BL-224:` for the sibling case where a lint's own regex
   over-matched for the same reason.
+- **The same `&` trap lives in bash's own `${var/pat/rep}`, and it is
+  VERSION-SPLIT between this host and CI.** Since bash **5.2** an unescaped
+  `&` in the *replacement* of a pattern substitution means THE WHOLE MATCH,
+  exactly as in `sed`; **bash 3.2 has no such rule**. 5.2 is the boundary, not
+  5.1 — measured, `u='one TWO three'; "${u//TWO/&}"` gives `one & three` on
+  3.2.57, 5.0.18 and 5.1.16 and `one TWO three` on 5.2.37, and the `shopt`
+  that governs it (`patsub_replacement`, on by default) does not exist before
+  5.2. This Mac runs 3.2 and
+  the runners run 5.2, so a replacement carrying `&&` — which every shell
+  guard does — produces the intended text locally and splices the match back
+  in on CI. It is silent in the worst way: the line still changes, the
+  changed-line count is still right, and `bash -n` is still clean, so a
+  mutation harness reports a healthy mutant that no longer mutates. That is
+  a red `rest` shard on PR #380, found only because the mutant stopped
+  killing its case. Two rules, the same two as for `sed`: **do not use
+  `${var/pat/rep}` when the replacement can contain `&`** — split on the
+  pattern instead (`lhs="${s%%"$pat"*}"; rhs="${s#*"$pat"}"`), which has no
+  `&` rule in any version — and **assert the replacement LANDED**, by its
+  own literal text, not by a line count. `soif_sed_repl_esc` in
+  `helpers-core.sh` is unaffected, but **do not try to read that off the
+  spelling** — two drafts of this bullet reasoned about it and both were
+  wrong. Measure it. Double-quoted, `t='R&D tools'`, `u='one TWO three'`:
+  ```
+  replacement, as written   what it is        bash 3.2      bash 5.2
+  ${t//&/\\&}   <- REAL      two backslashes   R\&D tools    R\&D tools
+  ${t//&/\&}                  one backslash     R\&D tools    R&D tools
+  ${u//TWO/\\&}              two backslashes   one \& three  one \TWO three
+  ${u//TWO/&}                 bare &            one & three   one TWO three
+  ```
+  On 5.2, `\\` collapses at quote removal to a LITERAL backslash that does not
+  escape, so `\\&` is backslash-plus-*whole match*; a single `\&` is an escaped
+  `&` and yields a literal `&` with the backslash consumed; a bare `&` is the
+  whole match. On 3.2 all three are literal. So the real source line —
+  `t="${t//&/\\&}"`, two backslashes — is byte-identical across versions ONLY
+  because its pattern is the single character `&`, which makes "the whole
+  match" happen to be `&`. Change that pattern and the versions diverge in
+  silence. `tests/test-bl255-sed-replacement-escape.sh` pins those bytes in
+  the unit lane, and that is what would catch it — **but only there.** Mutate
+  the helper's `\\&` to `\&` and that suite stays GREEN on this Mac and goes
+  red only on the runner, which is this same trap one level up: a local run
+  of the suite that guards the trap does not see the trap.
+  Reproduce the runner's bash on this host:
+  ```
+  docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash -c 'apt-get update -qq \
+    && apt-get install -y -qq jq git && useradd -m t && cp -r /repo /home/t/r \
+    && chown -R t /home/t/r && su t -c "cd /home/t/r && bash tests/<file>.sh"'
+  ```
+  Run as a NON-root user or every `chmod 555` fixture silently stays writable.
 - **This Mac's git is configured and an ubuntu-latest runner's is not — and the
   difference is silent.** Xcode ships
   `/Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig`
@@ -144,12 +192,15 @@ here.
 ## LINT GOTCHAS
 
 - `scripts/run-lints.sh` runs **every `scripts/lint-*.sh` EXCEPT
-  `lint-uat-scenarios.sh`** (12 of the 13 lint scripts as of 2026-07-31 — BL-196
-  added `lint-bl-markers.sh`, and run-lints discovers it by glob, no wiring).
+  `lint-uat-scenarios.sh`** (**16 of the 17** lint scripts as of 2026-09-09 — it
+  discovers them by glob, so a new lint needs no wiring; the count drifts, so
+  measure it rather than quoting this line: `ls scripts/lint-*.sh | wc -l`, and
+  `bash scripts/run-lints.sh` prints its own total on the last line).
 - `scripts/lint-uat-scenarios.sh` is a **parametrized tool, not a repo lint**:
   bare-invoked it exits **2** with a `Usage:` message because it needs a
   `<populated-html-file>` argument. It is **not** one of the CI lint jobs
-  (`.github/workflows/lint.yml`, 10 jobs as of 2026-07-31), so run-lints
+  (`.github/workflows/lint.yml`, **14** jobs as of 2026-09-09 —
+  `grep -cE '^  [a-z0-9-]+-lint:' .github/workflows/lint.yml`), so run-lints
   deliberately skips it.
 - Two lints are **slow full-tree scans**: `lint-counter-antipattern.sh` (~90s)
   and `lint-raw-read-prompt.sh` (~40s). A full `run-lints.sh` is a couple of

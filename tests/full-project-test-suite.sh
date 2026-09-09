@@ -849,6 +849,13 @@ run_child_suite "tests/test-bl255-sed-replacement-escape.sh" \
   "BL-255 sed replacement escape (soif_sed_repl_esc; both renderers end to end; name sites pinned)" \
   "BL-255 sed-replacement-escape tests FAILED (run tests/test-bl255-sed-replacement-escape.sh for details)"
 
+# BL-256: two "no unearned receipt" breaks — a semgrep archive that cannot be
+# counted is not "0 findings", and a UAT solo attestation that cannot be
+# recorded is refused, not announced as recorded.
+run_child_suite "tests/test-bl256-unearned-receipts.sh" \
+  "BL-256 unearned receipts (P3 semgrep count needs a .results array; UAT attestation refused when unrecordable)" \
+  "BL-256 unearned-receipt tests FAILED (run tests/test-bl256-unearned-receipts.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
