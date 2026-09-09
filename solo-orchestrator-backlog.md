@@ -15648,3 +15648,60 @@ return 0 once the helper is in). Lint or test, not prose — a "use the helper" 
 what the 23 sites already ignored.
 
 **Related:** `## BL-256:`, `## BL-233:` (`# BL-233-ATTEST-REFUSE`), `## BL-182:`.
+
+## BL-258: the adversarial codebase review's ranked findings #5-#10 were never filed — six leads recorded here before they are lost
+
+**Status:** Open
+
+**Logged:** 2026-09-09. The 2026-09-08 adversarial codebase review (one agent, verified by a
+single-agent second pass) produced a ranked top ten. **#1-#4 became entries and all four have now
+shipped** — `## BL-253:` (#1, PR #377), `## BL-254:` (#2, PR #378), `## BL-255:` (#3, PR #379),
+`## BL-256:` (#4, PR #380). **#5-#10 were never filed.** The review's own scratch files were deleted
+on Karl's instruction once the top ten was agreed, and no `Reports/**` artifact was written, so the
+only surviving record of six ranked findings was one session's working notes. This entry exists so
+that record is durable. Filing it is not the same as fixing it.
+
+**READ THIS BEFORE ACTING ON ANY ITEM BELOW.** These six are **transcribed from the ranked list as it
+was recorded in session, NOT independently reproduced against the code**, and they are terse because
+the notes were terse. That is exactly the distinction `## BL-256:` spent nine review rounds learning
+to keep: an unverified lead written down as a lead is useful, and an unverified lead written down as a
+defect is an unearned receipt. **Reproduce each one first.** Where a symptom below does not reproduce,
+say so on this entry and strike it rather than quietly fixing something adjacent.
+
+**#5 — first-screen fixes.** Four items the review grouped as "what a new user hits first":
+`verify-install.sh` parses in the wrong order; `RESOLVER_OUTPUT` is read before the `# BL-057-`
+early return sets it; `validate.sh`'s phase inference is wrong; and the resolver's `@tsv` output is
+consumed with a shifted field index. Ranked #5, and the one to do next: it is the first screen, so a
+defect here is seen by every user before anything else.
+
+**#6 — `_bl072_tier_bypassable` conflates absent with unparseable**, so a state file that cannot be
+read takes the same branch as one that is not there — the `# BL-231:` "tracking file absent =&gt; no
+enforcement, silently" family, and the same class `## BL-256:` fixed for scanner counts. Plus: the
+release-variable reader is duplicated where one `get_release_vars` lib would do.
+
+**#7 — block messages.** `SOIF_PHASE_GATES=warn` is advertised but not recorded when used; the
+remediation text is not per-arm, so a reader gets generic advice for a specific block; and `--help`
+is handled AFTER the guard, so asking a script how to use it can be refused by the gate it is asking
+about. Compare `# WALK-ISSUE-017-HATCH`, where advertising an escape without its precondition cost a
+walk agent real time.
+
+**#8 — permissions posture. NEEDS KARL'S DECISION, not an implementation.** The review flagged the
+allow-list shape; Karl's 2026-09-09 settings change (bare `Bash` in the allow list, 32 deletion
+shapes in `ask`, four root/home wipes in `deny`) was a deliberate decision, and the second pass
+downgraded the severity accordingly. Do not "fix" this without asking.
+
+**#9 — `--sync-framework` runs inside the snapshot trap**, so a failure there is attributed to the
+snapshot; plus `soif_state_update` wants the same treatment.
+
+**#10 — CI coverage gaps.** No `macos-latest` smoke leg, so this repo's own dev host is the one
+platform CI never exercises — the git-config and bash-version traps in CLAUDE.md are both
+host-divergence bugs that only CI or only the Mac can see. A `grep -oP` call that fails on BSD grep.
+The file-scheme `e2e-init*` trio is red on main for unrelated reasons and full-lane only. A
+`default_branch` key is unread.
+
+**Fix:** none here. Each item becomes its own entry with its own reproduction when it is picked up, or
+gets struck from this one with the measurement that refuted it. When the last is resolved, close this.
+
+**Related:** `## BL-253:`, `## BL-254:`, `## BL-255:`, `## BL-256:` (the four that shipped),
+`## BL-257:` (filed out of BL-256's review, same wave), `## BL-231:` (#6's family),
+`## BL-181:` (#10's full-lane blind spot).
