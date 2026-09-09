@@ -535,6 +535,7 @@ jobs:
             tests/test-bl254-ci-templates-call-shipped-scripts.sh
             tests/test-lint-user-guide-scripts.sh
             tests/test-bl255-sed-replacement-escape.sh
+            tests/test-bl256-unearned-receipts.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
