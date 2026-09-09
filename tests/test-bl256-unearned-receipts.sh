@@ -8,7 +8,9 @@
 #       non-numeric to 0, and 0 meant PASS. A renamed key, an archive that is
 #       not JSON, or a host with no jq: every one read as "0 findings — PASS",
 #       a clean bill of health for a scan nobody could read, in the gate that
-#       decides production release.
+#       decides production release. `_p3_scan_snyk`, one function below, carried
+#       the identical count (`.vulnerabilities`, `// 0`, `|| echo 0`, sanitise to
+#       0) — the reviewer's R-3 — and is covered by section N with its own shim.
 #   (b) scripts/process-checklist.sh's uat_session:results_received solo escape
 #       appended its attestation with `jq … > tmp && mv` and then printed
 #       "attested and RECORDED" unconditionally — a read-only .claude/ left no
@@ -91,6 +93,25 @@ SHIM
   [ -x "$d/semgrep" ]
 }
 
+# mk_snyk_shim <dir> — a `snyk` that answers `config get api` with a token and
+# `test --json` with $P3_FAKE_ARCHIVE on stdout (the driver redirects stdout
+# into its archive); anything else is an execution error
+mk_snyk_shim() {
+  local d="$1"
+  mkdir -p "$d" || return 1
+  cat > "$d/snyk" <<'SHIM'
+#!/usr/bin/env bash
+# test shim: stands in for snyk
+case "$*" in
+  "config get api") printf 'shim-token\n'; exit 0 ;;
+  "test --json")    cat "${P3_FAKE_ARCHIVE:?}"; exit "${P3_FAKE_RC:-0}" ;;
+  *)                exit 2 ;;
+esac
+SHIM
+  chmod +x "$d/snyk"
+  [ -x "$d/snyk" ]
+}
+
 # mk_p3_fixture <dir> — a minimal project the driver can scan
 mk_p3_fixture() {
   local d="$1"
@@ -110,6 +131,8 @@ run_p3() {
 }
 # semgrep_line → the summary's line for the semgrep scanner (label from _p3_label)
 semgrep_line() { grep -m1 'Full-tree Semgrep SAST\|semgrep-full-tree' "${P3_SUMMARY:-/dev/null}" 2>/dev/null; }
+# snyk_line → the summary's line for the snyk scanner (label from _p3_label)
+snyk_line() { grep -m1 '^| snyk |\|Snyk dependency scan' "${P3_SUMMARY:-/dev/null}" 2>/dev/null; }
 
 echo "=== S — (a) the semgrep count is a receipt only when a .results array was counted ==="
 
@@ -193,6 +216,22 @@ else
     fail_ "S7" "summary line: ${l:-<none>}"
   fi
 
+  # S8 — a MULTI-DOCUMENT archive (two JSON documents concatenated). jq emits
+  # one count per document, so `findings` becomes "0\n0": the `*[!0-9]*`
+  # sanitiser arm is the only thing between that and `[ "0\n0" -gt 0 ]`
+  # erroring into the PASS branch (the driver is deliberately not set -e).
+  # A reviewer mutant that dropped that arm survived 17/0; MP3 pins it.
+  printf '{"results":[],"errors":[]}\n{"results":[],"errors":[]}\n' > "$ARCH/multidoc.json"
+  F8="$(newtmp)"; mk_p3_fixture "$F8"; run_p3 "$F8" "$ARCH/multidoc.json" "$PATH_S"
+  l="$(semgrep_line)"
+  if printf '%s' "$l" | grep -q "PASS"; then
+    fail_ "S8" "a two-document archive read as PASS — an unearned receipt: ${l}"
+  elif printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "NOTHING WAS COUNTED"; then
+    pass "S8 — a multi-document archive is FAIL and says NOTHING WAS COUNTED"
+  else
+    fail_ "S8" "summary line: ${l:-<none>}"
+  fi
+
   # S5 — no jq at all must NOT read as 0 findings
   CLEAN5="$(newtmp)/cleanbin"
   if ! mk_cleanbin "$CLEAN5" semgrep snyk docker go-licenses jq; then
@@ -207,6 +246,69 @@ else
     else
       fail_ "S5" "summary line: ${l:-<none>}"
     fi
+  fi
+fi
+
+echo "=== N — (a) again for snyk: the count is a receipt only when a .vulnerabilities array was counted ==="
+# The reviewer's R-3: `_p3_scan_snyk` carried the identical count one function
+# below the semgrep arm. Same drive: a `snyk` shim on the isolated PATH that
+# answers `config get api` with a token and `test --json` with the canned
+# report on stdout. The semgrep shim stays on the PATH and reads the same
+# report (its line says NOTHING WAS COUNTED — only the snyk line is read here).
+SNYKD="$(newtmp)/snykshim"
+if [ -z "${PATH_S:-}" ] || [ -z "${ARCH:-}" ]; then
+  fail_ "N setup" "no isolated PATH from section S"
+elif ! mk_snyk_shim "$SNYKD"; then
+  fail_ "N setup" "could not build the snyk shim"
+else
+  PATH_N="$SNYKD:$PATH_S"
+  [ "$(PATH="$PATH_N" command -v snyk)" = "$SNYKD/snyk" ] \
+    && pass "N0 — on the isolated PATH, snyk resolves to the shim and not the host's" \
+    || fail_ "N0" "snyk resolves to $(PATH="$PATH_N" command -v snyk)"
+
+  printf '{"ok":true,"vulnerabilities":[],"dependencyCount":3}\n' > "$ARCH/snyk-empty.json"
+  printf '{"ok":false,"vulnerabilities":[{"id":"a"},{"id":"b"}],"dependencyCount":3}\n' > "$ARCH/snyk-two.json"
+  printf '{"ok":true,"issues":[],"dependencyCount":3}\n' > "$ARCH/snyk-renamed.json"
+  printf '{"ok":true,"vulnerabilities":{},"dependencyCount":3}\n' > "$ARCH/snyk-object.json"
+
+  # N1 — a real empty array is a PASS (the honest-outcome control)
+  FN1="$(newtmp)"; mk_p3_fixture "$FN1"; run_p3 "$FN1" "$ARCH/snyk-empty.json" "$PATH_N"
+  l="$(snyk_line)"
+  if printf '%s' "$l" | grep -q "PASS" && printf '%s' "$l" | grep -q "0 vulnerabilities"; then
+    pass "N1 — a report with an empty .vulnerabilities array is PASS, 0 vulnerabilities"
+  else
+    fail_ "N1" "summary line: ${l:-<none>}"
+  fi
+
+  # N2 — two vulnerabilities is FAIL with the count
+  FN2="$(newtmp)"; mk_p3_fixture "$FN2"; run_p3 "$FN2" "$ARCH/snyk-two.json" "$PATH_N"
+  l="$(snyk_line)"
+  if printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "2 snyk vulnerability finding"; then
+    pass "N2 — a report with two vulnerabilities is FAIL, '2 snyk vulnerability finding(s)'"
+  else
+    fail_ "N2" "summary line: ${l:-<none>}"
+  fi
+
+  # N3 — a renamed key (no .vulnerabilities) must NOT read as 0
+  FN3="$(newtmp)"; mk_p3_fixture "$FN3"; run_p3 "$FN3" "$ARCH/snyk-renamed.json" "$PATH_N"
+  l="$(snyk_line)"
+  if printf '%s' "$l" | grep -q "PASS"; then
+    fail_ "N3" "a report with no .vulnerabilities key read as PASS — an unearned receipt: ${l}"
+  elif printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "NOTHING WAS COUNTED"; then
+    pass "N3 — a report with no .vulnerabilities array is FAIL and says NOTHING WAS COUNTED"
+  else
+    fail_ "N3" "summary line: ${l:-<none>}"
+  fi
+
+  # N4 — a .vulnerabilities that is present but an OBJECT must not count as 0
+  FN4="$(newtmp)"; mk_p3_fixture "$FN4"; run_p3 "$FN4" "$ARCH/snyk-object.json" "$PATH_N"
+  l="$(snyk_line)"
+  if printf '%s' "$l" | grep -q "PASS"; then
+    fail_ "N4" "a .vulnerabilities object read as PASS — an unearned receipt: ${l}"
+  elif printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "NOTHING WAS COUNTED"; then
+    pass "N4 — a .vulnerabilities that is an object (not an array) is FAIL and says NOTHING WAS COUNTED"
+  else
+    fail_ "N4" "summary line: ${l:-<none>}"
   fi
 fi
 
@@ -264,9 +366,10 @@ fi
 echo "=== M — mutation proofs on a mirror ==="
 
 M_P3="# BL-256-P3-COUNT-RECEIPT"
+M_PN="# BL-256-P3-SNYK-COUNT-RECEIPT"
 M_UR="# BL-256-UAT-ATTEST-RECEIPT"
 M_UF="# BL-256-UAT-ATTEST-REFUSE"
-for pair in "$P3|$M_P3" "$PC|$M_UR" "$PC|$M_UF"; do
+for pair in "$P3|$M_P3" "$P3|$M_PN" "$PC|$M_UR" "$PC|$M_UF"; do
   f="${pair%%|*}"; m="${pair#*|}"
   n="$(_sites "$f" "$m")"
   [ "$n" = "1" ] \
@@ -323,6 +426,71 @@ else
     else
       fail_ "MP2 (MUTATION)" "the presence-check mutant did not re-open the defect — object: ${lo:-<none>} string: ${ls_:-<none>}"
     fi
+  fi
+fi
+
+# MP3 — drop the `*[!0-9]*` sanitiser alternative on a mirror: S8's
+# two-document archive must read PASS again. The case line is the one after
+# the marked jq line; it is located by its own literal, not by the marker.
+MP3="$(newtmp)/fw"
+if ! mk_mirror "$MP3"; then
+  fail_ "MP3 setup" "could not mirror scripts/"
+else
+  tgt="$MP3/scripts/run-phase3-validation.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  # only the semgrep arm's sanitiser — the first `''|*[!0-9]*)` AFTER the marker line
+  awk -v mark="$M_P3" 'index($0, mark) {seen=1} seen && !done && /^[[:space:]]*'"'"''"'"'\|\*\[!0-9\]\*\)/ {sub(/'"'"''"'"'\|\*\[!0-9\]\*\)/, "'"'"''"'"')"); done=1} {print}' "$before" > "$tgt"
+  if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null; then
+    fail_ "MP3 setup" "the sanitiser mutation did not apply cleanly"
+  elif [ -z "${PATH_S:-}" ]; then
+    fail_ "MP3 setup" "no isolated PATH from section S"
+  else
+    FM3="$(newtmp)"; mk_p3_fixture "$FM3"; run_p3 "$FM3" "$ARCH/multidoc.json" "$PATH_S" "$tgt"
+    l="$(semgrep_line)"
+    printf '%s' "$l" | grep -q "PASS" \
+      && pass "MP3 (MUTATION) — with the sanitiser arm dropped, a two-document archive reads PASS again: S8 is what stops it" \
+      || fail_ "MP3 (MUTATION)" "dropping the sanitiser arm changed nothing — S8 may be passing for another reason: ${l:-<none>}"
+  fi
+fi
+
+# MP4 — restore the old snyk count (`// 0` + `|| echo 0`) on a mirror: N3's
+# renamed key must read as PASS again.
+MP4="$(newtmp)/fw"
+if ! mk_mirror "$MP4"; then
+  fail_ "MP4 setup" "could not mirror scripts/"
+else
+  tgt="$MP4/scripts/run-phase3-validation.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  sed "s~^.*${M_PN}\$~  findings=\$(jq '(.vulnerabilities | length) // 0' \"\$archive\" 2>/dev/null || echo 0)   ${M_PN}~" "$before" > "$tgt"
+  if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null || ! grep -q "(.vulnerabilities | length) // 0" "$tgt"; then
+    fail_ "MP4 setup" "the snyk count mutation did not apply cleanly"
+  elif [ -z "${PATH_N:-}" ]; then
+    fail_ "MP4 setup" "no isolated PATH from section N"
+  else
+    FM4="$(newtmp)"; mk_p3_fixture "$FM4"; run_p3 "$FM4" "$ARCH/snyk-renamed.json" "$PATH_N" "$tgt"
+    l="$(snyk_line)"
+    printf '%s' "$l" | grep -q "PASS" \
+      && pass "MP4 (MUTATION) — with the old snyk count restored, a renamed key reads as PASS again: N3 is what stops it" \
+      || fail_ "MP4 (MUTATION)" "restoring the old snyk count changed nothing — N3 may be passing for another reason: ${l:-<none>}"
+  fi
+fi
+
+# MP5 — weaken the snyk type check to a PRESENCE check on a mirror: N4's object
+# must read PASS again.
+MP5="$(newtmp)/fw"
+if ! mk_mirror "$MP5"; then
+  fail_ "MP5 setup" "could not mirror scripts/"
+else
+  tgt="$MP5/scripts/run-phase3-validation.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  sed "s~^.*${M_PN}\$~  findings=\$(jq -e 'if has(\"vulnerabilities\") and .vulnerabilities != null then (.vulnerabilities | length) else error(\"x\") end' \"\$archive\" 2>/dev/null) || findings=\"\"   ${M_PN}~" "$before" > "$tgt"
+  if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null || ! grep -q 'has("vulnerabilities") and .vulnerabilities != null' "$tgt"; then
+    fail_ "MP5 setup" "the snyk presence-check mutation did not apply cleanly"
+  elif [ -z "${PATH_N:-}" ]; then
+    fail_ "MP5 setup" "no isolated PATH from section N"
+  else
+    FM5="$(newtmp)"; mk_p3_fixture "$FM5"; run_p3 "$FM5" "$ARCH/snyk-object.json" "$PATH_N" "$tgt"
+    l="$(snyk_line)"
+    printf '%s' "$l" | grep -q "PASS" \
+      && pass "MP5 (MUTATION) — with a presence check, a .vulnerabilities object reads PASS again: N4 is what stops it" \
+      || fail_ "MP5 (MUTATION)" "the snyk presence-check mutant did not re-open the defect: ${l:-<none>}"
   fi
 fi
 
