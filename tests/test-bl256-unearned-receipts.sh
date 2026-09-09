@@ -681,8 +681,10 @@ else
   tgt="$MP3/scripts/run-phase3-validation.sh"; before="$(mktemp)"; cp "$tgt" "$before"
   # only the semgrep arm's sanitiser — the first `''|*[!0-9]*)` AFTER the marker line
   awk -v mark="$M_P3" 'index($0, mark) {seen=1} seen && !done && /^[[:space:]]*'"'"''"'"'\|\*\[!0-9\]\*\)/ {sub(/'"'"''"'"'\|\*\[!0-9\]\*\)/, "'"'"''"'"')"); done=1} {print}' "$before" > "$tgt"
-  if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null; then
-    fail_ "MP3 setup" "the sanitiser mutation did not apply cleanly"
+  _mp3_b="$(grep -cF "''|*[!0-9]*)" "$before")"; _mp3_a="$(grep -cF "''|*[!0-9]*)" "$tgt")"
+  if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null \
+     || [ "$_mp3_a" -ne $(( _mp3_b - 1 )) ]; then
+    fail_ "MP3 setup" "the sanitiser mutation did not apply cleanly (arms $_mp3_b -> $_mp3_a)"
   elif [ -z "${PATH_S:-}" ]; then
     fail_ "MP3 setup" "no isolated PATH from section S"
   else
@@ -834,14 +836,29 @@ else
 fi
 
 # _mutate_line <src> <dst> <lineno> <literal-pattern> <replacement> — rewrite
-# one line by literal substitution (bash expansion, no sed/awk metachars —
-# the replacements below carry `&&`, `|`, `$` and `"`); returns 1 if the
-# pattern is not on that line
+# one line by literal substitution; returns 1 if the pattern is not on that
+# line OR if the replacement did not land literally.
+#
+# NOT `${orig/"$pat"/$rep}` — that is CLAUDE.md's sed `&` trap wearing a bash
+# costume. Since bash 5.1 an UNESCAPED `&` in the replacement of a pattern
+# substitution means THE WHOLE MATCH, exactly as in a sed replacement; bash
+# 3.2 has no such rule. This host runs 3.2 and CI runs 5.2, so a replacement
+# carrying `&&` (every shell guard here) produced the intended line locally
+# and spliced the match back in twice on the runner — `bash -n` clean, one
+# changed line, and a mutant that no longer mutates. It cost a red `rest`
+# shard on PR #380. Verified both ways: bash 3.2 gives `… || true && mv …`
+# and bash 5.2 gives `… || true > "$PROCESS_STATE.tmp" && mv> …`.
+# The prefix/suffix split below has no `&` rule in any version, and the
+# postcondition makes a replacement that did not land a LOUD setup failure
+# rather than a silently toothless mutant.
 _mutate_line() {
-  local src="$1" dst="$2" ln="$3" pat="$4" rep="$5" orig mut
+  local src="$1" dst="$2" ln="$3" pat="$4" rep="$5" orig lhs rhs mut
   orig="$(sed -n "${ln}p" "$src")"
   case "$orig" in *"$pat"*) ;; *) return 1 ;; esac
-  mut="${orig/"$pat"/$rep}"
+  lhs="${orig%%"$pat"*}"   # text before the first occurrence
+  rhs="${orig#*"$pat"}"    # text after it
+  mut="${lhs}${rep}${rhs}"
+  case "$mut" in *"$rep"*) ;; *) return 1 ;; esac
   { head -n $((ln - 1)) "$src"; printf '%s\n' "$mut"; tail -n +$((ln + 1)) "$src"; } > "$dst"
 }
 
@@ -856,7 +873,8 @@ else
   mline="$(grep -n "${M_SR}\$" "$before" | head -1 | cut -d: -f1)"
   gline=$(( ${mline:-0} - 1 ))
   if [ "$gline" -lt 1 ] || ! _mutate_line "$before" "$tgt" "$gline" '> "$PROCESS_STATE.tmp" && mv' '> "$PROCESS_STATE.tmp" || true && mv' \
-     || [ "$(_changed_lines "$before" "$tgt")" -ne 2 ] || ! bash -n "$tgt" 2>/dev/null; then
+     || [ "$(_changed_lines "$before" "$tgt")" -ne 2 ] || ! bash -n "$tgt" 2>/dev/null \
+     || [ "$(grep -cF '> "$PROCESS_STATE.tmp" || true && mv' "$tgt")" -ne 1 ]; then
     fail_ "MU5 setup" "the jq-tolerant step-guard mutation did not apply cleanly"
   else
     UM5="$(newtmp)"; mk_uat_fixture "$UM5"
@@ -882,7 +900,8 @@ else
   mline="$(grep -n "${M_UR}\$" "$before" | head -1 | cut -d: -f1)"
   gline=$(( ${mline:-0} - 1 ))
   if [ "$gline" -lt 1 ] || ! _mutate_line "$before" "$tgt" "$gline" '&& mv "$PROCESS_STATE.tmp"' '; mv "$PROCESS_STATE.tmp"' \
-     || [ "$(_changed_lines "$before" "$tgt")" -ne 2 ] || ! bash -n "$tgt" 2>/dev/null; then
+     || [ "$(_changed_lines "$before" "$tgt")" -ne 2 ] || ! bash -n "$tgt" 2>/dev/null \
+     || [ "$(grep -cF '; mv "$PROCESS_STATE.tmp" "$PROCESS_STATE" 2>/dev/null; then' "$tgt")" -ne 1 ]; then
     fail_ "MU6 setup" "the jq-tolerant attestation-guard mutation did not apply cleanly"
   else
     UM6="$(newtmp)"; mk_uat_fixture "$UM6"

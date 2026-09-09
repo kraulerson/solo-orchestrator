@@ -15519,7 +15519,22 @@ the U4c comment corrected; R4-2 (an already-EMPTY state file earns a receipt on 
 empty input exiting 0 with no output — `jq -e` on both writes would refuse it) recorded as residual 4;
 R4-3 (dropping the attestation `exit 1` is behaviourally equivalent — the step write on the same file
 fails next) no action. Round 4 was test-only; the 66-suite lane was not re-run for it (round 3's
-measurement stands: the only file that changed is this suite, 49/0). All **66**
+measurement stands: the only file that changed is this suite, 49/0). **Round 5 returned `approve`** and the branch
+was pushed as PR #380 — where the `rest` unit shard came back RED on the suite's own MU5, at 48/1, having been
+49/0 on this Mac. Cause: `_mutate_line` built the mutant with `${orig/"$pat"/$rep}`, and **since bash 5.1 an
+unescaped `&` in the replacement of a pattern substitution means THE WHOLE MATCH** — the same rule as `sed`, which
+bash 3.2 does not have. Every shell guard's replacement carries `&&`, so on the 5.2 runner the mutant's line became
+`… || true > "$PROCESS_STATE.tmp" && mv> "$PROCESS_STATE.tmp" && mv mv …`: still one changed line, still `bash -n`
+clean, still 2 diff lines — and no longer a mutant, so MU5's own assertion failed and reported it. The harness had
+asserted the SHAPE of the edit and not its CONTENT, which is exactly the half of CLAUDE.md's sed rule that was not
+carried over. Fixed three ways: `_mutate_line` splits on the pattern (`${s%%"$pat"*}` / `${s#*"$pat"}`, no `&` rule
+in any version) and refuses when the replacement did not land literally, so a dud mutation is a LOUD setup failure;
+MU5/MU6/MP3 gained explicit `grep -cF` content assertions (the other nine mutants already had them, which is why
+only MU5 broke); and the trap is now the second bullet of CLAUDE.md's ENVIRONMENT TRAPS with a container recipe.
+Both directions verified rather than argued — `ubuntu:24.04` (bash 5.2.21), as a non-root user so the `chmod 555`
+fixtures bite: the pre-fix file reproduces CI exactly (48/1, same MU5 message, `rc=1 bytes=463`) and the fixed file
+is **49 / 0** on Linux and on this Mac. `soif_sed_repl_esc` (`## BL-255:`) was checked for the same hazard in the
+same container and is unaffected: its `\&` is a literal backslash under both 3.2 and 5.2. All **66**
 unit-lane suites that drive `run-phase3-validation.sh` or `process-checklist.sh` (this one included) re-run green
 (incl. `test-phase3-validation-gate` 51/0, `test-bl114-bl115-bl127-gate-integrity` 17/0, the three
 BL-070 scanner suites 51/48/26, `test-bl233-wpb-accumulation` 100/0); registered in the aggregator and

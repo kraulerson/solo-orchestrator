@@ -53,6 +53,30 @@ here.
   an unescaped `&&` splices the original line back in, and that mutant passes
   `bash -n`. See `## BL-224:` for the sibling case where a lint's own regex
   over-matched for the same reason.
+- **The same `&` trap lives in bash's own `${var/pat/rep}`, and it is
+  VERSION-SPLIT between this host and CI.** Since bash 5.1 an unescaped `&`
+  in the *replacement* of a pattern substitution means THE WHOLE MATCH,
+  exactly as in `sed`; **bash 3.2 has no such rule**. This Mac runs 3.2 and
+  the runners run 5.2, so a replacement carrying `&&` — which every shell
+  guard does — produces the intended text locally and splices the match back
+  in on CI. It is silent in the worst way: the line still changes, the
+  changed-line count is still right, and `bash -n` is still clean, so a
+  mutation harness reports a healthy mutant that no longer mutates. That is
+  a red `rest` shard on PR #380, found only because the mutant stopped
+  killing its case. Two rules, the same two as for `sed`: **do not use
+  `${var/pat/rep}` when the replacement can contain `&`** — split on the
+  pattern instead (`lhs="${s%%"$pat"*}"; rhs="${s#*"$pat"}"`), which has no
+  `&` rule in any version — and **assert the replacement LANDED**, by its
+  own literal text, not by a line count. `soif_sed_repl_esc` in
+  `helpers-core.sh` is unaffected (its `\&` is a literal backslash in both
+  3.2 and 5.2 — verified in a container, not assumed).
+  Reproduce the runner's bash on this host:
+  ```
+  docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash -c 'apt-get update -qq \
+    && apt-get install -y -qq jq git && useradd -m t && cp -r /repo /home/t/r \
+    && chown -R t /home/t/r && su t -c "cd /home/t/r && bash tests/<file>.sh"'
+  ```
+  Run as a NON-root user or every `chmod 555` fixture silently stays writable.
 - **This Mac's git is configured and an ubuntu-latest runner's is not — and the
   difference is silent.** Xcode ships
   `/Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig`
