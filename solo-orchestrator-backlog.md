@@ -15521,7 +15521,7 @@ R4-3 (dropping the attestation `exit 1` is behaviourally equivalent — the step
 fails next) no action. Round 4 was test-only; the 66-suite lane was not re-run for it (round 3's
 measurement stands: the only file that changed is this suite, 49/0). **Round 5 returned `approve`** and the branch
 was pushed as PR #380 — where the `rest` unit shard came back RED on the suite's own MU5, at 48/1, having been
-49/0 on this Mac. Cause: `_mutate_line` built the mutant with `${orig/"$pat"/$rep}`, and **since bash 5.1 an
+49/0 on this Mac. Cause: `_mutate_line` built the mutant with `${orig/"$pat"/$rep}`, and **since bash 5.2 an
 unescaped `&` in the replacement of a pattern substitution means THE WHOLE MATCH** — the same rule as `sed`, which
 bash 3.2 does not have. Every shell guard's replacement carries `&&`, so on the 5.2 runner the mutant's line became
 `… || true > "$PROCESS_STATE.tmp" && mv> "$PROCESS_STATE.tmp" && mv mv …`: still one changed line, still `bash -n`
@@ -15538,7 +15538,7 @@ line (`${t//&/\\&}` carries TWO backslashes, not one). Measured directly on both
 about: on 5.2 `\\&` is a literal backslash plus THE WHOLE MATCH, a single `\&` is an escaped literal `&` with the
 backslash consumed, and a bare `&` is the whole match; on 3.2 all three are literal. The helper is byte-identical
 across versions only because its pattern is the single character `&`, so the whole match happens to BE `&`. Round 8
-(`approve`) verified all eight cells of that table on 5.2.21 and 5.2.37 and caught one more error above them: the
+(`approve`) reproduced that table on 3.2 and on 5.2 (5.2.21 and 5.2.37) and caught one more error above it: the
 rule arrives in **5.2**, not 5.1 — measured absent in 5.0.18 and 5.1.16, and the `patsub_replacement` shopt that
 governs it does not exist before 5.2. It also measured a residual worth keeping: mutate the helper's `\\&` to `\&`
 and `test-bl255-sed-replacement-escape.sh` stays GREEN on this Mac, going red only on the runner — the suite that
