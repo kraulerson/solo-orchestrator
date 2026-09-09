@@ -54,9 +54,13 @@ here.
   `bash -n`. See `## BL-224:` for the sibling case where a lint's own regex
   over-matched for the same reason.
 - **The same `&` trap lives in bash's own `${var/pat/rep}`, and it is
-  VERSION-SPLIT between this host and CI.** Since bash 5.1 an unescaped `&`
-  in the *replacement* of a pattern substitution means THE WHOLE MATCH,
-  exactly as in `sed`; **bash 3.2 has no such rule**. This Mac runs 3.2 and
+  VERSION-SPLIT between this host and CI.** Since bash **5.2** an unescaped
+  `&` in the *replacement* of a pattern substitution means THE WHOLE MATCH,
+  exactly as in `sed`; **bash 3.2 has no such rule**. 5.2 is the boundary, not
+  5.1 — measured, `u='one TWO three'; "${u//TWO/&}"` gives `one & three` on
+  3.2.57, 5.0.18 and 5.1.16 and `one TWO three` on 5.2.37, and the `shopt`
+  that governs it (`patsub_replacement`, on by default) does not exist before
+  5.2. This Mac runs 3.2 and
   the runners run 5.2, so a replacement carrying `&&` — which every shell
   guard does — produces the intended text locally and splices the match back
   in on CI. It is silent in the worst way: the line still changes, the
@@ -86,7 +90,10 @@ here.
   because its pattern is the single character `&`, which makes "the whole
   match" happen to be `&`. Change that pattern and the versions diverge in
   silence. `tests/test-bl255-sed-replacement-escape.sh` pins those bytes in
-  the unit lane, and that is what would catch it.
+  the unit lane, and that is what would catch it — **but only there.** Mutate
+  the helper's `\\&` to `\&` and that suite stays GREEN on this Mac and goes
+  red only on the runner, which is this same trap one level up: a local run
+  of the suite that guards the trap does not see the trap.
   Reproduce the runner's bash on this host:
   ```
   docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash -c 'apt-get update -qq \

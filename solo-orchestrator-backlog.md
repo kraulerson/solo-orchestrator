@@ -15537,7 +15537,12 @@ second — both for the same class of error the bullet exists to prevent, and th
 line (`${t//&/\\&}` carries TWO backslashes, not one). Measured directly on both versions rather than reasoned
 about: on 5.2 `\\&` is a literal backslash plus THE WHOLE MATCH, a single `\&` is an escaped literal `&` with the
 backslash consumed, and a bare `&` is the whole match; on 3.2 all three are literal. The helper is byte-identical
-across versions only because its pattern is the single character `&`, so the whole match happens to BE `&`. Round 6 also found the `chmod 555` sites inside MU1/MU3 carried no root guard, so as root those
+across versions only because its pattern is the single character `&`, so the whole match happens to BE `&`. Round 8
+(`approve`) verified all eight cells of that table on 5.2.21 and 5.2.37 and caught one more error above them: the
+rule arrives in **5.2**, not 5.1 — measured absent in 5.0.18 and 5.1.16, and the `patsub_replacement` shopt that
+governs it does not exist before 5.2. It also measured a residual worth keeping: mutate the helper's `\\&` to `\&`
+and `test-bl255-sed-replacement-escape.sh` stays GREEN on this Mac, going red only on the runner — the suite that
+guards the trap is itself subject to it. Round 6 also found the `chmod 555` sites inside MU1/MU3 carried no root guard, so as root those
 two passed vacuously while claiming a read-only `.claude/` (43/4 — contained, because the four guarded sites turn
 the suite red under root either way); both now guard, and the suite is loud on all six.
 Both directions verified rather than argued — `ubuntu:24.04` (bash 5.2.21), as a non-root user so the `chmod 555`
