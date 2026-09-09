@@ -15274,3 +15274,74 @@ parse.
 **Related:** `## BL-108:` (source-closure — the derived set this now feeds), `## BL-199:` (the class of
 docs naming things that do not ship), `## BL-112:` (a check that did not run must not read as clean),
 `## BL-196:` (the marker lint, the same shape one surface over).
+
+---
+
+## BL-255: `--description` and the interactive project name reach `sed` as a raw REPLACEMENT — `R&D tools` renders as `R__PROJECT_DESCRIPTION__D tools`, and `a|w <path>|` writes a file and empties the description
+
+**Status:** Open
+
+**Logged:** 2026-09-08, out of the adversarial codebase review (S6; pass 2 adjudicated it medium, not
+high: the file-write primitive is real, GNU sed's `e`-flag RCE plausible but not reproduced on BSD sed).
+Ranked #3 of the verified review's top ten. Reproduced on `main` `c6da463`.
+
+**The defect, precisely.** `soif_render_claude_md` and `soif_render_project_intake`
+(`scripts/lib/render-project-docs.sh`) splice the project name and one-sentence description into
+templates with `sed "s|__X__|$var|g"` and `s~…~$var~`. In a sed replacement three things are special and
+all three arrived raw: `&` is the whole match, `\` starts an escape, and the delimiter ends the
+replacement — what follows is parsed as FLAGS. Measured on this host (BSD sed 2.6.0):
+- description `R&D tools` → CLAUDE.md line `- **Description:** R__PROJECT_DESCRIPTION__D tools`;
+- description `a|w <scratch>/pwned|` → a **file written** at `<scratch>/pwned||g` (21 bytes — the `w`
+  filename runs to end-of-expression, so it picked up the trailing `|g`) and the description rendered
+  as `- **Description:** a`;
+- project name `acme&co` → `# CLAUDE.md — acme__PROJECT_NAME__co`.
+`--description` is unvalidated (`collect_inputs_non_interactive` regex-checks `ARG_PROJECT` only); the
+interactive project name is `tr`-normalised only (lower-case, spaces → hyphens), so `a&b` and `a|b`
+pass. The same raw splice sat in `init.sh` (two APPROVAL_LOG renders), `scripts/verify-install.sh`
+(its CLAUDE.md re-render on `--auto-fix`), and `scripts/reconfigure-project.sh` (the rename's new name).
+
+**Fix (built on this branch).** One helper, `soif_sed_repl_esc <text> [delim]` in
+`scripts/lib/helpers-core.sh` (`# BL-255-SED-REPL-ESC`): escapes `&`, `\` and the given delimiter,
+folds a newline to a space (a newline ends a sed expression; descriptions are one sentence), and picks
+its own internal delimiter so a caller delimiter of `/` is safe. Applied at every replacement-position
+site that carries operator text: both renderers (name + description; the four enum/integer values are
+init.sh-validated and left alone), `init.sh`'s two APPROVAL_LOG renders, `verify-install.sh`'s
+re-render (name + description), and `reconfigure-project.sh`'s two rename sites (replacement side).
+Suite `tests/test-bl255-sed-replacement-escape.sh`: the helper by table (H), both renderers end to end
+(E — `&`, the `|w` payload writes nothing and renders verbatim, a `&` in the name, `&`+`~` through the
+intake renderer), the scaffold-only name sites pinned by grep (G), and two mutants on a mirror (M1
+neuters the helper → the `&` splice returns; M2 bypasses the helper at the render site → the `w`-flag
+writes a file again).
+
+**Residuals, stated rather than hidden:**
+1. **The PATTERN side of the rename is still raw.** `reconfigure-project.sh` runs
+   `s|$old_name|$new_name|g`; the new name is now escaped, the old name is a regex pattern and needs a
+   different escape (`[]\.*^$/|` and friends). A current name containing a regex metacharacter is
+   already impossible via `--project` (regex-validated) but possible via the interactive path.
+2. **Validation would be the stronger fix and is not done here.** Escaping makes any description
+   render verbatim; it does not decide whether a description containing `|` or a control character is
+   something the framework should accept. That is an intake-policy call.
+3. Of the 18 `sed … $var` replacement sites in product code, the six not touched here carry generated
+   or validated values (`$today`, `$date`, `$id`, a `_slugify`'d slug, an integer, a `mktemp` path) —
+   listed so the next reader does not re-audit them: `intake-wizard.sh` (`$today`), `delta.sh`
+   (`$id`, `$slug`, `$class`, `$at`), `test-gate.sh` (`${n}`), `hook-templates.sh` (`$soif_idx_tree`),
+   `lint-bl-markers.sh` (`$WF_NORMALISED`, internal), `probe-tool.sh` (`${pkg}`, pattern side).
+
+**Build note (2026-09-08, branch `fix/bl255-escape-sed-replacements`).** RED measured before any product
+change: `tests/test-bl255-sed-replacement-escape.sh` **0 passed / 11 failed** — H0 (no helper), E1
+(`R__PROJECT_DESCRIPTION__D tools`), E2 (a file written at `…/pwned||g`), E2b (description rendered as
+`a`), E3 (`# CLAUDE.md — acme__PROJECT_NAME__co`), E4 setup, G ×2 (init.sh three raw sites, verify-install
+one), M0/M1/M2. GREEN **18 / 0**: the helper by table (H ×8), both renderers end to end (E ×5), the
+scaffold-only sites by grep (G ×2: init.sh 3 escaped / 0 raw, verify-install 1 / 0), M0, and two mutants
+on a mirror — M1 neuters the marked line and the `&` splice returns; M2 bypasses the helper at the
+render site and the `w`-flag writes a file again. **The M2 harness itself fell into CLAUDE.md's sed
+trap on its first cut** — `|` as the delimiter with `|` in the pattern — and sed emitted an EMPTY mirror
+file that `bash -n` accepted and the changed-line count read as an applied mutation; the mutant then
+"changed nothing" because no renderer was left to run. It now uses `#`, asserts the raw line is present
+afterwards and that `soif_render_claude_md` still exists — a SHAPE assertion, not a count. Related suites
+green: plan-staging 25/0, reconfigure-field-handlers rc 0, verify-install bl030 8/0 / eval-factory 4/0 /
+fix-functions 16/0, scaffold-source-closure 9/0; all five edited product files parse; registered in the
+aggregator and the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `registered`).
+
+**Related:** `## BL-164:` (shell-injectable generated CI from scaffold values — the sibling sink),
+`## BL-234:` (`_qdrant_key_escape` — the same escape-at-the-sink discipline one surface over).

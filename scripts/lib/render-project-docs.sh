@@ -37,8 +37,11 @@
 soif_render_claude_md() {
   local tmpl="$1" out="$2" name="$3" desc="$4" platform="$5" track="$6" \
         language="$7" test_interval="$8" deployment="$9"
-  sed -e "s|__PROJECT_NAME__|$name|g" \
-      -e "s|__PROJECT_DESCRIPTION__|$desc|g" \
+  # `## BL-255:` — name and description are OPERATOR TEXT and are escaped for
+  # the replacement position (`&`, `\`, the `|` delimiter, newlines). The four
+  # values below them are init.sh-validated enums/integers and are not.
+  sed -e "s|__PROJECT_NAME__|$(soif_sed_repl_esc "$name" "|")|g" \
+      -e "s|__PROJECT_DESCRIPTION__|$(soif_sed_repl_esc "$desc" "|")|g" \
       -e "s|__PLATFORM__|$platform|g" \
       -e "s|__TRACK__|$track|g" \
       -e "s|__LANGUAGE__|$language|g" \
@@ -145,9 +148,11 @@ soif_render_project_intake() {
   local deployment_display
   deployment_display="$(echo "${deployment:0:1}" | tr '[:lower:]' '[:upper:]')${deployment:1}"
 
+  # `## BL-255:` — name and description are OPERATOR TEXT, escaped for the
+  # replacement position of a `~`-delimited expression.
   sed -i.bak \
-    -e "s~| \*\*Project name\*\* | |~| **Project name** | $name |~" \
-    -e "s~| \*\*One-sentence description\*\* | _What does this do, in plain language?_ |~| **One-sentence description** | $desc |~" \
+    -e "s~| \*\*Project name\*\* | |~| **Project name** | $(soif_sed_repl_esc "$name" "~") |~" \
+    -e "s~| \*\*One-sentence description\*\* | _What does this do, in plain language?_ |~| **One-sentence description** | $(soif_sed_repl_esc "$desc" "~") |~" \
     -e "s~| \*\*Project track\*\* | Light / Standard / Full .*~| **Project track** | $track_display |~" \
     -e "s~| \*\*Platform type\*\* | Web / Desktop / Mobile / CLI / Other: .*~| **Platform type** | $platform |~" \
     -e "s~| \*\*Platform Module\*\* | SOI-PM-WEB / SOI-PM-DESKTOP / SOI-PM-MOBILE / None .*~| **Platform Module** | $platform_module |~" \

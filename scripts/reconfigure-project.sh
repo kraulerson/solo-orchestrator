@@ -561,7 +561,10 @@ reconfigure() {
 
       # Update CLAUDE.md project name
       if [ -f "CLAUDE.md" ]; then
-        sed -i.bak "s|$old_name|$new_name|g" CLAUDE.md \
+        # `## BL-255:` — the NEW name is operator text in the replacement
+        # position and is escaped. The OLD name sits in the PATTERN position,
+        # which needs a regex escape this helper is not; recorded on the entry.
+        sed -i.bak "s|$old_name|$(soif_sed_repl_esc "$new_name" "|")|g" CLAUDE.md \
           || _rename_rollback "CLAUDE.md sed failed"
         rm -f CLAUDE.md.bak
         print_ok "Updated project name in CLAUDE.md"
@@ -569,7 +572,7 @@ reconfigure() {
 
       # Update PROJECT_INTAKE.md
       if [ -f "PROJECT_INTAKE.md" ]; then
-        sed -i.bak "s|$old_name|$new_name|g" PROJECT_INTAKE.md \
+        sed -i.bak "s|$old_name|$(soif_sed_repl_esc "$new_name" "|")|g" PROJECT_INTAKE.md \
           || _rename_rollback "PROJECT_INTAKE.md sed failed"
         rm -f PROJECT_INTAKE.md.bak
         print_ok "Updated project name in PROJECT_INTAKE.md"

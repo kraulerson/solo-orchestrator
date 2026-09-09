@@ -1111,8 +1111,10 @@ fix_claude_md() {
   # always clean up the partial file even on early failure.
   trap "rm -f '$staged'" RETURN
 
-  if ! sed -e "s|__PROJECT_NAME__|$proj_name|g" \
-           -e "s|__PROJECT_DESCRIPTION__|$proj_desc|g" \
+  # `## BL-255:` — name and description are operator text, escaped for the
+  # replacement position (`&`, `\`, the `|` delimiter, newlines).
+  if ! sed -e "s|__PROJECT_NAME__|$(soif_sed_repl_esc "$proj_name" "|")|g" \
+           -e "s|__PROJECT_DESCRIPTION__|$(soif_sed_repl_esc "$proj_desc" "|")|g" \
            -e "s|__PLATFORM__|$PLATFORM|g" \
            -e "s|__TRACK__|$TRACK|g" \
            -e "s|__LANGUAGE__|$LANGUAGE|g" \
