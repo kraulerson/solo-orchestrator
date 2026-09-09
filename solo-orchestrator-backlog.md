@@ -15653,8 +15653,9 @@ what the 23 sites already ignored.
 
 **Status:** Open
 
-**Logged:** 2026-09-09. The 2026-09-08 adversarial codebase review (one agent, verified by a
-single-agent second pass) produced a ranked top ten. **#1-#4 became entries and all four have now
+**Logged:** 2026-09-09. The 2026-09-08 adversarial codebase review (one agent, second pass also one
+agent) produced a ranked top ten. **The second pass adjudicated #1-#4 — that is what "the verified
+review's top ten" on those four entries refers to; #5-#10 were not re-measured by it.** **#1-#4 became entries and all four have now
 shipped** — `## BL-253:` (#1, PR #377), `## BL-254:` (#2, PR #378), `## BL-255:` (#3, PR #379),
 `## BL-256:` (#4, PR #380). **#5-#10 were never filed.** The review's own scratch files were deleted
 on Karl's instruction once the top ten was agreed, and no `Reports/**` artifact was written, so the
@@ -15669,20 +15670,25 @@ defect is an unearned receipt. **Reproduce each one first.** Where a symptom bel
 say so on this entry and strike it rather than quietly fixing something adjacent.
 
 **#5 — first-screen fixes.** Four items the review grouped as "what a new user hits first":
-`verify-install.sh` parses in the wrong order; `RESOLVER_OUTPUT` is read before the `# BL-057-`
-early return sets it; `validate.sh`'s phase inference is wrong; and the resolver's `@tsv` output is
+`verify-install.sh` parses in the wrong order; the `# BL-057:` early return in
+`resolve_and_install_tools()` (`init.sh` line 972, with the assignment at 1171 in the SAME function)
+SKIPS the `RESOLVER_OUTPUT` assignment rather than setting it, so its three readers — all
+`${RESOLVER_OUTPUT:-}`-guarded, hence silent — see nothing; `validate.sh`'s phase inference is wrong; and the resolver's `@tsv` output is
 consumed with a shifted field index. Ranked #5, and the one to do next: it is the first screen, so a
 defect here is seen by every user before anything else.
 
 **#6 — `_bl072_tier_bypassable` conflates absent with unparseable**, so a state file that cannot be
-read takes the same branch as one that is not there — the `# BL-231:` "tracking file absent =&gt; no
+read takes the same branch as one that is not there — the `## BL-231:` "tracking file absent, no
 enforcement, silently" family, and the same class `## BL-256:` fixed for scanner counts. Plus: the
 release-variable reader is duplicated where one `get_release_vars` lib would do.
 
 **#7 — block messages.** `SOIF_PHASE_GATES=warn` is advertised but not recorded when used; the
 remediation text is not per-arm, so a reader gets generic advice for a specific block; and `--help`
-is handled AFTER the guard, so asking a script how to use it can be refused by the gate it is asking
-about. Compare `# WALK-ISSUE-017-HATCH`, where advertising an escape without its precondition cost a
+is handled AFTER the guard in some scripts, so asking one how to use it can be refused by the gate it
+is asking about. The note named no script; a sweep for a first `exit 1` preceding the `--help` arm
+surfaces `adopt-project.sh`, `delta.sh`, `intake-wizard.sh` and `lint-tests-registered.sh` as
+candidates, while `pre-commit-gate.sh` (`# BL-096-GATE-HELP`) and `check-phase-gate.sh` already get it
+right — so start from that sweep, not from the note. Compare `# WALK-ISSUE-017-HATCH`, where advertising an escape without its precondition cost a
 walk agent real time.
 
 **#8 — permissions posture. NEEDS KARL'S DECISION, not an implementation.** The review flagged the
@@ -15691,16 +15697,35 @@ shapes in `ask`, four root/home wipes in `deny`) was a deliberate decision, and 
 downgraded the severity accordingly. Do not "fix" this without asking.
 
 **#9 — `--sync-framework` runs inside the snapshot trap**, so a failure there is attributed to the
-snapshot; plus `soif_state_update` wants the same treatment.
+snapshot. The note's second half named `soif_state_update`, **which has never existed on any ref**
+(`git log --all -S` finds it only in this entry). The real function is `delta_state_update`
+(`scripts/lib/delta-state.sh`), called from `process-checklist.sh` — and that surface is **already
+filed as `## BL-257:`**, so do not re-file it here; #9 is the snapshot-trap half only.
 
 **#10 — CI coverage gaps.** No `macos-latest` smoke leg, so this repo's own dev host is the one
 platform CI never exercises — the git-config and bash-version traps in CLAUDE.md are both
-host-divergence bugs that only CI or only the Mac can see. A `grep -oP` call that fails on BSD grep.
-The file-scheme `e2e-init*` trio is red on main for unrelated reasons and full-lane only. A
-`default_branch` key is unread.
+host-divergence bugs that only CI or only the Mac can see. One `grep -oP` call that fails on BSD grep, at
+`scripts/check-versions.sh` line 136 — **already logged 2026-04-08 as `CC3-030` in
+`Reports/phase-audits/re-audit-round3-2026-04-08/cross-cutting-re-audit.md` and still unfixed**, so
+this is a re-discovery, not a new find.
+The file-scheme `e2e-init*` trio is red on main for unrelated reasons and full-lane only.
+**STRUCK: "a `default_branch` key is unread".** No such key exists in any spelling on any ref
+(`git log --all -S'default_branch'` returns only this entry; the nearest real things are git-config
+`defaultBranch = main` in three host-driver fixtures). That note is unlocatable rather than
+unreproduced, so it is struck here under this entry's own rule rather than left as a lead nobody can
+chase.
 
 **Fix:** none here. Each item becomes its own entry with its own reproduction when it is picked up, or
 gets struck from this one with the measurement that refuted it. When the last is resolved, close this.
+
+**Residual — a lint hole this entry walked into.** Its first cut carried two marker-shaped citations
+that resolve to nothing, `# BL-057-` (real spelling `# BL-057:`) and a hybrid `# BL-231:` (an entry, so
+`## BL-231:`), and `scripts/lint-bl-markers.sh` passed anyway. Its prose-citation matcher is
+`BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_-]*`, which requires a LETTER after the hyphen — so a truncation to
+a bare trailing hyphen, and a `# BL-NNN:` hybrid, are both invisible to the one lint built to catch
+dangling citations. CLAUDE.md's CITATION RULE records that a *bare* `BL-NNN-suffix` token is invisible;
+these two shapes are a second, narrower hole in the same matcher and are recorded nowhere. Both were
+caught by review, not by the lint.
 
 **Related:** `## BL-253:`, `## BL-254:`, `## BL-255:`, `## BL-256:` (the four that shipped),
 `## BL-257:` (filed out of BL-256's review, same wave), `## BL-231:` (#6's family),
