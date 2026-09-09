@@ -68,8 +68,16 @@ here.
   pattern instead (`lhs="${s%%"$pat"*}"; rhs="${s#*"$pat"}"`), which has no
   `&` rule in any version — and **assert the replacement LANDED**, by its
   own literal text, not by a line count. `soif_sed_repl_esc` in
-  `helpers-core.sh` is unaffected (its `\&` is a literal backslash in both
-  3.2 and 5.2 — verified in a container, not assumed).
+  `helpers-core.sh` is unaffected, but **not for the reason you would guess,
+  and the difference is the whole trap**: its `${t//&/\&}` is byte-identical
+  across versions ONLY because the pattern is the single character `&`, so
+  "the whole match" happens to BE `&`. The `\` does not survive as an escape
+  on 5.2 — it is consumed at quote removal and the bare `&` that remains is
+  the match. Measured, same script both hosts: with pattern `x` and that same
+  replacement, 3.2 gives `a \ & b` and 5.2 gives `a \ x b`. So `\&` is not a
+  portable way to write a literal `&`; that one call site is safe by
+  coincidence of its pattern, and `tests/test-bl255-sed-replacement-escape.sh`
+  pins its bytes in the unit lane, which is what would catch a change to it.
   Reproduce the runner's bash on this host:
   ```
   docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash -c 'apt-get update -qq \
@@ -168,12 +176,15 @@ here.
 ## LINT GOTCHAS
 
 - `scripts/run-lints.sh` runs **every `scripts/lint-*.sh` EXCEPT
-  `lint-uat-scenarios.sh`** (12 of the 13 lint scripts as of 2026-07-31 — BL-196
-  added `lint-bl-markers.sh`, and run-lints discovers it by glob, no wiring).
+  `lint-uat-scenarios.sh`** (**16 of the 17** lint scripts as of 2026-09-09 — it
+  discovers them by glob, so a new lint needs no wiring; the count drifts, so
+  measure it rather than quoting this line: `ls scripts/lint-*.sh | wc -l`, and
+  `bash scripts/run-lints.sh` prints its own total on the last line).
 - `scripts/lint-uat-scenarios.sh` is a **parametrized tool, not a repo lint**:
   bare-invoked it exits **2** with a `Usage:` message because it needs a
   `<populated-html-file>` argument. It is **not** one of the CI lint jobs
-  (`.github/workflows/lint.yml`, 10 jobs as of 2026-07-31), so run-lints
+  (`.github/workflows/lint.yml`, **14** jobs as of 2026-09-09 —
+  `grep -cE '^  [a-z0-9-]+-lint:' .github/workflows/lint.yml`), so run-lints
   deliberately skips it.
 - Two lints are **slow full-tree scans**: `lint-counter-antipattern.sh` (~90s)
   and `lint-raw-read-prompt.sh` (~40s). A full `run-lints.sh` is a couple of

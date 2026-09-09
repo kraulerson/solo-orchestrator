@@ -15529,8 +15529,14 @@ clean, still 2 diff lines — and no longer a mutant, so MU5's own assertion fai
 asserted the SHAPE of the edit and not its CONTENT, which is exactly the half of CLAUDE.md's sed rule that was not
 carried over. Fixed three ways: `_mutate_line` splits on the pattern (`${s%%"$pat"*}` / `${s#*"$pat"}`, no `&` rule
 in any version) and refuses when the replacement did not land literally, so a dud mutation is a LOUD setup failure;
-MU5/MU6/MP3 gained explicit `grep -cF` content assertions (the other nine mutants already had them, which is why
-only MU5 broke); and the trap is now the second bullet of CLAUDE.md's ENVIRONMENT TRAPS with a container recipe.
+MU5/MU6/MP3 gained explicit `grep -cF` content assertions (of the other nine, eight already asserted the mutated
+text and MU2 is a line-addressed `Nd` delete with a content PRE-check, where shape is content — which is why only
+MU5 broke); and the trap is now the second bullet of CLAUDE.md's ENVIRONMENT TRAPS with a container recipe,
+corrected in round 6 to say WHY `soif_sed_repl_esc` survives: not because `\&` escapes on 5.2 (it does not — the
+backslash is consumed and the bare `&` is the match) but because its pattern is the single character `&`, so the
+whole match IS `&`. Round 6 also found the `chmod 555` sites inside MU1/MU3 carried no root guard, so as root those
+two passed vacuously while claiming a read-only `.claude/` (43/4 — contained, because the four guarded sites turn
+the suite red under root either way); both now guard, and the suite is loud on all six.
 Both directions verified rather than argued — `ubuntu:24.04` (bash 5.2.21), as a non-root user so the `chmod 555`
 fixtures bite: the pre-fix file reproduces CI exactly (48/1, same MU5 message, `rc=1 bytes=463`) and the fixed file
 is **49 / 0** on Linux and on this Mac. `soif_sed_repl_esc` (`## BL-255:`) was checked for the same hazard in the

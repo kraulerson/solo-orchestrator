@@ -800,10 +800,17 @@ else
     UM3="$(newtmp)"; mk_uat_fixture "$UM3"
     printf 'tester A results\n' > "$UM3/tests/uat/sessions/s1/submissions/tester-a.md"
     chmod 555 "$UM3/.claude"
+    # review round 6, R6-3: as root `chmod 555` does not bite and this case
+    # passes VACUOUSLY while its text claims "a read-only .claude/"
+    if [ -w "$UM3/.claude" ]; then
+      chmod 755 "$UM3/.claude"
+      fail_ "MU3 setup" ".claude stayed writable after chmod 555 (running as root?) — the read-only case cannot be measured"
+    else
     run_step "$UM3" "$tgt"; chmod 755 "$UM3/.claude"
     printf '%s' "$UAT_OUT" | grep -q "Step 'results_received' completed" \
       && pass "MU3 (MUTATION) — with the step refuse arm turned back into a receipt, a read-only .claude/ is announced as completed: U4 is what stops it" \
       || fail_ "MU3 (MUTATION)" "the mutant did not produce the false receipt — U4 may be passing for another reason"
+    fi
   fi
 fi
 
@@ -929,10 +936,17 @@ else
     fail_ "MU1 setup" "the refuse-arm mutation did not apply cleanly"
   else
     UM="$(newtmp)"; mk_uat_fixture "$UM"; chmod 555 "$UM/.claude"
+    # review round 6, R6-3: as root `chmod 555` does not bite and this case
+    # passes VACUOUSLY while its text claims "a read-only .claude/"
+    if [ -w "$UM/.claude" ]; then
+      chmod 755 "$UM/.claude"
+      fail_ "MU1 setup" ".claude stayed writable after chmod 555 (running as root?) — the read-only case cannot be measured"
+    else
     run_uat "$UM" "$tgt"; chmod 755 "$UM/.claude"
     printf '%s' "$UAT_OUT" | grep -q "RECORDED" \
       && pass "MU1 (MUTATION) — with the refuse arm turned back into a receipt, a read-only .claude/ is announced as RECORDED: U2 is what stops it" \
       || fail_ "MU1 (MUTATION)" "the mutant did not produce the false receipt — U2 may be passing for another reason"
+    fi
   fi
 fi
 
