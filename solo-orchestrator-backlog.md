@@ -15170,9 +15170,13 @@ wp5b 57, wp6 45, wp9 29, wp9b 103, wp10a 54, bl221 12, bl225 35, lint-module-dep
 generated CI steps already called are now shipped by the scaffold, and all 24 steps lose their `2>/dev/null
 || true` — measured 20 GitHub, 4 GitLab, 0 Bitbucket — so a failing check now blocks the job. **Neither host
 blocked before this PR**: the GitHub half was behind `|| true` too, which is the silent no-op in the entry's own
-headline. **Two** adversarial rounds (`major_concerns` → `minor_concerns`) found the user-guide table committing the exact defect the entry is about: four of the 22 new rows
-said "Automatic (CI)" for lints that run in NO generated pipeline. All corrected before push, plus one pre-existing
-wrong cell. **Residuals 1-6 below stay open**, chiefly that the governance steps are still not uniform across the
+headline. **Two** adversarial rounds (`major_concerns` → `minor_concerns`); **round 1** found the user-guide table
+committing the exact defect the entry is about: four of the 22 new rows said "Automatic (CI)" for lints that run in
+NO generated pipeline. All corrected before push, plus one pre-existing wrong cell (that one from the `--help`
+sweep, not from these four rows). **Round 2 is not documented below** — the body records round 1 only. Its three
+findings are in commit `552de5f` on the merged branch: comment-stripping (a commented-out entry is not an
+invocation), the deletion hole (deleting every governance step passed 8/0 until it was pinned), and a corrected RED
+figure. **Residuals 1-6 below stay open**, chiefly that the governance steps are still not uniform across the
 three hosts and that the table's Invocation and Phase cells are enforced for presence, not accuracy.
 
 **Logged:** 2026-09-08, out of the adversarial codebase review (pass 1 headline #2 → G0/G2/R4; verified
@@ -15419,8 +15423,11 @@ mutants. **Nine adversarial rounds** — rounds 2, 3 and 4 each broke the code t
 each of those mutants is now a permanent case; rounds 6-9 were CHIEFLY one paragraph of trap documentation that
 took three drafts to state correctly, but not only that — round 6 also caught MU1/MU3 passing vacuously under root
 (below), and round 9 caught the boundary claim asserted and refuted eighteen lines apart in this very entry.
-Rounds 1-8 are documented below; round 9's findings landed as the `5.1`→`5.2` correction in that paragraph and a
-provenance rewording, and its verdict was `minor_concerns` with no code finding. **Residuals 1-7 below stay open**, chiefly `_p3_scan_zap` carrying the same hole by
+Rounds 1-8 are documented below; round 9 is not, and its findings landed as the `5.1`→`5.2` correction in that
+paragraph and a provenance rewording — both in commit `50262d7`, which touches only this file, so round 9 produced
+no code finding. Its VERDICT is not in merged history: verdicts live in `.claude/process-state.json`, which is
+untracked runtime state, so treat the nine-round sequence as attested by these commits rather than by a record you
+can `git show`. **Residuals 1-7 below stay open**, chiefly `_p3_scan_zap` carrying the same hole by
 a different route, and `## BL-257:` for the other 23 unchecked state writes.
 
 **Logged:** 2026-09-08, out of the adversarial codebase review (ST2 + R2, both confirmed by the
