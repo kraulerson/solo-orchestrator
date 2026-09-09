@@ -1202,10 +1202,23 @@ BL120EOF
         local uat_reason uat_now uat_track
         uat_reason="${SOLO_UAT_REASON:-unspecified - attested via SOLO_UAT_SOLO_ATTESTED}"
         uat_now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq --arg r "$uat_reason" --arg at "$uat_now" \
-           '.uat_session.solo_attestations = ((.uat_session.solo_attestations // []) + [{reason: $r, at: $at, step: "results_received"}])' \
-           "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
-        print_ok "results_received: SOLO-MODE attested and RECORDED (reason: $uat_reason) — no external submissions required."
+        # `## BL-256:` — THE RECEIPT IS CONDITIONAL ON THE RECORD. The first cut
+        # printed "attested and RECORDED" unconditionally after a `jq … && mv`
+        # that can fail (read-only dir, disk, a corrupt state file), so an
+        # attestation that left no trace was announced as recorded — the
+        # advisory posture `# BL-233-ATTEST-REFUSE` exists to replace. An
+        # attested escape must be durably logged or REFUSED; it is never
+        # silently taken.
+        if jq --arg r "$uat_reason" --arg at "$uat_now" \
+             '.uat_session.solo_attestations = ((.uat_session.solo_attestations // []) + [{reason: $r, at: $at, step: "results_received"}])' \
+             "$PROCESS_STATE" > "$PROCESS_STATE.tmp" 2>/dev/null \
+           && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE" 2>/dev/null; then
+          print_ok "results_received: SOLO-MODE attested and RECORDED (reason: $uat_reason) — no external submissions required."   # BL-256-UAT-ATTEST-RECEIPT
+        else
+          rm -f "$PROCESS_STATE.tmp" 2>/dev/null
+          print_fail "results_received: SOLO-MODE attestation REFUSED — it could not be recorded to $PROCESS_STATE (jq/disk/permissions). An attested escape must be durably logged; nothing was marked complete."   # BL-256-UAT-ATTEST-REFUSE
+          exit 1
+        fi
         # Verifier SF#4: the escape is FOR the Light/solo track. It stays
         # usable elsewhere (recorded, never silent) but says so loudly —
         # reviewers of an organizational/standard project should expect to

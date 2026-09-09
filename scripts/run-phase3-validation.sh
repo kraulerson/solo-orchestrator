@@ -534,11 +534,26 @@ _p3_scan_semgrep() {
     return
   fi
   rm -f "$errlog" 2>/dev/null || true
-  local findings=0
-  if command -v jq >/dev/null 2>&1; then
-    findings=$(jq '(.results | length) // 0' "$archive" 2>/dev/null || echo 0)
-    case "$findings" in ''|*[!0-9]*) findings=0 ;; esac
+  # `## BL-256:` — A COUNT THAT COULD NOT BE TAKEN IS NOT ZERO. The first cut
+  # read `(.results | length) // 0` with `|| echo 0` and sanitised anything
+  # non-numeric to 0, so a renamed key on a future semgrep major, an archive
+  # that is not JSON, or a host with no jq at all every one read as
+  # "0 findings" → PASS: a clean bill of health for a scan nobody could read.
+  # That is `# BL-112-SAST-NOTRUN`'s class one arm over and the "no unearned
+  # receipt" rule (`# BL-182-NO-UNEARNED-RECEIPT`). The count is now taken
+  # ONLY when `.results` is present and is an array; every other outcome is a
+  # FAIL that says which, never a PASS.
+  if ! command -v jq >/dev/null 2>&1; then
+    P3_STATUS="FAIL"; P3_NOTE="semgrep ran but jq is not on PATH, so the archive could not be counted — NOT a clean result; install jq and re-run"
+    return
   fi
+  local findings
+  findings=$(jq -e 'if (.results | type) == "array" then (.results | length) else error("no results array") end' "$archive" 2>/dev/null) || findings=""   # BL-256-P3-COUNT-RECEIPT
+  case "$findings" in
+    ''|*[!0-9]*)
+      P3_STATUS="FAIL"; P3_NOTE="semgrep ran but its archive carries no .results array (schema drift or an unparseable report) — NOTHING WAS COUNTED, this is not a clean result; inspect $archive"
+      return ;;
+  esac
   if [ "$findings" -gt 0 ]; then
     P3_STATUS="FAIL"; P3_NOTE="$findings semgrep finding(s) — review $archive"
   else

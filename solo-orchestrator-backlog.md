@@ -15372,3 +15372,72 @@ aggregator and the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `re
 
 **Related:** `## BL-164:` (shell-injectable generated CI from scaffold values — the sibling sink),
 `## BL-234:` (`_qdrant_key_escape` — the same escape-at-the-sink discipline one surface over).
+
+---
+
+## BL-256: two shipped gates hand out receipts they did not earn — `_p3_scan_semgrep` counts an unreadable archive as "0 findings → PASS", and the UAT solo attestation prints "RECORDED" whether or not the record was written
+
+**Status:** Open
+
+**Logged:** 2026-09-08, out of the adversarial codebase review (ST2 + R2, both confirmed by the
+single-agent second pass). Ranked #4 of the verified review's top ten. Both are instances of the
+rule this repo already spells out at `# BL-182-NO-UNEARNED-RECEIPT` and `# BL-112-SAST-NOTRUN`: a
+check that did not run, or whose result could not be read, must never read as a clean one.
+
+**(a) `scripts/run-phase3-validation.sh::_p3_scan_semgrep`.** After semgrep wrote its archive, the
+finding count was `jq '(.results | length) // 0' "$archive" 2>/dev/null || echo 0`, then anything
+non-numeric was sanitised to 0, and `0 → P3_STATUS="PASS"`. So a renamed key on a future semgrep major
+(`.results` → anything), an archive that is not valid JSON, or a host with no `jq` at all every one
+produced `PASS — 0 findings (full-tree --config auto)`: a clean bill of health for a scan nobody
+could read, in the Phase-3 gate that decides production release. The same file already refuses a
+SKIP that would clear a prior FAIL; this arm was the one that did not refuse.
+
+**(b) `scripts/process-checklist.sh`, `uat_session:results_received`.** The Light/solo escape
+(`SOLO_UAT_SOLO_ATTESTED=1`) appends to `uat_session.solo_attestations[]` with `jq … > tmp && mv`, and
+then printed `results_received: SOLO-MODE attested and RECORDED` **unconditionally** — a read-only
+`.claude/`, a full disk, or a corrupt state file left no record while the operator was told there
+was one. The four MCP/review attestations already refuse when they cannot record
+(`# BL-233-ATTEST-REFUSE`); this one announced instead.
+
+**Fix (built on this branch).**
+- (a) The count is taken only when `.results` is present AND an array (`jq -e … if type == "array"`,
+  `# BL-256-P3-COUNT-RECEIPT`); no jq, no array, or unparseable JSON → `P3_STATUS="FAIL"` with a note
+  that says NOTHING WAS COUNTED and names the archive. Never SKIP (SKIP means "could not run" and
+  routes to the attestation path; this scan ran), never PASS.
+- (b) The receipt is inside the `if jq … && mv …; then` (`# BL-256-UAT-ATTEST-RECEIPT`); the else arm
+  removes the temp file, prints a REFUSED line naming the state file and the reason class, and
+  exits 1 (`# BL-256-UAT-ATTEST-REFUSE`) — nothing is marked complete.
+- Suite `tests/test-bl256-unearned-receipts.sh` drives the real driver and the real checklist on
+  fixtures: a PATH shim `semgrep` that writes a canned archive (no network, no real semgrep), and a
+  process-state fixture at the `results_received` step with a writable and then a read-only `.claude/`.
+
+**Residuals:**
+1. The other Phase-3 scanners' count arms were not audited here; `_p3_scan_semgrep` was the one the
+   review named. The pattern (`// 0` + sanitise-to-0 + `0 → PASS`) should be greped for across
+   `_p3_scan_*` by whoever next opens that file.
+2. `SOLO_TDD_ATTESTED` and `SOLO_LICENSE_ATTESTED` are recorded and fail-closed but do not require a
+   reason; `SOLO_BP_ATTESTED` is missing from the inventory the review built. The review's proposed
+   single table of every `_ATTESTED` escape with its three properties (reason-mandatory / recorded /
+   fail-closed), plus a lint that every grep hit appears in it, is filed here as the follow-up.
+
+**Build note (2026-09-08, branch `fix/bl256-unearned-receipts`).** RED measured with the branch's final
+test file in a worktree at `e3b2be5`: **5 passed / 9 failed** — S3 (no `.results` key → PASS "0
+findings"), S4 (not JSON → PASS), S5 (no jq on PATH → PASS), U2 (read-only `.claude/` → "RECORDED" at rc
+0 with the state file byte-identical), M0 ×3, MP1/MU1 setups. The five passes are the honest-outcome
+cases (S0 shim resolution, S1 empty array PASS, S2 two findings FAIL, U1 writable recorded, U2b state
+unchanged) — true on main by construction and not discriminators. GREEN **14 / 0**: both mutants kill
+(MP1 restores the old `// 0 || echo 0` count → S3 reads PASS again; MU1 turns the REFUSE arm back into
+the unconditional receipt → U2 is announced RECORDED again). The suite drives the REAL driver and the
+REAL checklist: a PATH shim `semgrep` on a host-mirrored PATH minus real semgrep/snyk/docker/go-licenses
+(minus jq for S5), the exclusion asserted before measuring; a process-state fixture at
+`results_received` on the Light track, writable then `chmod 555`. Both mutants use `~` as the sed
+delimiter because the markers carry `#` and the replacements `|` and `/` — the first cut hit
+CLAUDE.md's trap on that line and sed refused it, reported honestly as "did not apply cleanly". All
+**65** unit-lane suites that drive `run-phase3-validation.sh` or `process-checklist.sh` re-run green
+(incl. `test-phase3-validation-gate` 51/0, `test-bl114-bl115-bl127-gate-integrity` 17/0, the three
+BL-070 scanner suites 51/48/26, `test-bl233-wpb-accumulation` 100/0); registered in the aggregator and
+the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `registered`).
+
+**Related:** `## BL-182:`, `## BL-112:`, `## BL-233:` (the refuse-when-unrecordable posture),
+`## BL-185:` (the other unrecorded escape), `## BL-070:` (the atomic attestation write this file
+already does for Phase-3 attestations — the shape (b) now follows).
