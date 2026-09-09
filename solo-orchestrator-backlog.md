@@ -15409,7 +15409,10 @@ was one. The four MCP/review attestations already refuse when they cannot record
   when `.vulnerabilities` is an array, else FAIL / NOTHING WAS COUNTED; no jq → FAIL.
 - (b) The receipt is inside the `if jq … && mv …; then` (`# BL-256-UAT-ATTEST-RECEIPT`); the else arm
   removes the temp file, prints a REFUSED line naming the state file and the reason class, and
-  exits 1 (`# BL-256-UAT-ATTEST-REFUSE`) — nothing is marked complete.
+  exits 1 (`# BL-256-UAT-ATTEST-REFUSE`) — nothing is marked complete. **The general step write at the
+  end of `complete_step`** — the same command path, the same `jq … && mv` followed by an unconditional
+  "Step … completed" (review round 2, R2-3) — now has the same shape (`# BL-256-STEP-RECEIPT` /
+  `# BL-256-STEP-REFUSE`): a state file that could not be written is "NOT recorded", rc 1.
 - Suite `tests/test-bl256-unearned-receipts.sh` drives the real driver and the real checklist on
   fixtures: a PATH shim `semgrep` that writes a canned archive (no network, no real semgrep), and a
   process-state fixture at the `results_received` step with a writable and then a read-only `.claude/`.
@@ -15422,37 +15425,50 @@ was one. The four MCP/review attestations already refuse when they cannot record
    but its `.site[]?.alerts[]?` optional iterators turn a renamed or non-array `.site` into "0 Medium+
    alerts → PASS" (verified: `{"sites":[{"alerts":[{"riskcode":"3"}]}]}` counts 0), and a multi-document
    report reaches the surviving `case … findings=0` sanitiser. The fix is the semgrep shape (count only
-   when `.site` is an array) plus a docker-shim harness this suite does not build; filed here as
-   follow-up rather than folded, so the scope stays the two arms the review and its reviewer named.
-3. Currency (reviewer R-4): a semgrep archive can carry `.errors[]` / `paths.skipped[]` — a scan that
-   FINISHED but skipped files, or hit rule errors, still reads as "0 findings" when `.results` is an
-   empty array. That is a real scan with a real count, so it is a PASS on the rule this entry fixes, but
-   it is a weaker receipt than it looks; surfacing the skipped/error counts in `P3_NOTE` is follow-up.
-2. `SOLO_TDD_ATTESTED` and `SOLO_LICENSE_ATTESTED` are recorded and fail-closed but do not require a
+   when `.site` is an array) plus one case in the harness that ALREADY exists in the PR-blocking lane
+   (`tests/test-bl070-snyk-zap-scanners.sh`, `setup_zap web with-docker` / `T-zap-malformed-report-fail`
+   — review round 2 corrected the first draft of this line, which claimed no harness). Not folded here
+   is a scope choice: the branch stays on the arms the review and its reviewers named. Follow-up.
+2. Currency (reviewer R-4): a semgrep archive can carry `.errors[]` — a scan that FINISHED but hit rule
+   or parse errors still reads as "0 findings" when `.results` is an empty array. That is a real scan
+   with a real count, so it is a PASS on the rule this entry fixes, but it is a weaker receipt than it
+   looks; surfacing `.errors | length` in the PASS note is a two-line follow-up. (`paths.skipped` is
+   emitted only under `--verbose`, which the driver does not pass — round 2 corrected that half.)
+3. `scripts/process-checklist.sh` carries **23 more** one-line `jq … > "$PROCESS_STATE.tmp" && mv …`
+   state writes with no check on the write (grep the literal `PROCESS_STATE.tmp" && mv`); the one on
+   this branch's command path is guarded, the rest still announce success on a write that may not have
+   landed. A lost non-terminal step is caught by the next step's prior-steps check; a process's LAST
+   step and the "Build loop closed" receipt are not. Filed as `## BL-257:` (one `_pc_write_state`
+   helper, every site through it).
+4. `SOLO_TDD_ATTESTED` and `SOLO_LICENSE_ATTESTED` are recorded and fail-closed but do not require a
    reason; `SOLO_BP_ATTESTED` is missing from the inventory the review built. The review's proposed
    single table of every `_ATTESTED` escape with its three properties (reason-mandatory / recorded /
    fail-closed), plus a lint that every grep hit appears in it, is filed here as the follow-up.
 
 **Build note (2026-09-08/09, branch `fix/bl256-unearned-receipts`).** RED measured with the branch's
-final test file in a worktree at `e3b2be5`: **8 passed / 19 failed** — S3 (no `.results` key → PASS "0
+final test file in a worktree at `e3b2be5`: **10 passed / 30 failed** — S3 (no `.results` key → PASS "0
 findings"), S4 (not JSON → PASS), S5 (no jq on PATH → PASS), S6 (`.results` an object → PASS), S7
-(`.results` a string → PASS), S8 (two concatenated documents → PASS), N3 (snyk: no `.vulnerabilities`
-key → PASS "0 vulnerabilities"), N4 (snyk: `.vulnerabilities` an object → PASS), U2 (read-only
-`.claude/` → "RECORDED" at rc 0 with the state file byte-identical), M0 ×4, MP1–MP5/MU1 setups. The
-eight passes are the honest-outcome cases (S0/N0 shim resolution, S1/N1 empty array PASS, S2/N2 two
-findings FAIL, U1 writable recorded, U2b state unchanged) — true on main by construction and not
-discriminators. **S6/S7 exist because a reviewer mutant survived the
+(`.results` a string → PASS), S8 (two concatenated documents → PASS), S9 (a top-level array → PASS), N3
+(snyk: no `.vulnerabilities` key → PASS "0 vulnerabilities"), N4 (`.vulnerabilities` an object → PASS),
+N5 (a top-level array → PASS), N6 (no jq → PASS), U2 (read-only `.claude/` → "RECORDED" at rc 0 with
+the state file byte-identical), U3 (rename fails → "RECORDED"), U4 (non-solo path, read-only `.claude/`
+→ "Step … completed" at rc 0), U3b (the `.tmp` left behind), M0 ×6, MP1–MP6/MU1–MU3 setups. The ten
+passes are the honest-outcome cases (S0/N0 shim resolution, S1/N1 empty array PASS, S2/S2b/N2 findings
+FAIL, U1 writable recorded, U2b/U4b state unchanged — a failed write changes nothing on main too) — true
+on main by construction and not discriminators. **S6/S7 exist because a reviewer mutant survived the
 first cut at 14/0**: it weakened the type check to a PRESENCE check (`has("results") and .results !=
 null`) and the suite could not tell, because no case fed a `.results` that was present but not an
 array — under that weakening `{"results":{}}` counts 0 → PASS and `{"results":"abcdefgh"}` counts the
 STRING'S LENGTH as eight findings. MP2 now applies exactly that mutant and S6/S7 kill it. (The reviewer
 that found it stalled mid-run and was killed 19 hours later; its last recorded words were "X4 survives
 14/0 and re-opens the defect" — the finding was recovered from its transcript, not from a verdict.)
-GREEN **27 / 0**: all six mutants kill (MP1 restores the old `// 0 || echo 0` count → S3 reads PASS
+GREEN **40 / 0**: all nine mutants kill (MP1 restores the old `// 0 || echo 0` count → S3 reads PASS
 again; MP2 the presence check → S6 PASS, S7 "8 semgrep finding(s)"; MP3 drops the `*[!0-9]*` sanitiser
 arm → S8's two-document archive reads PASS again; MP4/MP5 are MP1/MP2 applied to the snyk marker → N3 /
-N4 read PASS again; MU1 turns the REFUSE arm back into the unconditional receipt → U2 is announced
-RECORDED again). The suite drives the REAL driver and the REAL checklist: PATH shims `semgrep` (writes
+N4 read PASS again; MP6 is round 2's surviving x10 — a top-level-array arm — → N5 reads PASS again; MU1
+turns the attestation REFUSE arm back into the unconditional receipt → U2 is announced RECORDED again;
+MU2 drops the `rm -f` on that path → U3b finds the `.tmp`; MU3 turns the step REFUSE arm back into the
+receipt → U4 is announced completed again). The suite drives the REAL driver and the REAL checklist: PATH shims `semgrep` (writes
 the canned archive to `--output`) and `snyk` (answers `config get api` with a token and `test --json`
 with the canned report on stdout) on a host-mirrored PATH minus real semgrep/snyk/docker/go-licenses
 (minus jq for S5), the exclusion asserted before measuring; a process-state fixture at
@@ -15460,9 +15476,16 @@ with the canned report on stdout) on a host-mirrored PATH minus real semgrep/sny
 delimiter because the markers carry `#` and the replacements `|` and `/` — the first cut hit
 CLAUDE.md's trap on that line and sed refused it, reported honestly as "did not apply cleanly". **Pre-PR
 review round 1 (single agent, `minor_concerns`)** folded before push: R-1 the untested multi-document
-sanitiser arm → S8 + MP3; R-3 the snyk twin → fix + section N + MP4/MP5; R-2 (the `.tmp` cleanup on the
-refuse path is untested — a fixture that makes `mv` fail after `jq` succeeds needs a same-dir
-permission split the suite does not build) left as noted; R-4 recorded as residual 3. All **66**
+sanitiser arm → S8 + MP3; R-3 the snyk twin → fix + section N + MP4/MP5; R-4 recorded as residual 2.
+**Round 2 (single agent, `major_concerns` — do-not-push)**: R2-1 a mutant that accepts a top-level
+array on the snyk line survived 27/0 and the BL-070 suite 48/0 → N5 + S9 + MP6; R2-2 no case pinned ONE
+semgrep finding (a `-gt 1` mutant survived) → S2b (re-verified ad hoc on a mirror: under `-gt 1` the
+one-finding archive reads PASS, which S2b rejects); R2-3 the general step write on the same command path → fix +
+U4/U4b + MU3, the other 23 sites → residual 3 / `## BL-257:`; R2-5 the `rm -f` on the refuse path
+untested → U3/U3b + MU2, which also REFUTED round 1's R-2 note that the fixture needed a "same-dir
+permission split" — a PATH `mv` shim that refuses only `process-state.json` is portable and the command
+path calls `mv` exactly once; R2-6 the snyk no-jq arm untested → N6; R2-4 / R2-7 corrected residuals 1
+and 2 (the zap harness exists; `paths.skipped` needs `--verbose`). All **66**
 unit-lane suites that drive `run-phase3-validation.sh` or `process-checklist.sh` (this one included) re-run green
 (incl. `test-phase3-validation-gate` 51/0, `test-bl114-bl115-bl127-gate-integrity` 17/0, the three
 BL-070 scanner suites 51/48/26, `test-bl233-wpb-accumulation` 100/0); registered in the aggregator and
@@ -15470,4 +15493,33 @@ the `tests.yml` unit lane (`lint-tests-registered.sh --list`: `registered`).
 
 **Related:** `## BL-182:`, `## BL-112:`, `## BL-233:` (the refuse-when-unrecordable posture),
 `## BL-185:` (the other unrecorded escape), `## BL-070:` (the atomic attestation write this file
-already does for Phase-3 attestations — the shape (b) now follows).
+already does for Phase-3 attestations — the shape (b) now follows), `## BL-257:` (the other 23 writes).
+
+## BL-257: `process-checklist.sh` — 23 state writes announce success without checking that the write landed
+
+**Status:** Open
+
+**Logged:** 2026-09-09, out of the BL-256 pre-PR review (round 2, R2-3). Every state mutation in
+`scripts/process-checklist.sh` is a one-line `jq … "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv
+"$PROCESS_STATE.tmp" "$PROCESS_STATE"` followed by an unconditional `print_ok`. On a read-only `.claude/`,
+a full disk, or a corrupt state file the write fails, the `.tmp` may be left behind, and the operator is
+told the step completed. BL-256 guarded the two sites on the `uat_session:results_received` path
+(`# BL-256-UAT-ATTEST-REFUSE`, `# BL-256-STEP-REFUSE`); this entry is the remaining **23** (count them,
+never transcribe — and use `-F`, a BRE `$P…` silently matches nothing on this host's grep:
+`grep -cF 'PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"' scripts/process-checklist.sh`
+returned 24 on 2026-09-09, of which 1 — the `; then` one, `# BL-256-STEP-RECEIPT` — is guarded;
+the attestation arm is split over two lines and does not match the literal).
+
+**Exposure.** A lost NON-terminal step is caught by the next `--complete-step`'s prior-steps check (the
+step is simply not there). A process's LAST step — `feature_recorded`'s "Build loop closed",
+`phase2_init.verified = true`, the phase-4 release steps — and the `--start-*` initialisers have no later
+check, so a silent failure there is a false receipt that nothing self-corrects.
+
+**Proposed fix.** One `_pc_write_state <jq-filter> [jq args…]` helper that does the `jq > tmp && mv`,
+removes the `.tmp` on failure, prints a NOT-recorded line naming the state file, and returns 1; every
+site routed through it; the BL-256 suite's `mv` shim (`mk_mv_shim`) and read-only fixture reused for a
+site-count test that fails when a new bare `> "$PROCESS_STATE.tmp" && mv` appears (the grep above must
+return 0 once the helper is in). Lint or test, not prose — a "use the helper" rule in CONTRIBUTING.md is
+what the 23 sites already ignored.
+
+**Related:** `## BL-256:`, `## BL-233:` (`# BL-233-ATTEST-REFUSE`), `## BL-182:`.

@@ -1305,12 +1305,21 @@ BL120EOF
 
   # All prior steps present + artifact checks passed — add step_id to steps_completed
   local new_step_num=$((target_index + 1))
-  jq --arg step "$step_id" --argjson num "$new_step_num" "
+  # `## BL-256:` (review round 2, R2-3) — the completion receipt is printed ONLY
+  # when the write landed. This `jq … && mv` used to be followed by an
+  # unconditional print_ok, so a read-only .claude/ announced "Step … completed"
+  # and exited 0 with the state file untouched. The other state writes in this
+  # file keep the old shape — recorded on the entry as a residual (`## BL-257:`).
+  if jq --arg step "$step_id" --argjson num "$new_step_num" "
     .${process}.steps_completed += [\$step] |
     .${process}.step = \$num
-  " "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
-
-  print_ok "Step '$step_id' completed for $process ($new_step_num/${#steps[@]})"
+  " "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"; then
+    print_ok "Step '$step_id' completed for $process ($new_step_num/${#steps[@]})"   # BL-256-STEP-RECEIPT
+  else
+    rm -f "$PROCESS_STATE.tmp" 2>/dev/null
+    print_fail "Step '$step_id' NOT recorded for $process — $PROCESS_STATE could not be written (jq/disk/permissions); nothing was marked complete."   # BL-256-STEP-REFUSE
+    exit 1
+  fi
 
   # Auto-set phase2_init.verified when all steps completed via --complete-step
   if [ "$process" = "phase2_init" ] && [ "$new_step_num" -eq "${#steps[@]}" ]; then
