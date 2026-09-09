@@ -15420,13 +15420,21 @@ was one. The four MCP/review attestations already refuse when they cannot record
    single table of every `_ATTESTED` escape with its three properties (reason-mandatory / recorded /
    fail-closed), plus a lint that every grep hit appears in it, is filed here as the follow-up.
 
-**Build note (2026-09-08, branch `fix/bl256-unearned-receipts`).** RED measured with the branch's final
-test file in a worktree at `e3b2be5`: **5 passed / 9 failed** — S3 (no `.results` key → PASS "0
-findings"), S4 (not JSON → PASS), S5 (no jq on PATH → PASS), U2 (read-only `.claude/` → "RECORDED" at rc
-0 with the state file byte-identical), M0 ×3, MP1/MU1 setups. The five passes are the honest-outcome
-cases (S0 shim resolution, S1 empty array PASS, S2 two findings FAIL, U1 writable recorded, U2b state
-unchanged) — true on main by construction and not discriminators. GREEN **14 / 0**: both mutants kill
-(MP1 restores the old `// 0 || echo 0` count → S3 reads PASS again; MU1 turns the REFUSE arm back into
+**Build note (2026-09-08/09, branch `fix/bl256-unearned-receipts`).** RED measured with the branch's
+final test file in a worktree at `e3b2be5`: **5 passed / 12 failed** — S3 (no `.results` key → PASS "0
+findings"), S4 (not JSON → PASS), S5 (no jq on PATH → PASS), S6 (`.results` an object → PASS), S7
+(`.results` a string → PASS), U2 (read-only `.claude/` → "RECORDED" at rc 0 with the state file
+byte-identical), M0 ×3, MP1/MP2/MU1 setups. The five passes are the honest-outcome cases (S0 shim
+resolution, S1 empty array PASS, S2 two findings FAIL, U1 writable recorded, U2b state unchanged) — true
+on main by construction and not discriminators. **S6/S7 exist because a reviewer mutant survived the
+first cut at 14/0**: it weakened the type check to a PRESENCE check (`has("results") and .results !=
+null`) and the suite could not tell, because no case fed a `.results` that was present but not an
+array — under that weakening `{"results":{}}` counts 0 → PASS and `{"results":"abcdefgh"}` counts the
+STRING'S LENGTH as eight findings. MP2 now applies exactly that mutant and S6/S7 kill it. (The reviewer
+that found it stalled mid-run and was killed 19 hours later; its last recorded words were "X4 survives
+14/0 and re-opens the defect" — the finding was recovered from its transcript, not from a verdict.)
+GREEN **17 / 0**: all three mutants kill (MP1 restores the old `// 0 || echo 0` count → S3 reads PASS
+again; MP2 the presence check → S6 PASS, S7 "8 semgrep finding(s)"; MU1 turns the REFUSE arm back into
 the unconditional receipt → U2 is announced RECORDED again). The suite drives the REAL driver and the
 REAL checklist: a PATH shim `semgrep` on a host-mirrored PATH minus real semgrep/snyk/docker/go-licenses
 (minus jq for S5), the exclusion asserted before measuring; a process-state fixture at

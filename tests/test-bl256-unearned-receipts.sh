@@ -167,6 +167,32 @@ else
     fail_ "S4" "summary line: ${l:-<none>}"
   fi
 
+  # S6/S7 — `.results` PRESENT but NOT an array. A first cut had no such case,
+  # and a reviewer mutant that weakened the type check to a presence check
+  # (`has("results") and .results != null`) survived 14/0 while re-opening
+  # the defect: `{"results":{}}` counted 0 → PASS, and `{"results":"abcdefgh"}`
+  # counted the STRING'S LENGTH as eight findings.
+  printf '{"results":{},"errors":[]}\n' > "$ARCH/object.json"
+  printf '{"results":"abcdefgh","errors":[]}\n' > "$ARCH/string.json"
+  F6="$(newtmp)"; mk_p3_fixture "$F6"; run_p3 "$F6" "$ARCH/object.json" "$PATH_S"
+  l="$(semgrep_line)"
+  if printf '%s' "$l" | grep -q "PASS"; then
+    fail_ "S6" "a .results that is an OBJECT read as PASS — an unearned receipt: ${l}"
+  elif printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "NOTHING WAS COUNTED"; then
+    pass "S6 — a .results that is an object (not an array) is FAIL and says NOTHING WAS COUNTED"
+  else
+    fail_ "S6" "summary line: ${l:-<none>}"
+  fi
+  F7="$(newtmp)"; mk_p3_fixture "$F7"; run_p3 "$F7" "$ARCH/string.json" "$PATH_S"
+  l="$(semgrep_line)"
+  if printf '%s' "$l" | grep -qE "PASS|[0-9]+ semgrep finding"; then
+    fail_ "S7" "a .results that is a STRING was counted or passed — ${l}"
+  elif printf '%s' "$l" | grep -q "FAIL" && printf '%s' "$l" | grep -q "NOTHING WAS COUNTED"; then
+    pass "S7 — a .results that is a string is FAIL and says NOTHING WAS COUNTED (never the string's length)"
+  else
+    fail_ "S7" "summary line: ${l:-<none>}"
+  fi
+
   # S5 — no jq at all must NOT read as 0 findings
   CLEAN5="$(newtmp)/cleanbin"
   if ! mk_cleanbin "$CLEAN5" semgrep snyk docker go-licenses jq; then
@@ -271,6 +297,32 @@ else
     printf '%s' "$l" | grep -q "PASS" \
       && pass "MP1 (MUTATION) — with the old count restored, a renamed key reads as PASS again: S3 is what stops it" \
       || fail_ "MP1 (MUTATION)" "restoring the old count changed nothing — S3 may be passing for another reason: ${l:-<none>}"
+  fi
+fi
+
+# MP2 — weaken the type check to a PRESENCE check on a mirror (the exact
+# mutant that survived a first cut of this suite): S6's object must read PASS
+# and S7's string must be "counted" again.
+MP2="$(newtmp)/fw"
+if ! mk_mirror "$MP2"; then
+  fail_ "MP2 setup" "could not mirror scripts/"
+else
+  tgt="$MP2/scripts/run-phase3-validation.sh"; before="$(mktemp)"; cp "$tgt" "$before"
+  sed "s~^.*${M_P3}\$~  findings=\$(jq -e 'if has(\"results\") and .results != null then (.results | length) else error(\"x\") end' \"\$archive\" 2>/dev/null) || findings=\"\"   ${M_P3}~" "$before" > "$tgt"
+  if [ "$(_changed_lines "$before" "$tgt")" -lt 2 ] || ! bash -n "$tgt" 2>/dev/null || ! grep -q 'has("results") and .results != null' "$tgt"; then
+    fail_ "MP2 setup" "the presence-check mutation did not apply cleanly"
+  elif [ -z "${PATH_S:-}" ]; then
+    fail_ "MP2 setup" "no isolated PATH from section S"
+  else
+    FO="$(newtmp)"; mk_p3_fixture "$FO"; run_p3 "$FO" "$ARCH/object.json" "$PATH_S" "$tgt"
+    lo="$(semgrep_line)"
+    FS="$(newtmp)"; mk_p3_fixture "$FS"; run_p3 "$FS" "$ARCH/string.json" "$PATH_S" "$tgt"
+    ls_="$(semgrep_line)"
+    if printf '%s' "$lo" | grep -q "PASS" && printf '%s' "$ls_" | grep -q "8 semgrep finding"; then
+      pass "MP2 (MUTATION) — with a presence check, an object reads PASS and a string counts its own length: S6/S7 are what stop it"
+    else
+      fail_ "MP2 (MUTATION)" "the presence-check mutant did not re-open the defect — object: ${lo:-<none>} string: ${ls_:-<none>}"
+    fi
   fi
 fi
 
