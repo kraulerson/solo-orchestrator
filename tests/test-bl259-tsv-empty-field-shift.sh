@@ -43,6 +43,12 @@ NOVER_INSTALL='BL259-INSTALL-TEXT-FOR-THE-TOOL-WITHOUT-A-VERSION-COMMAND'
 NOVER_DESC='BL259-DESCRIPTION-NO-VERSION'
 CTRL_INSTALL='BL259-INSTALL-TEXT-FOR-THE-CONTROL'
 CTRL_DESC='BL259-DESCRIPTION-CONTROL'
+# Field 7 by VALUE. Without this the suite pins field 7 only positionally, and a
+# mutant that drops the TOOL_VERSION_CMD capture while keeping the position strip
+# survives this suite AND all eight unit-lane suites that drive the resolver,
+# silently emptying every already_installed[].version (measured: 15 real versions
+# to 0). No other test in the repo asserts a resolver version value.
+INST_VERSION='BL259-VERSION-VALUE'
 
 # mk_matrix <dir> — a common.json with two manual-install tools that can never
 # be found: one WITHOUT version_command (the trigger), one WITH it (the control).
@@ -83,6 +89,21 @@ mk_matrix() {
       "version_command": "bl259_definitely_absent_binary --version",
       "auto_installable": false,
       "install": { "manual": "$CTRL_INSTALL" }
+    },
+    {
+      "name": "BL259 Installed Tool",
+      "category": "testing",
+      "description": "BL259-DESCRIPTION-INSTALLED",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "true",
+      "version_command": "printf %s $INST_VERSION",
+      "auto_installable": false,
+      "install": { "manual": "BL259-INSTALL-TEXT-INSTALLED" }
     }
   ]
 }
@@ -137,6 +158,16 @@ else
       pass "R2 — and its description is the real description, not the base64 install blob"
     else
       fail_ "R2" "description is [$got], want [$NOVER_DESC]"
+    fi
+
+    # R4 — field 7 BY VALUE, not just by position. A mutant that drops the
+    # TOOL_VERSION_CMD capture but keeps the position strip leaves fields 8 and
+    # 9 correct, so R1/R2/R3 all still pass; only this case sees it.
+    got="$(printf '%s' "$RESOLVER_OUT" | jq -r '(.already_installed[] | select(.name == "BL259 Installed Tool") | .version) // "<<ABSENT>>"' 2>/dev/null)"
+    if [ "$got" = "$INST_VERSION" ]; then
+      pass "R4 — an installed tool's version_command is captured BY VALUE (field 7)"
+    else
+      fail_ "R4" "version is [$got], want [$INST_VERSION] — field 7 is not captured"
     fi
 
     # R3 — the control: a tool WITH version_command was never affected
