@@ -15673,9 +15673,12 @@ say so on this entry and strike it rather than quietly fixing something adjacent
 `verify-install.sh` parses in the wrong order; the `# BL-057:` early return in
 `resolve_and_install_tools()` (`init.sh` line 972, with the assignment at 1171 in the SAME function)
 SKIPS the `RESOLVER_OUTPUT` assignment rather than setting it, so its three readers — all
-`${RESOLVER_OUTPUT:-}`-guarded, hence silent — see nothing; `validate.sh`'s phase inference is wrong; and the resolver's `@tsv` output is
-consumed with a shifted field index. Ranked #5, and the one to do next: it is the first screen, so a
-defect here is seen by every user before anything else.
+`${RESOLVER_OUTPUT:-}`-guarded, hence silent — see nothing; `validate.sh`'s phase inference is wrong; and ~~the resolver's `@tsv` output is
+consumed with a shifted field index~~ — **that fourth atom is DONE: it reproduced, and shipped as
+`## BL-259:` (PR #383, merge `ed3aab4`)**. Three atoms remain. Ranked #5, and still the one to do next:
+it is the first screen, so a defect here is seen by every user before anything else. The one that
+reproduced turned out to be worse than the note suggested, which is a reason to reproduce the other
+three rather than triage them from the wording.
 
 **#6 — `_bl072_tier_bypassable` conflates absent with unparseable**, so a state file that cannot be
 read takes the same branch as one that is not there — the `## BL-231:` "tracking file absent, no
@@ -15768,7 +15771,24 @@ caught by review, not by the lint.
 
 ## BL-259: `resolve-tools.sh` loses the install instructions for every tool that declares no `version_command` — an empty `@tsv` field collapses and shifts the row
 
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-09-10 (PR #383, merge `ed3aab4`). `# BL-259-TSV-SPLIT`: the
+loop reads one whole line and splits it by hand, eight `${rest%%$'\t'*}` / `${rest#*$'\t'}` pairs yielding
+nine fields, so an empty field survives instead of collapsing. An arity guard refuses any row not
+carrying exactly eight tabs at rc 1, because without it the hand split is worse than the `read` it
+replaced on a short row. Suite `tests/test-bl259-tsv-empty-field-shift.sh` **8 / 0** on bash 3.2.57 and
+on 5.2.21 in `ubuntu:24.04` as a non-root user, against RED **3 / 5**; two mutants. Two adversarial
+rounds, both `major_concerns`, **both on this entry's prose and neither on the code** — the code half
+was judged "approve on its own" in round 1 and survived round 2's attack on the guard (17 adversarial
+rows across both bash versions, four locales, invalid UTF-8, `extglob`/`nocasematch`/`GLOBIGNORE`, 30
+real-catalogue runs, zero false positives). **No residual remains open.** A first cut of this line
+claimed the suite's two surviving mutants both "die in the unit lane"; one did not — deleting the sole
+`TOOL_VERSION_CMD=` capture was uncovered by every suite measured and silently blanked every
+`already_installed[].version`. Case R4 pins field 7 by value and kills **both** of them (`[]` for the
+deleted capture; `<<ABSENT>>` for the check/auto exchange, which flips the fixture tool to
+not-installed so it leaves `already_installed` entirely). Fields 1, 7, 8 and 9 are pinned by value;
+2-6 by position only, and `set -u` catches a dropped capture among them at R0. A second cut of this
+line then said "one residual stays open below" while pointing at nothing — the same edit had removed
+the residual it meant.
 
 **Logged:** 2026-09-10, reproducing `## BL-258:`'s lead #5, fourth atom ("the resolver's `@tsv` output
 is consumed with a shifted field index"). **The lead reproduces.** Filed as the reproduction at
@@ -15868,13 +15888,14 @@ binary the suite first asserts is absent, one WITHOUT `version_command` and one 
 so no network and no host tool is touched. It asserts the plan the operator receives, not the `read`:
 `.manual_install[] | select(.name==…) | .instructions`.
 
-RED with the final file at `681beb3`: **2 passed / 5 failed**. R1 (the no-version tool's install
+RED with the final file at `681beb3`: **3 passed / 5 failed** (R4 is the third pass — it is a control
+for the shift and a discriminator for the field-7 capture). R1 (the no-version tool's install
 instructions came back EMPTY) and R2 (its description came back as the base64 install blob,
 `eyJtYW51YWwiOiJCTDI1OS1JTlNUQUxM…`) are the discriminators; M0 and the MP1 setup fail because the
 marker does not exist yet. The two passes are honest-outcome controls — R0 (the resolver runs) and R3
 (the control tool WITH a version_command was never affected) — true on main by construction.
 
-GREEN **7 / 0**, two mutants. MP1 replaces the whole split block with the single collapsing
+GREEN **8 / 0**, two mutants. MP1 replaces the whole split block with the single collapsing
 `IFS=$'\t' read` line it removed, located by the loop opener and the marker, and asserts the mutation
 landed (`bash -n`, the restored line present exactly once, the marker gone). Under it R1 goes red with
 an empty instructions field, which is what proves R1 discriminates. MP2 drops one element from the
@@ -15885,9 +15906,18 @@ guard load-bearing rather than decoration.
 A first cut carried a seventh case asserting the description never appears as a `version` anywhere in
 the plan. It was **vacuous** — no tool in the fixture is installed, so the plan contains no `version`
 field at all and the case could not fail in either direction. Dropped rather than kept as decoration.
-Both the review's surviving mutants (deleting the sole `TOOL_VERSION_CMD=` assignment; exchanging the
-`check`/`auto` fields) pass this suite and are killed by the unit lane — this suite pins fields 1, 8 and 9 BY VALUE and
-field 7 only POSITIONALLY (its offset feeds 8 and 9), and the lane covers the rest; recorded rather than papered over. All **8** unit-lane suites that
+**A first cut of this note said both of the review's surviving mutants "are killed by the unit lane".
+That was false for one of them, and the false half hid a real coverage hole.** Exchanging the
+`check`/`auto` captures does die in the lane (`test-bl033-install-cmds-shape` 8/0 → 2/6,
+`test-bl137-ci-tools-scope` 5/0 → 3/2). Deleting the sole `TOOL_VERSION_CMD=` capture while keeping its
+position strip did **not**: it survived this suite, all eight unit-lane suites that drive the resolver,
+and three further `already_installed` readers, while silently emptying every
+`already_installed[].version` — measured on the real catalogue at `--dev-os darwin --platform web
+--language typescript --track standard --phase 4` on this Mac (the count is host-dependent; it counts
+what is installed here), 15 non-empty versions to 0. Nothing in
+the repo asserted a resolver version VALUE. **Closed by case R4**, which pins field 7 by value with an
+installed fixture tool; that mutant now dies at R4 (`version is [], want [BL259-VERSION-VALUE]`). R4 is
+a control for the shift itself — it passes at base — and a discriminator for the capture. All **8** unit-lane suites that
 drive `resolve-tools.sh` re-run green (`test-brownfield-wp10a-tool-resolution`
 54/0, `test-bl235-tool-matrix-probes` 42/0); registered in the aggregator and the `tests.yml` unit lane
 (`lint-tests-registered.sh --list`: `registered`).
