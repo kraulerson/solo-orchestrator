@@ -15815,7 +15815,13 @@ web.json: OWASP ZAP
 So it does not fire on a plain web/common project, which is why it has gone unnoticed: it needs a
 mobile or desktop platform, or ZAP on web.
 
-**Fix — NOT built; the shape is a real choice and wants a decision.**
+**Fix — BUILT on this branch, option 1.** `# BL-259-TSV-SPLIT`: the loop reads one whole line
+(`while IFS= read -r`) and splits it by hand with `${rest%%$'\t'*}` / `${rest#*$'\t'}`, nine times, which
+preserves empty fields exactly. No producer change, so `@tsv`'s escaping stays load-bearing and no new
+escaping surface is introduced. The comment above the loop carries the trap so the next reader does not
+reinstate it.
+
+**Options considered, and why option 1.**
 1. **Split the row explicitly** rather than relying on `read` — keep `@tsv` (its escaping of embedded
    tabs and newlines is load-bearing) and read one whole line, splitting on tab in a way that preserves
    empty fields. Safest; no producer change; no new escaping surface.
@@ -15824,11 +15830,32 @@ mobile or desktop platform, or ZAP on web.
    `@tsv` does, so this trades one silent corruption for another unless the fields are sanitised.
 3. **Make the producer never emit an empty field** (a sentinel the reader converts back). Smallest
    diff, but any sentinel can collide with a legitimate value.
-Recommendation: (1). It is the only one that adds no new failure mode.
+Chose (1): it is the only one that adds no new failure mode.
 
-**Test it must carry.** A row with an absent `version_command` must reach the operator with the real
-install instructions, pinned end to end rather than at the `read` alone, plus a mutation proof that
-restoring the collapsing read re-opens it. The six named tools above are the fixture set.
+**Build note (2026-09-10, branch `fix/bl259-tsv-empty-field-shift`).** Suite
+`tests/test-bl259-tsv-empty-field-shift.sh` drives the REAL resolver end to end against a hermetic
+fixture matrix passed with `--matrix-dir` — two manual-install tools whose `check_command` looks for a
+binary the suite first asserts is absent, one WITHOUT `version_command` and one WITH it as the control,
+so no network and no host tool is touched. It asserts the plan the operator receives, not the `read`:
+`.manual_install[] | select(.name==…) | .instructions`.
+
+RED with the final file at `681beb3`: **2 passed / 4 failed**. R1 (the no-version tool's install
+instructions came back EMPTY) and R2 (its description came back as the base64 install blob,
+`eyJtYW51YWwiOiJCTDI1OS1JTlNUQUxM…`) are the discriminators; M0 and the MP1 setup fail because the
+marker does not exist yet. The two passes are honest-outcome controls — R0 (the resolver runs) and R3
+(the control tool WITH a version_command was never affected) — true on main by construction.
+
+GREEN **6 / 0**, one mutant: MP1 replaces the whole split block with the single collapsing
+`IFS=$'\t' read` line it removed, located by the loop opener and the marker, and asserts the mutation
+landed (`bash -n`, the restored line present exactly once, the marker gone). Under it R1 goes red with
+an empty instructions field, which is what proves R1 discriminates.
+
+A first cut carried a seventh case asserting the description never appears as a `version` anywhere in
+the plan. It was **vacuous** — no tool in the fixture is installed, so the plan contains no `version`
+field at all and the case could not fail in either direction. Dropped rather than kept as decoration.
+All **8** unit-lane suites that drive `resolve-tools.sh` re-run green (`test-brownfield-wp10a-tool-resolution`
+54/0, `test-bl235-tool-matrix-probes` 42/0); registered in the aggregator and the `tests.yml` unit lane
+(`lint-tests-registered.sh --list`: `registered`).
 
 **Related:** `## BL-258:` (the lead this reproduces — strike its #5 fourth atom when this closes),
 `## BL-256:` (residual 4, the same jq-on-empty silent success), `## BL-231:` (the

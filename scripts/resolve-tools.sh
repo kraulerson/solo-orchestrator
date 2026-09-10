@@ -246,7 +246,30 @@ DEFERRED="[]"
 # --- Check each tool and categorize ---
 # Extract all fields per tool in a single jq call (tab-separated) to avoid N*8 subprocess forks.
 # Fields: name, category, phase, required, check_command, auto_installable, version_command, description, install_json
-while IFS=$'\t' read -r TOOL_NAME TOOL_CATEGORY TOOL_PHASE TOOL_REQUIRED TOOL_CHECK TOOL_AUTO TOOL_VERSION_CMD TOOL_DESCRIPTION TOOL_INSTALL_B64; do
+# `## BL-259:` — DO NOT read this row with `IFS=$'\t' read -r f1 f2 …`. Tab is an
+# IFS *whitespace* character, so bash collapses runs of tabs: an EMPTY field does
+# not arrive as an empty field, it vanishes, and every later field shifts left one.
+# `version_command` is optional (the producer below emits `// ""` for it), so for
+# the six catalogued tools that omit it the install blob landed in TOOL_DESCRIPTION
+# and TOOL_INSTALL_B64 arrived EMPTY — after which `base64 -d` and `jq` each
+# succeeded at rc 0 producing nothing, so their `|| echo "{}"` and
+# `// "See documentation"` defaults never fired and the operator was handed an
+# empty install instruction. Silent at every step.
+# The row itself is well-formed: `@tsv` escapes an embedded tab as a literal `\t`
+# and a newline as `\n`, so a row is one line with exactly eight real tabs and no
+# field contains one. `awk -F'\t'` reads it correctly; only bash's `read` does not.
+# So split it here, by hand, which preserves empty fields exactly.
+while IFS= read -r _bl259_row; do
+  _bl259_rest="$_bl259_row"
+  TOOL_NAME="${_bl259_rest%%$'\t'*}";        _bl259_rest="${_bl259_rest#*$'\t'}"
+  TOOL_CATEGORY="${_bl259_rest%%$'\t'*}";    _bl259_rest="${_bl259_rest#*$'\t'}"
+  TOOL_PHASE="${_bl259_rest%%$'\t'*}";       _bl259_rest="${_bl259_rest#*$'\t'}"
+  TOOL_REQUIRED="${_bl259_rest%%$'\t'*}";    _bl259_rest="${_bl259_rest#*$'\t'}"
+  TOOL_CHECK="${_bl259_rest%%$'\t'*}";       _bl259_rest="${_bl259_rest#*$'\t'}"
+  TOOL_AUTO="${_bl259_rest%%$'\t'*}";        _bl259_rest="${_bl259_rest#*$'\t'}"
+  TOOL_VERSION_CMD="${_bl259_rest%%$'\t'*}"; _bl259_rest="${_bl259_rest#*$'\t'}"
+  TOOL_DESCRIPTION="${_bl259_rest%%$'\t'*}"; _bl259_rest="${_bl259_rest#*$'\t'}"
+  TOOL_INSTALL_B64="$_bl259_rest"   # BL-259-TSV-SPLIT
 
   # Decode base64-encoded install JSON (avoids @tsv double-escaping embedded quotes)
   TOOL_INSTALL_JSON=$(echo "$TOOL_INSTALL_B64" | base64 -d 2>/dev/null || echo "{}")
