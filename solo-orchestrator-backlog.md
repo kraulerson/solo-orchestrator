@@ -15802,10 +15802,12 @@ shape recorded as `## BL-256:` residual 4.)
 
 **The same shift also fed catalogue text to a command evaluator.** With the row shifted the description
 landed in `TOOL_VERSION_CMD`, and that variable is passed to `run_bounded_capture`, which EVALUATES it
-as a shell command whenever the tool is detected as installed. On the shipped catalogue this only
-produced shell-syntax errors into a swallowed stderr (`Apple Developer Program`'s description is prose),
-but the catalogue is data and downstream projects supply their own with `--matrix-dir`, so the class is
-data-as-code, not cosmetic. The fix closes the path; no separate change was needed for it.
+as a shell command whenever the tool is detected as installed. On the shipped catalogue every one of the six
+fails INERTLY into a swallowed stderr, but not all the same way — measured by evaluating each: rc 2
+(syntax error) for the three descriptions containing a parenthesis, rc 127 (command not found) for the
+other three, **ZAP's among them**, which matters because ZAP is the one that actually reaches the
+evaluator on this Mac. The catalogue is data, though, and downstream projects supply their own with
+`--matrix-dir`, so the class is data-as-code rather than cosmetic. The fix closes the path; no separate change was needed for it.
 
 **Blast radius — measured, not estimated.** Of 47 tools across the four catalogs, **6 declare no
 `version_command`** and are affected today:
@@ -15819,11 +15821,15 @@ desktop.json: Apple Developer Program (Desktop), EV Code Signing Certificate (Wi
 mobile.json: Android Studio, Apple Developer Program, Android Keystore
 web.json: OWASP ZAP
 ```
-It does not fire on a common-only tool set (0 of 21). It DOES fire on any mobile or desktop project,
-and — the case a first draft of this line got wrong — on **every standard- or full-track WEB project
-from phase 3 onward**, because `OWASP ZAP` is `"required": true, "phase": 3,
-"tracks": ["standard","full"], "platforms": ["web"]` and declares no `version_command`. That is the
-framework's most common configuration, and it was losing the install text for a REQUIRED tool.
+Who it reaches, by the six tools' own `tracks` — measured, and **this line has now been wrong twice,
+once in each direction**, so read the field values rather than the sentence:
+- **common**: never (0 of 21 declare no `version_command`).
+- **mobile**: every track. `Android Studio` is `["light","standard","full"]`.
+- **desktop**: standard and full only. Both entries are `["standard","full"]`, so a **light-track
+  desktop project is unaffected** — the claim "any desktop project" was wrong.
+- **web**: standard and full, from phase 3. `OWASP ZAP` is `"required": true, "phase": 3,
+  "tracks": ["standard","full"], "platforms": ["web"]` with no `version_command` — so a web project
+  was losing the install text for a REQUIRED tool. The first draft said web was unaffected; wrong.
 **Why the first draft missed it:** ZAP's `check_command` is
 `command -v docker && docker image inspect ghcr.io/zaproxy/zaproxy:stable …`, and that image is pulled
 on this Mac, so ZAP resolves to `already_installed` here and never reaches the `manual_install` list
@@ -15880,8 +15886,8 @@ A first cut carried a seventh case asserting the description never appears as a 
 the plan. It was **vacuous** — no tool in the fixture is installed, so the plan contains no `version`
 field at all and the case could not fail in either direction. Dropped rather than kept as decoration.
 Both the review's surviving mutants (deleting the sole `TOOL_VERSION_CMD=` assignment; exchanging the
-`check`/`auto` fields) pass this suite and are killed by the unit lane — this suite pins fields 1, 7, 8
-and 9, and the lane covers the rest; recorded rather than papered over. All **8** unit-lane suites that
+`check`/`auto` fields) pass this suite and are killed by the unit lane — this suite pins fields 1, 8 and 9 BY VALUE and
+field 7 only POSITIONALLY (its offset feeds 8 and 9), and the lane covers the rest; recorded rather than papered over. All **8** unit-lane suites that
 drive `resolve-tools.sh` re-run green (`test-brownfield-wp10a-tool-resolution`
 54/0, `test-bl235-tool-matrix-probes` 42/0); registered in the aggregator and the `tests.yml` unit lane
 (`lint-tests-registered.sh --list`: `registered`).
