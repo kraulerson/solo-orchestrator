@@ -536,6 +536,7 @@ jobs:
             tests/test-lint-user-guide-scripts.sh
             tests/test-bl255-sed-replacement-escape.sh
             tests/test-bl256-unearned-receipts.sh
+            tests/test-bl259-tsv-empty-field-shift.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

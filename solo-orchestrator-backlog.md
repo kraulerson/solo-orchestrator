@@ -15765,3 +15765,133 @@ caught by review, not by the lint.
 **Related:** `## BL-253:`, `## BL-254:`, `## BL-255:`, `## BL-256:` (the four that shipped),
 `## BL-257:` (filed out of BL-256's review, same wave), `## BL-231:` (#6's family),
 `## BL-181:` (#10's full-lane blind spot).
+
+## BL-259: `resolve-tools.sh` loses the install instructions for every tool that declares no `version_command` — an empty `@tsv` field collapses and shifts the row
+
+**Status:** Open
+
+**Logged:** 2026-09-10, reproducing `## BL-258:`'s lead #5, fourth atom ("the resolver's `@tsv` output
+is consumed with a shifted field index"). **The lead reproduces.** Filed as the reproduction at
+`4583b0d`; **fixed later on the same branch** — see the Fix section below.
+
+**The defect.** `scripts/resolve-tools.sh` reads its tool rows with a nine-variable
+`while IFS=$'\t' read -r TOOL_NAME … TOOL_INSTALL_B64` whose producer is the `jq -r '… | @tsv'` at the
+matching `done < <(…)` — one loop, reader and producer paired. **Tab is an IFS *whitespace* character**,
+so bash collapses runs of tabs: an EMPTY field does not survive as an empty field, it disappears, and
+every later field shifts left one. The producer emits `(.version_command // "")` — and that `// ""` is
+itself the proof the field is optional.
+
+**Measured, both directions:**
+```
+printf 'name\tcat\t1\ttrue\tcheck\tfalse\t\tdesc\tB64DATA\n' \
+  | while IFS=$'\t' read -r a b c d e f g h i; do echo "[$g] [$h] [$i]"; done
+  -> [desc] [B64DATA] []          # empty version_command: every later field shifted
+same row with field 7 populated
+  -> [ver] [desc] [B64DATA]       # correct
+```
+
+**What the operator sees, and why nothing complains.** With the row shifted, `TOOL_VERSION_CMD` holds
+the description, `TOOL_DESCRIPTION` holds the base64 install blob, and `TOOL_INSTALL_B64` is empty.
+Then every downstream step succeeds at rc 0 while producing nothing:
+`printf '' | base64 -d` exits **0** with empty output, so the `|| echo "{}"` fallback beside it never
+fires and `TOOL_INSTALL_JSON` is the empty string; `printf '' | jq -r '.manual // "See documentation"'`
+exits **0** with NO output, so the `// "See documentation"` default never fires either and
+`INSTALL_CMD` ends up EMPTY. That empty string is what reaches the operator as
+`--arg instructions "$INSTALL_CMD"`. (The jq half is the same "jq on empty input is a silent success"
+shape recorded as `## BL-256:` residual 4.)
+
+**The same shift also fed catalogue text to a command evaluator.** With the row shifted the description
+landed in `TOOL_VERSION_CMD`, and that variable is passed to `run_bounded_capture`, which EVALUATES it
+as a shell command whenever the tool is detected as installed. On the shipped catalogue every one of the six
+fails INERTLY into a swallowed stderr, but not all the same way — measured by evaluating each: rc 2
+(syntax error) for the three descriptions containing a parenthesis, rc 127 (command not found) for the
+other three, **ZAP's among them**, which matters because ZAP is the one that actually reaches the
+evaluator on this Mac. The catalogue is data, though, and downstream projects supply their own with
+`--matrix-dir`, so the class is data-as-code rather than cosmetic. The fix closes the path; no separate change was needed for it.
+
+**Blast radius — measured, not estimated.** Of 47 tools across the four catalogs, **6 declare no
+`version_command`** and are affected today:
+```
+for c in templates/tool-matrix/*.json; do jq -r --arg f "$(basename "$c")" \
+  '[.. | objects | select(has("check_command")) | select(has("version_command")|not) | .name]
+   | "\($f): \(if length==0 then "none" else join(", ") end)"' "$c"; done
+
+common.json: none
+desktop.json: Apple Developer Program (Desktop), EV Code Signing Certificate (Windows)
+mobile.json: Android Studio, Apple Developer Program, Android Keystore
+web.json: OWASP ZAP
+```
+Who it reaches, by the six tools' own `tracks` — measured, and **this line has now been wrong twice,
+once in each direction**, so read the field values rather than the sentence:
+- **common**: never (0 of 21 declare no `version_command`).
+- **mobile**: every track. `Android Studio` is `["light","standard","full"]`.
+- **desktop**: standard and full only. Both entries are `["standard","full"]`, so a **light-track
+  desktop project is unaffected** — the claim "any desktop project" was wrong.
+- **web**: standard and full, from phase 3. `OWASP ZAP` is `"required": true, "phase": 3,
+  "tracks": ["standard","full"], "platforms": ["web"]` with no `version_command` — so a web project
+  was losing the install text for a REQUIRED tool. The first draft said web was unaffected; wrong.
+**Why the first draft missed it:** ZAP's `check_command` is
+`command -v docker && docker image inspect ghcr.io/zaproxy/zaproxy:stable …`, and that image is pulled
+on this Mac, so ZAP resolves to `already_installed` here and never reaches the `manual_install` list
+where the damage is visible. On a clean host it does. Measured in `ubuntu:24.04` with no docker: at
+`681beb3` the plan carries `OWASP ZAP instructions=[]`; at the fix it carries
+`Requires Docker. Run: docker pull ghcr.io/zaproxy/zaproxy:stable`.
+
+**Fix — BUILT on this branch, option 1.** `# BL-259-TSV-SPLIT`: the loop reads one whole line
+(`while IFS= read -r`) and splits it by hand with `${rest%%$'\t'*}` / `${rest#*$'\t'}` — **eight** pairs
+yielding nine fields, the ninth being the untouched remainder — which preserves empty fields exactly. No producer change, so `@tsv`'s escaping stays load-bearing and no new
+escaping surface is introduced. The comment above the loop carries the trap so the next reader does not
+reinstate it.
+
+**Plus an arity guard, because without one the new split is WORSE than the `read` it replaced on a
+short row:** the hand split duplicates the last available field into every remaining slot, where `read`
+at least left them empty — plausible data instead of missing data. Measured identically on bash 3.2.57
+and 5.2.37. It is unreachable today (`… | @tsv | awk -F'\t' '{c[NF]++}'` → nine fields on all 47 rows),
+so the guard asserts rather than trusts: count the tabs, and refuse the row with a named error and
+rc 1 if there are not exactly eight. A producer/reader drift is a programming error and must be loud.
+
+**Options considered, and why option 1.**
+1. **Split the row explicitly** rather than relying on `read` — keep `@tsv` (its escaping of embedded
+   tabs and newlines is load-bearing) and read one whole line, splitting on tab in a way that preserves
+   empty fields. Safest; no producer change; no new escaping surface.
+2. **Change the delimiter to a non-whitespace one** (`join("\u001f")` + `IFS=$'\x1f'`). Empty fields
+   survive because `\x1f` is not IFS whitespace — but `join` does NOT escape embedded newlines the way
+   `@tsv` does, so this trades one silent corruption for another unless the fields are sanitised.
+3. **Make the producer never emit an empty field** (a sentinel the reader converts back). Smallest
+   diff, but any sentinel can collide with a legitimate value.
+Chose (1): it is the only one that adds no new failure mode.
+
+**Build note (2026-09-10, branch `fix/bl259-tsv-empty-field-shift`).** Suite
+`tests/test-bl259-tsv-empty-field-shift.sh` drives the REAL resolver end to end against a hermetic
+fixture matrix passed with `--matrix-dir` — two manual-install tools whose `check_command` looks for a
+binary the suite first asserts is absent, one WITHOUT `version_command` and one WITH it as the control,
+so no network and no host tool is touched. It asserts the plan the operator receives, not the `read`:
+`.manual_install[] | select(.name==…) | .instructions`.
+
+RED with the final file at `681beb3`: **2 passed / 5 failed**. R1 (the no-version tool's install
+instructions came back EMPTY) and R2 (its description came back as the base64 install blob,
+`eyJtYW51YWwiOiJCTDI1OS1JTlNUQUxM…`) are the discriminators; M0 and the MP1 setup fail because the
+marker does not exist yet. The two passes are honest-outcome controls — R0 (the resolver runs) and R3
+(the control tool WITH a version_command was never affected) — true on main by construction.
+
+GREEN **7 / 0**, two mutants. MP1 replaces the whole split block with the single collapsing
+`IFS=$'\t' read` line it removed, located by the loop opener and the marker, and asserts the mutation
+landed (`bash -n`, the restored line present exactly once, the marker gone). Under it R1 goes red with
+an empty instructions field, which is what proves R1 discriminates. MP2 drops one element from the
+PRODUCER on a mirror so the row carries seven tabs, and asserts the resolver REFUSES it at rc 1 naming
+"malformed tool row" rather than reading a short row as plausible data — that is what makes the arity
+guard load-bearing rather than decoration.
+
+A first cut carried a seventh case asserting the description never appears as a `version` anywhere in
+the plan. It was **vacuous** — no tool in the fixture is installed, so the plan contains no `version`
+field at all and the case could not fail in either direction. Dropped rather than kept as decoration.
+Both the review's surviving mutants (deleting the sole `TOOL_VERSION_CMD=` assignment; exchanging the
+`check`/`auto` fields) pass this suite and are killed by the unit lane — this suite pins fields 1, 8 and 9 BY VALUE and
+field 7 only POSITIONALLY (its offset feeds 8 and 9), and the lane covers the rest; recorded rather than papered over. All **8** unit-lane suites that
+drive `resolve-tools.sh` re-run green (`test-brownfield-wp10a-tool-resolution`
+54/0, `test-bl235-tool-matrix-probes` 42/0); registered in the aggregator and the `tests.yml` unit lane
+(`lint-tests-registered.sh --list`: `registered`).
+
+**Related:** `## BL-258:` (the lead this reproduces — strike its #5 fourth atom when this closes),
+`## BL-256:` (residual 4, the same jq-on-empty silent success), `## BL-231:` (the
+absent-vs-unreadable family).

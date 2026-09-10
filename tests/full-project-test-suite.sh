@@ -856,6 +856,10 @@ run_child_suite "tests/test-bl256-unearned-receipts.sh" \
   "BL-256 unearned receipts (P3 semgrep count needs a .results array; UAT attestation refused when unrecordable)" \
   "BL-256 unearned-receipt tests FAILED (run tests/test-bl256-unearned-receipts.sh for details)"
 
+run_child_suite "tests/test-bl259-tsv-empty-field-shift.sh" \
+  "BL-259: an empty @tsv field must not collapse and shift the resolver row" \
+  "BL-259 tsv-field-shift tests FAILED (run tests/test-bl259-tsv-empty-field-shift.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
