@@ -15673,9 +15673,12 @@ say so on this entry and strike it rather than quietly fixing something adjacent
 `verify-install.sh` parses in the wrong order; the `# BL-057:` early return in
 `resolve_and_install_tools()` (`init.sh` line 972, with the assignment at 1171 in the SAME function)
 SKIPS the `RESOLVER_OUTPUT` assignment rather than setting it, so its three readers — all
-`${RESOLVER_OUTPUT:-}`-guarded, hence silent — see nothing; `validate.sh`'s phase inference is wrong; and the resolver's `@tsv` output is
-consumed with a shifted field index. Ranked #5, and the one to do next: it is the first screen, so a
-defect here is seen by every user before anything else.
+`${RESOLVER_OUTPUT:-}`-guarded, hence silent — see nothing; `validate.sh`'s phase inference is wrong; and ~~the resolver's `@tsv` output is
+consumed with a shifted field index~~ — **that fourth atom is DONE: it reproduced, and shipped as
+`## BL-259:` (PR #383, merge `ed3aab4`)**. Three atoms remain. Ranked #5, and still the one to do next:
+it is the first screen, so a defect here is seen by every user before anything else. The one that
+reproduced turned out to be worse than the note suggested, which is a reason to reproduce the other
+three rather than triage them from the wording.
 
 **#6 — `_bl072_tier_bypassable` conflates absent with unparseable**, so a state file that cannot be
 read takes the same branch as one that is not there — the `## BL-231:` "tracking file absent, no
@@ -15768,7 +15771,18 @@ caught by review, not by the lint.
 
 ## BL-259: `resolve-tools.sh` loses the install instructions for every tool that declares no `version_command` — an empty `@tsv` field collapses and shifts the row
 
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-09-10 (PR #383, merge `ed3aab4`). `# BL-259-TSV-SPLIT`: the
+loop reads one whole line and splits it by hand, eight `${rest%%$'\t'*}` / `${rest#*$'\t'}` pairs yielding
+nine fields, so an empty field survives instead of collapsing. An arity guard refuses any row not
+carrying exactly eight tabs at rc 1, because without it the hand split is worse than the `read` it
+replaced on a short row. Suite `tests/test-bl259-tsv-empty-field-shift.sh` **7 / 0** on bash 3.2.57 and
+on 5.2.21 in `ubuntu:24.04` as a non-root user, against RED **2 / 5**; two mutants. Two adversarial
+rounds, both `major_concerns`, **both on this entry's prose and neither on the code** — the code half
+was judged "approve on its own" in round 1 and survived round 2's attack on the guard (17 adversarial
+rows across both bash versions, four locales, invalid UTF-8, `extglob`/`nocasematch`/`GLOBIGNORE`, 30
+real-catalogue runs, zero false positives). **Residuals stay open below**: the suite pins fields 1, 8
+and 9 by value and 7 only positionally, and two mutants of the reader survive it and die in the unit
+lane instead.
 
 **Logged:** 2026-09-10, reproducing `## BL-258:`'s lead #5, fourth atom ("the resolver's `@tsv` output
 is consumed with a shifted field index"). **The lead reproduces.** Filed as the reproduction at
