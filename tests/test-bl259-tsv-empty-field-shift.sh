@@ -33,6 +33,7 @@ fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 TOPTMP="$(mktemp -d)"
 trap 'rm -rf "$TOPTMP"' EXIT INT TERM
 newtmp() { mktemp -d "$TOPTMP/fixXXXXXX"; }
+_changed_lines() { local n; n=$(diff "$1" "$2" 2>/dev/null | grep -c '^[<>]'); case "$n" in ''|*[!0-9]*) n=0 ;; esac; printf '%s\n' "$n"; }
 
 [ -f "$RESOLVER" ] || { echo "  [FAIL] setup — $RESOLVER not found"; echo ""; echo "Results: 0 passed, 1 failed"; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "  [FAIL] setup — jq is required"; echo ""; echo "Results: 0 passed, 1 failed"; exit 1; }
@@ -189,6 +190,42 @@ else
           pass "MP1 (MUTATION) — with the collapsing read restored, the no-version tool loses its install instructions (got [$got]): R1 is what stops it"
         else
           fail_ "MP1 (MUTATION)" "the collapsing read changed nothing — R1 may be passing for another reason"
+        fi
+      fi
+    fi
+  fi
+fi
+
+# MP2 — the arity guard. Drop one field from the PRODUCER on a mirror so the
+# row carries seven tabs instead of eight. Without the guard the hand split
+# duplicates the last available field into every remaining slot — plausible
+# data, silently. The resolver must refuse loudly instead.
+MP2="$(newtmp)/fw"
+if ! mkdir -p "$MP2" || ! cp -Rp "$REPO_ROOT/scripts" "$MP2/"; then
+  fail_ "MP2 setup" "could not mirror scripts/"
+else
+  tgt2="$MP2/scripts/resolve-tools.sh"; before2="$(mktemp)"; cp "$tgt2" "$before2"
+  # the producer's `.description,` element — one line, exactly one occurrence
+  if [ "$(grep -c '^  \.description,$' "$before2")" -ne 1 ]; then
+    fail_ "MP2 setup" "the producer's .description element is not a unique single line"
+  else
+    grep -v '^  \.description,$' "$before2" > "$tgt2"
+    if ! bash -n "$tgt2" 2>/dev/null \
+       || [ "$(grep -c '^  \.description,$' "$tgt2")" -ne 0 ] \
+       || [ "$(_changed_lines "$before2" "$tgt2")" -ne 1 ]; then
+      fail_ "MP2 setup" "the producer mutation did not apply cleanly"
+    else
+      MX3="$(newtmp)/matrix"
+      if ! mk_matrix "$MX3"; then
+        fail_ "MP2 setup" "could not build the mutant's fixture matrix"
+      else
+        MP2_ERR="$(newtmp)/err"
+        RESOLVER_OUT="$( bash "$tgt2" --dev-os linux --platform web --language typescript \
+          --track standard --phase 1 --matrix-dir "$MX3" 2>"$MP2_ERR" )"; MP2_RC=$?
+        if [ "$MP2_RC" -ne 0 ] && grep -q 'malformed tool row' "$MP2_ERR"; then
+          pass "MP2 (MUTATION) — a producer emitting one field fewer is REFUSED loudly (rc=$MP2_RC), not read as plausible data"
+        else
+          fail_ "MP2 (MUTATION)" "a short row was accepted (rc=$MP2_RC) — the arity guard is not load-bearing; stderr: $(head -1 "$MP2_ERR" 2>/dev/null)"
         fi
       fi
     fi

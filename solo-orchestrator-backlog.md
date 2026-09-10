@@ -15771,8 +15771,8 @@ caught by review, not by the lint.
 **Status:** Open
 
 **Logged:** 2026-09-10, reproducing `## BL-258:`'s lead #5, fourth atom ("the resolver's `@tsv` output
-is consumed with a shifted field index"). **The lead reproduces.** This entry is the reproduction; the
-fix is not built yet.
+is consumed with a shifted field index"). **The lead reproduces.** Filed as the reproduction at
+`4583b0d`; **fixed later on the same branch** — see the Fix section below.
 
 **The defect.** `scripts/resolve-tools.sh` reads its tool rows with a nine-variable
 `while IFS=$'\t' read -r TOOL_NAME … TOOL_INSTALL_B64` whose producer is the `jq -r '… | @tsv'` at the
@@ -15800,6 +15800,13 @@ exits **0** with NO output, so the `// "See documentation"` default never fires 
 `--arg instructions "$INSTALL_CMD"`. (The jq half is the same "jq on empty input is a silent success"
 shape recorded as `## BL-256:` residual 4.)
 
+**The same shift also fed catalogue text to a command evaluator.** With the row shifted the description
+landed in `TOOL_VERSION_CMD`, and that variable is passed to `run_bounded_capture`, which EVALUATES it
+as a shell command whenever the tool is detected as installed. On the shipped catalogue this only
+produced shell-syntax errors into a swallowed stderr (`Apple Developer Program`'s description is prose),
+but the catalogue is data and downstream projects supply their own with `--matrix-dir`, so the class is
+data-as-code, not cosmetic. The fix closes the path; no separate change was needed for it.
+
 **Blast radius — measured, not estimated.** Of 47 tools across the four catalogs, **6 declare no
 `version_command`** and are affected today:
 ```
@@ -15812,14 +15819,30 @@ desktop.json: Apple Developer Program (Desktop), EV Code Signing Certificate (Wi
 mobile.json: Android Studio, Apple Developer Program, Android Keystore
 web.json: OWASP ZAP
 ```
-So it does not fire on a plain web/common project, which is why it has gone unnoticed: it needs a
-mobile or desktop platform, or ZAP on web.
+It does not fire on a common-only tool set (0 of 21). It DOES fire on any mobile or desktop project,
+and — the case a first draft of this line got wrong — on **every standard- or full-track WEB project
+from phase 3 onward**, because `OWASP ZAP` is `"required": true, "phase": 3,
+"tracks": ["standard","full"], "platforms": ["web"]` and declares no `version_command`. That is the
+framework's most common configuration, and it was losing the install text for a REQUIRED tool.
+**Why the first draft missed it:** ZAP's `check_command` is
+`command -v docker && docker image inspect ghcr.io/zaproxy/zaproxy:stable …`, and that image is pulled
+on this Mac, so ZAP resolves to `already_installed` here and never reaches the `manual_install` list
+where the damage is visible. On a clean host it does. Measured in `ubuntu:24.04` with no docker: at
+`681beb3` the plan carries `OWASP ZAP instructions=[]`; at the fix it carries
+`Requires Docker. Run: docker pull ghcr.io/zaproxy/zaproxy:stable`.
 
 **Fix — BUILT on this branch, option 1.** `# BL-259-TSV-SPLIT`: the loop reads one whole line
-(`while IFS= read -r`) and splits it by hand with `${rest%%$'\t'*}` / `${rest#*$'\t'}`, nine times, which
-preserves empty fields exactly. No producer change, so `@tsv`'s escaping stays load-bearing and no new
+(`while IFS= read -r`) and splits it by hand with `${rest%%$'\t'*}` / `${rest#*$'\t'}` — **eight** pairs
+yielding nine fields, the ninth being the untouched remainder — which preserves empty fields exactly. No producer change, so `@tsv`'s escaping stays load-bearing and no new
 escaping surface is introduced. The comment above the loop carries the trap so the next reader does not
 reinstate it.
+
+**Plus an arity guard, because without one the new split is WORSE than the `read` it replaced on a
+short row:** the hand split duplicates the last available field into every remaining slot, where `read`
+at least left them empty — plausible data instead of missing data. Measured identically on bash 3.2.57
+and 5.2.37. It is unreachable today (`… | @tsv | awk -F'\t' '{c[NF]++}'` → nine fields on all 47 rows),
+so the guard asserts rather than trusts: count the tabs, and refuse the row with a named error and
+rc 1 if there are not exactly eight. A producer/reader drift is a programming error and must be loud.
 
 **Options considered, and why option 1.**
 1. **Split the row explicitly** rather than relying on `read` — keep `@tsv` (its escaping of embedded
@@ -15839,21 +15862,27 @@ binary the suite first asserts is absent, one WITHOUT `version_command` and one 
 so no network and no host tool is touched. It asserts the plan the operator receives, not the `read`:
 `.manual_install[] | select(.name==…) | .instructions`.
 
-RED with the final file at `681beb3`: **2 passed / 4 failed**. R1 (the no-version tool's install
+RED with the final file at `681beb3`: **2 passed / 5 failed**. R1 (the no-version tool's install
 instructions came back EMPTY) and R2 (its description came back as the base64 install blob,
 `eyJtYW51YWwiOiJCTDI1OS1JTlNUQUxM…`) are the discriminators; M0 and the MP1 setup fail because the
 marker does not exist yet. The two passes are honest-outcome controls — R0 (the resolver runs) and R3
 (the control tool WITH a version_command was never affected) — true on main by construction.
 
-GREEN **6 / 0**, one mutant: MP1 replaces the whole split block with the single collapsing
+GREEN **7 / 0**, two mutants. MP1 replaces the whole split block with the single collapsing
 `IFS=$'\t' read` line it removed, located by the loop opener and the marker, and asserts the mutation
 landed (`bash -n`, the restored line present exactly once, the marker gone). Under it R1 goes red with
-an empty instructions field, which is what proves R1 discriminates.
+an empty instructions field, which is what proves R1 discriminates. MP2 drops one element from the
+PRODUCER on a mirror so the row carries seven tabs, and asserts the resolver REFUSES it at rc 1 naming
+"malformed tool row" rather than reading a short row as plausible data — that is what makes the arity
+guard load-bearing rather than decoration.
 
 A first cut carried a seventh case asserting the description never appears as a `version` anywhere in
 the plan. It was **vacuous** — no tool in the fixture is installed, so the plan contains no `version`
 field at all and the case could not fail in either direction. Dropped rather than kept as decoration.
-All **8** unit-lane suites that drive `resolve-tools.sh` re-run green (`test-brownfield-wp10a-tool-resolution`
+Both the review's surviving mutants (deleting the sole `TOOL_VERSION_CMD=` assignment; exchanging the
+`check`/`auto` fields) pass this suite and are killed by the unit lane — this suite pins fields 1, 7, 8
+and 9, and the lane covers the rest; recorded rather than papered over. All **8** unit-lane suites that
+drive `resolve-tools.sh` re-run green (`test-brownfield-wp10a-tool-resolution`
 54/0, `test-bl235-tool-matrix-probes` 42/0); registered in the aggregator and the `tests.yml` unit lane
 (`lint-tests-registered.sh --list`: `registered`).
 

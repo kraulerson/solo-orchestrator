@@ -260,6 +260,17 @@ DEFERRED="[]"
 # field contains one. `awk -F'\t'` reads it correctly; only bash's `read` does not.
 # So split it here, by hand, which preserves empty fields exactly.
 while IFS= read -r _bl259_row; do
+  # Arity guard. Without it a SHORT row is read worse than the collapsing
+  # `read` handled it: the hand split duplicates the last available field into
+  # every remaining slot, where `read` at least left them empty — plausible
+  # data instead of missing data. Unreachable today (the producer emits exactly
+  # eight tabs for every row) and cheap, so assert it rather than trust it: a
+  # producer/reader drift is a programming error and must be loud.
+  _bl259_tabs="${_bl259_row//[!$'\t']/}"
+  if [ "${#_bl259_tabs}" -ne 8 ]; then
+    echo "resolve-tools: malformed tool row — expected 8 tab separators, got ${#_bl259_tabs}. The @tsv producer and this reader have drifted; refusing to guess." >&2
+    exit 1
+  fi
   _bl259_rest="$_bl259_row"
   TOOL_NAME="${_bl259_rest%%$'\t'*}";        _bl259_rest="${_bl259_rest#*$'\t'}"
   TOOL_CATEGORY="${_bl259_rest%%$'\t'*}";    _bl259_rest="${_bl259_rest#*$'\t'}"
