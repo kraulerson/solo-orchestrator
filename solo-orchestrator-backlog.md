@@ -15765,3 +15765,71 @@ caught by review, not by the lint.
 **Related:** `## BL-253:`, `## BL-254:`, `## BL-255:`, `## BL-256:` (the four that shipped),
 `## BL-257:` (filed out of BL-256's review, same wave), `## BL-231:` (#6's family),
 `## BL-181:` (#10's full-lane blind spot).
+
+## BL-259: `resolve-tools.sh` loses the install instructions for every tool that declares no `version_command` — an empty `@tsv` field collapses and shifts the row
+
+**Status:** Open
+
+**Logged:** 2026-09-10, reproducing `## BL-258:`'s lead #5, fourth atom ("the resolver's `@tsv` output
+is consumed with a shifted field index"). **The lead reproduces.** This entry is the reproduction; the
+fix is not built yet.
+
+**The defect.** `scripts/resolve-tools.sh` reads its tool rows with a nine-variable
+`while IFS=$'\t' read -r TOOL_NAME … TOOL_INSTALL_B64` whose producer is the `jq -r '… | @tsv'` at the
+matching `done < <(…)` — one loop, reader and producer paired. **Tab is an IFS *whitespace* character**,
+so bash collapses runs of tabs: an EMPTY field does not survive as an empty field, it disappears, and
+every later field shifts left one. The producer emits `(.version_command // "")` — and that `// ""` is
+itself the proof the field is optional.
+
+**Measured, both directions:**
+```
+printf 'name\tcat\t1\ttrue\tcheck\tfalse\t\tdesc\tB64DATA\n' \
+  | while IFS=$'\t' read -r a b c d e f g h i; do echo "[$g] [$h] [$i]"; done
+  -> [desc] [B64DATA] []          # empty version_command: every later field shifted
+same row with field 7 populated
+  -> [ver] [desc] [B64DATA]       # correct
+```
+
+**What the operator sees, and why nothing complains.** With the row shifted, `TOOL_VERSION_CMD` holds
+the description, `TOOL_DESCRIPTION` holds the base64 install blob, and `TOOL_INSTALL_B64` is empty.
+Then every downstream step succeeds at rc 0 while producing nothing:
+`printf '' | base64 -d` exits **0** with empty output, so the `|| echo "{}"` fallback beside it never
+fires and `TOOL_INSTALL_JSON` is the empty string; `printf '' | jq -r '.manual // "See documentation"'`
+exits **0** with NO output, so the `// "See documentation"` default never fires either and
+`INSTALL_CMD` ends up EMPTY. That empty string is what reaches the operator as
+`--arg instructions "$INSTALL_CMD"`. (The jq half is the same "jq on empty input is a silent success"
+shape recorded as `## BL-256:` residual 4.)
+
+**Blast radius — measured, not estimated.** Of 47 tools across the four catalogs, **6 declare no
+`version_command`** and are affected today:
+```
+for c in templates/tool-matrix/*.json; do jq -r --arg f "$(basename "$c")" \
+  '[.. | objects | select(has("check_command")) | select(has("version_command")|not) | .name]
+   | "\($f): \(if length==0 then "none" else join(", ") end)"' "$c"; done
+
+common.json: none
+desktop.json: Apple Developer Program (Desktop), EV Code Signing Certificate (Windows)
+mobile.json: Android Studio, Apple Developer Program, Android Keystore
+web.json: OWASP ZAP
+```
+So it does not fire on a plain web/common project, which is why it has gone unnoticed: it needs a
+mobile or desktop platform, or ZAP on web.
+
+**Fix — NOT built; the shape is a real choice and wants a decision.**
+1. **Split the row explicitly** rather than relying on `read` — keep `@tsv` (its escaping of embedded
+   tabs and newlines is load-bearing) and read one whole line, splitting on tab in a way that preserves
+   empty fields. Safest; no producer change; no new escaping surface.
+2. **Change the delimiter to a non-whitespace one** (`join("\u001f")` + `IFS=$'\x1f'`). Empty fields
+   survive because `\x1f` is not IFS whitespace — but `join` does NOT escape embedded newlines the way
+   `@tsv` does, so this trades one silent corruption for another unless the fields are sanitised.
+3. **Make the producer never emit an empty field** (a sentinel the reader converts back). Smallest
+   diff, but any sentinel can collide with a legitimate value.
+Recommendation: (1). It is the only one that adds no new failure mode.
+
+**Test it must carry.** A row with an absent `version_command` must reach the operator with the real
+install instructions, pinned end to end rather than at the `read` alone, plus a mutation proof that
+restoring the collapsing read re-opens it. The six named tools above are the fixture set.
+
+**Related:** `## BL-258:` (the lead this reproduces — strike its #5 fourth atom when this closes),
+`## BL-256:` (residual 4, the same jq-on-empty silent success), `## BL-231:` (the
+absent-vs-unreadable family).
