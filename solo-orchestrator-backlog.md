@@ -15780,11 +15780,15 @@ on 5.2.21 in `ubuntu:24.04` as a non-root user, against RED **3 / 5**; two mutan
 rounds, both `major_concerns`, **both on this entry's prose and neither on the code** — the code half
 was judged "approve on its own" in round 1 and survived round 2's attack on the guard (17 adversarial
 rows across both bash versions, four locales, invalid UTF-8, `extglob`/`nocasematch`/`GLOBIGNORE`, 30
-real-catalogue runs, zero false positives). **One residual stays open below.** A first cut of this
-line claimed the suite's two surviving mutants both "die in the unit lane"; one did not — deleting the
-sole `TOOL_VERSION_CMD=` capture was UNCOVERED everywhere and silently blanked every
-`already_installed[].version`. Case R4 now pins field 7 by value and kills it, so fields 1, 7, 8 and 9
-are all pinned by value.
+real-catalogue runs, zero false positives). **No residual remains open.** A first cut of this line
+claimed the suite's two surviving mutants both "die in the unit lane"; one did not — deleting the sole
+`TOOL_VERSION_CMD=` capture was uncovered by every suite measured and silently blanked every
+`already_installed[].version`. Case R4 pins field 7 by value and kills **both** of them (`[]` for the
+deleted capture; `<<ABSENT>>` for the check/auto exchange, which flips the fixture tool to
+not-installed so it leaves `already_installed` entirely). Fields 1, 7, 8 and 9 are pinned by value;
+2-6 by position only, and `set -u` catches a dropped capture among them at R0. A second cut of this
+line then said "one residual stays open below" while pointing at nothing — the same edit had removed
+the residual it meant.
 
 **Logged:** 2026-09-10, reproducing `## BL-258:`'s lead #5, fourth atom ("the resolver's `@tsv` output
 is consumed with a shifted field index"). **The lead reproduces.** Filed as the reproduction at
@@ -15908,7 +15912,9 @@ That was false for one of them, and the false half hid a real coverage hole.** E
 `test-bl137-ci-tools-scope` 5/0 → 3/2). Deleting the sole `TOOL_VERSION_CMD=` capture while keeping its
 position strip did **not**: it survived this suite, all eight unit-lane suites that drive the resolver,
 and three further `already_installed` readers, while silently emptying every
-`already_installed[].version` — measured on the real catalogue, 15 non-empty versions to 0. Nothing in
+`already_installed[].version` — measured on the real catalogue at `--dev-os darwin --platform web
+--language typescript --track standard --phase 4` on this Mac (the count is host-dependent; it counts
+what is installed here), 15 non-empty versions to 0. Nothing in
 the repo asserted a resolver version VALUE. **Closed by case R4**, which pins field 7 by value with an
 installed fixture tool; that mutant now dies at R4 (`version is [], want [BL259-VERSION-VALUE]`). R4 is
 a control for the shift itself — it passes at base — and a discriminator for the capture. All **8** unit-lane suites that
