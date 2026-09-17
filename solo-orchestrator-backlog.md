@@ -17277,8 +17277,12 @@ a hoist is not taken).
 
 ## BL-277: the bypass detector's PostToolUse arm scans text whose authorship it has not established, records it as `actor: "claude"`, and raises a BLOCKING sentinel on it — so reading the framework's own rules reports the agent for proposing a bypass
 
-**Status:** Open — **ENTRY-ONLY BY DECISION (2026-09-13), not by omission.** Three options are set out
-below with a recommendation, and none of them is built. Choosing among them is a judgement about this
+**Status:** Open — **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
+contributor who filed this (also issue #385, which proposed scanning `tool_input`) is invited to build it;
+adversarial review before merge, as every PR. Not built yet. *(Before 2026-09-17: ENTRY-ONLY BY DECISION
+(2026-09-13); three options set out below with a recommendation, none built.)* Consequence for adoption:
+ADOPT-002-ARCH v2.2 makes shipping `.claude/settings.json` to adoptees depend on this landing, so no
+adoptee imports the day-one sentinel. Choosing among them is a judgement about this
 framework's risk appetite rather than about correct code: every candidate narrows a security control
 the maintainer owns, option 3 additionally changes an audit-row schema and needs a sweep of every
 reader of `actor`, and output-scanning is a TESTED CONTRACT (`tests/test-bypass-detector.sh` T1), so
@@ -17587,11 +17591,21 @@ did not earn).
 
 ## BL-282: the wizard offers no route to correct a recorded answer once its section is complete — `--resume` skips the section, and `reconfigure-project.sh --field` covers seven fields of the 122 the wizard records
 
-**Status:** Open — fix + suite on branch `fix/bl282-set-answer` (Asborien fork), PR pending. The
-entry was filed 2026-09-14 as measurement plus four options with none built; on 2026-09-17 the
-downstream Orchestrator chose option 2 for their own adoption and the fix below is offered upstream
-on that basis. The options and their trade-offs stand as logged; the surface is still the
-maintainer's to accept or decline.
+**Status:** Open — **DECIDED 2026-09-17 (Karl), on issue #418: option 2 below — a generic setter on the
+wizard — widened to accept any key already present in the progress file's `answers` (adoption-recorded
+keys included, the amendment noting so) while keeping the refusal for keys that exist nowhere; and, on the
+adoption side, the driver records A7 rows under the wizard's own keys wherever one exists (ADOPT-002-ARCH
+v2.2, WP12a's intake pre-fill).** The contributor is invited to PR the wizard half with its suite;
+adversarial review before merge. Not built yet. *(Before 2026-09-17: ENTRY ONLY BY DECISION (2026-09-14);
+four options set out below with their trade-offs, none built.)* Every one of them adds or documents a CLI surface the
+maintainer will own — a flag on the wizard, an arm in `reconfigure-project.sh`, or a written promise
+that a JSON file is hand-editable — and a surface, once documented, is the hard-to-reverse kind. The
+contribution is the measurement and the options; the choice is his.
+
+**Offered since (Asborien fork, 2026-09-17):** the "Not built yet" above is the maintainer's and
+predates this — the generic setter and its suite are on branch `fix/bl282-set-answer`, and the
+widening to adoption-recorded keys is `## BL-301:`, stacked on it. PR pending. The options and their
+trade-offs stand as logged; the surface is still the maintainer's to accept or decline.
 
 **Fix:** `scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]` (option 2;
 `# BL-282-SET-ANSWER-BEGIN` … `# BL-282-SET-ANSWER-END`, dispatched at `# BL-282-SET-ANSWER-ARM`).
@@ -17756,9 +17770,9 @@ each lands on its own branch.
 
 ---
 
-## BL-294: adoption records intake rows under keys the wizard never asks, so `--set-answer` refuses the very rows adoption wrote — ten of Scout's fifteen prefill fields, including a `test_command` carrying a transcription slip
+## BL-301: adoption records intake rows under keys the wizard never asks, so `--set-answer` refuses the very rows adoption wrote — ten of Scout's fifteen prefill fields, including a `test_command` carrying a transcription slip
 
-**Status:** Open — fix + suite on branch `fix/bl294-adoption-recorded-keys` (Asborien fork), stacked
+**Status:** Open — fix + suite on branch `fix/bl301-adoption-recorded-keys` (Asborien fork), stacked
 on `fix/bl282-set-answer` because the route it widens is `## BL-282:`'s. Issue #418. This is the
 WIZARD half of the maintainer's decision only; the adoption-driver half is his, in ADOPT-002-ARCH
 v2.2, and nothing here builds, stubs or tests it.
@@ -17807,35 +17821,52 @@ ours to own since we filed it:
    parent and proved nothing.
 
 **Fix:** in `run_set_answer`, a key that `_bl282_key_allowed` refuses is looked up in the progress
-file's `answers` by `_bl294_key_recorded` (`# BL-294-ADOPTION-RECORDED-BEGIN` …
-`# BL-294-ADOPTION-RECORDED-END`; called at `# BL-294-RECORDED-CHECK`) — exact membership, in
+file's `answers` by `_bl301_key_recorded` (`# BL-301-ADOPTION-RECORDED-BEGIN` …
+`# BL-301-ADOPTION-RECORDED-END`; called at `# BL-301-RECORDED-CHECK`) — exact membership, in
 python, with the key passed as `argv` and never interpolated into a program. Present: the key is
 accepted and written exactly as a wizard key is (A1), the other answers are untouched (A2), and the
 amendment carries `## BL-282:`'s five fields plus `"note": "adoption-recorded key"` (A3;
-`# BL-294-NOTE`); the operator's line ends `(amended, recorded; adoption-recorded key)` (A4). A blank
+`# BL-301-NOTE`); the operator's line ends `(amended, recorded; adoption-recorded key)` (A4). A blank
 A7 placeholder is amended the same way and its old value is recorded as the `""` it was, not as
 `null` (A5). A second correction appends and is noted too (A6). `--help` names the second class of
 key (A7). Absent everywhere: refused at exit 1 with nothing written, as before (N1) — and "present"
 means present IN `answers`, so a top-level key of the progress file such as adoption's own `source`
-is refused (N2).
+is refused (N2). Membership is EXACT: eight near-misses of recorded keys — a prefix, a substring,
+two case variants, the key padded with a space on either side, a recorded VALUE (`pnpm`) and the
+recorded test command itself offered as keys — are each refused at exit 1 with the progress file
+byte-identical (N3; `# BL-301-ANSWERS-READ`, `# BL-301-IN-ANSWERS`). N3 exists because the
+adversarial review of the first cut (`711e8a1`) landed four single-line mutants that minted a key
+with the suite green; N1's one typo had been the only thing standing behind the word "exact".
 
 **A wizard-owned key is untouched by this.** Its amendment has exactly the five `## BL-282:` fields
-and no `note`, and its `[OK]` line is byte-for-byte `## BL-282:`'s (R1; `# BL-294-NOTE-DEFAULT`). A
+and no `note`, and its `[OK]` line is byte-for-byte `## BL-282:`'s (R1; `# BL-301-NOTE-DEFAULT`). A
 wizard-owned key that was never answered is still accepted with `old: null` — the H9 behaviour —
-and carries no note (R2). `tests/test-bl282-set-answer.sh` is unmodified and stays 25/25.
+and carries no note (R2). `tests/test-bl282-set-answer.sh` is not modified by this fix.
 
 **What the render does, stated because the brief asked.** `## BL-282:`'s route re-runs
 `render_intake_file`, which walks `.answers | to_entries` — EVERY key in `answers`, not the
 wizard's set — so an accepted adoption-recorded key is always rendered: its Answers row reads
 `VALUE (amended YYYY-MM-DD)` (D1). There is no key this route accepts and does not render.
+That claim was too wide in the first cut, and the review said so: the renderer escaped the VALUE
+cell and not the KEY cell, and this route is what makes an awkward key reachable (I2). The key cell
+is now escaped by a `keycell` function in the same jq program — a pipe is backslash-escaped so it
+does not open a column (D3; `# BL-301-KEY-ESCAPE-PIPE`), a newline becomes a space so it does not
+split the row (D4; `# BL-301-KEY-ESCAPE-NEWLINE`), and a key containing backticks gets a code-span
+delimiter one backtick longer than its longest run, space-padded, so it does not close the span
+(D5; `# BL-301-KEY-ESCAPE-TICK`). Each case asserts the exact row and that the table still has one
+row per answer. An ordinary key renders byte-for-byte as before (D1, and `## BL-282:`'s H4 and H5).
 Everything in `PROJECT_INTAKE.md` ABOVE the appendix is preserved byte for byte (D2) — see the first
 residual.
 
 **Fail closed.** With no usable `answers` object — absent (F1), an ARRAY that names the key (F2), a
 STRING equal to the key (F3), `null` (F4) — the route refuses at exit 1, leaves the progress file
-byte-identical and says `… has no usable answers object — nothing written`
-(`# BL-294-ANSWERS-IS-OBJECT`, `# BL-294-UNUSABLE-REFUSE`). A progress file that is not JSON is
-refused the same way with `could not read …` (F5). F2 and F3 are the shapes that matter: python's
+byte-identical, prints exactly ONE refusal line — it stops at its own diagnosis and never goes on to
+attempt the write — and says `… has no usable answers object — nothing written`
+(`# BL-301-ANSWERS-IS-OBJECT`, `# BL-301-UNUSABLE-REFUSE`). A progress file that is not JSON is
+refused the same way, one refusal line, with `could not read …` (F5; `# BL-301-UNREADABLE-REFUSE`).
+In BOTH arms the verdict is held twice — `## BL-282:`'s old-value read and its checked write refuse
+the same shapes downstream — so what these two arms own is the diagnosis and the early stop, and
+the mutants on them (MA7, MA12) are text-only kills, recorded as such below. F2 and F3 are the shapes that matter: python's
 `in` is true for a list containing the key and for a string containing it.
 
 **Injection.** Nine hostile keys that are not recorded — command substitution in both spellings,
@@ -17845,24 +17876,44 @@ byte-identical and no payload file created (I1). A RECORDED key carrying `.`, `"
 amended under exactly that key: the answer count is unchanged, no sibling moves, a `$(…)` in the
 VALUE stays literal (I2).
 
-**Suite:** `tests/test-bl294-adoption-recorded-keys.sh` — 38 cases driving the real wizard from an
+**Suite:** `tests/test-bl301-adoption-recorded-keys.sh` — 55 cases driving the real wizard from an
 adopted-shape fixture, stdin closed, the wizard run under the same interpreter as the suite
 (`$BASH`). Registered in `tests/full-project-test-suite.sh` and the `tests.yml` unit lane, beside
 `## BL-282:`'s.
 
-| Run | BL-294 suite | BL-282 suite |
+| Run | BL-301 suite | BL-282 suite |
 |---|---|---|
-| parent `91b5066`, `/bin/bash` 3.2.57 | **8 passed / 30 failed** | 25 / 0 |
-| parent `91b5066`, Homebrew bash 5.3.15 | **8 passed / 30 failed** | 25 / 0 |
-| head, `/bin/bash` 3.2.57 (`PATH=/bin:$PATH`, inner wizard 3.2.57) | 38 / 0 | 25 / 0 |
-| head, Homebrew bash 5.3.15 | 38 / 0 | 25 / 0 |
-| head, `ubuntu:24.04`, non-root user, bash 5.2.21, python 3.12.3, jq 1.7 | 38 / 0 | 25 / 0 |
+| parent (the wizard at `e1e027f`, `## BL-282:`'s tip), `/bin/bash` 3.2.57 | **9 passed / 46 failed** | 30 / 0 |
+| parent, Homebrew bash 5.3.15 | **9 passed / 46 failed** | 30 / 0 |
+| head, `/bin/bash` 3.2.57 (`PATH=/bin:$PATH`, inner wizard 3.2.57) | 55 / 0 | 30 / 0 |
+| head, Homebrew bash 5.3.15 | 55 / 0 | 30 / 0 |
+| head, `ubuntu:24.04`, non-root user, bash 5.2.21, python 3.12.3, jq 1.7 | 55 / 0 | 30 / 0 |
 
-The eight green at the parent are green BY DESIGN and none is counted as evidence for the fix: C1,
-R1, R2 (wizard-owned keys — the no-regression pins), G1 ×2 (the guard below), N1, N2 and I1
-(refusals that must survive). Every A, D, F, I2 and M case is red at the parent. A2 and D2 assert
+(The first cut of this fix, `711e8a1`, carried a 38-case suite and was measured against `91b5066`
+before `## BL-282:`'s write-status arm existed: 8 / 30 at the parent and 38 / 0 at head, beside a
+25-case BL-282 suite. The adversarial review reproduced those figures and returned
+`major_concerns` on the SUITE, not the code; N3, D3–D5, MA8–MA15 and the setup/kill distinction are
+its findings applied. The table above is the re-measurement of the 55-case suite after that arm and
+`main` at `363e48d` were merged in.)
+
+The nine green at the parent are green BY DESIGN and none is counted as evidence for the fix: C1,
+R1, R2 (wizard-owned keys — the no-regression pins), G1 ×2 (the guard below), N1, N2, N3 and I1
+(refusals that must survive; N3's teeth are shown by MA8–MA11, not by the parent). A2 and D2 assert
 "unchanged" and would have passed at the parent on a refusal that wrote nothing, so both are
 conditioned on exit 0 and are red there.
+
+**What the 46 reds at the parent are — not all of them are evidence, and only some are
+behavioural.** THIRTEEN are behavioural reds, a verdict or a written state that differs: A1–A7, D1,
+D2, I2 (the adoption-recorded key is refused at exit 1 where the fix accepts it) and D3–D5 (the same
+refusal; at head they then turn on the key-cell escape). FIVE are TEXT-ONLY reds: F1–F5 are refused
+at the parent too, at the same exit code and with the file just as untouched, and are red only
+because the refusal does not yet say `no usable answers object` / `could not read`. TWENTY-EIGHT
+are SETUP reds that say nothing about behaviour at all: thirteen M0 rows (a marker that does not
+exist yet) and fifteen mutants that cannot be applied for the same reason. The suite prints those
+fifteen under their own label and count — `[FAIL] MAn SETUP — NOT A BEHAVIOURAL KILL`, and a
+closing NOTE with the number — because the review found that a mutant on the `# BL-301-IN-ANSWERS`
+line turned this suite red only by making MA6's own `sed` stop matching, which is a kill by
+brittleness and must never be read as the suite catching something.
 
 **The vacuous-pass guard (G1).** A wizard-owned key is accepted even when it was never answered
 (R2), so a key that is REFUSED once it is deleted from `answers` is provably outside the wizard's
@@ -17870,20 +17921,36 @@ set. G1 runs that for `test_command` and `timeline`, the two keys the A-cases us
 ever to become wizard-owned — which is precisely what ADOPT-002-ARCH v2.2's key map may do — G1
 fails and says the A-cases have gone vacuous, instead of letting them pass through the other route.
 
-**Mutants — seven, on a mirror, each located by distance from `# BL-294-ADOPTION-RECORDED-BEGIN`.**
+**Mutants — fifteen, on a mirror, each located by distance from `# BL-301-ADOPTION-RECORDED-BEGIN`.**
 `mutate` refuses to score a mutant unless the marker ends exactly one line, that line sits exactly
-the stated number of lines below the anchor, the diff's only hunk is that line, the mutated text is
-on it, and the result parses. M0 pins each of the eight markers to exactly one line.
+the stated number of lines from the anchor (negative for the three in `render_intake_file`, which
+is above it), the diff's only hunk is that line, the mutated text is on it, and the result parses.
+M0 pins each of the thirteen markers to exactly one line. The distances were re-measured after
+`e1e027f` and `main` were merged: neither moved a marker relative to the anchor.
 
 | Mutant | Anchor + | What it does | Killed by | Kill |
 |---|---|---|---|---|
-| MA1 | 51 (`# BL-294-RECORDED-CHECK`) | check forced to "absent" — the OLD VERDICT reinstated | A1 | exit code 1 for 0, value unwritten; a wizard key still works inside the mutant |
+| MA1 | 51 (`# BL-301-RECORDED-CHECK`) | check forced to "absent" — the OLD VERDICT reinstated | A1 | exit code 1 for 0, value unwritten; a wizard key still works inside the mutant |
 | MA2 | 51 (same line) | check forced to "present" | N1 | exit code 0 for 1, an unknown key minted |
-| MA3 | 17 (`# BL-294-ANSWERS-IS-OBJECT`) | object check removed | F2 | **diagnosis only** — see below |
-| MA4 | 53 (`# BL-294-NOTE`) | note dropped | A3, A4 | the write lands, `note` absent, `[OK]` line silent |
-| MA5 | 49 (`# BL-294-NOTE-DEFAULT`) | note defaulted on | R1 | a wizard key's amendment gains a sixth field |
-| MA6 | 18 (`# BL-294-IN-ANSWERS`) | membership tested against the whole file | N2 | exit code 0 for 1, `source` minted into `answers` |
-| MA7 | 63 (`# BL-294-UNUSABLE-REFUSE`) | the fail-closed `return 1` removed | F1 | exit code 0 for 1, progress file CHANGED |
+| MA3 | 17 (`# BL-301-ANSWERS-IS-OBJECT`) | object check removed | F2 | **diagnosis only** — see below |
+| MA4 | 53 (`# BL-301-NOTE`) | note dropped | A3, A4 | the write lands, `note` absent, `[OK]` line silent |
+| MA5 | 49 (`# BL-301-NOTE-DEFAULT`) | note defaulted on | R1 | a wizard key's amendment gains a sixth field |
+| MA6 | 18 (`# BL-301-IN-ANSWERS`) | membership tested against the whole file | N2 | exit code 0 for 1, `source` minted into `answers` |
+| MA7 | 63 (`# BL-301-UNUSABLE-REFUSE`) | the fail-closed `return 1` removed | F1 | **text only** — see below |
+| MA8 | 18 (`# BL-301-IN-ANSWERS`) | the argument is stripped before the test | N3 | exit code 0 for 1, `test_command ` (trailing space) minted |
+| MA9 | 16 (`# BL-301-ANSWERS-READ`) | every recorded key's prefix counts as recorded | N3 | exit code 0 for 1, `test_comman` minted |
+| MA10 | 16 (same line) | every recorded key's upper-case form counts | N3 | exit code 0 for 1, `TEST_COMMAND` minted |
+| MA11 | 16 (same line) | every recorded string VALUE counts as a key | N3 | exit code 0 for 1, `pnpm` minted |
+| MA12 | 67 (`# BL-301-UNREADABLE-REFUSE`) | the unreadable-file `return 1` removed | F5 | **text only** — as MA7 |
+| MA13 | −112 (`# BL-301-KEY-ESCAPE-PIPE`) | pipe escape removed from the key cell | D3 | the amend lands; the exact row is gone |
+| MA14 | −111 (`# BL-301-KEY-ESCAPE-NEWLINE`) | newline escape removed | D4 | the same |
+| MA15 | −110 (`# BL-301-KEY-ESCAPE-TICK`) | backtick delimiter forced to one | D5 | the same |
+
+MA8–MA11 are the review's four survivors, landed here with the landed line asserted. Beyond the
+in-suite proof that each mints its near-miss key, the WHOLE suite was run against each mutant
+wizard, and against two more from the review's set (substring of the joined keys; case-folded
+membership): in all six the one behavioural red is N3, and every other red is a labelled SETUP red
+from a proof whose `sed` no longer matches the mutated line.
 
 **MA3 is a weaker kill and is recorded as one.** With the object check gone, an `answers` array
 naming the key is ACCEPTED by this route — and then stopped anyway, because `## BL-282:`'s read of
@@ -17892,17 +17959,41 @@ ends exit 1 with nothing written; only the message moves, from `no usable answer
 `could not read`. So the object check is not what holds the verdict for F2–F4 today: it holds it
 TWICE, and buys the diagnosis. MA3 asserts that exact outcome rather than a loose "something
 changed", so if the downstream read is ever relaxed MA3 fails loudly and F2's exit-code assertion
-becomes the live one. No mutant here is equivalent; MA3 is the only one not killed on exit code or
-written state.
+becomes the live one.
+
+**MA7 is weaker still, and it got that way by a fix elsewhere.** In the first cut, removing the
+fail-closed `return 1` let an absent `answers` object fall through to the write, which failed
+unnoticed: exit 0, an amendment appended, no answer written — and F1's exit code killed the mutant.
+`# BL-282-WRITE-STATUS` has since closed that hole on `## BL-282:`'s own branch, so the fall-through
+is now refused downstream with `could not write`. ON EXIT CODE AND FILE STATE MA7 IS TODAY AN
+EQUIVALENT MUTANT, and it is argued as one rather than dressed up: every shape that reaches this arm
+(absent, array, string, `null`, number) is refused again by the old-value read or by the checked
+write. The single observable difference is that the route no longer stops at its own diagnosis — two
+refusal lines instead of one — and F1's one-refusal-line assertion is what sees it. MA12 is the
+same mutant on the unreadable-file arm, and the same argument: a file that does not parse is refused
+again by the old-value read, so F5's one-refusal-line assertion is the only thing that sees it.
+
+The score, stated plainly: MA1, MA2, MA4, MA5, MA6 and MA8–MA11 are killed on exit code or written
+state; MA13–MA15 on the exact rendered row; MA3 on the diagnosis alone; MA7 and MA12 on the count of
+refusal lines alone, being equivalent on verdict and state. The three weak proofs assert their exact
+outcome, so each fails loudly the day the second line of defence is relaxed.
 
 **Lints and shellcheck at head.** `bash scripts/run-lints.sh`: 16 lints, 16 passed (before this
-entry existed it was 15/16 — `lint-bl-markers.sh` correctly refusing eight `# BL-294-*` markers with
-no `## BL-294:` entry to cite). `shellcheck -S error` (0.11.0) on `scripts/intake-wizard.sh`,
-`tests/test-bl294-adoption-recorded-keys.sh` and `tests/full-project-test-suite.sh`: exit 0.
+entry existed it was 15/16 — `lint-bl-markers.sh` correctly refusing the `# BL-301-*` markers, eight at the time,
+with no entry to cite). `shellcheck -S error` (0.11.0) on `scripts/intake-wizard.sh`,
+`tests/test-bl301-adoption-recorded-keys.sh` and `tests/full-project-test-suite.sh`: exit 0.
 
-**Numbering:** `git fetch origin` then `git grep -q -w 'BL-294' origin/main` on 2026-09-17 with
-`origin/main` at `579b0b0` — no hit for BL-290 through BL-294; positive control BL-288 hit. The
-number was assigned by the downstream lead because four parallel branches were in flight.
+**Numbering:** first cut as BL-294 against `origin/main` at `579b0b0`, swept clean that morning.
+The same day `main` moved to `363e48d` and the maintainer's `a441c1f` filed his own BL-290 to
+BL-296 — BL-294 there is the rehearsal-copy entry, which this branch's merge leaves byte-identical
+(its `## BL-290:`-to-end block hashes equal to `origin/main`'s). Every token of this fix was
+renumbered to BL-301: entry, markers, the helper's name, the suite's file name and both
+registrations. Re-swept after `git fetch origin` with `origin/main` at `363e48d`:
+`git grep -q -w 'BL-301' origin/main` no hit; positive control BL-296 hit. The number is the
+maintainer's scheme, not ours: on #419 (2026-09-17) he gave BL-297 as the next free number, and the
+mapping posted back to him there puts the six entries in flight at BL-297 to BL-302, with #418 —
+this one — at BL-301. The first commit on this branch, `711e8a1`, keeps BL-294 in its subject and
+diff because commits here are never amended; BL-301 is the final number.
 
 **Residuals — disclosed, not fixed here.**
 
@@ -17916,28 +18007,49 @@ number was assigned by the downstream lead because four parallel branches were i
 2. **`competency_matrix` is amended WITHOUT the note**, because `## BL-282:`'s family match claims
    it first (measured above). The note means "outside the wizard's set and already recorded", not
    "written by adoption"; the wizard cannot tell who wrote a key, and `source: "adopt-project.sh"`
-   at the top of the file was deliberately not used to guess.
+   at the top of the file was deliberately not used to guess. The family is wider than that one
+   key: ANY `competency_*` key is accepted and MINTED, recorded or not —
+   `--set-answer competency_zzz minted` exits 0 and writes the key at `91b5066`, at `711e8a1` and at
+   this head alike — because `## BL-282:`'s `competency_$key` pattern admits `[a-z0-9_]+` where the
+   wizard itself writes nine domains. That is `## BL-282:`'s refusal being too narrow, not this
+   route's acceptance being too wide; it has been raised against that branch and is not fixed here.
 3. **`project_name` has a second home** — the progress file's own top-level `project_name`, which
    `load_progress` reads. Amending `answers.project_name` does not reach it, and unlike the
    `## BL-203:` keys no `[WARN]` names it. Not added here: the decision was the setter and the suite.
 4. **The refusal's "Did you mean" hint still draws only on the wizard's keys**, so a typo of an
    adoption-recorded key (`test_commandd`) is refused correctly (N1) and offered three irrelevant
    wizard keys. Cosmetic; left alone to keep `## BL-282:`'s K3 and MP3 meaning what they say.
-5. **A `## BL-282:` defect found while measuring F1, NOT fixed on this branch.** For a WIZARD-OWNED
-   key with `answers` absent, `91b5066` exits 0: `save_answer` raises `KeyError: 'answers'`, its
-   status is discarded (`run_set_answer` is called under `if`, so `set -e` is off), the amendment is
-   appended, and the operator reads `[OK] monthly_budget: (unset) -> "NEW" (amended, recorded)` with
-   no answer written. `## BL-282:`'s entry says "the write goes through `save_answer`" and has no
-   case for the write failing. This route does not have the hole (F1, MA7); that one does, and it is
-   `## BL-282:`'s to close on its own branch rather than something to fold in silently here.
-6. **Not run for this entry:** `tests/full-project-test-suite.sh` and `tests/host-drivers/run-all.sh`
+5. **A `## BL-282:` defect found while measuring F1 — since closed on that branch, not here.** For a
+   WIZARD-OWNED key with `answers` absent, `91b5066` exited 0: `save_answer` raised
+   `KeyError: 'answers'`, its status was discarded (`run_set_answer` is called under `if`, so
+   `set -e` is off), the amendment was appended, and the operator read
+   `[OK] monthly_budget: (unset) -> "NEW" (amended, recorded)` with no answer written. It was
+   reported rather than folded in silently, and `e1e027f` closed it at `# BL-282-WRITE-STATUS`
+   (that entry's S1–S3, MP4). This branch merges that commit; its one effect here is on MA7, above.
+   The first cut of this entry said "this route does not have the hole", and the review showed that
+   was too wide: an adoption-recorded key that rides `## BL-282:`'s arm reached it. With `answers`
+   deleted, `--set-answer competency_matrix X` at `711e8a1` exited 0 with an amendment appended and
+   `[OK]` printed; at this head it is refused at exit 1 with `could not write` and no amendment. The
+   accurate claim is the narrow one: the arm THIS fix adds never had it (F1).
+6. **Two behaviours the review noted as identical at the parent, not measured by this author and
+   not changed here:** on a read-only progress file the route prints "answer written but …" when
+   nothing was written, and two concurrent amendments can lose one update (read-modify-write with no
+   lock). Both belong to `## BL-282:`'s write path.
+7. **Not run for this entry:** `tests/full-project-test-suite.sh` and `tests/host-drivers/run-all.sh`
    as wholes. The change touches no fixture, hook, installer or `init.sh`. Fourteen neighbouring
-   suites that name `intake-wizard.sh` were run at head on macOS: thirteen green, and
-   `tests/test-brownfield-wp9-act-boundaries.sh` at 28 passed / 1 failed (`R1b`, the adoption
-   archive item's conditionality) — the SAME case with the same message at the parent `91b5066` and
-   on `main` at `579b0b0` in the same environment, so it is not this change's; its cause was not
-   measured here. `tests/edge-case-test-suite.sh`, `tests/edge-cases-*.sh` and
-   `tests/known-bugs-test-suite.sh` also name the wizard and were not run.
+   suites that name `intake-wizard.sh` were run at head on macOS after the merges: thirteen green
+   every time. `tests/test-brownfield-wp9-act-boundaries.sh` is INTERMITTENT on this host and is
+   reported as that, not as green: its case `R1b` (the adoption archive item's conditionality —
+   the collision-free control adoptee came out with an archive) failed in 5 of 10 runs across the
+   day, including runs at `91b5066` and on `main` at `579b0b0`, neither of which carries this
+   change; the last five runs, on `main` at `363e48d` and on this branch, were 29 / 0. It does not
+   follow this change. The reviewer attributes it to the HOST, not the framework: a global git
+   `init.templateDir` that seeded a `hooks/README` into every fixture repo, which adoption then
+   archived as a collision, and reports 29 / 0 with `GIT_TEMPLATE_DIR` pointed at an empty
+   directory. This author did not reproduce that: by the time of writing the suite was green here
+   with the template directory still configured (its hooks file by then named `README.sample`). `tests/edge-case-test-suite.sh`,
+   `tests/edge-cases-*.sh` and `tests/known-bugs-test-suite.sh` also name the wizard and were not
+   run.
 
 **Related:** `## BL-282:` (the route this widens; its suite is the regression pin), `## BL-203:`
 (answers with two homes — residual 3 is one more), ADOPT-002-ARCH v2.2 (the driver half of #418's
@@ -20746,8 +20858,17 @@ judgement explicitly undecided).
 
 ## BL-274: PLACEHOLDER — the self-approval gate's single-technical-authority case, cited by BL-275 and BL-279 but never filed
 
-**Status:** Open — PLACEHOLDER, written by the maintainer on merge (2026-09-15), not by the
-contributor who cited it.
+**Status:** Open — **DECIDED 2026-09-17 (Karl), on issue #404: the taxonomy is NOT an absolute — a
+RECORDED, REASON-MANDATORY single-authority attestation is ACCEPTED, so such a company may run at the
+`organizational` tier on the record.** That acceptance is the whole of the ruling. **The contributor's
+mechanism, as proposed in #404 and carried on their fork `fix/bl274` (tip `6a222d1`, on the pre-stack
+base), is:** `SOLO_SINGLE_AUTHORITY_ATTESTED` plus a mandatory reason, recorded per gate and pinned to
+HEAD, refused if it cannot be recorded, printing every time that governance §XIV item 5 is a BLOCKING
+pre-condition that REMAINS UNMET, never the words verified/satisfied/passed/complete — the
+contributor's proposal, not Karl's words (the v2.2 review's R-18). It is invited as a PR against `main`,
+which should also write the real entry over this placeholder; adversarial review before merge.
+`## BL-275:`'s author-vs-approver contradiction is NOT decided by this. PLACEHOLDER text follows, written by the
+maintainer on merge (2026-09-15), not by the contributor who cited it.
 
 **Why this exists.** The 2026-09-13 contributor batch (`## BL-275:`, `## BL-279:`) cites
 `## BL-274:` nine times — as "the A13 fixture whose construction exposed" the WARN-vs-block
@@ -20813,3 +20934,194 @@ with a checksum — so nothing red points at this; it is a host-side gap on the 
 presence-only probe), `## BL-288:` (the scanner invocation this entry measures), `## BL-235:`
 (`# BL-235-SHIP-PROBE` — the version probe that ships but is not on this path), ADOPT-002-ARCH
 v2.1 §6.2 / §13-V9 / §12 item 10 (the design-side record of the same gap).
+
+---
+
+## BL-290: under a configured `core.hooksPath` — or a linked worktree, a submodule, a sub-directory root — adoption writes its hook where git never looks and prints that the message gates are live
+
+**Status:** Open — **RULED 2026-09-17 (Karl): adoption REFUSES at step 0** when `core.hooksPath` is
+configured or `--root` is not what `git rev-parse --show-toplevel` reports, before any write, naming
+the condition and printing the remedy; the "gates are live" sentence becomes DERIVED (printed only when
+the hook sits at the path `git rev-parse --git-path hooks` reports). Not built — ADOPT-002-ARCH v2.2
+§0.1a R1, §10-WP9d.
+
+**Found:** 2026-09-17 by execution, while amending the design (ADOPT-002-ARCH v2.2 §13-V32). The
+architect review of 2026-09-16 predicted it by code reading (A1).
+
+**Measured on `579b0b0`** — the wp9b `mk_adoptee` shape plus `git config core.hooksPath "$T/hp"`,
+Scout's own report, five confirmations: adoption exits 0, `.git/hooks/commit-msg` is present,
+`$T/hp/commit-msg` is ABSENT, the transcript prints *"message gates are live"* once and never mentions
+hooksPath; the next commit under `GIT_TRACE=1` runs NO hook, where the control (hooksPath unset) shows
+`run_command: … .git/hooks/commit-msg`. `adopt_install_hooks` hardcodes `$root/.git/hooks`;
+`adopt_archive_inventory` enumerates hooks with `[ -d "$root/.git/hooks" ]`; neither the driver nor
+`scripts/lib/adopt/` mentions `hooksPath` (`grep -c` → 0). The framework's siblings already know
+better: `scripts/install-filesystem-gates.sh` refuses to write under a configured hooksPath
+(`# BL-209-HOOKSPATH-SAME-DIR`) and `scripts/verify-install.sh`'s BL-145 block says framework-generated
+projects never set it — an adoptee is by definition not framework-generated (husky, lefthook,
+pre-commit, corporate `--global core.hooksPath`).
+
+**Two more shapes — EXECUTED 2026-09-17 by the adversarial review of the v2.2 range (probes `v32b.sh`,
+`v32c.sh`; re-run by the amendment's author with identical outcomes, ADOPT-002-ARCH v2.2 §13-V32b/V32c).
+The first filing of this paragraph described both by code reading and got both wrong (R-1).**
+A `--root` pointed at a SUB-DIRECTORY of a repository is refused TODAY — but by the pre-write
+rehearsal, after every question has been asked: `adopt rc=1`, `[REFUSED] the pre-write rehearsal did
+not complete (rc=1) — nothing was written to your project`; no bogus `sub/.git` is created, no hook is
+written, the live line is not printed. The rehearsal's `cp -a "$root/."` carries no `.git` under
+`sub/`, and `adopt_test_debt_record` then runs git outside a repository. R1 moves the refusal to step
+0. A LINKED WORKTREE as `--root` (`.git` is a FILE) is worse: the adoption COMMITS in the worktree
+(HEAD moves, the manifest is at HEAD), then `mkdir -p "$root/.git/hooks"` fails on the gitfile —
+`[BLOCKED] could not create …/wt/.git/hooks` / `The adoption commit HAD already landed; a later step
+did not complete. 79 file(s) were written and committed.` — rc 1, no hook in the worktree and none in
+the main repository, no live line; "Not a directory" is never printed. That state is not the adoption
+window (HEAD moved), so `## BL-291:`'s `--finish` refuses it as landed; a project adopted this way
+before WP9d has no framework route (v2.2 §12 item 32). A submodule shares the gitfile shape and was
+not separately executed.
+
+**Related:** `## BL-242:` (the driver), `## BL-209:` (the sibling refusal whose message shape R1
+reuses), `## BL-145:` (`verify-install.sh`'s hooksPath block), `## BL-291:` (the other WP9d defect).
+
+---
+
+## BL-291: the ADOPTION WINDOW — an adoption commit the adoptee's own hook rejects leaves the project stamped, staged and uncommitted, and the re-run refuses it as "already adopted"
+
+**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.4's ADOPTION WINDOW row, §10-WP9d): arm 1
+discriminates the window (working-copy witness true, committed witness false) with its own sentence
+and a finish route; the written-paths ledger is persisted into the adoptee so `--finish` (or an
+idempotent re-run) can re-stage and re-commit without re-writing; "re-run adoption" is only ever
+advised from a refusal that precedes the stamp (§9.1-I12 — the first filing cited I17, which is the
+D7/D8 verdict invariant). Not built.
+
+**Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V33); predicted by the 2026-09-16
+architect review (A3).
+
+**Measured on `579b0b0`** — the wp9b adoptee shape plus a `.git/hooks/pre-commit` that is `exit 1`:
+run 1 exits 1 with `[BLOCKED] the adoption commit did not succeed — your own hooks or git identity may
+have refused it / Nothing was committed. 83 file(s) were already written into this project.` After
+it: `.claude/manifest.json` in the working copy says `adopted: true`; HEAD did not move; HEAD carries
+no manifest; **83 entries are left STAGED**; no `commit-msg` hook was installed; and
+`soif_adoption_pre_adoption_commit` reports EXEMPT — the stamp's own bound (`# BF-ADOPT-BOUND`) calls
+this state the adoption window, so every commit made from it is TDD-exempt until someone commits the
+manifest by hand. Run 2 (a bare re-run) exits 1 with `[REFUSED] this project has already been adopted
+— the manifest records it` and advises `scripts/resume.sh` — the wrong pointer for a project whose
+adoption never landed. The transcript mentions no finish route (`grep -c finish` → 0). The design
+keeps the adoptee's own hooks in place for the adoption commit BY DECISION (they should judge it), so
+this is the likely path for any brownfield project with lint-staged, prettier, commitlint or no
+`user.email`.
+
+**Related:** `## BL-225:` (the preflight whose ledger the finish route persists), `## BL-242:`
+(`# BL-242-PREFLIGHT-ARM1`, the refusal that fires here), `## BL-290:`.
+
+---
+
+## BL-292: Act 2 overwrites an adoptee's own tracked `PROJECT_INTAKE.md` and `.claude/intake-progress.json` at rc 0 — no archive directory, no MANIFEST row, no sentence
+
+**Status:** Open — owner WP11 (ADOPT-002-ARCH v2.2 §7.2's `document` and `state` archive classes and
+the I20 loop): both paths join `adopt_archive_inventory`, are archived with a restore line, and are
+disclosed path by path. Not built.
+
+**Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V34).
+
+**Measured on `579b0b0`** — an adoptee that already tracks `PROJECT_INTAKE.md` and
+`.claude/intake-progress.json` (a project half-scaffolded by hand, or one migrating from another
+process): adoption exits 0; `PROJECT_INTAKE.md`'s sha256 changes (`f2976ff0e1cbdfb7` →
+`996e5b9b8430e133`), its first line is now `# Project Intake`; `.claude/intake-progress.json` now reads
+`{"theirs":null,"source":"adopt-project.sh"}`; `ls -d .claude/adoption-archive/*/ | wc -l` → 0 — no
+archive directory was created at all; the transcript has no sentence about either file. This is the
+APPROVAL_LOG.md class WP9b closed (`# BL-242-…` archive class `approval-log`), one file over; neither
+path is in `adopt_archive_inventory` today. The plain-English overview's *"nothing is moved silently"*
+does not hold for these two files.
+
+**Related:** `## BL-242:` (D1/D3, the archive classes), `## BL-293:` (the same run's other finding),
+`## BL-282:` (the intake's amend route — a project whose intake was overwritten has rows to correct).
+
+---
+
+## BL-293: on a case-insensitive filesystem a case-variant collision is reported under the framework's spelling — "yours, kept: scripts/validate.sh" for an index that holds `scripts/Validate.sh`
+
+**Status:** Open — LATENT today (skip-on-collision keeps the operator's bytes); becomes a silent
+misattribution under framework-wins. Owner WP11 (ADOPT-002-ARCH v2.2 §7.2, A8): the collision
+inventory matches against `git ls-files` case-insensitively and discloses a case-variant collision by
+the operator's spelling. Not built.
+
+**Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V34), macOS, `core.ignorecase = true`.
+
+**Measured on `579b0b0`:** an adoptee tracking `scripts/Validate.sh`; adoption prints `Installed 69
+framework script(s); left 1` and `yours, kept: scripts/validate.sh` — a path the index does not
+hold. `adopt_install_framework` tests collisions with `[ -e "$dst" ]`, which APFS/NTFS answer for
+either spelling and ext4 does not, so the archive-then-replace story diverges by host with no
+disclosure; the rehearsal copy in `$TMPDIR` may sit on a volume of different case sensitivity than the
+project's, so rehearsal and real run can disagree too.
+
+**Related:** `## BL-242:` (D1 framework-wins), `## BL-292:`.
+
+---
+
+## BL-294: the pre-write rehearsal copies the whole tree, `.git/objects` included, with no bound and no cost statement
+
+**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.2a, A7): the cost is stated, bounded
+(`SOIF_ADOPT_REHEARSAL_MAX_MB`, refuse loudly above it rather than dying in `cp`), and reduced — a
+shared-objects copy (`.git/objects/info/alternates`) keeps the ignore/index oracles at a fraction of the
+size; the transcript prints "rehearsal ran in N s over M MB". Not built.
+
+**Found:** 2026-09-17 (ADOPT-002-ARCH v2.2 §13-V36); predicted by the architect review (A7).
+
+**Measured on this repository at `579b0b0`:** 965 files excluding `.git`; `du -sh` 57M total, 32M
+`.git`, 30M `.git/objects`; `cp -a` of the whole tree 0.43 s / 57M; a shared-objects copy (tar minus
+`.git/objects`, plus alternates) 0.54 s / 27M with git fully working in the copy (tracked 819 = the
+original; HEAD `579b0b0`; `check-ignore .claude` rc 1). The COPY step's only message is *"could not copy the project … (disk
+space?)"* — `adopt_prewrite_preflight` as a whole has seven `adopt_refuse` sites (the v2.2 review's
+R-4 corrected the first filing's "only failure message"). For a real brownfield repository
+(multi-GB history, vendored dependencies) the copy doubles disk use on the system volume after the
+operator has answered every question. `## BL-225:` records that Karl chose the copy over a per-writer
+flag; the fidelity argument stands, the cost was simply absent.
+
+**Related:** `## BL-225:` (`# BL-225-PREWRITE-CALL`).
+
+---
+
+## BL-295: `adopt_refuse` labels its line `[BLOCKED]` or `[REFUSED]` by whether anything was written, not by whether a check ran — the messaging standard's vocabulary keys on the opposite fact
+
+**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.1, A10): two primitives — `adopt_refuse`
+(nothing ran; the tool declined to start) and `adopt_block` (a named check ran and did not pass) —
+with the "what is on disk" derivation appended as its own sentence. WP10b's secrets stop uses
+`adopt_block`. Not built.
+
+**Found:** 2026-09-17 (ADOPT-002-ARCH v2.2 §13-V42); predicted by the architect review (A10).
+
+**Measured on `579b0b0`:** `adopt_refuse` prints `[REFUSED]` iff nothing was written or touched and
+`[BLOCKED]` otherwise (`adopt-core.sh`, the two `printf '\n[…]'` sites); fifty-eight call sites
+across `scripts/lib/adopt/` (`adopt-state.sh` 36, `adopt-archive.sh` 11, `adopt-core.sh` 9,
+`adopt-intake.sh` 2). `docs/messaging-standard.md` Part 2: *refuse* = the tool declined to start and
+changed nothing; *block* = a check ran and you did not pass it. A step-3 secrets stop — after the tier
+question, tool resolution and possibly a host install — is a BLOCK by the standard, but the driver
+would label it `[REFUSED]` (no adoptee writes) or, after an install attempt, `[BLOCKED]` with the
+pessimistic "had already ATTEMPTED writes" sentence over a provably clean tree (`## BL-225:`'s
+`# BL-225-REFUSE-DERIVED` clears it only on the prewrite arm).
+
+**Related:** `## BL-242:`, `## BL-225:`, `docs/messaging-standard.md`.
+
+---
+
+## BL-296: the Development Guardrails (CDF) install is an `init.sh` effect adoption never performs — and greenfield registers the Solo hook roster only inside the CDF-success branch
+
+**Status:** Open — GAP, and a question for Karl (ADOPT-002-ARCH v2.2 §8.7a row 33, §12 item 29):
+should an adoptee receive the CDF install at all — a network clone into `$HOME`, non-fatal in
+`init.sh` when it fails — and, separately, should the Solo hook roster be registered independently of
+it? WP9c ships the roster from a shared table either way; the CDF half is not designed.
+
+**Found:** 2026-09-17 by reading `init.sh`'s nesting (ADOPT-002-ARCH v2.2 §13-V38); the CDF install
+was NOT executed there.
+
+**Measured on `579b0b0`:** the hooks-merge block (`if [ -f ".claude/settings.json" ] && command -v
+jq`) is nested inside the `framework_valid` branch (`if [ "$framework_valid" = true ]`) and closes
+before that branch's `fi` (ADOPT-002-ARCH v2.2 §13-V38 prints the `grep -n` derivation, dated
+2026-09-17; the numbers are that output's, not a citation — the review's R-20) — so greenfield's
+manifest base shape, every CDF rule and
+hook, and the condition under which the Solo roster (`track-tool-usage.sh`, `bypass-detector.sh`,
+`session-*-check.sh`, …) is registered at all come from `~/.claude-dev-framework/scripts/init.sh`,
+which adoption never runs. Rows 18–21 of the design's install-parity table (`docs/reference/*`,
+`.claude/settings.json`, `.claude/settings.local.json`, vendored skills) were UNOWNED at `579b0b0`
+and are WP9c's since v2.2; row 33 (this) stays UNOWNED.
+
+**Related:** `## BL-242:` (§8.7a), `## BL-284:` (`verify-install.sh`'s CDF-adjacent fixers),
+`## BL-277:` (the roster's PostToolUse arm — WP9c ships it only after that entry closes).

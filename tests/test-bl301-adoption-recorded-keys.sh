@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# tests/test-bl294-adoption-recorded-keys.sh
+# tests/test-bl301-adoption-recorded-keys.sh
 #
-# `## BL-294:` (issue #418) — THE BROWNFIELD ADOPTION DRIVER RECORDS INTAKE
+# `## BL-301:` (issue #418) — THE BROWNFIELD ADOPTION DRIVER RECORDS INTAKE
 # ROWS UNDER KEYS THE WIZARD DOES NOT OWN, AND THE WIZARD'S AMEND ROUTE
 # (`--set-answer`, `## BL-282:`) REFUSED THEM. `test_command`, `timeline`,
 # `mvp_features` and the rest exist in `.claude/intake-progress.json` only
@@ -37,6 +37,11 @@ PASSED=0
 FAILED=0
 pass()  { echo "  [PASS] $1"; PASSED=$((PASSED + 1)); }
 fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
+# A mutant that cannot be APPLIED is a stale proof, not a killed mutant. It
+# still fails the suite, but under its own label and its own count, so a red
+# that comes from a sed no longer matching is never read as a behavioural kill.
+SETUP_FAILED=0
+fail_setup() { echo "  [FAIL] $1 SETUP — NOT A BEHAVIOURAL KILL — $2"; FAILED=$((FAILED + 1)); SETUP_FAILED=$((SETUP_FAILED + 1)); }
 
 TOPTMP="$(mktemp -d)"
 trap 'rm -rf "$TOPTMP"' EXIT INT TERM
@@ -55,6 +60,11 @@ echo "interpreter: $RUN_BASH ($("$RUN_BASH" -c 'printf %s "$BASH_VERSION"'))"
 OLD_CMD='pnmp test:unit'
 NEW_CMD='pnpm test:unit'
 ODD_KEY='odd.key"$HOME[0]'
+# Three recorded keys the Answers TABLE cannot carry raw: a pipe opens a
+# column, a newline splits the row, a backtick closes the code span.
+PIPE_KEY='pipe|key'
+NL_KEY="$(printf 'line\nkey')"
+TICK_KEY='tick`key'
 BODY_LINE='- **test_command** (scan-derived): pnmp test:unit'
 
 # mk_adopted <dir> [wizard-file] — a project as adoption leaves it, with a
@@ -70,7 +80,7 @@ mk_adopted() {
   printf '{"project":"P","current_phase":0,"track":"full","deployment":"personal","poc_mode":null}\n' \
     > "$d/.claude/phase-state.json"
   printf '{}\n' > "$d/.claude/process-state.json"
-  jq -n --arg odd "$ODD_KEY" --arg cmd "$OLD_CMD" '
+  jq -n --arg odd "$ODD_KEY" --arg cmd "$OLD_CMD" --arg pk "$PIPE_KEY" --arg nk "$NL_KEY" --arg tk "$TICK_KEY" '
     {version: 1, started_at: "2026-09-01T00:00:00Z", last_section: 0, completed_sections: [],
      source: "adopt-project.sh",
      project_name: "P", platform: "", track: "full", deployment: "personal",
@@ -79,7 +89,7 @@ mk_adopted() {
        timeline: "", mvp_features: "", data_classification: "", competency_matrix: "",
        revenue_model: "", governance: "", accessibility: "", uptime: "99.0",
        known_risks: "", test_command: $cmd, tooling: "pnpm",
-       agent_init_prompt: "generated"} + {($odd): "odd-old"})}' \
+       agent_init_prompt: "generated"} + {($odd): "odd-old", ($pk): "p-old", ($nk): "n-old", ($tk): "t-old"})}' \
     > "$d/.claude/intake-progress.json" || return 1
   {
     printf '# Project Intake\n\nRecorded during adoption on 2026-09-01.\n\n'
@@ -173,7 +183,7 @@ else
   # A2 — every other answer is untouched (non-vacuous: needs the write).
   others_after="$(others_sum "$A" test_command)"
   if [ "$WIZ_RC" -eq 0 ] && [ "$others_before" = "$others_after" ]; then
-    pass "A2 — the other fifteen recorded answers are unchanged"
+    pass "A2 — the other $(( $(jq -r '.answers | length' "$A/$PROG") - 1 )) recorded answers are unchanged"
   else
     fail_ "A2" "rc=$WIZ_RC; other answers $([ "$others_before" = "$others_after" ] && echo unchanged || echo CHANGED)"
   fi
@@ -331,6 +341,30 @@ else
   fi
 fi
 
+# N3 — MEMBERSHIP IS EXACT, and N1's one typo did not prove it (review
+# R-294-1: four single-line mutants minted a key with the suite green). Each
+# key below is a NEAR-MISS of something recorded — a prefix, a substring, a
+# case variant, the key with a space either side, and a recorded VALUE
+# (`tooling` is "pnpm") offered as a key. Every one must be refused at exit 1
+# with the progress file byte-identical. MA8–MA11 are what each one stops.
+N3="$(newtmp)/proj"
+if ! mk_adopted "$N3"; then
+  fail_ "N3 setup" "could not build the fixture"
+else
+  before_p="$(_cksum "$N3/$PROG")"; bad=""; n3_n=0
+  for nk in 'test_comman' 'est_comm' 'TEST_COMMAND' 'Test_Command' 'test_command ' ' test_command' 'pnpm' 'pnmp test:unit'; do
+    n3_n=$((n3_n + 1))
+    wiz "$N3" --set-answer "$nk" "MINTED"
+    [ "$WIZ_RC" -eq 1 ] || bad="$bad [rc=$WIZ_RC for '$nk']"
+    [ "$(_cksum "$N3/$PROG")" = "$before_p" ] || { bad="$bad [progress CHANGED by '$nk']"; before_p="$(_cksum "$N3/$PROG")"; }
+  done
+  if [ -z "$bad" ]; then
+    pass "N3 (control) — $n3_n near-misses of recorded keys (prefix, substring, case, padded, a recorded value) are each refused (rc=1), progress file byte-identical"
+  else
+    fail_ "N3 (control)" "membership is not exact:$bad"
+  fi
+fi
+
 echo "=== F — a missing or malformed answers object fails closed ==="
 
 # f_case <id> <label> <jq-filter | RAW:text> <message-regex>
@@ -345,10 +379,15 @@ f_case() {
   before_p="$(_cksum "$d/$PROG")"
   wiz "$d" --set-answer test_command "$NEW_CMD"
   after_p="$(_cksum "$d/$PROG")"
-  if [ "$WIZ_RC" -eq 1 ] && [ "$before_p" = "$after_p" ] && grep -q -E "$want" "$d/run.out" && ! grep -q -F '[OK]' "$d/run.out"; then
-    pass "$id — $label: refused (rc=$WIZ_RC), progress file byte-identical, and the refusal says why"
+  # Exactly ONE [FAIL] line: the route stops at its own diagnosis and never
+  # goes on to attempt the write (MA7 is what a second line looks like).
+  local n_fail
+  n_fail="$(grep -c -F '[FAIL]' "$d/run.out")"; case "$n_fail" in ''|*[!0-9]*) n_fail=0 ;; esac
+  if [ "$WIZ_RC" -eq 1 ] && [ "$before_p" = "$after_p" ] && grep -q -E "$want" "$d/run.out" && ! grep -q -F '[OK]' "$d/run.out" \
+     && [ "$n_fail" -eq 1 ]; then
+    pass "$id — $label: refused (rc=$WIZ_RC), progress file byte-identical, one refusal line, and it says why"
   else
-    fail_ "$id" "$label: rc=$WIZ_RC (want 1); progress $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED); reason $(grep -q -E "$want" "$d/run.out" && echo given || echo "missing (/$want/)"): $(grep -m1 -E 'FAIL|OK' "$d/run.out" || echo '<none>')"
+    fail_ "$id" "$label: rc=$WIZ_RC (want 1); progress $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED); [FAIL] lines=$n_fail (want 1); reason $(grep -q -E "$want" "$d/run.out" && echo given || echo "missing (/$want/)"): $(grep -m1 -E 'FAIL|OK' "$d/run.out" || echo '<none>')"
   fi
 }
 f_case F1 "answers absent"                        'del(.answers)'                'no usable answers object'
@@ -407,11 +446,38 @@ else
   fi
 fi
 
-echo "=== M — mutation proofs on a mirror, each located by distance from the BL-294 anchor ==="
+echo "=== D3–D5 — a recorded key the table cannot carry raw is rendered ESCAPED ==="
 
-ANCHOR='BL-294-ADOPTION-RECORDED-BEGIN'
-for mark in "$ANCHOR" BL-294-ADOPTION-RECORDED-END BL-294-ANSWERS-IS-OBJECT BL-294-IN-ANSWERS \
-            BL-294-NOTE-DEFAULT BL-294-RECORDED-CHECK BL-294-NOTE BL-294-UNUSABLE-REFUSE; do
+# This route is what makes such keys reachable (I2), so D1's "every accepted
+# key is rendered" has to hold for them too (review R-294-5). The value cell
+# was already escaped; the key cell was not. One case per character, each
+# asserting the exact row AND that the table still has one row per answer.
+# d_case <id> <label> <key> <new-value> <expected key cell>
+d_case() {
+  local id="$1" label="$2" key="$3" val="$4" cell="$5" d day want rows n_ans
+  d="$(newtmp)/proj"
+  if ! mk_adopted "$d"; then fail_ "$id setup" "could not build the fixture"; return 0; fi
+  wiz "$d" --set-answer "$key" "$val"
+  day="$(jq -r '.amendments[0].at // "" | .[0:10]' "$d/$PROG" 2>/dev/null)"
+  want="| $cell | $val (amended $day) |"
+  n_ans="$(jq -r '.answers | length' "$d/$PROG" 2>/dev/null)"
+  rows="$(awk '$0 == "### Answers" { t = 1; next } t && /^<!-- INTAKE_ANSWERS_END -->$/ { t = 0 } t && /^\|/ { n++ } END { print n + 0 }' "$d/PROJECT_INTAKE.md")"
+  if [ "$WIZ_RC" -eq 0 ] && [ -n "$day" ] && grep -q -F -x -- "$want" "$d/PROJECT_INTAKE.md" && [ "$rows" -eq $((n_ans + 2)) ]; then
+    pass "$id — $label: the row reads [$want] and the table has $rows lines for $n_ans answers"
+  else
+    fail_ "$id" "$label: rc=$WIZ_RC; want row [$want] $(grep -q -F -x -- "$want" "$d/PROJECT_INTAKE.md" && echo present || echo MISSING); table lines=$rows (want $((n_ans + 2)))"
+  fi
+}
+d_case D3 "a PIPE in the key"     "$PIPE_KEY" "p-new" '`pipe\|key`'
+d_case D4 "a NEWLINE in the key"  "$NL_KEY"   "n-new" '`line key`'
+d_case D5 "a BACKTICK in the key" "$TICK_KEY" "t-new" '`` tick`key ``'
+
+echo "=== M — mutation proofs on a mirror, each located by distance from the BL-301 anchor ==="
+
+ANCHOR='BL-301-ADOPTION-RECORDED-BEGIN'
+for mark in "$ANCHOR" BL-301-ADOPTION-RECORDED-END BL-301-ANSWERS-READ BL-301-ANSWERS-IS-OBJECT BL-301-IN-ANSWERS \
+            BL-301-NOTE-DEFAULT BL-301-RECORDED-CHECK BL-301-NOTE BL-301-UNUSABLE-REFUSE BL-301-UNREADABLE-REFUSE \
+            BL-301-KEY-ESCAPE-PIPE BL-301-KEY-ESCAPE-NEWLINE BL-301-KEY-ESCAPE-TICK; do
   n="$(grep -c "# $mark\$" "$WIZARD" 2>/dev/null)"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
   [ "$n" = "1" ] \
     && pass "M0 — '# $mark' ends exactly one line of intake-wizard.sh" \
@@ -423,7 +489,7 @@ _hunk_line() { diff "$1" "$2" 2>/dev/null | grep -m1 -E '^[0-9]+' | sed -E 's/^(
 # mutate <id> <marker> <expected-distance> <sed-expr> <must-now-match>
 # Mirrors scripts/, applies <sed-expr> to the ONE line ending in `# <marker>`,
 # and proves where it landed: the marker line sits EXACTLY <expected-distance>
-# lines below the BL-294 anchor, the only changed line is that line, the
+# lines below the BL-301 anchor, the only changed line is that line, the
 # result parses, and the mutated text is on it. Sets MUT_TGT; returns 1 (after
 # reporting) when any proof fails, so a mutant that landed on another arm can
 # never be scored as killed.
@@ -432,26 +498,33 @@ mutate() {
   local id="$1" marker="$2" want_d="$3" expr="$4" now="$5" fw tgt before a_ln m_ln h_ln d
   MUT_TGT=""
   fw="$(newtmp)/fw"
-  if ! mkdir -p "$fw" || ! cp -Rp "$REPO_ROOT/scripts" "$fw/"; then fail_ "$id setup" "could not mirror scripts/"; return 1; fi
+  if ! mkdir -p "$fw" || ! cp -Rp "$REPO_ROOT/scripts" "$fw/"; then fail_setup "$id" "could not mirror scripts/"; return 1; fi
   tgt="$fw/scripts/intake-wizard.sh"; before="$fw/before.sh"; cp "$tgt" "$before"
   a_ln="$(grep -n "# $ANCHOR\$" "$before" | head -1 | cut -d: -f1)"
   m_ln="$(grep -n "# $marker\$" "$before" | head -1 | cut -d: -f1)"
-  if [ -z "$a_ln" ] || [ -z "$m_ln" ]; then fail_ "$id setup" "anchor or marker '$marker' not found (anchor=$a_ln marker=$m_ln)"; return 1; fi
+  if [ -z "$a_ln" ] || [ -z "$m_ln" ]; then fail_setup "$id" "anchor or marker '$marker' not found (anchor=$a_ln marker=$m_ln)"; return 1; fi
   d=$((m_ln - a_ln))
   sed -e "${m_ln}${expr}" "$before" > "$tgt"
   h_ln="$(_hunk_line "$before" "$tgt")"
   if [ "$d" -ne "$want_d" ] || ! _syntax_ok "$tgt" || [ "$(_changed_lines "$before" "$tgt")" -ne 2 ] \
      || [ "$h_ln" != "$m_ln" ] || ! sed -n "${m_ln}p" "$tgt" | grep -q -F -- "$now" \
      || ! sed -n "${m_ln}p" "$tgt" | grep -q "# $marker\$"; then
-    fail_ "$id setup" "the mutation did not land where it must: marker '$marker' is anchor+$d (want anchor+$want_d), hunk at line $h_ln vs marker line $m_ln, changed=$(_changed_lines "$before" "$tgt"), syntax $(_syntax_ok "$tgt" && echo ok || echo BROKEN)"
+    fail_setup "$id" "the mutation did not land where it must (if the sed no longer matches, the marked line was edited): marker '$marker' is anchor+$d (want anchor+$want_d), hunk at line $h_ln vs marker line $m_ln, changed=$(_changed_lines "$before" "$tgt"), syntax $(_syntax_ok "$tgt" && echo ok || echo BROKEN)"
     return 1
   fi
   MUT_TGT="$tgt"; MUT_D="$d"
   return 0
 }
 
-# Distances (lines below `# BL-294-ADOPTION-RECORDED-BEGIN`) are part of the
+# Distances (lines below `# BL-301-ADOPTION-RECORDED-BEGIN`) are part of the
 # proof: if the block is edited, re-measure and update them deliberately.
+# The three KEY-ESCAPE markers are in render_intake_file, ABOVE the anchor,
+# so their distances are negative.
+D_ESC_PIPE=-112
+D_ESC_NL=-111
+D_ESC_TICK=-110
+D_ANSWERS_READ=16
+D_UNREADABLE=67
 D_IS_OBJECT=17
 D_IN_ANSWERS=18
 D_NOTE_DEFAULT=49
@@ -461,9 +534,9 @@ D_UNUSABLE=63
 
 # MA1 — THE OLD VERDICT REINSTATED: the recorded-key check always says
 # "absent". A1's scenario must then be REFUSED; a wizard-owned key still works.
-if mutate MA1 BL-294-RECORDED-CHECK "$D_RECORDED_CHECK" 's/^\([[:space:]]*\).*\(  # BL-294-RECORDED-CHECK\)$/\1rec_rc=1\2/' 'rec_rc=1'; then
+if mutate MA1 BL-301-RECORDED-CHECK "$D_RECORDED_CHECK" 's/^\([[:space:]]*\).*\(  # BL-301-RECORDED-CHECK\)$/\1rec_rc=1\2/' 'rec_rc=1'; then
   PD="$(newtmp)/proj"
-  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_ "MA1 setup" "could not build the mutant's fixture"; else
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA1" "could not build the mutant's fixture"; else
     wiz "$PD" --set-answer test_command "$NEW_CMD"; rc_a=$WIZ_RC; got_a="$(jq_answer test_command "$PD")"
     wiz "$PD" --set-answer uptime "99.9"; rc_w=$WIZ_RC
     if [ "$rc_a" -eq 1 ] && [ "$got_a" = "$OLD_CMD" ] && [ "$rc_w" -eq 0 ]; then
@@ -476,9 +549,9 @@ fi
 
 # MA2 — THE REFUSAL NEUTERED: the check always says "present". N1's scenario
 # must then ACCEPT a key that exists nowhere.
-if mutate MA2 BL-294-RECORDED-CHECK "$D_RECORDED_CHECK" 's/^\([[:space:]]*\).*\(  # BL-294-RECORDED-CHECK\)$/\1rec_rc=0\2/' 'rec_rc=0'; then
+if mutate MA2 BL-301-RECORDED-CHECK "$D_RECORDED_CHECK" 's/^\([[:space:]]*\).*\(  # BL-301-RECORDED-CHECK\)$/\1rec_rc=0\2/' 'rec_rc=0'; then
   PD="$(newtmp)/proj"
-  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_ "MA2 setup" "could not build the mutant's fixture"; else
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA2" "could not build the mutant's fixture"; else
     wiz "$PD" --set-answer test_commandd "$NEW_CMD"; got="$(jq_answer test_commandd "$PD")"
     if [ "$WIZ_RC" -eq 0 ] && [ "$got" = "$NEW_CMD" ]; then
       pass "MA2 (MUTATION, anchor+$MUT_D) — with the check forced to 'present' a key that exists nowhere is ACCEPTED and minted (rc=$WIZ_RC): N1 is what stops it"
@@ -495,10 +568,10 @@ fi
 # shape, so the run still ends rc=1 with nothing written. What the object check
 # buys is the DIAGNOSIS — "no usable answers object" instead of "could not
 # read" — and F2's reason assertion is the only thing that sees it. A mutant
-# killed on text alone is a weaker kill than MA1/2/6/7's, and is scored as one.
-if mutate MA3 BL-294-ANSWERS-IS-OBJECT "$D_IS_OBJECT" 's/if not isinstance(answers, dict):/if False:/' 'if False:'; then
+# killed on text alone is a weaker kill than MA1/2/4/5/6's, and is scored as one.
+if mutate MA3 BL-301-ANSWERS-IS-OBJECT "$D_IS_OBJECT" 's/if not isinstance(answers, dict):/if False:/' 'if False:'; then
   PD="$(newtmp)/proj"
-  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_ "MA3 setup" "could not build the mutant's fixture"; else
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA3" "could not build the mutant's fixture"; else
     jq '.answers = ["test_command"]' "$PD/$PROG" > "$PD/p.tmp" && mv "$PD/p.tmp" "$PD/$PROG"
     before_p="$(_cksum "$PD/$PROG")"
     wiz "$PD" --set-answer test_command "$NEW_CMD"
@@ -514,9 +587,9 @@ fi
 
 # MA4 — THE NOTE DROPPED: the key is accepted but the amendment does not say
 # it was adoption-recorded. A3 and A4 are what stop it.
-if mutate MA4 BL-294-NOTE "$D_NOTE" 's/adoption_note="[^"]*"/adoption_note=""/' 'adoption_note=""'; then
+if mutate MA4 BL-301-NOTE "$D_NOTE" 's/adoption_note="[^"]*"/adoption_note=""/' 'adoption_note=""'; then
   PD="$(newtmp)/proj"
-  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_ "MA4 setup" "could not build the mutant's fixture"; else
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA4" "could not build the mutant's fixture"; else
     wiz "$PD" --set-answer test_command "$NEW_CMD"
     a_note="$(jq_amend 0 note "$PD")"
     if [ "$WIZ_RC" -eq 0 ] && [ "$(jq_answer test_command "$PD")" = "$NEW_CMD" ] && ! printf '%s' "$a_note" | grep -q 'adoption-recorded' \
@@ -530,9 +603,9 @@ fi
 
 # MA5 — THE NOTE ON EVERYTHING: a wizard-owned key's amendment is labelled
 # adoption-recorded. R1 is what stops it.
-if mutate MA5 BL-294-NOTE-DEFAULT "$D_NOTE_DEFAULT" 's/adoption_note=""/adoption_note="adoption-recorded key"/' 'adoption_note="adoption-recorded key"'; then
+if mutate MA5 BL-301-NOTE-DEFAULT "$D_NOTE_DEFAULT" 's/adoption_note=""/adoption_note="adoption-recorded key"/' 'adoption_note="adoption-recorded key"'; then
   PD="$(newtmp)/proj"
-  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_ "MA5 setup" "could not build the mutant's fixture"; else
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA5" "could not build the mutant's fixture"; else
     wiz "$PD" --set-answer uptime "99.9"
     shape="$(jq -c '.amendments[0] | keys' "$PD/$PROG" 2>/dev/null)"
     if [ "$WIZ_RC" -eq 0 ] && [ "$shape" != '["at","key","new","old","reason"]' ]; then
@@ -545,9 +618,9 @@ fi
 
 # MA6 — MEMBERSHIP AGAINST THE WHOLE FILE: `in answers` becomes `in data`, so
 # a top-level key (`source`) counts as recorded. N2 is what stops it.
-if mutate MA6 BL-294-IN-ANSWERS "$D_IN_ANSWERS" 's/ in answers else / in data else /' ' in data else '; then
+if mutate MA6 BL-301-IN-ANSWERS "$D_IN_ANSWERS" 's/ in answers else / in data else /' ' in data else '; then
   PD="$(newtmp)/proj"
-  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_ "MA6 setup" "could not build the mutant's fixture"; else
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA6" "could not build the mutant's fixture"; else
     wiz "$PD" --set-answer source "x"
     if [ "$WIZ_RC" -eq 0 ] && [ "$(jq_answer source "$PD")" = "x" ]; then
       pass "MA6 (MUTATION, anchor+$MUT_D) — tested against the whole file, the top-level key 'source' is ACCEPTED and minted into answers/ (rc=$WIZ_RC): N2 is what stops it"
@@ -557,24 +630,114 @@ if mutate MA6 BL-294-IN-ANSWERS "$D_IN_ANSWERS" 's/ in answers else / in data el
   fi
 fi
 
-# MA7 — THE FAIL-CLOSED VERDICT FLIPPED: the unusable-answers arm no longer
-# returns 1 and falls through to the write. F1's exit code is what stops it.
-if mutate MA7 BL-294-UNUSABLE-REFUSE "$D_UNUSABLE" 's/^\([[:space:]]*\)return 1\(  # BL-294-UNUSABLE-REFUSE\)$/\1:\2/' ':  # BL-294'; then
+# MA7 — THE FAIL-CLOSED RETURN REMOVED: the unusable-answers arm falls through
+# to the write. THE VERDICT NO LONGER MOVES, and this proof says so. Before
+# `# BL-282-WRITE-STATUS` the fall-through ended exit 0 with an amendment
+# appended and no answer written, and F1's exit code killed this mutant. With
+# the write's status checked, the failed write refuses downstream ("could not
+# write"), so the run still ends rc=1 with nothing written and the verdict is
+# held twice. ON EXIT CODE AND FILE STATE THIS MUTANT IS NOW EQUIVALENT. The
+# one observable difference is that the route no longer STOPS at its own
+# diagnosis: it prints "no usable answers object", goes on to attempt the
+# write, and prints a second refusal. F1's one-refusal-line assertion is what
+# sees that — a text-level kill, weaker than MA3's even, and scored as one.
+if mutate MA7 BL-301-UNUSABLE-REFUSE "$D_UNUSABLE" 's/^\([[:space:]]*\)return 1\(  # BL-301-UNUSABLE-REFUSE\)$/\1:\2/' ':  # BL-301'; then
   PD="$(newtmp)/proj"
-  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_ "MA7 setup" "could not build the mutant's fixture"; else
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA7" "could not build the mutant's fixture"; else
     jq 'del(.answers)' "$PD/$PROG" > "$PD/p.tmp" && mv "$PD/p.tmp" "$PD/$PROG"
     before_p="$(_cksum "$PD/$PROG")"
     wiz "$PD" --set-answer test_command "$NEW_CMD"
     after_p="$(_cksum "$PD/$PROG")"
-    if [ "$WIZ_RC" -eq 0 ] || [ "$before_p" != "$after_p" ]; then
-      pass "MA7 (MUTATION, anchor+$MUT_D) — with the refusal's return removed an absent answers object no longer fails closed (rc=$WIZ_RC, progress $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED)): F1 is what stops it"
+    n_fail="$(grep -c -F '[FAIL]' "$PD/run.out")"; case "$n_fail" in ''|*[!0-9]*) n_fail=0 ;; esac
+    if [ "$WIZ_RC" -eq 1 ] && [ "$before_p" = "$after_p" ] && [ "$n_fail" -eq 2 ] \
+       && grep -q 'could not write' "$PD/run.out" && ! grep -q -F '[OK]' "$PD/run.out"; then
+      pass "MA7 (MUTATION, anchor+$MUT_D, TEXT-ONLY) — with the refusal's return removed an absent answers object falls through to the write and is stopped by BL-282's write-status check (rc=$WIZ_RC, nothing written, $n_fail refusal lines): equivalent on exit code and state; F1's one-refusal-line assertion is what sees it"
     else
-      fail_ "MA7 (MUTATION)" "rc=$WIZ_RC and nothing written — removing the return changed nothing F1 can see"
+      fail_ "MA7 (MUTATION)" "rc=$WIZ_RC, progress $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED), reason=[$(grep -m1 -E 'FAIL|OK' "$PD/run.out" || echo '<none>')] — not the diagnosis-only outcome this proof records"
     fi
   fi
 fi
 
+# mint_mutant <id> <marker> <distance> <sed-expr> <must-now-match> <near-miss key> <what it is>
+# MA8–MA11 are the review's four survivors (R-294-1): each WIDENS membership
+# by one line, each minted a key that exists nowhere with this suite green,
+# and each is now stopped by N3. The proof runs the near-miss key through the
+# mutant and requires the mint (rc=0, the key written) — so a pass here means
+# "this mutant is live and N3's assertion on that key is what catches it".
+mint_mutant() {
+  local id="$1" marker="$2" dist="$3" expr="$4" now="$5" key="$6" what="$7" pd got
+  mutate "$id" "$marker" "$dist" "$expr" "$now" || return 0
+  pd="$(newtmp)/proj"
+  if ! mk_adopted "$pd" "$MUT_TGT"; then fail_setup "$id" "could not build the mutant's fixture"; return 0; fi
+  wiz "$pd" --set-answer "$key" "MINTED"
+  got="$(jq_answer "$key" "$pd")"
+  if [ "$WIZ_RC" -eq 0 ] && [ "$got" = "MINTED" ]; then
+    pass "$id (MUTATION, anchor+$MUT_D) — $what: the near-miss key [$key] is ACCEPTED and minted (rc=$WIZ_RC): N3 is what stops it"
+  else
+    fail_ "$id (MUTATION)" "$what: key [$key] gave rc=$WIZ_RC written=[$got] — the mutation changed nothing N3 can see"
+  fi
+}
+mint_mutant MA8 BL-301-IN-ANSWERS "$D_IN_ANSWERS" \
+  's/sys\.argv\[1\] in answers/sys.argv[1].strip() in answers/' 'sys.argv[1].strip() in answers' \
+  'test_command ' "the argument is stripped before the test"
+mint_mutant MA9 BL-301-ANSWERS-READ "$D_ANSWERS_READ" \
+  's/ else None  # BL-301-ANSWERS-READ$/ else None; answers = dict((p, 1) for k in answers for p in (k, k[:-1])) if isinstance(answers, dict) else answers  # BL-301-ANSWERS-READ/' 'k[:-1]' \
+  'test_comman' "every recorded key's prefix counts as recorded"
+mint_mutant MA10 BL-301-ANSWERS-READ "$D_ANSWERS_READ" \
+  's/ else None  # BL-301-ANSWERS-READ$/ else None; answers = dict((p, 1) for k in answers for p in (k, k.upper())) if isinstance(answers, dict) else answers  # BL-301-ANSWERS-READ/' 'k.upper()' \
+  'TEST_COMMAND' "every recorded key's upper-case form counts as recorded"
+mint_mutant MA11 BL-301-ANSWERS-READ "$D_ANSWERS_READ" \
+  's/ else None  # BL-301-ANSWERS-READ$/ else None; answers = dict([(k, 1) for k in answers] + [(v, 1) for v in answers.values() if isinstance(v, str)]) if isinstance(answers, dict) else answers  # BL-301-ANSWERS-READ/' 'answers.values()' \
+  'pnpm' "every recorded string VALUE counts as a recorded key"
+
+# MA12 — THE UNREADABLE-FILE ARM'S RETURN REMOVED (review R-294-2). Like MA7,
+# EQUIVALENT ON EXIT CODE AND FILE STATE: the fall-through reaches BL-282's
+# old-value read, which cannot parse the file either and refuses. The verdict
+# is held twice; the one observable difference is a second refusal line, and
+# F5's one-refusal-line assertion is what sees it. A text-only kill.
+if mutate MA12 BL-301-UNREADABLE-REFUSE "$D_UNREADABLE" 's/^\([[:space:]]*\)return 1\(  # BL-301-UNREADABLE-REFUSE\)$/\1:\2/' ':  # BL-301'; then
+  PD="$(newtmp)/proj"
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA12" "could not build the mutant's fixture"; else
+    printf '%s\n' '{ "answers": { "test_command": ' > "$PD/$PROG"
+    before_p="$(_cksum "$PD/$PROG")"
+    wiz "$PD" --set-answer test_command "$NEW_CMD"
+    after_p="$(_cksum "$PD/$PROG")"
+    n_fail="$(grep -c -F '[FAIL]' "$PD/run.out")"; case "$n_fail" in ''|*[!0-9]*) n_fail=0 ;; esac
+    if [ "$WIZ_RC" -eq 1 ] && [ "$before_p" = "$after_p" ] && [ "$n_fail" -eq 2 ] && ! grep -q -F '[OK]' "$PD/run.out"; then
+      pass "MA12 (MUTATION, anchor+$MUT_D, TEXT-ONLY) — with the unreadable arm's return removed a non-JSON file falls through and is refused again by BL-282's old-value read (rc=$WIZ_RC, nothing written, $n_fail refusal lines): equivalent on exit code and state; F5's one-refusal-line assertion is what sees it"
+    else
+      fail_ "MA12 (MUTATION)" "rc=$WIZ_RC, progress $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED), [FAIL] lines=$n_fail — not the text-only outcome this proof records"
+    fi
+  fi
+fi
+
+# render_mutant <id> <marker> <distance> <sed-expr> <must-now-match> <key> <expected cell> <killer>
+# MA13–MA15 remove one key-cell escape each. The amend still lands; the
+# exact row D3/D4/D5 asserts is what goes missing.
+render_mutant() {
+  local id="$1" marker="$2" dist="$3" expr="$4" now="$5" key="$6" cell="$7" killer="$8" pd day want
+  mutate "$id" "$marker" "$dist" "$expr" "$now" || return 0
+  pd="$(newtmp)/proj"
+  if ! mk_adopted "$pd" "$MUT_TGT"; then fail_setup "$id" "could not build the mutant's fixture"; return 0; fi
+  wiz "$pd" --set-answer "$key" "x-new"
+  day="$(jq -r '.amendments[0].at // "" | .[0:10]' "$pd/$PROG" 2>/dev/null)"
+  want="| $cell | x-new (amended $day) |"
+  if [ "$WIZ_RC" -eq 0 ] && [ "$(jq_answer "$key" "$pd")" = "x-new" ] && ! grep -q -F -x -- "$want" "$pd/PROJECT_INTAKE.md"; then
+    pass "$id (MUTATION, anchor$MUT_D) — with that escape removed the amend still lands (rc=$WIZ_RC) but the row [$want] is no longer rendered: $killer is what stops it"
+  else
+    fail_ "$id (MUTATION)" "rc=$WIZ_RC; escaped row $(grep -q -F -x -- "$want" "$pd/PROJECT_INTAKE.md" && echo 'STILL PRESENT' || echo missing) — removing the escape changed nothing $killer can see"
+  fi
+}
+render_mutant MA13 BL-301-KEY-ESCAPE-PIPE "$D_ESC_PIPE" 's/gsub("\\\\|"; "\\\\|")/./' '.  # BL-301-KEY-ESCAPE-PIPE' "$PIPE_KEY" '`pipe\|key`' D3
+render_mutant MA14 BL-301-KEY-ESCAPE-NEWLINE "$D_ESC_NL" 's/gsub("\\n"; " ")/./' '| .  # BL-301-KEY-ESCAPE-NEWLINE' "$NL_KEY" '`line key`' D4
+render_mutant MA15 BL-301-KEY-ESCAPE-TICK "$D_ESC_TICK" 's#max // 0#0#' '| 0) as $n' "$TICK_KEY" '`` tick`key ``' D5
+
 echo ""
+if [ "$SETUP_FAILED" -gt 0 ]; then
+  echo "NOTE: $SETUP_FAILED of the failures below are mutant SETUP failures — a mutation that could not be"
+  echo "      applied where its proof requires (marker moved, line edited, mirror not built). That is the"
+  echo "      proof going stale, NOT a behavioural kill and NOT evidence about the wizard."
+fi
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ] && exit 0
 exit 1

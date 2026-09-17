@@ -470,6 +470,17 @@ render_intake_file() {
     if [ "${count:-0}" -gt 0 ]; then
       printf '| Key | Value |\n|---|---|\n'
       jq -r '
+        # `## BL-301:` — the value cell was escaped and the key cell was not.
+        # --set-answer now accepts any key already in answers/, so a key with
+        # a pipe, a newline or a backtick is reachable, and raw it opens a
+        # column, splits the row or closes the code span. A key with backticks
+        # gets a delimiter one longer than its longest run, space-padded.
+        def keycell:
+          gsub("\\|"; "\\|")  # BL-301-KEY-ESCAPE-PIPE
+          | gsub("\n"; " ")  # BL-301-KEY-ESCAPE-NEWLINE
+          | ([match("`+"; "g").length] | max // 0) as $n  # BL-301-KEY-ESCAPE-TICK
+          | ("`" * ($n + 1)) as $d
+          | if $n > 0 then $d + " " + . + " " + $d else $d + . + $d end;
         # BL-282-AMENDED-MARK: the latest amendment date per key, so a reader
         # can see the answer was corrected after its section closed.
         ((.amendments // []) | map({key: .key, value: (.at | tostring | .[0:10])}) | from_entries) as $amended
@@ -477,7 +488,7 @@ render_intake_file() {
         | to_entries
         | sort_by(.key)
         | .[]
-        | "| `" + .key + "` | " + ((.value // "") | tostring | gsub("\\|"; "\\|") | gsub("\n"; " "))
+        | "| " + (.key | keycell) + " | " + ((.value // "") | tostring | gsub("\\|"; "\\|") | gsub("\n"; " "))
           + (if $amended[.key] then " (amended " + $amended[.key] + ")" else "" end) + " |"
       ' "$PROGRESS_FILE"
     else
@@ -577,15 +588,15 @@ _bl282_nearest_keys() {
     { print lev(q, $0) "\t" $0 }' | sort -n | head -3 | cut -f2  # BL-282-HINT-COUNT
 }
 
-# BL-294-ADOPTION-RECORDED-BEGIN
-# `## BL-294:` (#418) — brownfield adoption records intake rows under keys this
+# BL-301-ADOPTION-RECORDED-BEGIN
+# `## BL-301:` (#418) — brownfield adoption records intake rows under keys this
 # wizard never asks (`test_command`, `timeline`, …): they are in answers/ and
 # outside the save_answer set above, so the amend route refused the very rows
 # adoption wrote. A key ALREADY PRESENT in the progress file's `answers` object
 # is amendable; a key that exists nowhere is still refused. Exact membership,
 # with the key passed as argv — nothing is interpolated into a program.
 # Exit 0 present, 1 absent, 2 no usable answers object, 3 file unreadable.
-_bl294_key_recorded() {
+_bl301_key_recorded() {
   python3 -c '
 import json, sys
 try:
@@ -593,12 +604,12 @@ try:
         data = json.load(f)
 except Exception:
     sys.exit(3)
-answers = data.get("answers") if isinstance(data, dict) else None
-if not isinstance(answers, dict): sys.exit(2)  # BL-294-ANSWERS-IS-OBJECT
-sys.exit(0 if sys.argv[1] in answers else 1)  # BL-294-IN-ANSWERS
+answers = data.get("answers") if isinstance(data, dict) else None  # BL-301-ANSWERS-READ
+if not isinstance(answers, dict): sys.exit(2)  # BL-301-ANSWERS-IS-OBJECT
+sys.exit(0 if sys.argv[1] in answers else 1)  # BL-301-IN-ANSWERS
 ' "$1" "$PROGRESS_FILE" 2>/dev/null
 }
-# BL-294-ADOPTION-RECORDED-END
+# BL-301-ADOPTION-RECORDED-END
 
 run_set_answer() {
   local usage='Usage: scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]'
@@ -626,11 +637,11 @@ run_set_answer() {
     print_fail "--set-answer needs python3 (save_answer writes through it)."
     return 1
   fi
-  local adoption_note="" rec_rc=0  # BL-294-NOTE-DEFAULT
+  local adoption_note="" rec_rc=0  # BL-301-NOTE-DEFAULT
   if ! _bl282_key_allowed "$key"; then
-    _bl294_key_recorded "$key" || rec_rc=$?  # BL-294-RECORDED-CHECK
+    _bl301_key_recorded "$key" || rec_rc=$?  # BL-301-RECORDED-CHECK
     case "$rec_rc" in
-      0) adoption_note="adoption-recorded key"  # BL-294-NOTE
+      0) adoption_note="adoption-recorded key"  # BL-301-NOTE
         ;;
       1)
         print_fail "'$key' is not a key this wizard records, nor one already recorded in $PROGRESS_FILE — nothing written."
@@ -640,11 +651,12 @@ run_set_answer() {
         return 1 ;;
       2)
         print_fail "$PROGRESS_FILE has no usable answers object — nothing written."
-        return 1  # BL-294-UNUSABLE-REFUSE
+        return 1  # BL-301-UNUSABLE-REFUSE
         ;;
       *)
         print_fail "could not read $PROGRESS_FILE — nothing written."
-        return 1 ;;
+        return 1  # BL-301-UNREADABLE-REFUSE
+        ;;
     esac
   fi
   local old
@@ -2377,7 +2389,7 @@ main() {
       echo "  --set-answer KEY VALUE [--reason \"<text>\"]"
       echo "                                     KEY must be one the wizard records, or one already"
       echo "                                     in intake-progress.json's answers (a key recorded"
-      echo "                                     by adoption, noted as such — BL-294). The change"
+      echo "                                     by adoption, noted as such — BL-301). The change"
       echo "                                     is appended to intake-progress.json's amendments"
       echo "                                     and PROJECT_INTAKE.md is re-rendered."
       echo ""
