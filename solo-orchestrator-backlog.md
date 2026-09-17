@@ -17587,11 +17587,36 @@ did not earn).
 
 ## BL-282: the wizard offers no route to correct a recorded answer once its section is complete — `--resume` skips the section, and `reconfigure-project.sh --field` covers seven fields of the 122 the wizard records
 
-**Status:** Open — **ENTRY ONLY BY DECISION (2026-09-14), not by omission.** Four options are set out
-below with their trade-offs and none is built. Every one of them adds or documents a CLI surface the
-maintainer will own — a flag on the wizard, an arm in `reconfigure-project.sh`, or a written promise
-that a JSON file is hand-editable — and a surface, once documented, is the hard-to-reverse kind. The
-contribution is the measurement and the options; the choice is his.
+**Status:** Open — fix + suite on branch `fix/bl282-set-answer` (Asborien fork), PR pending. The
+entry was filed 2026-09-14 as measurement plus four options with none built; on 2026-09-17 the
+downstream Orchestrator chose option 2 for their own adoption and the fix below is offered upstream
+on that basis. The options and their trade-offs stand as logged; the surface is still the
+maintainer's to accept or decline.
+
+**Fix:** `scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]` (option 2;
+`# BL-282-SET-ANSWER-BEGIN` … `# BL-282-SET-ANSWER-END`, dispatched at `# BL-282-SET-ANSWER-ARM`).
+KEY must be one of the wizard's own `save_answer` call sites, read from the script at runtime —
+literal keys exactly (H1), loop-generated families (`input_${i}_name`) by shape with the index
+bounded to digits (H8) — and an unknown key is refused at exit 1 (K1, MP1;
+`# BL-282-KEY-REFUSE`) with the three nearest recorded keys named (K3, MP3;
+`# BL-282-HINT-COUNT`). It refuses at exit 1 when `.claude/intake-progress.json`
+is absent, creating nothing (P1); `--set-answer` without a VALUE is refused the same way (K2). The
+write goes through `save_answer`; the change is appended to an `amendments` array
+(`{key, old, new, reason, at}`, `at` ISO-8601 UTC) (H3), a second correction appends rather than
+replaces (H7), the other recorded answers are untouched (H2), and `render_intake_file` re-runs at
+once (`# BL-282-RERENDER`), so the rendered row reads `VALUE (amended YYYY-MM-DD)` (H4, MP2;
+`# BL-282-AMENDED-MARK`) while an unamended row stays unmarked (H5). Non-interactive; prints
+`[OK] KEY: "old" -> "new" (amended, recorded)` (H6), or `(unset)` where there was no prior answer
+(H9); `--help` lists the flag (H0). The three tier-crosscheck-6 setters are untouched (C1). The
+second-home keys (`## BL-203:`) are written here and the other home is NAMED in a `[WARN]`, not
+written (W1). The narrower fifth change (bare-number
+selection in `prompt_with_suggestions`) is not in this fix. Suite: `tests/test-bl282-set-answer.sh`
+— RED on `579b0b0` at 3 passed / 22 failed: the C1/C2 controls are green there, and H2 is the third
+pass but a VACUOUS one — the flag falls through to the non-TTY refusal, so nothing is written and
+the untouched answer is trivially untouched. GREEN at 25/25 under bash 3.2.57 and under bash 5.2.21
+in `ubuntu:24.04` as a non-root user; the three mirror mutants (neutered refusal, deleted
+re-render, hint narrowed to one key) are killed by K1, H4 and K3, each asserting it landed on its
+own marker line.
 
 **Logged:** 2026-09-14, from a downstream adoption's `intake-progress.json`, where `monthly_budget`
 is the literal string `"3"`. The operator typed `?` at the budget prompt, was shown a numbered list,
