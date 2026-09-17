@@ -8,6 +8,7 @@ set -euo pipefail
 #   scripts/intake-wizard.sh                  # Start or choose mode
 #   scripts/intake-wizard.sh --resume         # Resume from last save point
 #   scripts/intake-wizard.sh --upgrade-to-production  # Upgrade POC to production
+#   scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]  # Correct one recorded answer
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
@@ -469,11 +470,15 @@ render_intake_file() {
     if [ "${count:-0}" -gt 0 ]; then
       printf '| Key | Value |\n|---|---|\n'
       jq -r '
-        (.answers // {})
+        # BL-282-AMENDED-MARK: the latest amendment date per key, so a reader
+        # can see the answer was corrected after its section closed.
+        ((.amendments // []) | map({key: .key, value: (.at | tostring | .[0:10])}) | from_entries) as $amended
+        | (.answers // {})
         | to_entries
         | sort_by(.key)
         | .[]
-        | "| `" + .key + "` | " + ((.value // "") | tostring | gsub("\\|"; "\\|") | gsub("\n"; " ")) + " |"
+        | "| `" + .key + "` | " + ((.value // "") | tostring | gsub("\\|"; "\\|") | gsub("\n"; " "))
+          + (if $amended[.key] then " (amended " + $amended[.key] + ")" else "" end) + " |"
       ' "$PROGRESS_FILE"
     else
       printf '_No answers recorded yet._\n'
@@ -523,6 +528,124 @@ with open(path, 'w') as f:
 " "$key" "$value" "$PROGRESS_FILE"
   fi
 }
+
+# BL-282-SET-ANSWER-BEGIN
+# `## BL-282:` — once a section is complete nothing re-asks its questions, so
+# a wrong answer had no route back except editing the JSON by hand. This is
+# the generic setter the three tier-crosscheck-6 flags were the precedent
+# for. The allowed keys are this file's OWN save_answer call sites, read at
+# runtime, so a typo cannot mint a key; loop-generated families
+# (`input_${i}_name`) are matched by shape with `$i`/`$j` bounded to digits.
+_bl282_key_templates() {
+  grep -o 'save_answer "[^"]*"' "${BASH_SOURCE[0]}" | sed 's/^save_answer "//; s/"$//' | sort -u
+}
+
+_bl282_key_allowed() {
+  local key="$1" tpl pat
+  printf '%s' "$key" | grep -q -E '^[a-z0-9_]+$' || return 1
+  while IFS= read -r tpl; do
+    case "$tpl" in
+      '$'*)
+        # A bare-variable call site (this function's own write) is not a
+        # family: with no literal prefix it would admit any key at all.
+        continue ;;
+      *'$'*)
+        pat="$(printf '%s' "$tpl" | sed -e 's/\${[ij]}/[0-9]+/g; s/\$[ij]$/[0-9]+/; s/\${key}/[a-z0-9_]+/g; s/\$key$/[a-z0-9_]+/')"
+        case "$pat" in *'$'*) continue ;; esac
+        printf '%s' "$key" | grep -q -E "^${pat}\$" && return 0 ;;
+      *)
+        printf '%s' "$tpl" | grep -q -E '^[a-z0-9_]+$' || continue
+        [ "$key" = "$tpl" ] && return 0 ;;
+    esac
+  done < <(_bl282_key_templates)
+  return 1  # BL-282-KEY-REFUSE
+}
+
+_bl282_nearest_keys() {
+  _bl282_key_templates | grep -E '^[a-z0-9_]+$' | awk -v q="$1" '
+    function min3(a, b, c) { if (b < a) a = b; if (c < a) a = c; return a }
+    function lev(s, t,    i, j, n, m, d, c) {
+      n = length(s); m = length(t)
+      for (i = 0; i <= n; i++) d[i, 0] = i
+      for (j = 0; j <= m; j++) d[0, j] = j
+      for (i = 1; i <= n; i++) for (j = 1; j <= m; j++) {
+        c = (substr(s, i, 1) == substr(t, j, 1)) ? 0 : 1
+        d[i, j] = min3(d[i - 1, j] + 1, d[i, j - 1] + 1, d[i - 1, j - 1] + c)
+      }
+      return d[n, m]
+    }
+    { print lev(q, $0) "\t" $0 }' | sort -n | head -3 | cut -f2  # BL-282-HINT-COUNT
+}
+
+run_set_answer() {
+  local usage='Usage: scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]'
+  if [ $# -lt 2 ]; then
+    print_fail "--set-answer needs a KEY and a VALUE."
+    echo "  $usage" >&2
+    return 1
+  fi
+  local key="$1" value="$2" reason=""
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reason)
+        if [ $# -lt 2 ]; then print_fail "--reason needs a value."; echo "  $usage" >&2; return 1; fi
+        reason="$2"; shift 2 ;;
+      --reason=*) reason="${1#--reason=}"; shift ;;
+      *) print_fail "--set-answer: unexpected argument '$1'."; echo "  $usage" >&2; return 1 ;;
+    esac
+  done
+  if [ ! -f "$PROGRESS_FILE" ]; then
+    print_fail "No $PROGRESS_FILE to correct — run the wizard first, then --set-answer."
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_fail "--set-answer needs python3 (save_answer writes through it)."
+    return 1
+  fi
+  if ! _bl282_key_allowed "$key"; then
+    print_fail "'$key' is not a key this wizard records — nothing written."
+    local hint
+    hint="$(_bl282_nearest_keys "$key" | tr '\n' ' ' || true)"
+    [ -n "$hint" ] && echo "  Did you mean: ${hint% }" >&2
+    return 1
+  fi
+  local old
+  old="$(python3 -c '
+import json, sys
+with open(sys.argv[2]) as f:
+    data = json.load(f)
+print(json.dumps(data.get("answers", {}).get(sys.argv[1])))
+' "$key" "$PROGRESS_FILE")" || { print_fail "could not read $PROGRESS_FILE."; return 1; }
+  save_answer "$key" "$value"
+  python3 -c '
+import json, sys
+from datetime import datetime, timezone
+key, old, new, reason, path = sys.argv[1:6]
+with open(path) as f:
+    data = json.load(f)
+data.setdefault("amendments", []).append({
+    "key": key, "old": json.loads(old), "new": new, "reason": reason,
+    "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+' "$key" "$old" "$value" "$reason" "$PROGRESS_FILE" || { print_fail "answer written but the amendment could not be recorded in $PROGRESS_FILE."; return 1; }
+  # `## BL-203:` — some answers have a second home the wizard's write does
+  # not reach. Name it rather than write it: each has its own setter.
+  case "$key" in
+    data_classification|zdr_attested|zdr_attestation_reason)
+      print_warn "$key also lives in .claude/process-state.json (the Phase 1 gate reads that copy) — update it with --data-classification / --zdr-attested / --zdr-attestation-reason." ;;
+    testing_interval)
+      print_warn "testing_interval's enforced copy is .claude/build-progress.json::test_interval — update it with scripts/reconfigure-project.sh --field test_interval." ;;
+  esac
+  command -v jq >/dev/null 2>&1 || print_warn "jq not found — PROJECT_INTAKE.md was not re-rendered; it refreshes on the next section save."
+  render_intake_file || { print_fail "answer recorded but PROJECT_INTAKE.md could not be re-rendered."; return 1; }  # BL-282-RERENDER
+  local shown_old='(unset)'
+  [ "$old" != "null" ] && shown_old="$old"
+  print_ok "$key: $shown_old -> \"$value\" (amended, recorded)"
+  return 0
+}
+# BL-282-SET-ANSWER-END
 
 # ================================================================
 # PROGRESS: Load progress and project context
@@ -2210,8 +2333,21 @@ main() {
       echo "  --zdr-attested                     Mark zdr_attested=true"
       echo "  --zdr-attestation-reason \"<text>\"  Record a documented exception"
       echo ""
+      echo "Correct one recorded answer after its section is complete (BL-282):"
+      echo "  --set-answer KEY VALUE [--reason \"<text>\"]"
+      echo "                                     KEY must be one the wizard records. The change"
+      echo "                                     is appended to intake-progress.json's amendments"
+      echo "                                     and PROJECT_INTAKE.md is re-rendered."
+      echo ""
       echo "  --help                  Show this help"
       exit 0
+      ;;
+    --set-answer)
+      # BL-282-SET-ANSWER-ARM: needs only PROGRESS_FILE, never reaches a
+      # prompt, so it runs before the tier-crosscheck-6 scan and the TTY check.
+      shift
+      if run_set_answer "$@"; then exit 0; fi
+      exit 1
       ;;
     --data-classification|--zdr-attested|--zdr-attestation-reason|--data-classification=*|--zdr-attestation-reason=*)
       # tier-crosscheck-6 non-interactive write path. Parsed below
