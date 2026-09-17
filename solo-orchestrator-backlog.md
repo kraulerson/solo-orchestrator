@@ -17277,8 +17277,12 @@ a hoist is not taken).
 
 ## BL-277: the bypass detector's PostToolUse arm scans text whose authorship it has not established, records it as `actor: "claude"`, and raises a BLOCKING sentinel on it — so reading the framework's own rules reports the agent for proposing a bypass
 
-**Status:** Open — **ENTRY-ONLY BY DECISION (2026-09-13), not by omission.** Three options are set out
-below with a recommendation, and none of them is built. Choosing among them is a judgement about this
+**Status:** Open — **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
+contributor who filed this (also issue #385, which proposed scanning `tool_input`) is invited to build it;
+adversarial review before merge, as every PR. Not built yet. *(Before 2026-09-17: ENTRY-ONLY BY DECISION
+(2026-09-13); three options set out below with a recommendation, none built.)* Consequence for adoption:
+ADOPT-002-ARCH v2.2 makes shipping `.claude/settings.json` to adoptees depend on this landing, so no
+adoptee imports the day-one sentinel. Choosing among them is a judgement about this
 framework's risk appetite rather than about correct code: every candidate narrows a security control
 the maintainer owns, option 3 additionally changes an audit-row schema and needs a sweep of every
 reader of `actor`, and output-scanning is a TESTED CONTRACT (`tests/test-bypass-detector.sh` T1), so
@@ -17587,11 +17591,22 @@ did not earn).
 
 ## BL-282: the wizard offers no route to correct a recorded answer once its section is complete — `--resume` skips the section, and `reconfigure-project.sh --field` covers seven fields of the 122 the wizard records
 
-**Status:** Open — fix + suite on branch `fix/bl282-set-answer` (Asborien fork), PR pending. The
-entry was filed 2026-09-14 as measurement plus four options with none built; on 2026-09-17 the
-downstream Orchestrator chose option 2 for their own adoption and the fix below is offered upstream
-on that basis. The options and their trade-offs stand as logged; the surface is still the
-maintainer's to accept or decline.
+**Status:** Open — **DECIDED 2026-09-17 (Karl), on issue #418: option 2 below — a generic setter on the
+wizard — widened to accept any key already present in the progress file's `answers` (adoption-recorded
+keys included, the amendment noting so) while keeping the refusal for keys that exist nowhere; and, on the
+adoption side, the driver records A7 rows under the wizard's own keys wherever one exists (ADOPT-002-ARCH
+v2.2, WP12a's intake pre-fill).** The contributor is invited to PR the wizard half with its suite;
+adversarial review before merge. Not built yet. *(Before 2026-09-17: ENTRY ONLY BY DECISION (2026-09-14);
+four options set out below with their trade-offs, none built.)* Every one of them adds or documents a CLI surface the
+maintainer will own — a flag on the wizard, an arm in `reconfigure-project.sh`, or a written promise
+that a JSON file is hand-editable — and a surface, once documented, is the hard-to-reverse kind. The
+contribution is the measurement and the options; the choice is his.
+
+**Built since that ruling was written, superseding its "Not built yet" clause:** the wizard half is on
+branch `fix/bl282-set-answer` (Asborien fork) — the setter, a 30-case suite and four located mutants —
+PR pending adversarial review. The widening to adoption-recorded keys that the ruling adds is a stacked
+follow-up on top of this branch, not part of it: here a key that the wizard does not itself record is
+still refused.
 
 **Fix:** `scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]` (option 2;
 `# BL-282-SET-ANSWER-BEGIN` … `# BL-282-SET-ANSWER-END`, dispatched at `# BL-282-SET-ANSWER-ARM`).
@@ -20556,8 +20571,17 @@ judgement explicitly undecided).
 
 ## BL-274: PLACEHOLDER — the self-approval gate's single-technical-authority case, cited by BL-275 and BL-279 but never filed
 
-**Status:** Open — PLACEHOLDER, written by the maintainer on merge (2026-09-15), not by the
-contributor who cited it.
+**Status:** Open — **DECIDED 2026-09-17 (Karl), on issue #404: the taxonomy is NOT an absolute — a
+RECORDED, REASON-MANDATORY single-authority attestation is ACCEPTED, so such a company may run at the
+`organizational` tier on the record.** That acceptance is the whole of the ruling. **The contributor's
+mechanism, as proposed in #404 and carried on their fork `fix/bl274` (tip `6a222d1`, on the pre-stack
+base), is:** `SOLO_SINGLE_AUTHORITY_ATTESTED` plus a mandatory reason, recorded per gate and pinned to
+HEAD, refused if it cannot be recorded, printing every time that governance §XIV item 5 is a BLOCKING
+pre-condition that REMAINS UNMET, never the words verified/satisfied/passed/complete — the
+contributor's proposal, not Karl's words (the v2.2 review's R-18). It is invited as a PR against `main`,
+which should also write the real entry over this placeholder; adversarial review before merge.
+`## BL-275:`'s author-vs-approver contradiction is NOT decided by this. PLACEHOLDER text follows, written by the
+maintainer on merge (2026-09-15), not by the contributor who cited it.
 
 **Why this exists.** The 2026-09-13 contributor batch (`## BL-275:`, `## BL-279:`) cites
 `## BL-274:` nine times — as "the A13 fixture whose construction exposed" the WARN-vs-block
@@ -20623,3 +20647,194 @@ with a checksum — so nothing red points at this; it is a host-side gap on the 
 presence-only probe), `## BL-288:` (the scanner invocation this entry measures), `## BL-235:`
 (`# BL-235-SHIP-PROBE` — the version probe that ships but is not on this path), ADOPT-002-ARCH
 v2.1 §6.2 / §13-V9 / §12 item 10 (the design-side record of the same gap).
+
+---
+
+## BL-290: under a configured `core.hooksPath` — or a linked worktree, a submodule, a sub-directory root — adoption writes its hook where git never looks and prints that the message gates are live
+
+**Status:** Open — **RULED 2026-09-17 (Karl): adoption REFUSES at step 0** when `core.hooksPath` is
+configured or `--root` is not what `git rev-parse --show-toplevel` reports, before any write, naming
+the condition and printing the remedy; the "gates are live" sentence becomes DERIVED (printed only when
+the hook sits at the path `git rev-parse --git-path hooks` reports). Not built — ADOPT-002-ARCH v2.2
+§0.1a R1, §10-WP9d.
+
+**Found:** 2026-09-17 by execution, while amending the design (ADOPT-002-ARCH v2.2 §13-V32). The
+architect review of 2026-09-16 predicted it by code reading (A1).
+
+**Measured on `579b0b0`** — the wp9b `mk_adoptee` shape plus `git config core.hooksPath "$T/hp"`,
+Scout's own report, five confirmations: adoption exits 0, `.git/hooks/commit-msg` is present,
+`$T/hp/commit-msg` is ABSENT, the transcript prints *"message gates are live"* once and never mentions
+hooksPath; the next commit under `GIT_TRACE=1` runs NO hook, where the control (hooksPath unset) shows
+`run_command: … .git/hooks/commit-msg`. `adopt_install_hooks` hardcodes `$root/.git/hooks`;
+`adopt_archive_inventory` enumerates hooks with `[ -d "$root/.git/hooks" ]`; neither the driver nor
+`scripts/lib/adopt/` mentions `hooksPath` (`grep -c` → 0). The framework's siblings already know
+better: `scripts/install-filesystem-gates.sh` refuses to write under a configured hooksPath
+(`# BL-209-HOOKSPATH-SAME-DIR`) and `scripts/verify-install.sh`'s BL-145 block says framework-generated
+projects never set it — an adoptee is by definition not framework-generated (husky, lefthook,
+pre-commit, corporate `--global core.hooksPath`).
+
+**Two more shapes — EXECUTED 2026-09-17 by the adversarial review of the v2.2 range (probes `v32b.sh`,
+`v32c.sh`; re-run by the amendment's author with identical outcomes, ADOPT-002-ARCH v2.2 §13-V32b/V32c).
+The first filing of this paragraph described both by code reading and got both wrong (R-1).**
+A `--root` pointed at a SUB-DIRECTORY of a repository is refused TODAY — but by the pre-write
+rehearsal, after every question has been asked: `adopt rc=1`, `[REFUSED] the pre-write rehearsal did
+not complete (rc=1) — nothing was written to your project`; no bogus `sub/.git` is created, no hook is
+written, the live line is not printed. The rehearsal's `cp -a "$root/."` carries no `.git` under
+`sub/`, and `adopt_test_debt_record` then runs git outside a repository. R1 moves the refusal to step
+0. A LINKED WORKTREE as `--root` (`.git` is a FILE) is worse: the adoption COMMITS in the worktree
+(HEAD moves, the manifest is at HEAD), then `mkdir -p "$root/.git/hooks"` fails on the gitfile —
+`[BLOCKED] could not create …/wt/.git/hooks` / `The adoption commit HAD already landed; a later step
+did not complete. 79 file(s) were written and committed.` — rc 1, no hook in the worktree and none in
+the main repository, no live line; "Not a directory" is never printed. That state is not the adoption
+window (HEAD moved), so `## BL-291:`'s `--finish` refuses it as landed; a project adopted this way
+before WP9d has no framework route (v2.2 §12 item 32). A submodule shares the gitfile shape and was
+not separately executed.
+
+**Related:** `## BL-242:` (the driver), `## BL-209:` (the sibling refusal whose message shape R1
+reuses), `## BL-145:` (`verify-install.sh`'s hooksPath block), `## BL-291:` (the other WP9d defect).
+
+---
+
+## BL-291: the ADOPTION WINDOW — an adoption commit the adoptee's own hook rejects leaves the project stamped, staged and uncommitted, and the re-run refuses it as "already adopted"
+
+**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.4's ADOPTION WINDOW row, §10-WP9d): arm 1
+discriminates the window (working-copy witness true, committed witness false) with its own sentence
+and a finish route; the written-paths ledger is persisted into the adoptee so `--finish` (or an
+idempotent re-run) can re-stage and re-commit without re-writing; "re-run adoption" is only ever
+advised from a refusal that precedes the stamp (§9.1-I12 — the first filing cited I17, which is the
+D7/D8 verdict invariant). Not built.
+
+**Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V33); predicted by the 2026-09-16
+architect review (A3).
+
+**Measured on `579b0b0`** — the wp9b adoptee shape plus a `.git/hooks/pre-commit` that is `exit 1`:
+run 1 exits 1 with `[BLOCKED] the adoption commit did not succeed — your own hooks or git identity may
+have refused it / Nothing was committed. 83 file(s) were already written into this project.` After
+it: `.claude/manifest.json` in the working copy says `adopted: true`; HEAD did not move; HEAD carries
+no manifest; **83 entries are left STAGED**; no `commit-msg` hook was installed; and
+`soif_adoption_pre_adoption_commit` reports EXEMPT — the stamp's own bound (`# BF-ADOPT-BOUND`) calls
+this state the adoption window, so every commit made from it is TDD-exempt until someone commits the
+manifest by hand. Run 2 (a bare re-run) exits 1 with `[REFUSED] this project has already been adopted
+— the manifest records it` and advises `scripts/resume.sh` — the wrong pointer for a project whose
+adoption never landed. The transcript mentions no finish route (`grep -c finish` → 0). The design
+keeps the adoptee's own hooks in place for the adoption commit BY DECISION (they should judge it), so
+this is the likely path for any brownfield project with lint-staged, prettier, commitlint or no
+`user.email`.
+
+**Related:** `## BL-225:` (the preflight whose ledger the finish route persists), `## BL-242:`
+(`# BL-242-PREFLIGHT-ARM1`, the refusal that fires here), `## BL-290:`.
+
+---
+
+## BL-292: Act 2 overwrites an adoptee's own tracked `PROJECT_INTAKE.md` and `.claude/intake-progress.json` at rc 0 — no archive directory, no MANIFEST row, no sentence
+
+**Status:** Open — owner WP11 (ADOPT-002-ARCH v2.2 §7.2's `document` and `state` archive classes and
+the I20 loop): both paths join `adopt_archive_inventory`, are archived with a restore line, and are
+disclosed path by path. Not built.
+
+**Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V34).
+
+**Measured on `579b0b0`** — an adoptee that already tracks `PROJECT_INTAKE.md` and
+`.claude/intake-progress.json` (a project half-scaffolded by hand, or one migrating from another
+process): adoption exits 0; `PROJECT_INTAKE.md`'s sha256 changes (`f2976ff0e1cbdfb7` →
+`996e5b9b8430e133`), its first line is now `# Project Intake`; `.claude/intake-progress.json` now reads
+`{"theirs":null,"source":"adopt-project.sh"}`; `ls -d .claude/adoption-archive/*/ | wc -l` → 0 — no
+archive directory was created at all; the transcript has no sentence about either file. This is the
+APPROVAL_LOG.md class WP9b closed (`# BL-242-…` archive class `approval-log`), one file over; neither
+path is in `adopt_archive_inventory` today. The plain-English overview's *"nothing is moved silently"*
+does not hold for these two files.
+
+**Related:** `## BL-242:` (D1/D3, the archive classes), `## BL-293:` (the same run's other finding),
+`## BL-282:` (the intake's amend route — a project whose intake was overwritten has rows to correct).
+
+---
+
+## BL-293: on a case-insensitive filesystem a case-variant collision is reported under the framework's spelling — "yours, kept: scripts/validate.sh" for an index that holds `scripts/Validate.sh`
+
+**Status:** Open — LATENT today (skip-on-collision keeps the operator's bytes); becomes a silent
+misattribution under framework-wins. Owner WP11 (ADOPT-002-ARCH v2.2 §7.2, A8): the collision
+inventory matches against `git ls-files` case-insensitively and discloses a case-variant collision by
+the operator's spelling. Not built.
+
+**Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V34), macOS, `core.ignorecase = true`.
+
+**Measured on `579b0b0`:** an adoptee tracking `scripts/Validate.sh`; adoption prints `Installed 69
+framework script(s); left 1` and `yours, kept: scripts/validate.sh` — a path the index does not
+hold. `adopt_install_framework` tests collisions with `[ -e "$dst" ]`, which APFS/NTFS answer for
+either spelling and ext4 does not, so the archive-then-replace story diverges by host with no
+disclosure; the rehearsal copy in `$TMPDIR` may sit on a volume of different case sensitivity than the
+project's, so rehearsal and real run can disagree too.
+
+**Related:** `## BL-242:` (D1 framework-wins), `## BL-292:`.
+
+---
+
+## BL-294: the pre-write rehearsal copies the whole tree, `.git/objects` included, with no bound and no cost statement
+
+**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.2a, A7): the cost is stated, bounded
+(`SOIF_ADOPT_REHEARSAL_MAX_MB`, refuse loudly above it rather than dying in `cp`), and reduced — a
+shared-objects copy (`.git/objects/info/alternates`) keeps the ignore/index oracles at a fraction of the
+size; the transcript prints "rehearsal ran in N s over M MB". Not built.
+
+**Found:** 2026-09-17 (ADOPT-002-ARCH v2.2 §13-V36); predicted by the architect review (A7).
+
+**Measured on this repository at `579b0b0`:** 965 files excluding `.git`; `du -sh` 57M total, 32M
+`.git`, 30M `.git/objects`; `cp -a` of the whole tree 0.43 s / 57M; a shared-objects copy (tar minus
+`.git/objects`, plus alternates) 0.54 s / 27M with git fully working in the copy (tracked 819 = the
+original; HEAD `579b0b0`; `check-ignore .claude` rc 1). The COPY step's only message is *"could not copy the project … (disk
+space?)"* — `adopt_prewrite_preflight` as a whole has seven `adopt_refuse` sites (the v2.2 review's
+R-4 corrected the first filing's "only failure message"). For a real brownfield repository
+(multi-GB history, vendored dependencies) the copy doubles disk use on the system volume after the
+operator has answered every question. `## BL-225:` records that Karl chose the copy over a per-writer
+flag; the fidelity argument stands, the cost was simply absent.
+
+**Related:** `## BL-225:` (`# BL-225-PREWRITE-CALL`).
+
+---
+
+## BL-295: `adopt_refuse` labels its line `[BLOCKED]` or `[REFUSED]` by whether anything was written, not by whether a check ran — the messaging standard's vocabulary keys on the opposite fact
+
+**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.1, A10): two primitives — `adopt_refuse`
+(nothing ran; the tool declined to start) and `adopt_block` (a named check ran and did not pass) —
+with the "what is on disk" derivation appended as its own sentence. WP10b's secrets stop uses
+`adopt_block`. Not built.
+
+**Found:** 2026-09-17 (ADOPT-002-ARCH v2.2 §13-V42); predicted by the architect review (A10).
+
+**Measured on `579b0b0`:** `adopt_refuse` prints `[REFUSED]` iff nothing was written or touched and
+`[BLOCKED]` otherwise (`adopt-core.sh`, the two `printf '\n[…]'` sites); fifty-eight call sites
+across `scripts/lib/adopt/` (`adopt-state.sh` 36, `adopt-archive.sh` 11, `adopt-core.sh` 9,
+`adopt-intake.sh` 2). `docs/messaging-standard.md` Part 2: *refuse* = the tool declined to start and
+changed nothing; *block* = a check ran and you did not pass it. A step-3 secrets stop — after the tier
+question, tool resolution and possibly a host install — is a BLOCK by the standard, but the driver
+would label it `[REFUSED]` (no adoptee writes) or, after an install attempt, `[BLOCKED]` with the
+pessimistic "had already ATTEMPTED writes" sentence over a provably clean tree (`## BL-225:`'s
+`# BL-225-REFUSE-DERIVED` clears it only on the prewrite arm).
+
+**Related:** `## BL-242:`, `## BL-225:`, `docs/messaging-standard.md`.
+
+---
+
+## BL-296: the Development Guardrails (CDF) install is an `init.sh` effect adoption never performs — and greenfield registers the Solo hook roster only inside the CDF-success branch
+
+**Status:** Open — GAP, and a question for Karl (ADOPT-002-ARCH v2.2 §8.7a row 33, §12 item 29):
+should an adoptee receive the CDF install at all — a network clone into `$HOME`, non-fatal in
+`init.sh` when it fails — and, separately, should the Solo hook roster be registered independently of
+it? WP9c ships the roster from a shared table either way; the CDF half is not designed.
+
+**Found:** 2026-09-17 by reading `init.sh`'s nesting (ADOPT-002-ARCH v2.2 §13-V38); the CDF install
+was NOT executed there.
+
+**Measured on `579b0b0`:** the hooks-merge block (`if [ -f ".claude/settings.json" ] && command -v
+jq`) is nested inside the `framework_valid` branch (`if [ "$framework_valid" = true ]`) and closes
+before that branch's `fi` (ADOPT-002-ARCH v2.2 §13-V38 prints the `grep -n` derivation, dated
+2026-09-17; the numbers are that output's, not a citation — the review's R-20) — so greenfield's
+manifest base shape, every CDF rule and
+hook, and the condition under which the Solo roster (`track-tool-usage.sh`, `bypass-detector.sh`,
+`session-*-check.sh`, …) is registered at all come from `~/.claude-dev-framework/scripts/init.sh`,
+which adoption never runs. Rows 18–21 of the design's install-parity table (`docs/reference/*`,
+`.claude/settings.json`, `.claude/settings.local.json`, vendored skills) were UNOWNED at `579b0b0`
+and are WP9c's since v2.2; row 33 (this) stays UNOWNED.
+
+**Related:** `## BL-242:` (§8.7a), `## BL-284:` (`verify-install.sh`'s CDF-adjacent fixers),
+`## BL-277:` (the roster's PostToolUse arm — WP9c ships it only after that entry closes).
