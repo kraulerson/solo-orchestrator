@@ -20530,14 +20530,16 @@ judgement explicitly undecided).
 
 ## BL-274: PLACEHOLDER — the self-approval gate's single-technical-authority case, cited by BL-275 and BL-279 but never filed
 
-**Status:** Open — **DECIDED 2026-09-17 (Karl), on issue #404: the taxonomy is NOT an absolute.** A
-single-technical-authority company may run at the `organizational` tier with a RECORDED attestation —
-`SOLO_SINGLE_AUTHORITY_ATTESTED` plus a mandatory reason, recorded per gate and pinned to HEAD, refused if
-it cannot be recorded, printing every time that governance §XIV item 5 is a BLOCKING pre-condition that
-REMAINS UNMET, never the words verified/satisfied/passed/complete. The contributor's mechanism on their
-fork `fix/bl274` (tip `6a222d1`, on the pre-stack base) is invited as a PR against `main`, which should
-also write the real entry over this placeholder; adversarial review before merge. `## BL-275:`'s
-author-vs-approver contradiction is NOT decided by this. PLACEHOLDER text follows, written by the
+**Status:** Open — **DECIDED 2026-09-17 (Karl), on issue #404: the taxonomy is NOT an absolute — a
+RECORDED, REASON-MANDATORY single-authority attestation is ACCEPTED, so such a company may run at the
+`organizational` tier on the record.** That acceptance is the whole of the ruling. **The contributor's
+mechanism, as proposed in #404 and carried on their fork `fix/bl274` (tip `6a222d1`, on the pre-stack
+base), is:** `SOLO_SINGLE_AUTHORITY_ATTESTED` plus a mandatory reason, recorded per gate and pinned to
+HEAD, refused if it cannot be recorded, printing every time that governance §XIV item 5 is a BLOCKING
+pre-condition that REMAINS UNMET, never the words verified/satisfied/passed/complete — the
+contributor's proposal, not Karl's words (the v2.2 review's R-18). It is invited as a PR against `main`,
+which should also write the real entry over this placeholder; adversarial review before merge.
+`## BL-275:`'s author-vs-approver contradiction is NOT decided by this. PLACEHOLDER text follows, written by the
 maintainer on merge (2026-09-15), not by the contributor who cited it.
 
 **Why this exists.** The 2026-09-13 contributor batch (`## BL-275:`, `## BL-279:`) cites
@@ -20630,10 +20632,22 @@ better: `scripts/install-filesystem-gates.sh` refuses to write under a configure
 projects never set it — an adoptee is by definition not framework-generated (husky, lefthook,
 pre-commit, corporate `--global core.hooksPath`).
 
-**Two more shapes, by code reading (not executed):** a linked worktree or submodule (`.git` is a file)
-makes `[ -d "$root/.git/hooks" ]` false and `mkdir -p "$root/.git/hooks"` fail with "Not a directory"
-AFTER the adoption commit; a `--root` pointed at a sub-directory of a repository creates a bogus `.git/`
-inside it and completes at rc 0 with the "live" line.
+**Two more shapes — EXECUTED 2026-09-17 by the adversarial review of the v2.2 range (probes `v32b.sh`,
+`v32c.sh`; re-run by the amendment's author with identical outcomes, ADOPT-002-ARCH v2.2 §13-V32b/V32c).
+The first filing of this paragraph described both by code reading and got both wrong (R-1).**
+A `--root` pointed at a SUB-DIRECTORY of a repository is refused TODAY — but by the pre-write
+rehearsal, after every question has been asked: `adopt rc=1`, `[REFUSED] the pre-write rehearsal did
+not complete (rc=1) — nothing was written to your project`; no bogus `sub/.git` is created, no hook is
+written, the live line is not printed. The rehearsal's `cp -a "$root/."` carries no `.git` under
+`sub/`, and `adopt_test_debt_record` then runs git outside a repository. R1 moves the refusal to step
+0. A LINKED WORKTREE as `--root` (`.git` is a FILE) is worse: the adoption COMMITS in the worktree
+(HEAD moves, the manifest is at HEAD), then `mkdir -p "$root/.git/hooks"` fails on the gitfile —
+`[BLOCKED] could not create …/wt/.git/hooks` / `The adoption commit HAD already landed; a later step
+did not complete. 79 file(s) were written and committed.` — rc 1, no hook in the worktree and none in
+the main repository, no live line; "Not a directory" is never printed. That state is not the adoption
+window (HEAD moved), so `## BL-291:`'s `--finish` refuses it as landed; a project adopted this way
+before WP9d has no framework route (v2.2 §12 item 32). A submodule shares the gitfile shape and was
+not separately executed.
 
 **Related:** `## BL-242:` (the driver), `## BL-209:` (the sibling refusal whose message shape R1
 reuses), `## BL-145:` (`verify-install.sh`'s hooksPath block), `## BL-291:` (the other WP9d defect).
@@ -20646,7 +20660,8 @@ reuses), `## BL-145:` (`verify-install.sh`'s hooksPath block), `## BL-291:` (the
 discriminates the window (working-copy witness true, committed witness false) with its own sentence
 and a finish route; the written-paths ledger is persisted into the adoptee so `--finish` (or an
 idempotent re-run) can re-stage and re-commit without re-writing; "re-run adoption" is only ever
-advised from a refusal that precedes the stamp (§9.1-I17). Not built.
+advised from a refusal that precedes the stamp (§9.1-I12 — the first filing cited I17, which is the
+D7/D8 verdict invariant). Not built.
 
 **Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V33); predicted by the 2026-09-16
 architect review (A3).
@@ -20725,8 +20740,9 @@ size; the transcript prints "rehearsal ran in N s over M MB". Not built.
 **Measured on this repository at `579b0b0`:** 965 files excluding `.git`; `du -sh` 57M total, 32M
 `.git`, 30M `.git/objects`; `cp -a` of the whole tree 0.43 s / 57M; a shared-objects copy (tar minus
 `.git/objects`, plus alternates) 0.54 s / 27M with git fully working in the copy (tracked 819 = the
-original; HEAD `579b0b0`; `check-ignore .claude` rc 1). `adopt_prewrite_preflight`'s only failure
-message is *"could not copy the project … (disk space?)"*. For a real brownfield repository
+original; HEAD `579b0b0`; `check-ignore .claude` rc 1). The COPY step's only message is *"could not copy the project … (disk
+space?)"* — `adopt_prewrite_preflight` as a whole has seven `adopt_refuse` sites (the v2.2 review's
+R-4 corrected the first filing's "only failure message"). For a real brownfield repository
 (multi-GB history, vendored dependencies) the copy doubles disk use on the system volume after the
 operator has answered every question. `## BL-225:` records that Karl chose the copy over a per-writer
 flag; the fidelity argument stands, the cost was simply absent.
@@ -20768,9 +20784,11 @@ it? WP9c ships the roster from a shared table either way; the CDF half is not de
 **Found:** 2026-09-17 by reading `init.sh`'s nesting (ADOPT-002-ARCH v2.2 §13-V38); the CDF install
 was NOT executed there.
 
-**Measured on `579b0b0`:** the hooks-merge block (`init.sh` line 1989, `if [ -f ".claude/settings.json"
-] && command -v jq`) is nested inside the `framework_valid` branch (line 1899) and closes at
-2168–2169 before that branch's `fi` at 2170 — so greenfield's manifest base shape, every CDF rule and
+**Measured on `579b0b0`:** the hooks-merge block (`if [ -f ".claude/settings.json" ] && command -v
+jq`) is nested inside the `framework_valid` branch (`if [ "$framework_valid" = true ]`) and closes
+before that branch's `fi` (ADOPT-002-ARCH v2.2 §13-V38 prints the `grep -n` derivation, dated
+2026-09-17; the numbers are that output's, not a citation — the review's R-20) — so greenfield's
+manifest base shape, every CDF rule and
 hook, and the condition under which the Solo roster (`track-tool-usage.sh`, `bypass-detector.sh`,
 `session-*-check.sh`, …) is registered at all come from `~/.claude-dev-framework/scripts/init.sh`,
 which adoption never runs. Rows 18–21 of the design's install-parity table (`docs/reference/*`,
