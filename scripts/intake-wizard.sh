@@ -577,6 +577,29 @@ _bl282_nearest_keys() {
     { print lev(q, $0) "\t" $0 }' | sort -n | head -3 | cut -f2  # BL-282-HINT-COUNT
 }
 
+# BL-294-ADOPTION-RECORDED-BEGIN
+# `## BL-294:` (#418) — brownfield adoption records intake rows under keys this
+# wizard never asks (`test_command`, `timeline`, …): they are in answers/ and
+# outside the save_answer set above, so the amend route refused the very rows
+# adoption wrote. A key ALREADY PRESENT in the progress file's `answers` object
+# is amendable; a key that exists nowhere is still refused. Exact membership,
+# with the key passed as argv — nothing is interpolated into a program.
+# Exit 0 present, 1 absent, 2 no usable answers object, 3 file unreadable.
+_bl294_key_recorded() {
+  python3 -c '
+import json, sys
+try:
+    with open(sys.argv[2]) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(3)
+answers = data.get("answers") if isinstance(data, dict) else None
+if not isinstance(answers, dict): sys.exit(2)  # BL-294-ANSWERS-IS-OBJECT
+sys.exit(0 if sys.argv[1] in answers else 1)  # BL-294-IN-ANSWERS
+' "$1" "$PROGRESS_FILE" 2>/dev/null
+}
+# BL-294-ADOPTION-RECORDED-END
+
 run_set_answer() {
   local usage='Usage: scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]'
   if [ $# -lt 2 ]; then
@@ -603,12 +626,26 @@ run_set_answer() {
     print_fail "--set-answer needs python3 (save_answer writes through it)."
     return 1
   fi
+  local adoption_note="" rec_rc=0  # BL-294-NOTE-DEFAULT
   if ! _bl282_key_allowed "$key"; then
-    print_fail "'$key' is not a key this wizard records — nothing written."
-    local hint
-    hint="$(_bl282_nearest_keys "$key" | tr '\n' ' ' || true)"
-    [ -n "$hint" ] && echo "  Did you mean: ${hint% }" >&2
-    return 1
+    _bl294_key_recorded "$key" || rec_rc=$?  # BL-294-RECORDED-CHECK
+    case "$rec_rc" in
+      0) adoption_note="adoption-recorded key"  # BL-294-NOTE
+        ;;
+      1)
+        print_fail "'$key' is not a key this wizard records, nor one already recorded in $PROGRESS_FILE — nothing written."
+        local hint
+        hint="$(_bl282_nearest_keys "$key" | tr '\n' ' ' || true)"
+        [ -n "$hint" ] && echo "  Did you mean: ${hint% }" >&2
+        return 1 ;;
+      2)
+        print_fail "$PROGRESS_FILE has no usable answers object — nothing written."
+        return 1  # BL-294-UNUSABLE-REFUSE
+        ;;
+      *)
+        print_fail "could not read $PROGRESS_FILE — nothing written."
+        return 1 ;;
+    esac
   fi
   local old
   old="$(python3 -c '
@@ -621,15 +658,18 @@ print(json.dumps(data.get("answers", {}).get(sys.argv[1])))
   python3 -c '
 import json, sys
 from datetime import datetime, timezone
-key, old, new, reason, path = sys.argv[1:6]
+key, old, new, reason, path, note = sys.argv[1:7]
 with open(path) as f:
     data = json.load(f)
-data.setdefault("amendments", []).append({
+entry = {
     "key": key, "old": json.loads(old), "new": new, "reason": reason,
-    "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+    "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+if note:
+    entry["note"] = note
+data.setdefault("amendments", []).append(entry)
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
-' "$key" "$old" "$value" "$reason" "$PROGRESS_FILE" || { print_fail "answer written but the amendment could not be recorded in $PROGRESS_FILE."; return 1; }
+' "$key" "$old" "$value" "$reason" "$PROGRESS_FILE" "$adoption_note" || { print_fail "answer written but the amendment could not be recorded in $PROGRESS_FILE."; return 1; }
   # `## BL-203:` — some answers have a second home the wizard's write does
   # not reach. Name it rather than write it: each has its own setter.
   case "$key" in
@@ -642,7 +682,7 @@ with open(path, "w") as f:
   render_intake_file || { print_fail "answer recorded but PROJECT_INTAKE.md could not be re-rendered."; return 1; }  # BL-282-RERENDER
   local shown_old='(unset)'
   [ "$old" != "null" ] && shown_old="$old"
-  print_ok "$key: $shown_old -> \"$value\" (amended, recorded)"
+  print_ok "$key: $shown_old -> \"$value\" (amended, recorded${adoption_note:+; $adoption_note})"
   return 0
 }
 # BL-282-SET-ANSWER-END
@@ -2335,7 +2375,9 @@ main() {
       echo ""
       echo "Correct one recorded answer after its section is complete (BL-282):"
       echo "  --set-answer KEY VALUE [--reason \"<text>\"]"
-      echo "                                     KEY must be one the wizard records. The change"
+      echo "                                     KEY must be one the wizard records, or one already"
+      echo "                                     in intake-progress.json's answers (a key recorded"
+      echo "                                     by adoption, noted as such — BL-294). The change"
       echo "                                     is appended to intake-progress.json's amendments"
       echo "                                     and PROJECT_INTAKE.md is re-rendered."
       echo ""
