@@ -540,9 +540,27 @@ _bl282_key_templates() {
   grep -o 'save_answer "[^"]*"' "${BASH_SOURCE[0]}" | sed 's/^save_answer "//; s/"$//' | sort -u
 }
 
+# The nine competency domains, read from the SAME array the prompts iterate
+# and transformed the same way, so this can never drift from what the wizard
+# actually records. A second hand-written list here would be the drift.
+_bl282_competency_keys() {
+  grep -m1 '^[[:space:]]*local domains=(' "${BASH_SOURCE[0]}" \
+    | grep -o '"[^"]*"' | sed 's/^"//; s/"$//' \
+    | tr '/ ' '_' | tr '[:upper:]' '[:lower:]'
+}
+
 _bl282_key_allowed() {
-  local key="$1" tpl pat
+  local key="$1" tpl pat base
   printf '%s' "$key" | grep -q -E '^[a-z0-9_]+$' || return 1
+  # `competency_$key` would widen to `competency_[a-z0-9_]+` in the generic
+  # loop below and MINT a key the wizard records nowhere. Bound it to the
+  # domain list instead.
+  case "$key" in
+    competency_*)  # BL-282-COMPETENCY-DOMAINS
+      base="${key#competency_}"; base="${base%_tooling}"
+      _bl282_competency_keys | grep -q -x -- "$base" && return 0
+      return 1 ;;
+  esac
   while IFS= read -r tpl; do
     case "$tpl" in
       '$'*)

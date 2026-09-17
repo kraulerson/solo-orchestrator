@@ -17612,7 +17612,10 @@ still refused.
 `# BL-282-SET-ANSWER-BEGIN` … `# BL-282-SET-ANSWER-END`, dispatched at `# BL-282-SET-ANSWER-ARM`).
 KEY must be one of the wizard's own `save_answer` call sites, read from the script at runtime —
 literal keys exactly (H1), loop-generated families (`input_${i}_name`) by shape with the index
-bounded to digits (H8) — and an unknown key is refused at exit 1 (K1, MP1;
+bounded to digits (H8), and the `competency_` families bounded by the wizard's OWN nine-domain
+array rather than by the generic widening, read from that same array and transformed the same way
+so the two cannot drift (N1, N2, N3, N4, MP5; `# BL-282-COMPETENCY-DOMAINS`) — and an unknown key
+is refused at exit 1 (K1, MP1;
 `# BL-282-KEY-REFUSE`) with the three nearest recorded keys named (K3, MP3;
 `# BL-282-HINT-COUNT`). It refuses at exit 1 when `.claude/intake-progress.json`
 is absent, creating nothing (P1); `--set-answer` without a VALUE is refused the same way (K2). The
@@ -17629,19 +17632,30 @@ once (`# BL-282-RERENDER`), so the rendered row reads `VALUE (amended YYYY-MM-DD
 second-home keys (`## BL-203:`) are written here and the other home is NAMED in a `[WARN]`, not
 written (W1). The narrower fifth change (bare-number
 selection in `prompt_with_suggestions`) is not in this fix. Suite: `tests/test-bl282-set-answer.sh`
-— RED on `579b0b0` at 5 passed / 25 failed: only the C1/C2 controls are green there on their own
-merits. The other three passes are VACUOUS — the flag falls through to the non-TTY refusal, so
-nothing is written, and H2's untouched answer, S2's and S3's refusals all hold for the wrong
-reason. GREEN at 30/30 under bash 3.2.57, under bash 5.3.15, and under bash 5.2.21 in
-`ubuntu:24.04` as a non-root user; the four mirror mutants (neutered refusal, deleted re-render,
-hint narrowed to one key, write status discarded) are killed by K1, H4, K3 and S1, each asserting
-it landed on its own marker line.
+— RED on `579b0b0` at 6 passed / 30 failed: only the C1/C2 controls are green there on their own
+merits. The other four passes are VACUOUS — the flag falls through to the non-TTY refusal, so
+nothing is written, and H2's untouched answer plus S2's, S3's and the competency refusals all hold
+for the wrong reason. GREEN at 36/36 under bash 3.2.57, under bash 5.3.15, and under bash 5.2.21 in
+`ubuntu:24.04` as a non-root user; the five mirror mutants (neutered refusal, deleted re-render,
+hint narrowed to one key, write status discarded, competency family widened) are killed by K1, H4,
+K3, S1 and N3, each asserting it landed on its own marker line.
 
 The write-status arm was added after the first cut: at `91b5066` a progress file with no `answers`
 object made `save_answer` raise, its status was discarded because `run_set_answer` is called from
 an `if`, and the operator read `[OK] … (amended, recorded)` at exit 0 with no answer written and an
 amendment row appended anyway. S1 is that case; the other shapes already refused, because the
-old-value read defaults `answers` to `{}` only when the key is missing.
+old-value read defaults `answers` to `{}` only when the key is missing. The competency bound was
+added in the same pass, from the adversarial review of the stacked follow-up: at `e1e027f`
+`--set-answer competency_zzz minted` exited 0 and MINTED a key the wizard records nowhere, which is
+the one thing the refusal exists to prevent.
+
+**Residual, measured and NOT fixed — concurrent amendments lose updates.** `save_answer` takes no
+lock, and neither does the amendment append: each is a read-modify-write of the whole file. Eight
+`--set-answer` runs launched at once against one project kept 6 of the 8 amendment rows, and the
+final answer was the value from one arbitrary winner. The file stays valid JSON throughout — the
+loss is silent, not corrupting. A lock is not offered here because the fix belongs to `save_answer`,
+which every section of the wizard shares, and that is the maintainer's call rather than a change to
+smuggle in under this flag.
 
 **Logged:** 2026-09-14, from a downstream adoption's `intake-progress.json`, where `monthly_budget`
 is the literal string `"3"`. The operator typed `?` at the budget prompt, was shown a numbered list,
