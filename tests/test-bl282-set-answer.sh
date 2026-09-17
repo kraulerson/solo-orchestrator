@@ -446,6 +446,55 @@ else
   fi
 fi
 
+# N5 — the helper must not be the first line a neighbouring suite's scan
+# finds. tests/test-intake-wizard-fixes.sh T5b takes the FIRST line matching
+# /local domains=\(/ and counts the quoted strings on it; a helper carrying
+# that literal inside its own grep pattern answers for the real array and
+# T5b reads 1 domain instead of 9. This runs T5b's own awk, verbatim.
+n_dom="$(awk '
+  /local domains=\(/ {
+    line=$0
+    sub(/.*domains=\(/, "", line)
+    sub(/\).*/, "", line)
+    n=gsub(/"[^"]*"/, "&", line)
+    print n; exit
+  }
+' "$WIZARD")"
+case "$n_dom" in ''|*[!0-9]*) n_dom=0 ;; esac
+if [ "$n_dom" -eq 9 ]; then
+  pass "N5 — T5b's own scan still finds the 9-domain array first (found $n_dom)"
+else
+  fail_ "N5" "T5b's scan finds $n_dom domain(s), want 9 — a line above the real array matches /local domains=\\(/ and answers for it"
+fi
+
+# N6 — a carriage return in a value cannot split the rendered row. Reachable
+# from a progress file edited outside the wizard; cmark-gfm treats a lone CR
+# as a line break, so an unneutralised CR ends the table row early.
+N6="$(newtmp)/proj"
+if ! mk_project "$N6"; then
+  fail_ "N6 setup" "could not build the fixture"
+else
+  python3 - "$N6/.claude/intake-progress.json" <<'PYCR' || true
+import io, json, sys
+p = sys.argv[1]
+d = json.load(io.open(p, encoding="utf-8"))
+d.setdefault("answers", {})["problem_statement"] = "before\rafter"
+io.open(p, "w", encoding="utf-8").write(json.dumps(d, indent=2))
+PYCR
+  wiz "$N6" --set-answer monthly_budget "$NEW_BUDGET"
+  # The row must be ONE physical line carrying both halves and closing with |.
+  row_lines="$(awk '/^\| `problem_statement` \|/{c++} END{print c+0}' "$N6/PROJECT_INTAKE.md")"
+  row="$(awk '/^\| `problem_statement` \|/{print; exit}' "$N6/PROJECT_INTAKE.md")"
+  stray_cr="$(printf '%s' "$row" | tr -cd '\r' | wc -c | tr -d ' ')"
+  if [ "$WIZ_RC" -eq 0 ] && [ "$row_lines" = "1" ] && [ "$stray_cr" = "0" ] \
+     && printf '%s' "$row" | grep -q 'before' && printf '%s' "$row" | grep -q 'after' \
+     && printf '%s' "$row" | grep -q '|$'; then
+    pass "N6 — a carriage return in a value renders as one intact row, both halves present, no stray CR"
+  else
+    fail_ "N6" "rc=$WIZ_RC rows=$row_lines stray_cr=$stray_cr row=[$row]"
+  fi
+fi
+
 echo "=== W — a key with a second home is written here and the other home is named ==="
 
 W1="$(newtmp)/proj"
