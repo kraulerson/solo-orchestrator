@@ -367,10 +367,82 @@ else
   chmod 0644 "$S3/.claude/intake-progress.json" 2>/dev/null
   after_p="$(_cksum "$S3/.claude/intake-progress.json")"
   ok_n="$(grep -c '\[OK\]' "$S3/run.out")"; case "$ok_n" in ''|*[!0-9]*) ok_n=0 ;; esac
-  if [ "$WIZ_RC" -ne 0 ] && [ "$before_p" = "$after_p" ] && [ "$ok_n" -eq 0 ]; then
-    pass "S3 — an unwritable progress file is refused (rc=$WIZ_RC), the file is byte-identical and no [OK] is printed"
+  # The message must match what happened. "answer written but the amendment
+  # could not be recorded" would be false here: nothing was written.
+  said_written="$(grep -c 'answer written but' "$S3/run.out")"; case "$said_written" in ''|*[!0-9]*) said_written=0 ;; esac
+  if [ "$WIZ_RC" -ne 0 ] && [ "$before_p" = "$after_p" ] && [ "$ok_n" -eq 0 ] \
+     && grep -q -i 'could not write' "$S3/run.out" && [ "$said_written" -eq 0 ]; then
+    pass "S3 — an unwritable progress file is refused (rc=$WIZ_RC), file byte-identical, no [OK], and the message says nothing was recorded rather than claiming the answer was written"
   else
-    fail_ "S3" "rc=$WIZ_RC (want non-zero); file $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED); [OK] lines=$ok_n (want 0)"
+    fail_ "S3" "rc=$WIZ_RC (want non-zero); file $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED); [OK] lines=$ok_n (want 0); refusal $(grep -q -i 'could not write' "$S3/run.out" && echo present || echo missing); false-written-claim=$said_written (want 0)"
+  fi
+fi
+
+echo "=== N — the competency family is bounded by the wizard's own domain list ==="
+
+# The wizard asks nine fixed domains and derives each key from that list.
+# `competency_$key` widened to `competency_[a-z0-9_]+` would let --set-answer
+# MINT a key the wizard records nowhere, which is the one thing the refusal
+# exists to prevent (`# BL-282-COMPETENCY-DOMAINS`).
+
+# N1 — a real domain key is accepted.
+N1="$(newtmp)/proj"
+if ! mk_project "$N1"; then
+  fail_ "N1 setup" "could not build the fixture"
+else
+  wiz "$N1" --set-answer competency_security "No"
+  got="$(jq_answer competency_security "$N1")"
+  if [ "$WIZ_RC" -eq 0 ] && [ "$got" = "No" ]; then
+    pass "N1 — competency_security, a key the wizard's own domain list yields, is accepted (rc=$WIZ_RC)"
+  else
+    fail_ "N1" "rc=$WIZ_RC competency_security=[$got], want [No]: $(tail -1 "$N1/run.out")"
+  fi
+fi
+
+# N2 — the tooling half of the same family is accepted.
+N2="$(newtmp)/proj"
+if ! mk_project "$N2"; then
+  fail_ "N2 setup" "could not build the fixture"
+else
+  wiz "$N2" --set-answer competency_devops_infrastructure_tooling "tflint + checkov"
+  got="$(jq_answer competency_devops_infrastructure_tooling "$N2")"
+  if [ "$WIZ_RC" -eq 0 ] && [ "$got" = "tflint + checkov" ]; then
+    pass "N2 — competency_devops_infrastructure_tooling is accepted (rc=$WIZ_RC)"
+  else
+    fail_ "N2" "rc=$WIZ_RC value=[$got]: $(tail -1 "$N2/run.out")"
+  fi
+fi
+
+# N3 — an invented domain is refused and nothing is written.
+N3="$(newtmp)/proj"
+if ! mk_project "$N3"; then
+  fail_ "N3 setup" "could not build the fixture"
+else
+  before_p="$(_cksum "$N3/.claude/intake-progress.json")"
+  wiz "$N3" --set-answer competency_zzz "minted"
+  after_p="$(_cksum "$N3/.claude/intake-progress.json")"
+  got="$(jq_answer competency_zzz "$N3")"
+  if [ "$WIZ_RC" -eq 1 ] && [ "$got" = "<<unset>>" ] && [ "$before_p" = "$after_p" ]; then
+    pass "N3 — competency_zzz is refused (rc=$WIZ_RC), mints nothing, file byte-identical"
+  else
+    fail_ "N3" "rc=$WIZ_RC (want 1); competency_zzz=[$got] (want unset); file $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED)"
+  fi
+fi
+
+# N4 — competency_matrix is an ADOPTION-recorded key, not a wizard key, so
+# this route refuses it. The stacked follow-up accepts it with its own note.
+N4="$(newtmp)/proj"
+if ! mk_project "$N4"; then
+  fail_ "N4 setup" "could not build the fixture"
+else
+  before_p="$(_cksum "$N4/.claude/intake-progress.json")"
+  wiz "$N4" --set-answer competency_matrix "adoption row"
+  after_p="$(_cksum "$N4/.claude/intake-progress.json")"
+  got="$(jq_answer competency_matrix "$N4")"
+  if [ "$WIZ_RC" -eq 1 ] && [ "$got" = "<<unset>>" ] && [ "$before_p" = "$after_p" ]; then
+    pass "N4 — competency_matrix is refused by this route (rc=$WIZ_RC), file byte-identical"
+  else
+    fail_ "N4" "rc=$WIZ_RC (want 1); competency_matrix=[$got] (want unset); file $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED)"
   fi
 fi
 
@@ -394,7 +466,7 @@ fi
 
 echo "=== M — mutation proofs on a mirror ==="
 
-for mark in BL-282-SET-ANSWER-BEGIN BL-282-SET-ANSWER-END BL-282-KEY-REFUSE BL-282-RERENDER BL-282-HINT-COUNT BL-282-WRITE-STATUS; do
+for mark in BL-282-SET-ANSWER-BEGIN BL-282-SET-ANSWER-END BL-282-KEY-REFUSE BL-282-RERENDER BL-282-HINT-COUNT BL-282-WRITE-STATUS BL-282-COMPETENCY-DOMAINS; do
   n="$(grep -c "$mark" "$WIZARD" 2>/dev/null)"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
   [ "$n" = "1" ] \
     && pass "M0 — '$mark' occurs exactly once in intake-wizard.sh" \
@@ -530,6 +602,38 @@ else
         pass "MP4 (MUTATION) — with the write's status discarded the wizard reports [OK] and exits 0 while no answer was written: S1 is what stops it"
       else
         fail_ "MP4 (MUTATION)" "rc=$WIZ_RC ok_lines=$ok_n answer=[$got_ans] — discarding the status changed nothing S1 can see"
+      fi
+    fi
+  fi
+fi
+
+# MP5 — widen the family again: the competency arm stops matching, so the
+# generic `$key` template admits any competency_* key. N3 is what stops it.
+MP5="$(newtmp)/fw"
+if ! mkdir -p "$MP5" || ! cp -Rp "$REPO_ROOT/scripts" "$MP5/"; then
+  fail_ "MP5 setup" "could not mirror scripts/"
+else
+  tgt5="$MP5/scripts/intake-wizard.sh"; before5="$(mktemp)"; cp "$tgt5" "$before5"
+  d_ln="$(grep -n 'BL-282-COMPETENCY-DOMAINS' "$before5" | head -1 | cut -d: -f1)"
+  sed -e 's/^\([[:space:]]*\)competency_\*)\([[:space:]]*# BL-282-COMPETENCY-DOMAINS\)$/\1competency_NEVERMATCHES_*)\2/' "$before5" > "$tgt5"
+  h_ln5="$(_hunk_line "$before5" "$tgt5")"
+  if [ -z "$d_ln" ] || ! _syntax_ok "$tgt5" \
+     || [ "$(_changed_lines "$before5" "$tgt5")" -ne 2 ] || [ "$h_ln5" != "$d_ln" ] \
+     || ! sed -n "${d_ln}p" "$tgt5" | grep -q 'NEVERMATCHES'; then
+    fail_ "MP5 setup" "the competency-widening mutation did not land on the marker line (marker=$d_ln hunk=$h_ln5 changed=$(_changed_lines "$before5" "$tgt5"))"
+  else
+    PDM5="$(newtmp)/proj"
+    if ! mk_project "$PDM5" "$tgt5"; then
+      fail_ "MP5 setup" "could not build the mutant's fixture"
+    else
+      wiz "$PDM5" --set-answer competency_zzz "minted"
+      rc_bad=$WIZ_RC; got_bad="$(jq_answer competency_zzz "$PDM5")"
+      wiz "$PDM5" --set-answer competency_security "No"
+      rc_ok=$WIZ_RC
+      if [ "$rc_bad" -eq 0 ] && [ "$got_bad" = "minted" ] && [ "$rc_ok" -eq 0 ]; then
+        pass "MP5 (MUTATION) — with the family widened again competency_zzz is MINTED (rc=$rc_bad) while a real domain key still works: N3 is what stops it"
+      else
+        fail_ "MP5 (MUTATION)" "invented-key rc=$rc_bad written=[$got_bad]; real-key rc=$rc_ok — widening the family changed nothing N3 can see"
       fi
     fi
   fi

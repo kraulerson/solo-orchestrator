@@ -146,7 +146,7 @@ fi
 # A-case could pass through BL-282's own route — `competency_matrix` does
 # exactly that (it shape-matches the `competency_$key` family) — and prove
 # nothing about this fix.
-for gk in test_command timeline; do
+for gk in test_command timeline competency_matrix; do
   G1="$(newtmp)/proj"
   if ! mk_adopted "$G1"; then
     fail_ "G1 setup" "could not build the fixture"
@@ -262,6 +262,36 @@ else
     pass "D2 — everything above the appendix is byte-identical; adoption's own line is not rewritten"
   else
     fail_ "D2" "rc=$WIZ_RC; body $([ "$body_before" = "$body_after" ] && echo unchanged || echo CHANGED); appendix $(grep -q -F -x '<!-- INTAKE_ANSWERS_BEGIN -->' "$D2/PROJECT_INTAKE.md" && echo present || echo missing)"
+  fi
+fi
+
+# A8 — `competency_matrix` reaches THIS route now. At `91b5066` it rode
+# BL-282's `competency_$key` family (any `competency_*` was accepted and
+# minted); `# BL-282-COMPETENCY-DOMAINS` (e151dc0) bounds that family to the
+# wizard's nine domains, so the adoption-recorded `competency_matrix` is now
+# accepted here, with the note (A8), and `competency_zzz`, recorded nowhere,
+# is refused with nothing written (N4). G1 guards the first half: if the
+# family ever widens again, `competency_matrix` is accepted with answers/
+# emptied and G1 says A8 has gone vacuous.
+A8="$(newtmp)/proj"
+if ! mk_adopted "$A8"; then
+  fail_ "A8 setup" "could not build the fixture"
+else
+  wiz "$A8" --set-answer competency_matrix "Backend strong, UX weak"
+  got="$(jq_answer competency_matrix "$A8")"; a_note="$(jq_amend 0 note "$A8")"
+  if [ "$WIZ_RC" -eq 0 ] && [ "$got" = "Backend strong, UX weak" ] && printf '%s' "$a_note" | grep -q 'adoption-recorded' \
+     && grep -F '[OK] competency_matrix:' "$A8/run.out" | grep -q 'adoption-recorded'; then
+    pass "A8 — competency_matrix, once BL-282's family key, is now amended through this route with note=[$a_note] (rc=$WIZ_RC)"
+  else
+    fail_ "A8" "rc=$WIZ_RC competency_matrix=[$got] note=[$a_note]: $(grep -m1 'competency_matrix' "$A8/run.out" || echo '<none>')"
+  fi
+  before_p="$(_cksum "$A8/$PROG")"
+  wiz "$A8" --set-answer competency_zzz "minted"
+  after_p="$(_cksum "$A8/$PROG")"
+  if [ "$WIZ_RC" -eq 1 ] && [ "$before_p" = "$after_p" ]; then
+    pass "N4 (control) — competency_zzz, recorded nowhere, is refused (rc=$WIZ_RC), nothing written: BL-282's family no longer mints it"
+  else
+    fail_ "N4 (control)" "rc=$WIZ_RC (want 1); progress $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED) — BL-282's competency family is minting again"
   fi
 fi
 
@@ -520,9 +550,9 @@ mutate() {
 # proof: if the block is edited, re-measure and update them deliberately.
 # The three KEY-ESCAPE markers are in render_intake_file, ABOVE the anchor,
 # so their distances are negative.
-D_ESC_PIPE=-112
-D_ESC_NL=-111
-D_ESC_TICK=-110
+D_ESC_PIPE=-130
+D_ESC_NL=-129
+D_ESC_TICK=-128
 D_ANSWERS_READ=16
 D_UNREADABLE=67
 D_IS_OBJECT=17
