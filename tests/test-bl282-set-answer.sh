@@ -495,6 +495,58 @@ PYCR
   fi
 fi
 
+echo "=== A — an abort inside run_set_answer must fail CLOSED ==="
+
+# `if run_set_answer "$@"; then` puts the function in a condition, which
+# disarms errexit for its whole body. An abort inside any command
+# substitution there is then survivable: execution walks on to `return 0`
+# and the wizard reports success. This is not shell-version-specific; it
+# reads the same under bash 3.2 and bash 5.
+# _mirror_with_abort <dir> → a wizard copy whose run_set_answer aborts on
+# its first line, before anything is written.
+_mirror_with_abort() {
+  local fw="$1" tgt
+  mkdir -p "$fw" || return 1
+  cp -Rp "$REPO_ROOT/scripts" "$fw/" || return 1
+  tgt="$fw/scripts/intake-wizard.sh"
+  awk '
+    /^run_set_answer\(\) \{$/ && !done {
+      print
+      print "  _bl282_forced_abort=\"$(printf %s \"$BL282_NO_SUCH_VAR\")\""
+      done = 1
+      next
+    }
+    { print }
+  ' "$tgt" > "$tgt.new" || return 1
+  mv "$tgt.new" "$tgt" || return 1
+  chmod +x "$tgt" 2>/dev/null
+  _syntax_ok "$tgt" || return 1
+  grep -q 'BL282_NO_SUCH_VAR' "$tgt" || return 1
+  printf '%s\n' "$tgt"
+}
+
+A1FW="$(newtmp)/fw"
+A1TGT="$(_mirror_with_abort "$A1FW")"
+if [ -z "${A1TGT:-}" ]; then
+  fail_ "A1 setup" "could not build the aborting mirror"
+else
+  A1="$(newtmp)/proj"
+  if ! mk_project "$A1" "$A1TGT"; then
+    fail_ "A1 setup" "could not build the fixture"
+  else
+    before_p="$(_cksum "$A1/.claude/intake-progress.json")"
+    wiz "$A1" --set-answer monthly_budget "$NEW_BUDGET"
+    after_p="$(_cksum "$A1/.claude/intake-progress.json")"
+    got="$(jq_answer monthly_budget "$A1")"
+    n="$(jq_amend_n "$A1")"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    if [ "$WIZ_RC" -ne 0 ] && [ "$got" = "$OLD_BUDGET" ] && [ "$n" -eq 0 ] && [ "$before_p" = "$after_p" ]; then
+      pass "A1 — an abort inside run_set_answer exits non-zero (rc=$WIZ_RC), writes nothing and appends no amendment"
+    else
+      fail_ "A1" "rc=$WIZ_RC (want non-zero); monthly_budget=[$got] (want [$OLD_BUDGET]); amendments=$n (want 0); file $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED)"
+    fi
+  fi
+fi
+
 echo "=== W — a key with a second home is written here and the other home is named ==="
 
 W1="$(newtmp)/proj"
@@ -515,7 +567,7 @@ fi
 
 echo "=== M — mutation proofs on a mirror ==="
 
-for mark in BL-282-SET-ANSWER-BEGIN BL-282-SET-ANSWER-END BL-282-KEY-REFUSE BL-282-RERENDER BL-282-HINT-COUNT BL-282-WRITE-STATUS BL-282-COMPETENCY-DOMAINS; do
+for mark in BL-282-SET-ANSWER-BEGIN BL-282-SET-ANSWER-END BL-282-KEY-REFUSE BL-282-RERENDER BL-282-HINT-COUNT BL-282-WRITE-STATUS BL-282-COMPETENCY-DOMAINS BL-282-ARM-FAILCLOSED; do
   n="$(grep -c "$mark" "$WIZARD" 2>/dev/null)"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
   [ "$n" = "1" ] \
     && pass "M0 — '$mark' occurs exactly once in intake-wizard.sh" \
@@ -683,6 +735,39 @@ else
         pass "MP5 (MUTATION) — with the family widened again competency_zzz is MINTED (rc=$rc_bad) while a real domain key still works: N3 is what stops it"
       else
         fail_ "MP5 (MUTATION)" "invented-key rc=$rc_bad written=[$got_bad]; real-key rc=$rc_ok — widening the family changed nothing N3 can see"
+      fi
+    fi
+  fi
+fi
+
+# MP6 — restore the old arm: the call goes back inside an `if`, which disarms
+# errexit for the whole function body. The same forced abort then walks on to
+# `return 0` and the wizard reports success. A1 is what stops it.
+MP6="$(newtmp)/fw"
+MP6TGT="$(_mirror_with_abort "$MP6")"
+if [ -z "${MP6TGT:-}" ]; then
+  fail_ "MP6 setup" "could not build the aborting mirror"
+else
+  before6="$(mktemp)"; cp "$MP6TGT" "$before6"
+  a_ln="$(grep -n 'BL-282-ARM-FAILCLOSED' "$before6" | head -1 | cut -d: -f1)"
+  sed -e 's/^\([[:space:]]*\)run_set_answer "\$@".*# BL-282-ARM-FAILCLOSED.*$/\1if run_set_answer "$@"; then exit 0; fi  # BL-282-ARM-FAILCLOSED/' "$before6" > "$MP6TGT"
+  h_ln6="$(_hunk_line "$before6" "$MP6TGT")"
+  if [ -z "$a_ln" ] || ! _syntax_ok "$MP6TGT" \
+     || [ "$(_changed_lines "$before6" "$MP6TGT")" -ne 2 ] || [ "$h_ln6" != "$a_ln" ] \
+     || ! sed -n "${a_ln}p" "$MP6TGT" | grep -q 'if run_set_answer'; then
+    fail_ "MP6 setup" "the arm mutation did not land on the marker line (marker=$a_ln hunk=$h_ln6 changed=$(_changed_lines "$before6" "$MP6TGT"))"
+  else
+    PDM6="$(newtmp)/proj"
+    if ! mk_project "$PDM6" "$MP6TGT"; then
+      fail_ "MP6 setup" "could not build the mutant's fixture"
+    else
+      wiz "$PDM6" --set-answer monthly_budget "$NEW_BUDGET"
+      got6="$(jq_answer monthly_budget "$PDM6")"
+      n6="$(jq_amend_n "$PDM6")"; case "$n6" in ''|*[!0-9]*) n6=0 ;; esac
+      if [ "$WIZ_RC" -eq 0 ] && [ "$got6" = "$NEW_BUDGET" ] && [ "$n6" -eq 1 ]; then
+        pass "MP6 (MUTATION) — with the call back inside a condition the same abort is survived: rc=$WIZ_RC, answer written, amendment appended. A1 is what stops it"
+      else
+        fail_ "MP6 (MUTATION)" "rc=$WIZ_RC answer=[$got6] amendments=$n6 — restoring the old arm changed nothing A1 can see"
       fi
     fi
   fi

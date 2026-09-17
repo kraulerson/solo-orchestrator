@@ -2364,8 +2364,8 @@ main() {
       # BL-282-SET-ANSWER-ARM: needs only PROGRESS_FILE, never reaches a
       # prompt, so it runs before the tier-crosscheck-6 scan and the TTY check.
       shift
-      if run_set_answer "$@"; then exit 0; fi
-      exit 1
+      run_set_answer "$@"  # BL-282-ARM-FAILCLOSED: never `if run_set_answer` — a condition disarms errexit inside it
+      exit 0
       ;;
     --data-classification|--zdr-attested|--zdr-attestation-reason|--data-classification=*|--zdr-attestation-reason=*)
       # tier-crosscheck-6 non-interactive write path. Parsed below
