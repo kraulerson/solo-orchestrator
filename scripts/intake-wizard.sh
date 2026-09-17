@@ -617,7 +617,7 @@ with open(sys.argv[2]) as f:
     data = json.load(f)
 print(json.dumps(data.get("answers", {}).get(sys.argv[1])))
 ' "$key" "$PROGRESS_FILE")" || { print_fail "could not read $PROGRESS_FILE."; return 1; }
-  save_answer "$key" "$value"
+  save_answer "$key" "$value" || { print_fail "could not write '$key' to $PROGRESS_FILE — nothing recorded."; return 1; }  # BL-282-WRITE-STATUS
   python3 -c '
 import json, sys
 from datetime import datetime, timezone

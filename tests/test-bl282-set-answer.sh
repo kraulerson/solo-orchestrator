@@ -292,6 +292,88 @@ else
   fi
 fi
 
+echo "=== S — a failed write is a refusal, never an [OK] ==="
+
+# mk_project_noanswers <dir> — the fixture from the field: a progress file
+# with NO `answers` object at all. The old-value read defaults it to {} and
+# succeeds, so only save_answer's own status can catch this.
+mk_project_noanswers() {
+  local d="$1"
+  mk_project "$d" || return 1
+  python3 - "$d/.claude/intake-progress.json" <<'PYNA' || return 1
+import io, json, sys
+p = sys.argv[1]
+d = json.load(io.open(p, encoding="utf-8"))
+d.pop("answers", None)
+io.open(p, "w", encoding="utf-8").write(json.dumps(d, indent=2))
+PYNA
+  return 0
+}
+
+# S1 — answers absent: refuse, write nothing, record nothing, say so.
+S1="$(newtmp)/proj"
+if ! mk_project_noanswers "$S1"; then
+  fail_ "S1 setup" "could not build the no-answers fixture"
+else
+  before_p="$(_cksum "$S1/.claude/intake-progress.json")"
+  wiz "$S1" --set-answer monthly_budget "$NEW_BUDGET"
+  after_p="$(_cksum "$S1/.claude/intake-progress.json")"
+  n="$(jq_amend_n "$S1")"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  ok_n="$(grep -c '\[OK\]' "$S1/run.out")"; case "$ok_n" in ''|*[!0-9]*) ok_n=0 ;; esac
+  if [ "$WIZ_RC" -ne 0 ] && [ "$n" -eq 0 ] && [ "$before_p" = "$after_p" ] && [ "$ok_n" -eq 0 ] \
+     && grep -q -i 'could not write' "$S1/run.out"; then
+    pass "S1 — with no answers object the write fails, so --set-answer refuses (rc=$WIZ_RC), appends nothing and leaves the file byte-identical"
+  else
+    fail_ "S1" "rc=$WIZ_RC (want non-zero); amendments=$n (want 0); file $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED); [OK] lines=$ok_n (want 0); refusal $(grep -q -i 'could not write' "$S1/run.out" && echo present || echo missing)"
+  fi
+fi
+
+# S2 — answers present but not an object: same refusal, nothing written.
+S2="$(newtmp)/proj"
+if ! mk_project "$S2"; then
+  fail_ "S2 setup" "could not build the fixture"
+else
+  python3 - "$S2/.claude/intake-progress.json" <<'PYNO' || true
+import io, json, sys
+p = sys.argv[1]
+d = json.load(io.open(p, encoding="utf-8"))
+d["answers"] = None
+io.open(p, "w", encoding="utf-8").write(json.dumps(d, indent=2))
+PYNO
+  before_p="$(_cksum "$S2/.claude/intake-progress.json")"
+  wiz "$S2" --set-answer monthly_budget "$NEW_BUDGET"
+  after_p="$(_cksum "$S2/.claude/intake-progress.json")"
+  n="$(jq_amend_n "$S2")"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  ok_n="$(grep -c '\[OK\]' "$S2/run.out")"; case "$ok_n" in ''|*[!0-9]*) ok_n=0 ;; esac
+  if [ "$WIZ_RC" -ne 0 ] && [ "$n" -eq 0 ] && [ "$before_p" = "$after_p" ] && [ "$ok_n" -eq 0 ]; then
+    pass "S2 — a non-object answers is refused (rc=$WIZ_RC), nothing appended, file byte-identical"
+  else
+    fail_ "S2" "rc=$WIZ_RC (want non-zero); amendments=$n (want 0); file $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED); [OK] lines=$ok_n (want 0)"
+  fi
+fi
+
+# S3 — the write fails for a reason that is not the JSON's shape: a
+# read-only progress file. Nothing about `answers` is wrong here, so only
+# save_answer's status distinguishes success from failure.
+S3="$(newtmp)/proj"
+if ! mk_project "$S3"; then
+  fail_ "S3 setup" "could not build the fixture"
+elif [ "$(id -u)" = "0" ]; then
+  echo "  [SKIP] S3 — running as root, a read-only file would still be writable"
+else
+  chmod 0444 "$S3/.claude/intake-progress.json"
+  before_p="$(_cksum "$S3/.claude/intake-progress.json")"
+  wiz "$S3" --set-answer monthly_budget "$NEW_BUDGET"
+  chmod 0644 "$S3/.claude/intake-progress.json" 2>/dev/null
+  after_p="$(_cksum "$S3/.claude/intake-progress.json")"
+  ok_n="$(grep -c '\[OK\]' "$S3/run.out")"; case "$ok_n" in ''|*[!0-9]*) ok_n=0 ;; esac
+  if [ "$WIZ_RC" -ne 0 ] && [ "$before_p" = "$after_p" ] && [ "$ok_n" -eq 0 ]; then
+    pass "S3 — an unwritable progress file is refused (rc=$WIZ_RC), the file is byte-identical and no [OK] is printed"
+  else
+    fail_ "S3" "rc=$WIZ_RC (want non-zero); file $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED); [OK] lines=$ok_n (want 0)"
+  fi
+fi
+
 echo "=== W — a key with a second home is written here and the other home is named ==="
 
 W1="$(newtmp)/proj"
@@ -312,7 +394,7 @@ fi
 
 echo "=== M — mutation proofs on a mirror ==="
 
-for mark in BL-282-SET-ANSWER-BEGIN BL-282-SET-ANSWER-END BL-282-KEY-REFUSE BL-282-RERENDER BL-282-HINT-COUNT; do
+for mark in BL-282-SET-ANSWER-BEGIN BL-282-SET-ANSWER-END BL-282-KEY-REFUSE BL-282-RERENDER BL-282-HINT-COUNT BL-282-WRITE-STATUS; do
   n="$(grep -c "$mark" "$WIZARD" 2>/dev/null)"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
   [ "$n" = "1" ] \
     && pass "M0 — '$mark' occurs exactly once in intake-wizard.sh" \
@@ -416,6 +498,38 @@ else
         pass "MP3 (MUTATION) — narrowed to head -1 the hint names $n_bad key while the refusal still refuses (rc=$WIZ_RC): K3 is what stops it"
       else
         fail_ "MP3 (MUTATION)" "rc=$WIZ_RC hint names $n_bad key(s) — narrowing the hint changed nothing K3 can see"
+      fi
+    fi
+  fi
+fi
+
+# MP4 — discard the write's status again: the guard becomes `|| true`. The
+# no-answers fixture then reports success while writing no answer, which is
+# the defect as it was found in the field. S1 is what stops it.
+MP4="$(newtmp)/fw"
+if ! mkdir -p "$MP4" || ! cp -Rp "$REPO_ROOT/scripts" "$MP4/"; then
+  fail_ "MP4 setup" "could not mirror scripts/"
+else
+  tgt4="$MP4/scripts/intake-wizard.sh"; before4="$(mktemp)"; cp "$tgt4" "$before4"
+  w_ln="$(grep -n 'BL-282-WRITE-STATUS' "$before4" | head -1 | cut -d: -f1)"
+  sed -e 's/^\(.*save_answer "\$key" "\$value" \)|| {.*}\( *# BL-282-WRITE-STATUS\)$/\1|| true\2/' "$before4" > "$tgt4"
+  h_ln4="$(_hunk_line "$before4" "$tgt4")"
+  if [ -z "$w_ln" ] || ! _syntax_ok "$tgt4" \
+     || [ "$(_changed_lines "$before4" "$tgt4")" -ne 2 ] || [ "$h_ln4" != "$w_ln" ] \
+     || ! sed -n "${w_ln}p" "$tgt4" | grep -q '|| true'; then
+    fail_ "MP4 setup" "the write-status mutation did not land on the marker line (marker=$w_ln hunk=$h_ln4 changed=$(_changed_lines "$before4" "$tgt4"))"
+  else
+    PDM4="$(newtmp)/proj"
+    if ! mk_project_noanswers "$PDM4" || ! cp "$tgt4" "$PDM4/scripts/intake-wizard.sh"; then
+      fail_ "MP4 setup" "could not build the mutant's no-answers fixture"
+    else
+      wiz "$PDM4" --set-answer monthly_budget "$NEW_BUDGET"
+      got_ans="$(jq_answer monthly_budget "$PDM4")"
+      ok_n="$(grep -c '\[OK\]' "$PDM4/run.out")"; case "$ok_n" in ''|*[!0-9]*) ok_n=0 ;; esac
+      if [ "$WIZ_RC" -eq 0 ] && [ "$ok_n" -ge 1 ] && [ "$got_ans" = "<<unset>>" ]; then
+        pass "MP4 (MUTATION) — with the write's status discarded the wizard reports [OK] and exits 0 while no answer was written: S1 is what stops it"
+      else
+        fail_ "MP4 (MUTATION)" "rc=$WIZ_RC ok_lines=$ok_n answer=[$got_ans] — discarding the status changed nothing S1 can see"
       fi
     fi
   fi
