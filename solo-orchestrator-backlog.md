@@ -20592,6 +20592,9 @@ direction holds; the promise "the scanner is guaranteed" does not: it guarantees
 usable version. CI is unaffected — `.github/workflows/tests.yml` pins `GITLEAKS_VERSION: "8.30.1"`
 with a checksum — so nothing red points at this; it is a host-side gap on the adoption path.
 
+**DECIDED 2026-09-18 (Karl): raise the floor, and enforce it.** Both halves below are approved as
+written; neither is built. The entry stays Open until they are.
+
 **Fix shape (two halves, either alone is not enough).**
 1. Raise the matrix floor to the lowest version that has the subcommands the framework actually
    runs — ≥ 8.19.0 — and say WHY in the entry, so the next subcommand change re-derives it rather
@@ -20776,10 +20779,25 @@ pessimistic "had already ATTEMPTED writes" sentence over a provably clean tree (
 
 ## BL-296: the Development Guardrails (CDF) install is an `init.sh` effect adoption never performs — and greenfield registers the Solo hook roster only inside the CDF-success branch
 
-**Status:** Open — GAP, and a question for Karl (ADOPT-002-ARCH v2.2 §8.7a row 33, §12 item 29):
-should an adoptee receive the CDF install at all — a network clone into `$HOME`, non-fatal in
-`init.sh` when it fails — and, separately, should the Solo hook roster be registered independently of
-it? WP9c ships the roster from a shared table either way; the CDF half is not designed.
+**Status:** Open — **DECIDED 2026-09-18 (Karl): YES, an adoptee receives the Development Guardrails
+install, on the same terms a scaffolded project does.** The question this entry was filed to ask is
+answered; the DESIGN is not written and the code is not built, so the entry stays Open for both.
+
+**What the ruling settles, and what it leaves to the design.** Settled: an adopted project is not a
+second class of project — it gets what `init.sh` gives a scaffolded one. Left open, and WP9c's to
+answer: that install is a NETWORK CLONE into `$HOME`, which adoption has never done and which every
+other thing adoption writes is not (`# BL-225-PREWRITE-CALL`'s rehearsal covers the adoptee's tree,
+not the operator's home directory). So the design must say what happens when the clone fails —
+`init.sh` treats it as non-fatal and carries on — whether a refusal is possible at all for something
+outside the repository being adopted, and whether the rehearsal has anything to say about it.
+**The second half of this entry is NOT ruled — Karl was asked only whether an adoptee receives the
+install, and answered that.** The design's own answer to the roster question stands as
+AUTHOR-PROPOSED and open to attack, where it has been since 2026-09-17: §10-WP9c registers the Solo
+hook roster UNCONDITIONALLY, because a roster that registers only inside `if [ "$framework_valid" =
+true ]` is a gate a network failure switches off — the class `## BL-147:` names. *(The first draft of
+this block called that "ruled with it". It was not asked, and §8.3c's ruled column is defined as
+what may NOT be attacked, so crediting it there would have removed a live design position from
+review to buy nothing — the independent review caught it.)*
 
 **Found:** 2026-09-17 by reading `init.sh`'s nesting (ADOPT-002-ARCH v2.2 §13-V38); the CDF install
 was NOT executed there.
