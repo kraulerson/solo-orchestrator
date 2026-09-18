@@ -20620,7 +20620,11 @@ a `--root` that is not `git rev-parse --show-toplevel` (`# BL-242-PLACEMENT-TOPL
 is a FILE — linked worktree or submodule (`# BL-242-PLACEMENT-GITDIR`), a configured `core.hooksPath`
 (`# BL-242-PLACEMENT-HOOKSPATH`), a hooks path that is a symlink or a regular file
 (`# BL-242-PLACEMENT-HOOKS-SHAPE`), and a hooks directory that is not writable
-(`# BL-242-PLACEMENT-HOOKS-WRITABLE`) — each naming the condition and printing its remedy. The hooks
+(`# BL-242-PLACEMENT-HOOKS-WRITABLE`) — each naming the condition, and **four of the five printing a
+remedy**: the not-writable arm prints only the consequence (*"the gate is installed after the adoption
+commit, so this would otherwise have stopped the run with the commit already landed"*), which is an
+explanation, not an action. Narrowed from *"each … printing its remedy"* on 2026-09-18 by the pre-PR
+review, which executed all five. That arm also leaks a false line — see `## BL-304:`. The hooks
 directory is resolved ONCE through git and shared with `adopt_archive_inventory`, so the enumerator and
 the writer can no longer disagree. The *"message gates are live"* sentence is now DERIVED: printed only
 when the gate is present, executable and carrying its marker. Cases in
@@ -20675,7 +20679,17 @@ discriminates the adoption window (working-copy witness true, committed witness 
 adoption and names the route out instead of advising `scripts/resume.sh`; `--finish`
 (`# BL-242-FINISH`) re-stages and re-commits from the persisted written-paths ledger
 (`# BL-242-WRITE-SET`) without re-writing a byte, and refuses when there is nothing part-way through
-to complete. Cases in `tests/test-brownfield-wp9d-window-rehearsal.sh`. **Owner's note on the
+to complete. Cases in `tests/test-brownfield-wp9d-window-rehearsal.sh`.
+
+**One clause of this entry did NOT ship, and the entry is Closed anyway — deliberately, recorded here
+rather than dropped.** The Open text required that *"run adoption again" is only ever advised from a
+refusal that precedes the stamp*. Four of the five shipped advisories are pre-stamp; the fifth, in
+`adopt_stage_and_commit`'s ignored-paths arm, is POST-stamp — `_adopt_write_phase` runs at
+`# BL-225-WRITE-PHASE-REAL` and `adopt_stage_and_commit` is called after it, so a project reaching that
+arm is already stamped and "run adoption again" is the pointer `# BL-242-PREFLIGHT-ARM1` refuses.
+Reachability is narrow (the pre-write rehearsal normally catches an ignored path first) and it is the
+same shape as `## BL-242:`'s standing `# BL-242-RESOLVER-NO-EXEC` residual, which WP10b owns. Found
+2026-09-18 by the pre-PR review of this closure. **Owner's note on the
 fixtures:** two of this item's first mutations survived because the fixture passed for an unstated
 reason — refusing `--finish` on a landed adoption was satisfied by git refusing an EMPTY commit, and
 the missing-write-set guard by `git add` failing on an empty pathspec. Both now assert the reason.
@@ -20753,7 +20767,12 @@ value rather than treating it as absent (`# BL-242-REHEARSAL-BOUND`); REDUCED �
 object store through `.git/objects/info/alternates` instead of copying it
 (`# BL-242-REHEARSAL-SHARED`), which on this repository is 27 MB against 57 MB with git fully working
 in the copy; STATED — the transcript prints `copied the project in Ns over M MB for the rehearsal
-(objects shared, not copied)`. `# BL-242-REHEARSAL-KEEP` is the sibling. Cases in
+(objects shared, not copied)`. **That wording deliberately replaces the design's** — §10-WP9d, and
+§8.2a, specify *`rehearsal ran in N s over M MB`*, and the code's own comment says why it does not use
+it: the message times the COPY, and claiming the rehearsal ran before it has is *"a receipt for work
+not yet done, one level down from the receipt this package is about."* The substitution is right and
+was simply unrecorded; noted 2026-09-18 by the pre-PR review so a later design-vs-code diff finds the
+reason rather than a mismatch. `# BL-242-REHEARSAL-KEEP` is the sibling. Cases in
 `tests/test-brownfield-wp9d-window-rehearsal.sh`. **Owner's note:** the *"no pack of its own"*
 assertion was vacuous on its first fixture, whose objects were all LOOSE; it now asserts the reason.
 
@@ -20779,8 +20798,12 @@ flag; the fidelity argument stands, the cost was simply absent.
 (`# BL-242-BLOCK-LABEL`) is the second primitive: a caller that KNOWS a check ran forces the `[BLOCKED]`
 label rather than letting it be derived from what is on disk, and the disk-state derivation is
 unchanged and still appended as its own sentence — what the operator must do next does depend on it.
-Seventeen call sites in `scripts/lib/adopt/adopt-state.sh` are the checks that ran; `adopt_refuse`
-keeps every site where the tool declined to start. WP10b's secrets stop is the next caller.
+Seventeen call sites in `scripts/lib/adopt/adopt-state.sh`; `adopt_refuse` keeps every site where the
+tool declined to start. **They are not all "checks" in the standard's sense** — nine are I/O failures
+(`mkdir` on the hooks directory, the two `commit-msg` writes, the write-set writes, the staging call).
+The `[BLOCKED]` label is right for every one of them, because writes had already landed and the disk
+derivation agrees; what `adopt_block` buys over the derivation is the sites where a check ran and
+NOTHING was written. Corrected from *"are the checks that ran"* on 2026-09-18 by the pre-PR review. WP10b's secrets stop is the next caller.
 
 **Found:** 2026-09-17 (ADOPT-002-ARCH v2.2 §13-V42); predicted by the architect review (A10).
 
@@ -20836,3 +20859,54 @@ and are WP9c's since v2.2; row 33 (this) stays UNOWNED.
 
 **Related:** `## BL-242:` (§8.7a), `## BL-284:` (`verify-install.sh`'s CDF-adjacent fixers),
 `## BL-277:` (the roster's PostToolUse arm — WP9c ships it only after that entry closes).
+
+---
+
+## BL-304: the not-writable hooks arm prints `[FAIL] Cannot create project directory` over an unwritable HOOKS directory — `2>/dev/null` does not suppress it, because `print_fail` writes to stdout
+
+**Status:** Open — a messaging defect in the package whose subject is false receipts. Nothing is
+mis-written, no gate is weakened and the refusal itself is correct; the operator is told the wrong
+thing about the wrong directory, immediately before being told the right thing.
+
+**Found:** 2026-09-18 by the pre-PR adversarial review of the `## BL-290:`/`## BL-291:`/`## BL-294:`/
+`## BL-295:` closure, while trying to refute the claim that all five step-0 refusals name their
+condition cleanly. Re-measured by the closure's author before filing.
+
+**Measured on `735f242`.** `# BL-242-PLACEMENT-HOOKS-WRITABLE` calls
+`preflight_target_writable "$hooks" 2>/dev/null`, and its call-site comment states the suppression as
+fact: *"Its message names init.sh, so only its exit status is used and adoption prints its own."* It
+does not. `scripts/lib/helpers-core.sh`:
+
+```
+print_fail() { echo -e "${RED}[FAIL]${NC} $1"; log_line "[FAIL] $1"; }
+```
+
+`echo` with no redirection writes to **stdout**, so `2>/dev/null` silences the helper's `>&2` detail
+lines and lets the headline through. Executed against a `chmod 555` directory as a non-root user:
+
+```
+$ preflight_target_writable "$d/h" 2>/dev/null
+[FAIL] Cannot create project directory: write permission denied.
+rc=1
+```
+
+so the operator's transcript opens with a line naming the PROJECT directory over a refusal whose
+subject is the HOOKS directory, and only then prints the true
+`[REFUSED] this repository's hooks directory is not writable: …`.
+
+**Why no case catches it.** `refused_at_step0` in `tests/test-brownfield-wp9d-driver-edges.sh` asserts
+PRESENCE only — `grep -qiE "$want"`, with `want="writ"` for the W2 case — plus rc, no question asked,
+nothing written, no commit and no live sentence. It has no assertion that a CONTRADICTORY line is
+absent, so the suite is 21/0 with the false line printing. That is the vacuity shape
+`## BL-233:`'s learning (4) names: an assertion true of the defect as well as the fix.
+
+**Fix shape (not built).** `preflight_target_writable "$hooks" >/dev/null 2>&1` at the call site, and
+delete or correct the comment that asserts the suppression works. The design already anticipated the
+other half — §10-WP9d item (6) says of this helper *"Its failure text names project directory and
+needs parameterising for a hooks directory; that is the only work here"* — so the alternative is to
+parameterise `preflight_target_writable`'s noun rather than silence it, which serves `init.sh` too.
+Either way the case must assert the ABSENCE of `Cannot create project directory`, not just the
+presence of the refusal.
+
+**Related:** `## BL-290:` (the arm; its Closed text now points here), `## BL-242:` (the driver),
+`## BL-233:` (the vacuous-assertion class), `docs/messaging-standard.md`.

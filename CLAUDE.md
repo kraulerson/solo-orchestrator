@@ -123,7 +123,9 @@ here.
   shell EXITS at the read: side effects from before it persist, every line after
   it — including the message the function existed to print — never happens, and
   the script leaves **rc 1**, which is indistinguishable from a `return 1` the
-  code meant. That is PR #432's `slow-misc` red: `adopt-state.sh`'s symlink arm
+  code meant. (**rc 127 under `bash -c`** — measured, on 4.0 and 5.2 and 5.3 —
+  which is why the recipe below feeds the script on stdin; reproduce with
+  `bash -c` and you will get a number the rest of this bullet does not predict.) That is PR #432's `slow-misc` red: `adopt-state.sh`'s symlink arm
   refused correctly, wrote nothing, and printed no `[REFUSED]` line at all.
   `bash -n` is clean and every macOS suite is green.
 
