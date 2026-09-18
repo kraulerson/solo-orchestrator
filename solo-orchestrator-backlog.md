@@ -20537,12 +20537,15 @@ judgement explicitly undecided).
 `git rev-parse HEAD` (`_cpg_record_single_authority_attestation`, `# BL-274-ATTEST-WRITE`), refused
 if it cannot be recorded, and printing every time it fires that `docs/governance-framework.md` §XIV
 item 5 is a BLOCKING pre-condition that REMAINS UNMET. Suite
-`tests/test-bl274-single-authority-attestation.sh` **31 / 0** on bash 3.2.57 (macOS) and 5.3.15
-(Homebrew), against RED **6 / 25** at `4d9c172` (11 of the 25 are `[SETUP]`: mutants that found no
-marker to anchor on); ten mutants, each located by distance from a `# BL-274-*` marker with the
-literal on that line asserted before and after. What stays open is the taxonomy text itself: §XIV
-item 5 and §X still say "mandatory", and whether the governance document should name this route is
-the maintainer's, not this entry's.
+`tests/test-bl274-single-authority-attestation.sh` **37 / 0** on bash 3.2.57 (macOS), 5.3.15
+(Homebrew) and 5.2.21 in `ubuntu:24.04` as a non-root user, against RED **6 / 31** at `4d9c172` (15
+of the 31 are `[SETUP]`: mutants that found no marker to anchor on); fourteen mutants, each located by
+distance from a `# BL-274-*` marker with the literal on that line asserted before and after. The
+pre-merge adversarial review (`major_concerns`, twelve mutants of its own) found two survivors and
+seven minors; the second cut closes all of them and every one of its twelve is now killed. What
+stays open is the taxonomy text itself: §XIV item 5 and §X still say "mandatory", and whether the
+governance document should name this route is the maintainer's, not this entry's — which is why the
+status is Open with the mechanism shipped, the shape `## BL-275:` uses for its shipped half.
 
 **The decision, verbatim (issue #404, 2026-09-17):** *"the taxonomy is not intended as an absolute. A
 single-technical-authority company may run at the `organizational` tier with the recorded attestation
@@ -20564,7 +20567,9 @@ that shipped the mechanism, as #404 asked.
 liability entity, insurance, ITSM and an audit trail, and exactly ONE technical authority — the same
 individual is both Senior Technical Authority and Orchestrator. The arm has run there, on top of this
 script, since 2026-09-13 (re-applied 2026-09-16 over `579b0b0`, the last commit to touch this script
-on `main`), so the hunks here are the hunks in use.
+on `main`). The hunks here are the hunks in use plus the recorder hardening the pre-merge review
+asked for (a read-only state file refused, the empty file created inside the lock, one return code
+for every failure); the arm, the output and the call sites are unchanged.
 
 **The symptom that started it.** The organizational self-approval control in `validate_approval_fields`
 fails when the Approver cell matches the blame author of that row. For a single-authority company the
@@ -20577,8 +20582,8 @@ technologist in order to be organizational at all. §XIV, the six blocking pre-c
 > **Backup maintainer designated:** Second technologist with repository and hosting access per Section X.
 
 Listed as blocking, required before Phase 0. §X repeats it as a per-project mandate — *"Every project
-must have a designated backup maintainer — a second technologist who has full repository and hosting
-access"* — and §X's Insider Threat section names what the gate implements as one of three structural
+must have a designated backup maintainer — a second technologist who:"* followed by the first bullet,
+*"Has full repository and hosting access"* — and §X's Insider Threat section names what the gate implements as one of three structural
 guarantees: *"role-based approval gate separation through independent phase gate approvers,
 append-only audit evidence, and anti-self-approval controls."* So a single-authority organizational
 project does not have an unmet gate. **It has an unmet blocking pre-condition, and the red gate is the
@@ -20587,14 +20592,19 @@ red; nothing told the operator that the red gate was pre-condition 5 surfacing.
 
 **THE MECHANISM.** Consulted INSIDE the organizational self-approval arm, so it can never fire on a
 project that had nothing to excuse (A12). Recorded to
-`.claude/process-state.json::attestations.single_authority[<gate>]` with reason, date, actor and the
-gate key, pinned to `git rev-parse HEAD`; refused if the reason is blank or absent, if the gate has no
-canonical key to pin against, or if the record cannot be written. Every property has a precedent in
-this repository, and none of it is invented:
+`.claude/process-state.json::attestations.single_authority[<gate>]` with the SANITISED reason, date,
+actor and the gate key, pinned to `git rev-parse HEAD`; refused if the reason is blank or absent, if
+the gate has no canonical key to pin against, or if the record cannot be written (no `jq` on PATH, a
+read-only state file, an unwritable path, a lock timeout, a `jq` error). **The record is an audit
+trail and the idempotence key, and nothing reads the pin back to decide the gate's outcome**: the
+attestation must be supplied on every invocation, and a run without it refuses exactly as before.
+That is deliberately narrower than the accumulation sibling, which reads its own pin back; a
+governance exception is re-stated each time, on purpose. Every property has a precedent in this
+repository, and none of it is invented:
 
 | property | precedent |
 |---|---|
-| gate-keyed, HEAD-pinned, HEAD-sensitive idempotence | `_cpg_record_accum_attestation` in the same script |
+| gate-keyed, HEAD-pinned, HEAD-sensitive idempotence (the pin as audit field and key, not read back) | `_cpg_record_accum_attestation` in the same script, minus its read-back |
 | mandatory reason, refused when blank | `scripts/check-pr-review.sh` — *"An attestation without a justification is the gate switched off with extra steps."* |
 | refuse if it cannot be recorded | `check-pr-review.sh`'s unrecordable arm; `_cpg_check_accumulation`'s refusal in the same script (`# BL-233-WPB-ATTEST-REFUSE`) |
 | `printf '%s'`, never `echo -e`, for an operator reason | `_cpg_check_accumulation`'s `ATTESTED (reason: …)` display line — an interpreted reason can forge `[OK]` lines into the gate transcript |
@@ -20640,12 +20650,14 @@ deleted.
 | unattested, the refusal is untouched | A1 | — |
 | attested, the refusal is replaced by an `[ATTESTED]` block | A2 | — |
 | one line names §XIV item 5, BLOCKING pre-condition, REMAINS UNMET; "second technologist" in words; cites this entry | A3 | — |
-| the label line says NOT applied; the whole block never says verified / satisfied / passed / complete | A4 | — |
+| the label line says NOT applied; the whole block (plus the line after it) never says verified / satisfied / passed / complete, carries no `[OK]`- or `[PASS]`-led line, and no such line about the attestation appears anywhere in the transcript | A4 | — |
 | a whitespace-only reason: `[BLOCKED]` naming the missing reason, exit non-zero, nothing recorded | A5 | — |
 | the reason variable absent: same three assertions | A17 | — |
-| recorded under the gate's key with reason, date, actor, gate; `head` equals `git rev-parse HEAD` | A6+A7 | — |
+| recorded under the gate's key with the SANITISED reason (a tab and a `\n` supplied, stripped in the record), date, actor, gate; `head` equals `git rev-parse HEAD` | A6+A7 | — |
 | same reason at a new HEAD: the pin is refreshed | A8 | — |
-| the record cannot be written: `COULD NOT BE RECORDED`, exit non-zero, no `[ATTESTED]` | A9 | — |
+| the record cannot be written (a directory at the path): `COULD NOT BE RECORDED`, exit non-zero, no `[ATTESTED]` | A9 | — |
+| `jq` absent from PATH (a PATH mirroring the real one minus `jq`): same three assertions, on a project that exits 0 under that PATH with an independent approver | A22 | its own PREMISE |
+| a read-only (0444) state file: same three assertions, and the file's bytes untouched | A23 | — |
 | a reason containing `\n  [OK] …` cannot forge an `[OK]`-led line | A10 | — |
 | the payload `\n[OK] fake` leaves the count of `[OK]`-led lines unchanged | **A15** | — |
 | both transcript defences present in source (structural: they mask each other behaviourally) | A16 | — |
@@ -20659,14 +20671,16 @@ deleted.
 **Mutants, each on a mirror, each located by distance from a marker.** The line at
 marker+offset must hold the expected literal before the mutation and the landed literal after; every
 other line must be byte-identical; the mirror must parse. Anything else is `[SETUP]` — counted as a
-failure, never as a kill — which is why an unchanged tree scores 11 `[SETUP]`, not 11 kills. Each
+failure, never as a kill — which is why an unchanged tree scores 15 `[SETUP]`, not 15 kills. Each
 mutant also names a case that must stay green on it, so the mutant is the narrow one its name claims.
+MT11 to MT14 are the pre-merge review's survivors and near-misses (its RV1, RV8, RV11, RV4), kept
+as permanent pins.
 
 | mutant | site (marker + offset) | mutation | killed by | survives |
 |---|---|---|---|---|
 | MT1 | `# BL-274-SINGLE-AUTHORITY` +8 and +37 | ingest sanitiser removed AND display `printf '%s'` → `echo -e` (the pair, because either alone still renders the reason inert) | A10 | A3 |
 | MT2 | `# BL-274-SINGLE-AUTHORITY` +40 | `XIV item 5` elided | A3 | A13 |
-| MT3 | `# BL-274-ATTEST-WRITE` −28 | idempotence made reason-only | A8 | A6+A7 |
+| MT3 | `# BL-274-ATTEST-WRITE` −32 | idempotence made reason-only | A8 | A6+A7 |
 | MT4 | `# BL-274-ATTEST-REFUSE` −2 | the attested arm counts the gate as blocked anyway (the block is lifted in the transcript, the exit code says otherwise) | A13 | A3 |
 | MT5 | `# BL-274-ATTEST-REFUSE` +0 | a refused attestation no longer increments `issues` (the refusal still prints) | A5 | A14 |
 | MT6 | `# BL-274-SINGLE-AUTHORITY` +28 | an unrecordable attestation accepted (`|| true` on the recorder) | A9 | A13 |
@@ -20674,15 +20688,22 @@ mutant also names a case that must stay green on it, so the mutant is the narrow
 | MT8 | `# BL-274-SINGLE-AUTHORITY` +39 | `verified` introduced on the block's second line | A4 | A3 |
 | MT9 | `# BL-274-SINGLE-AUTHORITY` +0 | the guard widened from exactly `1` to any non-empty value | A21 | A13 |
 | MT10 | `# BL-274-SINGLE-AUTHORITY` +16 | the blank-reason guard removed | A17 | A13 |
+| MT11 | `# BL-274-SINGLE-AUTHORITY` +41, insertion | an `[OK] <label>: single-authority attestation recorded` line of the code's own appended to the block (the review's RV1: the block stays word-perfect and gains a receipt) | A4 | A3 |
+| MT12 | `# BL-274-ATTEST-WRITE` −59 | the recorder returns 0 instead of 2 when `jq` is absent (RV8: success reported, nothing written) | A22 | A13 |
+| MT13 | `# BL-274-SINGLE-AUTHORITY` +28 | the raw environment variable recorded instead of the sanitised reason (RV11) | A6+A7 | A13 |
+| MT14 | `# BL-274-ATTEST-WRITE` −53 | the read-only guard on the state file removed (RV4) | A23 | A13 |
 
 MT4 and MT5 are the two that only an exit-code assertion can see: on both, every honesty case keeps
 passing and the transcript reads correctly. That is why "no self-approval FAIL in the output" was never
 sufficient evidence that the gate goes green, and why A5, A9, A17, A20 and A21 assert the exit code
 and not the label.
 
-**What is measured.** RED **6 / 25** at `4d9c172` on both shells: the six that pass are the controls
-(A1, A11, A12, PREMISE, A14, A21), and every mutant reports `[SETUP]` because no `# BL-274-*` marker
-exists there. GREEN **31 / 0** after, on both shells. Neighbouring suites on the same function at the
+**What is measured.** RED **6 / 31** at `4d9c172` on all three shells: the six that pass are the
+controls (A1, A11, A12, PREMISE, A14, A21), and every mutant reports `[SETUP]` because no `# BL-274-*`
+marker exists there. GREEN **37 / 0** after, on all three. The first cut scored 31 / 0 and the
+pre-merge review's RV1 (a receipt line appended to the block) and RV8 (`jq` absent, success reported)
+survived it; A4's label check, A22, A23, the sanitised-reason assertion in A6+A7 and MT11 to MT14
+were written red against the review's own mirrors before the recorder was touched. Neighbouring suites on the same function at the
 tip: `test-check-phase-gate-self-approval.sh` 5 / 0, `test-bl143-pastcap-selfapproval.sh` 5 / 0,
 `test-bl144-selfapproval-silent-arms.sh` 12 / 0, `test-bl275-selfapproval-remedy.sh` 9 / 0,
 `test-bl138-approval-window.sh` 5 / 0, `test-check-phase-gate-blame-walker.sh` 4 / 0,
