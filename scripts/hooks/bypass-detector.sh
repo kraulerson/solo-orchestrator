@@ -192,7 +192,7 @@ SENTINEL="$PROJECT_ROOT/.claude/pending-approval.json"
 if [ "$ACTOR" = "claude" ] && [ ! -f "$SENTINEL" ]; then
   CONFIRM_PHRASE="I have read the proposal at .claude/bypass-audit.json and accept the bypass"
   jq -nc \
-    --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. To accept, type option A1 verbatim. To decline, say 'decline' or describe what you want instead. If the matched text was not a proposal (a rule quoted, a document described), close it as one: scripts/pending-approval.sh --resolve --decision false-positive --reason \"<why>\"." \
+    --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. To accept, type option A1 verbatim. To decline, say 'decline' or describe what you want instead. If the matched text was not a proposal (a rule quoted, a document described), tell the operator so; the operator can close it as a false positive with a stated reason (scripts/pending-approval.sh --help, decision false-positive)." \
     --arg phrase "$CONFIRM_PHRASE" \
     --arg ts "$TS" \
     '{

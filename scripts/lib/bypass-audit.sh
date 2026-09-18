@@ -298,6 +298,7 @@ bypass_audit_close_pending() {
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
     trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    # BL-277-FP-RECORD — the reason lands on every row the close touches.
     if jq --arg ur "$user_resp" --arg fo "$final_out" --arg why "$reason" \
          '[.[] | if .type == "claude_bypass_proposal" and .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo | (if $ur == "false_positive" then .details.false_positive_reason = $why else . end) else . end]' \
          "$file" > "$tmp" 2>/dev/null; then

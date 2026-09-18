@@ -234,8 +234,12 @@ cmd_resolve() {
     if [ -f "$lib" ]; then
       # shellcheck disable=SC1090
       source "$lib"
+      # BL-277-FP-PASS — the reason travels to the library; the label printed
+      # is the row's own spelling.
+      local closed_as="$decision"
+      case "$decision" in accept) closed_as="accepted" ;; decline) closed_as="declined" ;; false-positive) closed_as="false_positive" ;; esac
       if bypass_audit_close_pending "$project_root" "$decision" "$reason" 2>&1; then
-        print_ok "Audit log closed: pending bypass rows marked $decision."
+        print_ok "Audit log closed: pending bypass rows marked $closed_as."
       else
         print_fail "Audit log close failed (decision='$decision')."
         echo "  Re-run 'pending-approval --resolve --decision $decision' to retry the audit close." >&2

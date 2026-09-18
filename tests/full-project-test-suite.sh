@@ -948,6 +948,11 @@ run_child_suite "tests/test-bl280-bug-gate-unmeasured-source.sh" \
 run_child_suite "tests/test-bl277-detector-authorship.sh" \
   "BL-277: the bypass detector raises the sentinel on authored text only" \
   "BL-277 detector-authorship tests FAILED (run tests/test-bl277-detector-authorship.sh for details)"
+# BL-277: the scoped matcher, pinned against a project init.sh produces. Runs
+# init.sh (which installs the hook framework into $HOME) -> full lane only.
+run_child_suite "tests/test-bl277-matcher-registration.sh" \
+  "BL-277: init.sh registers the detector under matcher Bash and nowhere else" \
+  "BL-277 matcher-registration tests FAILED (run tests/test-bl277-matcher-registration.sh for details)"
 
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS

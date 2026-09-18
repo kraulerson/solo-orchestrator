@@ -32,14 +32,17 @@
 #       does.
 #   D*  the third disposition of scripts/pending-approval.sh.
 #   X*  malformed hook input.
-#   R*  the scoped matcher in a freshly initialised project.
+#   R4  the registration's idempotence probe in init.sh, pinned statically
+#       against a settings fixture (the probe is unreachable through init.sh
+#       itself, which refuses an existing directory).
 #   M*  marker presence and mutants. Each mutant proves its location by distance
 #       from its marker and asserts the literal text that landed; one that
 #       cannot be applied is a SETUP failure, never a kill.
 #
 # HERMETIC: temp trees only, the real scripts driven over stdin the way Claude
-# Code drives them. No network. R* and M7 need the Claude Dev Framework clone
-# that init.sh itself needs (same precondition as tests/test-bl029-integration.sh).
+# Code drives them. No network, and init.sh is read but never run — the cases
+# that run it (R1–R3, M7) are in tests/test-bl277-matcher-registration.sh,
+# full lane only, because init.sh installs the Claude Dev Framework into $HOME.
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -60,7 +63,7 @@ TOPTMP="$(mktemp -d)"
 trap 'rm -rf "$TOPTMP"' EXIT INT TERM
 newtmp() { mktemp -d "$TOPTMP/fixXXXXXX"; }
 
-for need in "$HOOK" "$GATE" "$PA" "$INIT" "$TEMPLATE"; do
+for need in "$HOOK" "$GATE" "$PA" "$LIB" "$INIT" "$TEMPLATE"; do
   [ -f "$need" ] || { echo "  [FAIL] setup — $need not found"; echo ""; echo "Results: 0 passed, 1 failed"; exit 1; }
 done
 command -v jq >/dev/null 2>&1 || { echo "  [FAIL] setup — jq is required"; echo ""; echo "Results: 0 passed, 1 failed"; exit 1; }
@@ -319,21 +322,27 @@ chk_decline_still_declines() {
   return 0
 }
 
-# R — the registration a fresh project receives.
-# init_project <init.sh> <dest> ; init.sh refuses to work from inside the
-# framework checkout, so it is started from the temp tree.
-init_project() {
-  ( cd "$TOPTMP" && bash "$1" --non-interactive --project x --project-dir "$2" --no-remote-creation \
-      --platform web --language typescript --track light --deployment personal >/dev/null 2>&1 )
-  [ -f "$2/.claude/settings.json" ]
+# R4 — the idempotence probe at # BL-277-MATCHER, read out of init.sh and run
+# against fixtures. init.sh guards the registration with `if ! jq -e '<probe>'`
+# so a re-run does not append a second group; a second init.sh on the same
+# directory is refused, so nothing reaches that guard through the scaffolder
+# and the filter would otherwise be untested. The probe must find the detector
+# when it sits in a LATER, matcher-scoped group (the shape # BL-277-MATCHER
+# writes) and must not find it when it is absent.
+probe_filter() {
+  local f="$1" ml
+  ml="$(S='# BL-277-MATCHER' awk 'index($0, ENVIRON["S"]){print NR; exit}' "$f")"
+  [ -n "$ml" ] || return 1
+  awk -v s="$ml" 'NR > s && NR <= s + 6 && /if ! jq -e '\''/ { n = split($0, a, "'\''"); print a[2]; exit }' "$f"
 }
-DET='select((.command // "") | contains("bypass-detector.sh"))'
-chk_matcher_scoped() {
-  local settings="$1/.claude/settings.json" scoped unscoped
-  scoped="$(jq -r "[.hooks.PostToolUse[]? | select(.matcher == \"Bash\") | .hooks[]? | $DET] | length" "$settings" 2>/dev/null || printf 'ERR')"
-  unscoped="$(jq -r "[.hooks.PostToolUse[]? | select((.matcher // \"\") != \"Bash\") | .hooks[]? | $DET] | length" "$settings" 2>/dev/null || printf 'ERR')"
-  [ "$scoped" = "1" ] || { echo "detector registrations under matcher Bash=$scoped, want 1"; return 1; }
-  [ "$unscoped" = "0" ] || { echo "detector registrations outside matcher Bash=$unscoped, want 0"; return 1; }
+chk_probe_static() {
+  local init="$1" filter with without
+  filter="$(probe_filter "$init")"
+  [ -n "$filter" ] || { echo "no jq probe within 6 lines after the marker"; return 1; }
+  with='{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]},{"matcher":"Bash","hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]}}'
+  without='{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]}]}}'
+  printf '%s' "$with" | jq -e "$filter" >/dev/null 2>&1 || { echo "the probe does not find the detector in a later matcher-scoped group, so a re-run would register it twice"; return 1; }
+  if printf '%s' "$without" | jq -e "$filter" >/dev/null 2>&1; then echo "the probe finds a detector that is not there"; return 1; fi
   return 0
 }
 
@@ -426,21 +435,9 @@ done
 if [ -z "$x_fail" ]; then pass "X1 (control) — non-JSON, an unknown event, a string tool_response and empty stdin all exit 0 and write nothing"
 else fail_ "X1" "$x_fail"; fi
 
-echo "=== R — the registration in a fresh project ==="
-PROJ="$TOPTMP/fresh"
-if ! init_project "$INIT" "$PROJ"; then
-  fail_ "R setup" "init.sh did not produce a project with a settings file (needs the Claude Dev Framework clone)"
-else
-  if why="$(chk_matcher_scoped "$PROJ")"; then pass "R1 — the detector's PostToolUse registration sits under matcher Bash and nowhere else"
-  else fail_ "R1" "$why"; fi
-  n_stop="$(jq -r "[.hooks.Stop[]? | .hooks[]? | $DET] | length" "$PROJ/.claude/settings.json" 2>/dev/null)"
-  if [ "$n_stop" = "1" ]; then pass "R2 (control) — the Stop registration is present once"
-  else fail_ "R2" "Stop registrations=$n_stop, want 1"; fi
-  n_trk="$(jq -r '[.hooks.PostToolUse[]? | select(has("matcher") | not) | .hooks[]? | select((.command // "") | contains("track-tool-usage.sh"))] | length' "$PROJ/.claude/settings.json" 2>/dev/null)"
-  n_rec="$(jq -r '[.hooks.PostToolUse[]? | select(has("matcher") | not) | .hooks[]? | select((.command // "") | contains("record-claude-commit.sh"))] | length' "$PROJ/.claude/settings.json" 2>/dev/null)"
-  if [ "$n_trk" = "1" ] && [ "$n_rec" = "1" ]; then pass "R3 (control) — the tool tracker and the commit recorder stay unscoped: only the detector moved"
-  else fail_ "R3" "unscoped tracker=$n_trk recorder=$n_rec, want 1 and 1"; fi
-fi
+echo "=== R — the registration's idempotence probe, statically ==="
+if why="$(chk_probe_static "$INIT")"; then pass "R4 — the # BL-277-MATCHER probe finds the detector in a later matcher-scoped group and not when absent"
+else fail_ "R4" "$why"; fi
 
 echo "=== M — markers and mutants ==="
 # Each marker must be present exactly once in its file.
@@ -448,7 +445,9 @@ for spec in \
   "$HOOK|# BL-277-AUTHORSHIP" \
   "$HOOK|# BL-277-SENTINEL-AUTHORED" \
   "$LIB|# BL-277-FALSE-POSITIVE" \
+  "$LIB|# BL-277-FP-RECORD" \
   "$PA|# BL-277-FP-REASON" \
+  "$PA|# BL-277-FP-PASS" \
   "$INIT|# BL-277-MATCHER"; do
   f="${spec%%|*}"; m="${spec#*|}"
   n="$(S="$m" awk 'index($0, ENVIRON["S"]){c++} END{print c+0}' "$f")"
@@ -550,25 +549,19 @@ if why="$(mutate "$MP" "# BL-277-FP-REASON" 'if [ -z "${reason//[[:space:]]/}" ]
   else pass "M6 (MUTATION) — the script's reason guard removed: D2 kills it, D1 survives"; fi
 else fail_ "M6 setup" "$why"; fi
 
-# M7 — the registration appended without its matcher. Killed by R1. Needs a
-# mirror init.sh can run from: everything but .git, tests and Reports.
-MI="$(newtmp)/fw"; mkdir -p "$MI"
-for e in "$REPO_ROOT"/* "$REPO_ROOT"/.[!.]*; do
-  b="$(basename "$e")"
-  case "$b" in .git|tests|Reports|.semgrep) continue ;; esac
-  cp -Rp "$e" "$MI/" 2>/dev/null
-done
-if [ ! -f "$MI/init.sh" ]; then fail_ "M7 setup" "could not mirror the framework"
-elif why="$(mutate "$MI/init.sh" "# BL-277-MATCHER" \
-       '.hooks.PostToolUse += [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' \
-       '.hooks.PostToolUse += [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' 5)"; then
-  MPROJ="$TOPTMP/mutant-fresh"
-  if ! init_project "$MI/init.sh" "$MPROJ"; then fail_ "M7 setup" "the mutated init.sh did not produce a project"
-  elif chk_matcher_scoped "$MPROJ" >/dev/null 2>&1; then fail_ "M7 (MUTATION)" "dropping the matcher survived R1"
-  elif [ "$(jq -r "[.hooks.PostToolUse[]? | .hooks[]? | $DET] | length" "$MPROJ/.claude/settings.json" 2>/dev/null)" != "1" ]; then
-    fail_ "M7 (MUTATION)" "the mutant lost the registration entirely, so the kill proves nothing about the matcher"
-  else pass "M7 (MUTATION) — the detector registered without a matcher: R1 kills it, the registration itself survives"; fi
-else fail_ "M7 setup" "$why"; fi
+# M8 — the probe regressed to group [0] (adversarial review's surviving mutant
+# D): with the detector in its own later group the guard never finds it and a
+# re-run would register it twice. Killed by R4. init.sh is copied, never run.
+MI="$(newtmp)/init.sh"
+if ! cp "$INIT" "$MI"; then fail_ "M8 setup" "could not copy init.sh"
+elif why="$(mutate "$MI" "# BL-277-MATCHER" \
+       ".hooks.PostToolUse[]? | .hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" \
+       ".hooks.PostToolUse[0].hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" 4)"; then
+  if chk_probe_static "$MI" >/dev/null 2>&1; then fail_ "M8 (MUTATION)" "the group-[0] probe survived R4"
+  else pass "M8 (MUTATION) — the idempotence probe regressed to group [0]: R4 kills it"; fi
+else fail_ "M8 setup" "$why"; fi
+# M7, the mutant that runs init.sh without the matcher, lives in
+# tests/test-bl277-matcher-registration.sh (full lane).
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
