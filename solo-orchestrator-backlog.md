@@ -17895,8 +17895,11 @@ does not open a column (D3; `# BL-301-KEY-ESCAPE-PIPE`), a line ending becomes a
 not split the row — a NEWLINE (D4) and a lone CARRIAGE RETURN (D6), which cmark-gfm also treats as
 a line ending and which the second review found still splitting the row (`# BL-301-KEY-ESCAPE-NEWLINE`)
 — and a key containing backticks gets a code-span delimiter one backtick longer than its longest
-run, space-padded, so it does not close the span (D5; `# BL-301-KEY-ESCAPE-TICK`). Each case
-asserts the exact row and that the table region still has exactly one line per answer plus its
+run, space-padded, so it does not close the span (D5; `# BL-301-KEY-ESCAPE-TICK`). The third
+review found two halves of that sentence with no case behind them, and both have one now: the
+LONGEST run — a key with runs of two and one gets a three-backtick delimiter, where clearing the
+shortest would let the inner run close the span early (D7, MA17) — and a CRLF PAIR folding to one
+space, not two (D8, MA18). Each case asserts the exact row and that the table region still has exactly one line per answer plus its
 two header lines, counted the way a renderer reads it: carriage returns turned into line feeds
 first, and EVERY non-blank line counted, since the second half of a split row does not start with a
 pipe. An ordinary key renders byte-for-byte as before (D1, and `## BL-282:`'s H4 and H5). The VALUE
@@ -17909,7 +17912,10 @@ STRING equal to the key (F3), `null` (F4) — the route refuses at exit 1, leave
 byte-identical, prints exactly ONE refusal line — it stops at its own diagnosis and never goes on to
 attempt the write — and says `… has no usable answers object — nothing written`
 (`# BL-301-ANSWERS-IS-OBJECT`, `# BL-301-UNUSABLE-REFUSE`). A progress file that is not JSON is
-refused the same way, one refusal line, with `could not read …` (F5; `# BL-301-UNREADABLE-REFUSE`).
+refused the same way, one refusal line, with `could not read …` (F5; `# BL-301-UNREADABLE-REFUSE`);
+a file that parses but whose TOP level is not an object (`[]`) is refused as having no usable
+answers object, not as an unknown key (F6, MA19; the `isinstance(data, dict)` half of
+`# BL-301-ANSWERS-READ`, which the third review found had no case behind it).
 In BOTH arms the verdict is held twice — `## BL-282:`'s old-value read and its checked write refuse
 the same shapes downstream — so what these two arms own is the diagnosis and the early stop, and
 the mutants on them (MA7, MA12) are text-only kills, recorded as such below. F2 and F3 are the shapes that matter: python's
@@ -17922,18 +17928,24 @@ byte-identical and no payload file created (I1). A RECORDED key carrying `.`, `"
 amended under exactly that key: the answer count is unchanged, no sibling moves, a `$(…)` in the
 VALUE stays literal (I2).
 
-**Suite:** `tests/test-bl301-adoption-recorded-keys.sh` — 60 cases driving the real wizard from an
+**Suite:** `tests/test-bl301-adoption-recorded-keys.sh` — 66 cases driving the real wizard from an
 adopted-shape fixture, stdin closed, the wizard run under the same interpreter as the suite
 (`$BASH`). Registered in `tests/full-project-test-suite.sh` and the `tests.yml` unit lane, beside
 `## BL-282:`'s.
 
 | Run | BL-301 suite | BL-282 suite |
 |---|---|---|
-| parent (the wizard at `6a4205f`, `## BL-282:`'s final tip), `/bin/bash` 3.2.57 | **11 passed / 49 failed** | 41 / 0 |
-| parent, Homebrew bash 5.3.15 | **11 passed / 49 failed** | 41 / 0 |
-| head, `/bin/bash` 3.2.57 (`PATH=/bin:$PATH`, inner wizard 3.2.57) | 60 / 0 | 41 / 0 |
-| head, Homebrew bash 5.3.15 | 60 / 0 | 41 / 0 |
-| head, `ubuntu:24.04`, non-root user, bash 5.2.21, python 3.12.3, jq 1.7 | 60 / 0 | 41 / 0 |
+| parent (the wizard at `6a4205f`, `## BL-282:`'s final tip), `/bin/bash` 3.2.57 | **11 passed / 55 failed** | 41 / 0 |
+| parent, Homebrew bash 5.3.15 | **11 passed / 55 failed** | 41 / 0 |
+| head, `/bin/bash` 3.2.57 (`PATH=/bin:$PATH`, inner wizard 3.2.57) | 66 / 0 | 41 / 0 |
+| head, Homebrew bash 5.3.15 | 66 / 0 | 41 / 0 |
+| head, `ubuntu:24.04` native `aarch64`, non-root user, bash 5.2.21, python 3.12.3, jq 1.7 | 66 / 0 | 41 / 0 |
+
+The container row is the NATIVE image. The third review ran the same suite under the `linux/amd64`
+image emulated on Apple Silicon and got three different results in three runs (58 / 2, 59 / 1,
+60 / 0), each red a python read of a file the wizard had just written returning non-zero, and two
+native runs clean; the maintainer's own `CLAUDE.md` says the container is a bash/git version
+emulator and not a CI emulator. An emulated tally is not reported here as either pass or fail.
 
 (The first cut of this fix, `711e8a1`, carried a 38-case suite and was measured against `91b5066`
 before `## BL-282:`'s write-status arm existed: 8 / 30 at the parent and 38 / 0 at head, beside a
@@ -17951,15 +17963,15 @@ I1 (refusals that must survive; N3's teeth are shown by MA8–MA11, not by the p
 `## BL-282:`'s bound holding). A2 and D2 assert "unchanged" and would have passed at the parent on a
 refusal that wrote nothing, so both are conditioned on exit 0 and are red there.
 
-**What the 49 reds at the parent are — not all of them are evidence, and only some are
-behavioural.** FIFTEEN are behavioural reds, a verdict or a written state that differs: A1–A8, D1,
-D2, I2 (the adoption-recorded key is refused at exit 1 where the fix accepts it) and D3–D6 (the same
-refusal; at head they then turn on the key-cell escape). FIVE are TEXT-ONLY reds: F1–F5 are refused
+**What the 55 reds at the parent are — not all of them are evidence, and only some are
+behavioural.** SEVENTEEN are behavioural reds, a verdict or a written state that differs: A1–A8, D1,
+D2, I2 (the adoption-recorded key is refused at exit 1 where the fix accepts it) and D3–D8 (the same
+refusal; at head they then turn on the key-cell escape). SIX are TEXT-ONLY reds: F1–F6 are refused
 at the parent too, at the same exit code and with the file just as untouched, and are red only
-because the refusal does not yet say `no usable answers object` / `could not read`. TWENTY-NINE
+because the refusal does not yet say `no usable answers object` / `could not read`. THIRTY-TWO
 are SETUP reds that say nothing about behaviour at all: thirteen M0 rows (a marker that does not
-exist yet) and sixteen mutants that cannot be applied for the same reason. The suite prints those
-sixteen under their own label and count — `[FAIL] MAn SETUP — NOT A BEHAVIOURAL KILL`, and a
+exist yet) and nineteen mutants that cannot be applied for the same reason. The suite prints those
+nineteen under their own label and count — `[FAIL] MAn SETUP — NOT A BEHAVIOURAL KILL`, and a
 closing NOTE with the number — because the review found that a mutant on the `# BL-301-IN-ANSWERS`
 line turned this suite red only by making MA6's own `sed` stop matching, which is a kill by
 brittleness and must never be read as the suite catching something.
@@ -17971,7 +17983,7 @@ if any were ever to become wizard-owned — which is precisely what ADOPT-002-AR
 do, and what `competency_matrix` WAS until `## BL-282:`'s bound — G1 fails and says the A-cases
 have gone vacuous, instead of letting them pass through the other route.
 
-**Mutants — sixteen, on a mirror, each located by distance from `# BL-301-ADOPTION-RECORDED-BEGIN`.**
+**Mutants — nineteen, on a mirror, each located by distance from `# BL-301-ADOPTION-RECORDED-BEGIN`.**
 `mutate` refuses to score a mutant unless the marker ends exactly one line, that line sits exactly
 the stated number of lines from the anchor (negative for the three in `render_intake_file`, which
 is above it), the diff's only hunk is that line, the mutated text is on it, and the result parses.
@@ -17999,6 +18011,15 @@ proof doing its job, and the reason it exists.
 | MA14 | −129 (`# BL-301-KEY-ESCAPE-NEWLINE`) | newline escape removed | D4 | the same |
 | MA15 | −128 (`# BL-301-KEY-ESCAPE-TICK`) | backtick delimiter forced to one | D5 | the same |
 | MA16 | −129 (same line as MA14) | line-ending escape narrowed to LF only — what the first cut shipped | D6 | the same, for a carriage return |
+| MA17 | −128 (same line as MA15) | the LONGEST backtick run becomes the shortest (`max` → `min`) | D7 | the same, for a two-run key |
+| MA18 | −129 (same line as MA14) | the `+` quantifier dropped from the line-ending escape | D8 | the same, for a CRLF pair |
+| MA19 | 16 (same line as MA9–MA11) | the top-level object check removed (`isinstance(data, dict)` → `True`) | F6 | **diagnosis only** — a top-level array is refused as an unknown key, not as an unusable file |
+
+MA17–MA19 are the third review's three survivors, landed with the landed line asserted. Each had
+survived because the sentence it attacks had a case for only half of itself: D5's key had one
+backtick run, D4 and D6 had one line-ending character each, and no F-case had a progress file
+whose TOP level was not an object. MA19 had survived OUTRIGHT — no red at all — and is the reason
+the entry now says which half of each claim each case pins.
 
 **A mutant that applied is not yet a mutant that can be scored (second review, R-301-4).** The
 review deleted a neighbouring line of this fix and watched proofs that expect "accepted" fail in the
@@ -18045,9 +18066,9 @@ same mutant on the unreadable-file arm, and the same argument: a file that does 
 again by the old-value read, so F5's one-refusal-line assertion is the only thing that sees it.
 
 The score, stated plainly: MA1, MA2, MA4, MA5, MA6 and MA8–MA11 are killed on exit code or written
-state; MA13–MA16 on the exact rendered row; MA3 on the diagnosis alone; MA7 and MA12 on the count of
-refusal lines alone, being equivalent on verdict and state. The three weak proofs assert their exact
-outcome, so each fails loudly the day the second line of defence is relaxed.
+state; MA13–MA18 on the exact rendered row; MA3 and MA19 on the diagnosis alone; MA7 and MA12 on
+the count of refusal lines alone, being equivalent on verdict and state. The four weak proofs assert
+their exact outcome, so each fails loudly the day the second line of defence is relaxed.
 
 **Lints and shellcheck at head.** `bash scripts/run-lints.sh`: 16 lints, 16 passed (before this
 entry existed it was 15/16 — `lint-bl-markers.sh` correctly refusing the `# BL-301-*` markers, eight at the time,

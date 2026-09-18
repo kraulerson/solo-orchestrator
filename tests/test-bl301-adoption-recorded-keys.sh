@@ -66,6 +66,11 @@ PIPE_KEY='pipe|key'
 NL_KEY="$(printf 'line\nkey')"
 TICK_KEY='tick`key'
 CR_KEY="$(printf 'cr\rkey')"
+# Third review (R-301-7, R-301-8): a key with TWO backtick runs of different
+# length, so the delimiter must clear the LONGEST run and not the shortest;
+# and a CRLF, so the whole pair must fold to ONE space, not two.
+TICK2_KEY='a``b`c'
+CRLF_KEY="$(printf 'crlf\r\nkey')"
 BODY_LINE='- **test_command** (scan-derived): pnmp test:unit'
 
 # mk_adopted <dir> [wizard-file] — a project as adoption leaves it, with a
@@ -81,7 +86,7 @@ mk_adopted() {
   printf '{"project":"P","current_phase":0,"track":"full","deployment":"personal","poc_mode":null}\n' \
     > "$d/.claude/phase-state.json"
   printf '{}\n' > "$d/.claude/process-state.json"
-  jq -n --arg odd "$ODD_KEY" --arg cmd "$OLD_CMD" --arg pk "$PIPE_KEY" --arg nk "$NL_KEY" --arg tk "$TICK_KEY" --arg ck "$CR_KEY" '
+  jq -n --arg odd "$ODD_KEY" --arg cmd "$OLD_CMD" --arg pk "$PIPE_KEY" --arg nk "$NL_KEY" --arg tk "$TICK_KEY" --arg ck "$CR_KEY" --arg t2 "$TICK2_KEY" --arg cl "$CRLF_KEY" '
     {version: 1, started_at: "2026-09-01T00:00:00Z", last_section: 0, completed_sections: [],
      source: "adopt-project.sh",
      project_name: "P", platform: "", track: "full", deployment: "personal",
@@ -90,7 +95,7 @@ mk_adopted() {
        timeline: "", mvp_features: "", data_classification: "", competency_matrix: "",
        revenue_model: "", governance: "", accessibility: "", uptime: "99.0",
        known_risks: "", test_command: $cmd, tooling: "pnpm",
-       agent_init_prompt: "generated"} + {($odd): "odd-old", ($pk): "p-old", ($nk): "n-old", ($tk): "t-old", ($ck): "c-old"})}' \
+       agent_init_prompt: "generated"} + {($odd): "odd-old", ($pk): "p-old", ($nk): "n-old", ($tk): "t-old", ($ck): "c-old", ($t2): "t2-old", ($cl): "cl-old"})}' \
     > "$d/.claude/intake-progress.json" || return 1
   {
     printf '# Project Intake\n\nRecorded during adoption on 2026-09-01.\n\n'
@@ -426,6 +431,7 @@ f_case F2 "answers is an ARRAY naming the key"    '.answers = ["test_command"]' 
 f_case F3 "answers is a STRING equal to the key"  '.answers = "test_command"'    'no usable answers object'
 f_case F4 "answers is null"                       '.answers = null'              'no usable answers object'
 f_case F5 "the progress file is not JSON"         'RAW:{ "answers": { "test_command": ' 'could not read'
+f_case F6 "the progress file is a top-level ARRAY" 'RAW:[]'                            'no usable answers object'
 
 echo "=== I — shell-special and jq-special keys cannot inject ==="
 
@@ -510,6 +516,8 @@ d_case D3 "a PIPE in the key"     "$PIPE_KEY" "p-new" '`pipe\|key`'
 d_case D4 "a NEWLINE in the key"  "$NL_KEY"   "n-new" '`line key`'
 d_case D5 "a BACKTICK in the key" "$TICK_KEY" "t-new" '`` tick`key ``'
 d_case D6 "a CARRIAGE RETURN in the key" "$CR_KEY" "c-new" '`cr key`'
+d_case D7 "TWO backtick runs in the key (2 and 1): the delimiter clears the longest" "$TICK2_KEY" "t2-new" '``` a``b`c ```'
+d_case D8 "a CRLF in the key folds to ONE space" "$CRLF_KEY" "cl-new" '`crlf key`'
 
 echo "=== M — mutation proofs on a mirror, each located by distance from the BL-301 anchor ==="
 
@@ -804,6 +812,38 @@ render_mutant MA14 BL-301-KEY-ESCAPE-NEWLINE "$D_ESC_NL" 's/gsub("\[\\r\\n\]+"; 
 # first cut shipped: a carriage return in the key splits the row again.
 render_mutant MA16 BL-301-KEY-ESCAPE-NEWLINE "$D_ESC_NL" 's/gsub("\[\\r\\n\]+"; " ")/gsub("\\n"; " ")/' '| gsub("\n"; " ")  # BL-301-KEY-ESCAPE-NEWLINE' "$CR_KEY" '`cr key`' D6
 render_mutant MA15 BL-301-KEY-ESCAPE-TICK "$D_ESC_TICK" 's#max // 0#0#' '| 0) as $n' "$TICK_KEY" '`` tick`key ``' D5
+# MA17 — THE LONGEST RUN BECOMES THE SHORTEST (third review, R-301-7): with
+# `max` → `min` a single-run key still renders (D5 cannot see it) but a key
+# with runs of 2 and 1 gets a two-backtick delimiter that its own inner run
+# closes early. D7 is what stops it.
+render_mutant MA17 BL-301-KEY-ESCAPE-TICK "$D_ESC_TICK" 's#max // 0#min // 0#' '| min // 0) as $n' "$TICK2_KEY" '``` a``b`c ```' D7
+# MA18 — THE QUANTIFIER DROPPED (third review, R-301-8): `[\r\n]+` → `[\r\n]`
+# folds a lone CR or LF the same, so D4 and D6 cannot see it; a CRLF pair
+# becomes TWO spaces. D8 is what stops it.
+render_mutant MA18 BL-301-KEY-ESCAPE-NEWLINE "$D_ESC_NL" 's/gsub("\[\\r\\n\]+"; " ")/gsub("[\\r\\n]"; " ")/' '| gsub("[\r\n]"; " ")  # BL-301-KEY-ESCAPE-NEWLINE' "$CRLF_KEY" '`crlf key`' D8
+
+# MA19 — THE TOP-LEVEL OBJECT CHECK REMOVED (third review, R-301-9): the
+# `isinstance(data, dict)` half of the read becomes `True`, so a progress
+# file whose top level is an ARRAY reaches `data.get` and raises. The verdict
+# does not move — python's exit 1 is the "absent" arm and refuses — so this is
+# DIAGNOSIS-ONLY like MA3: the line reads "not a key this wizard records"
+# instead of "no usable answers object". F6's reason assertion is what sees
+# it; before F6 existed this mutant SURVIVED outright.
+if mutate MA19 BL-301-ANSWERS-READ "$D_ANSWERS_READ" 's/ if isinstance(data, dict) else None  # BL-301-ANSWERS-READ$/ if True else None  # BL-301-ANSWERS-READ/' 'if True else None'; then
+  PD="$(newtmp)/proj"
+  if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA19" "could not build the mutant's fixture"; else
+    printf '%s\n' '[]' > "$PD/$PROG"
+    before_p="$(_cksum "$PD/$PROG")"
+    wiz "$PD" --set-answer test_command "$NEW_CMD"
+    after_p="$(_cksum "$PD/$PROG")"
+    if [ "$WIZ_RC" -eq 1 ] && [ "$before_p" = "$after_p" ] && ! grep -q 'no usable answers object' "$PD/run.out" \
+       && grep -q 'not a key this wizard records' "$PD/run.out"; then
+      pass "MA19 (MUTATION, anchor+$MUT_D, DIAGNOSIS-ONLY) — with the top-level object check removed a top-level ARRAY is refused as an unknown key instead of as an unusable file (rc=$WIZ_RC, nothing written): F6's reason assertion is what sees it; the verdict is held by the absent arm"
+    else
+      fail_ "MA19 (MUTATION)" "rc=$WIZ_RC, progress $([ "$before_p" = "$after_p" ] && echo unchanged || echo CHANGED), reason=[$(grep -m1 -E 'FAIL|OK' "$PD/run.out" | cut -c1-80 || echo '<none>')] — not the diagnosis-only outcome this proof records"
+    fi
+  fi
+fi
 
 echo ""
 if [ "$SETUP_FAILED" -gt 0 ]; then
