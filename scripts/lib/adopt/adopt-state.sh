@@ -374,7 +374,12 @@ _adopt_preflight_placement() {
   # `# BL-145-SYMLINK-GUARD-BEGIN`'s header records that a leaf test is not
   # sufficient, and a repository whose commit-msg alone is a symlink is ordinary.
   if [ -L "$raw" ] || [ -L "$own_hooks" ]; then                    # BL-242-PLACEMENT-HOOKS-SHAPE
-    local tgt
+    # INITIALISED, and the empty string is load-bearing. `local tgt` alone
+    # leaves it UNSET, and the next line reads it under `set -u` — which is
+    # silent on bash 3.2 (this Mac) and `tgt: unbound variable` on bash 5.2
+    # (the runner). Measured: every macOS suite passed and the CI lane went
+    # red on this one line. CLAUDE.md's version-split class, met again.
+    local tgt=""
     [ -L "$raw" ] && tgt="$(readlink "$raw" 2>/dev/null)"
     [ -n "$tgt" ] || tgt="$(readlink "$own_hooks" 2>/dev/null)"
     adopt_refuse "this repository's hooks directory is a SYMLINK -> ${tgt:-(unresolvable)} — the gate would be written THROUGH the link, into a directory this project does not own and may share with others"
