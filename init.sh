@@ -2127,8 +2127,11 @@ PERMEOF
 
         # BL-029: bypass-detector PostToolUse + Stop. Always-on, regardless
         # of enforcement_level — Claude-side audit channel is non-configurable.
-        if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+        # BL-277-MATCHER — its own PostToolUse group, scoped to Bash like every
+        # other scoped registration in this file. Appended to group [0] it
+        # inherited that group's absent matcher and ran after every tool.
+        if ! jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
+          jq '.hooks.PostToolUse += [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
             && mv .claude/settings.json.tmp .claude/settings.json
           hooks_added=true
         fi

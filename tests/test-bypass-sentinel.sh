@@ -22,14 +22,29 @@ EOF
 }
 teardown() { rm -rf "$TMP"; }
 
-# T1: bypass match writes pending-approval.json sentinel.
-echo "T1: bypass match writes pending-approval.json"
+# BL-277: the sentinel is raised for AUTHORED text only — a Stop-event match.
+# A PostToolUse match is recorded (actor tool_output) and raises nothing; that
+# half is pinned by T1b here and by tests/test-bl277-detector-authorship.sh A2.
+# T1: authored bypass match writes pending-approval.json sentinel.
+echo "T1: authored bypass match writes pending-approval.json"
 setup
 if [ ! -f "$HOOK" ]; then fail_ "T1" "hook missing"; else
   CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"use --no-verify to skip"}}
+{"hook_event_name":"Stop","last_assistant_message":"use --no-verify to skip","transcript_path":"/tmp/no-such-transcript.jsonl"}
 EOF
   if [ -f "$TMP/.claude/pending-approval.json" ]; then pass "T1"; else fail_ "T1" "sentinel not written"; fi
+fi
+teardown
+
+# T1b (BL-277): the same match in TOOL OUTPUT is recorded but raises no sentinel.
+echo "T1b: tool-output match writes a row and no sentinel"
+setup
+if [ ! -f "$HOOK" ]; then fail_ "T1b" "hook missing"; else
+  CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"use --no-verify to skip"}}
+EOF
+  rows=$(jq 'length' "$TMP/.claude/bypass-audit.json")
+  if [ "$rows" = "1" ] && [ ! -f "$TMP/.claude/pending-approval.json" ]; then pass "T1b"; else fail_ "T1b" "rows=$rows sentinel=$([ -f "$TMP/.claude/pending-approval.json" ] && echo raised || echo none)"; fi
 fi
 teardown
 
@@ -43,7 +58,7 @@ echo "T2: sentinel question does NOT embed the confirmation phrase"
 setup
 if [ ! -f "$HOOK" ]; then fail_ "T2" "hook missing"; else
   CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"--no-verify path"}}
+{"hook_event_name":"Stop","last_assistant_message":"--no-verify path","transcript_path":"/tmp/no-such-transcript.jsonl"}
 EOF
   q=$(jq -r '.question' "$TMP/.claude/pending-approval.json")
   if echo "$q" | grep -q "I have read the proposal at .claude/bypass-audit.json and accept the bypass"; then
@@ -59,7 +74,7 @@ echo "T2b: confirmation phrase is in options[0]"
 setup
 if [ ! -f "$HOOK" ]; then fail_ "T2b" "hook missing"; else
   CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"--no-verify path"}}
+{"hook_event_name":"Stop","last_assistant_message":"--no-verify path","transcript_path":"/tmp/no-such-transcript.jsonl"}
 EOF
   opt0=$(jq -r '.options[0]' "$TMP/.claude/pending-approval.json")
   if echo "$opt0" | grep -q "I have read the proposal at .claude/bypass-audit.json and accept the bypass"; then
@@ -89,7 +104,7 @@ if [ ! -f "$HOOK" ]; then fail_ "T4" "hook missing"; else
 {"question":"existing q","options":["A1: yes","A2: no"],"recommendation":"A1","offered_at":"2026-04-28T00:00:00Z"}
 EOF
   CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"--no-verify"}}
+{"hook_event_name":"Stop","last_assistant_message":"--no-verify","transcript_path":"/tmp/no-such-transcript.jsonl"}
 EOF
   q=$(jq -r '.question' "$TMP/.claude/pending-approval.json")
   if [ "$q" = "existing q" ]; then pass "T4"; else fail_ "T4" "clobbered"; fi

@@ -17277,10 +17277,18 @@ a hoist is not taken).
 
 ## BL-277: the bypass detector's PostToolUse arm scans text whose authorship it has not established, records it as `actor: "claude"`, and raises a BLOCKING sentinel on it — so reading the framework's own rules reports the agent for proposing a bypass
 
-**Status:** Open — **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
-contributor who filed this (also issue #385, which proposed scanning `tool_input`) is invited to build it;
-adversarial review before merge, as every PR. Not built yet. *(Before 2026-09-17: ENTRY-ONLY BY DECISION
-(2026-09-13); three options set out below with a recommendation, none built.)* Consequence for adoption:
+**Status:** **BUILT 2026-09-18 on branch `fix/bl277-detector-authorship`, to the decision below; awaiting
+adversarial review and the PR.** See "Build note" at the end of this entry for what changed, the suite,
+the mutants, the tallies and the residuals. **DECIDED 2026-09-17 (Karl, issue #385): option 3 below, the
+entry's own recommendation** — quoted: *"keep scanning output, let only Stop-event matches raise the
+sentinel, and have PostToolUse rows carry an actor other than `claude` with the sentinel gated on
+authorship. Build that recommendation (a scoped `matcher` on the registration is welcome alongside it),
+with the suite pinning both directions you described: a real [verify-skipping flag] invocation still
+detected and blocking, a read of the shipped CLAUDE.md producing no `claude`-attributed row and no
+sentinel. If you want the third disposition for closing a false positive, include it."* (The flag's
+literal is elided from the quote for the reason this entry documents.) All three parts are built.
+*(Before 2026-09-17: ENTRY-ONLY BY DECISION (2026-09-13); three options set out below with a
+recommendation, none built.)* Consequence for adoption:
 ADOPT-002-ARCH v2.2 makes shipping `.claude/settings.json` to adoptees depend on this landing, so no
 adoptee imports the day-one sentinel. Choosing among them is a judgement about this
 framework's risk appetite rather than about correct code: every candidate narrows a security control
@@ -17391,12 +17399,17 @@ blocking sentinel. Observed on one adopting project's ledger during a single day
   gate that handles the flag, each raised a row.
 
 **The test-suite rows are the structural half, and they generalise.** A correct suite for this defect
-CANNOT avoid containing the trigger strings: asserting "the detector fires on a genuine proposal"
-requires a genuine-looking proposal in a fixture, and a suite that avoided the vocabulary would be
-testing something else. So the fixture a correct test must contain is itself a trigger, the sentinel it
-raises then blocks the agent writing the fix, and — per the sentinel-scope defect noted below — it
-blocks them in every repository touched from that session, not just this one. That is a closed loop, and
-it is a stronger argument than the ledger's growth rate on its own.
+CANNOT avoid FEEDING the detector the trigger strings: asserting "the detector fires on a genuine
+proposal" requires a genuine-looking proposal in a fixture, and a suite that avoided the vocabulary
+would be testing something else. So the fixture a correct test must contain is itself a trigger, the
+sentinel it raises then blocks the agent writing the fix, and — per the sentinel-scope defect noted
+below — it blocks them in every repository touched from that session, not just this one. That is a
+closed loop, and it is a stronger argument than the ledger's growth rate on its own. **Correction
+(2026-09-18):** an earlier version of this paragraph said the suite cannot avoid CONTAINING the
+strings. It can: `tests/test-bl277-detector-authorship.sh` assembles every fixture from split literals
+(`"--no-""verify"`), so the contiguous vocabulary exists only at run time and the file itself matches
+none of the six patterns (checked by scanning the file with the pattern table before every run of it).
+The loop is real for a suite written the obvious way; it is not a law.
 
 **Severity follows from that, and it is not "noisy log".** Each false row raises a BLOCKING sentinel.
 **Five were declined by hand in one day**, none of them corresponding to anything any agent proposed,
@@ -17448,21 +17461,138 @@ trees.
    from — rows attributing another program's output to the model are not a cosmetic problem there.
    Cost: it changes an audit-row schema, so readers of `actor` must be swept first.
 
-**Why no regression suite lands with this entry, stated rather than quietly omitted — and the reason is
-NOT the one it looks like.** A suite here is perfectly writable. Its assertions are outcome-shaped and
-fix-agnostic — "reading the audit ledger does not append to it", "reading the shipped CLAUDE.md
-template does not raise a blocking sentinel" — and all three options satisfy both, so the suite would
-survive whichever is chosen. That is its spec, and it should be written.
+**Why no regression suite landed with the entry's first version, stated rather than quietly omitted —
+and the reason was NOT the one it looks like.** A suite here was always writable. The blocker was
+redness, not authorship: the defect was unfixed, so the suite was RED, and a red suite must be either
+registered — which turns CI red for everyone — or marked `LINT_TEST_REGISTRATION_EXEMPT`, which parks a
+known-red suite behind a marker and is precisely the unearned-receipt move this repo exists to refuse.
+So it landed WITH the fix (below). **One claim in that first version was wrong and is corrected here:**
+it said the suite's assertions could be fix-agnostic, "reading the audit ledger does not append to it"
+among them, and that all three options satisfied that. Option 3 — the option chosen — does NOT satisfy
+it: output scanning is kept on purpose, so reading the ledger through a Bash tool still appends rows;
+what changes is that they carry `actor: "tool_output"` and raise nothing. The suite's L1 pins what is
+true — reading the ledger back mints no `claude` row — and the growth is listed as a residual below.
 
-The blocker is redness, not authorship. **The defect is unfixed, so the suite is RED today**, and a red
-suite must be either registered — which turns CI red for everyone — or marked
-`LINT_TEST_REGISTRATION_EXEMPT`, which parks a known-red suite behind a marker and is precisely the
-unearned-receipt move this repo exists to refuse. So it lands WITH the chosen fix.
+**Build note (2026-09-18, branch `fix/bl277-detector-authorship`, base `4d9c172`).** Five changed sites,
+each marked:
 
-Note the distinction from the self-obstruction above, because the two are easy to merge and only one is
-a blocker: that a correct suite must CONTAIN the trigger strings is evidence about the defect's
-severity and its closed loop. It is not what stops the suite shipping, and it would not stop it even
-after the fix. The reproduction in this entry is repeatable in the meantime.
+- `# BL-277-AUTHORSHIP` in `scripts/hooks/bypass-detector.sh`: `ACTOR` and `USER_RESPONSE` are set from
+  the event before the row loop — Stop gives `claude` / `PENDING`; PostToolUse gives `tool_output` /
+  `n/a` (`final_outcome` stays `recorded_only`). The scan, the row-per-pattern loop, the excerpt and
+  the severity are untouched, so `tests/test-bypass-detector.sh` T1 still passes unchanged (A5 restates
+  its envelope). Pinned by A1 (each of the six patterns in tool output writes its row and none is
+  attributed to `claude`), A3 (`n/a` / `recorded_only`), A4 (all four `tool_response` shapes), S1 (a
+  Stop match writes one `claude` row, PENDING), K1 (the whole shipped `claude-md.tmpl` as tool output:
+  matched, no `claude` row, no sentinel — it is the R1 measurement above, inverted), L1 (the ledger read
+  back twice as tool output is scanned and mints no `claude` row — R3 above, inverted).
+- `# BL-277-SENTINEL-AUTHORED`, same file: the sentinel write is guarded by `ACTOR = claude`, so it is
+  gated on authorship rather than on the event name. Pinned by A2 (no sentinel from any of the six
+  patterns in tool output), S2 (an authored match raises a schema-valid sentinel), G2 (a repository whose
+  ledger holds only tool-output rows commits without a "pending user decision" denial), G3 (an authored
+  match still blocks the commit through the sentinel), and G1 as the other direction the maintainer
+  asked for: a real verify-skipping `git commit` is still denied by `pre-commit-gate.sh`'s own arm,
+  with its own reason, and never depended on this hook — that arm is `:905` and predates BL-029. The
+  sentinel's question now also names the third disposition for the case where the matched text was not
+  a proposal.
+- `# BL-277-FALSE-POSITIVE` in `scripts/lib/bypass-audit.sh` and `# BL-277-FP-REASON` in
+  `scripts/pending-approval.sh`: `--resolve --decision false-positive --reason "<why>"` closes PENDING
+  proposal rows as `user_response: false_positive`, `final_outcome: recorded_only`, and records the
+  reason on each row as `details.false_positive_reason`. A missing, empty or blank reason is refused in
+  the script BEFORE the sentinel is touched (the same ordering the `accpet`-typo fix established), and
+  refused again in the library so a direct caller cannot close silently. Pinned by D1 (closes, records,
+  distinct from accept and decline), D2 (three empty shapes: non-zero, sentinel kept, row still
+  PENDING), D4 (the library's own refusal, reached directly because the script's guard would otherwise
+  shield it from every test), D3 (decline still records declined/abandoned).
+- `# BL-277-MATCHER` in `init.sh`: the detector's PostToolUse registration is its own hook group with
+  `"matcher": "Bash"`, consistent with every other scoped registration in the file, instead of being
+  appended to group `[0]` and inheriting its absent matcher. Pinned by R1 (a fresh `init.sh` project
+  carries exactly one detector registration under matcher Bash and none elsewhere), R2 (the Stop
+  registration is present once), R3 (the tool tracker and the commit recorder stay unscoped: only the
+  detector moved). `tests/test-bl029-integration.sh` T1 looks the registration up by matcher now.
+- `docs/audit-log-lifecycle.md`: `tool_output` added to the `actor` enum, `false_positive` to
+  `user_response`, the `claude_bypass_proposal` section rewritten per actor, two cold-pickup queries
+  added. The section had said an authored row starts at `final_outcome: "n/a"`; the detector has
+  always written `recorded_only` (`:153` at base) and the document now says so.
+
+**Suite:** `tests/test-bl277-detector-authorship.sh`, one file per entry as its neighbours do. Every
+fixture is assembled from split literals (see the correction above); a scan of the file with the six
+regexes finds zero matches. Controls: A5 (T1's exact envelope still writes exactly one row), A6 (clean
+output writes nothing), G1, G3, D3, X1 (non-JSON, an unknown event, a string `tool_response` and empty
+stdin all exit 0, leave the ledger byte-identical, and raise nothing), R2, R3. The three pre-existing
+suites whose cases assumed the OLD contract were retargeted, each with a comment naming this entry:
+`tests/test-bypass-detector.sh` T5 and T12 (PENDING and the sentinel are now authored-row facts, so
+their envelopes are Stop events; the PostToolUse halves are A3 and A2), `tests/test-bypass-sentinel.sh`
+T1, T2, T2b, T4 (Stop envelopes) plus a new T1b (a tool-output match writes a row and no sentinel),
+`tests/test-bl029-integration.sh` T1 (lookup by matcher), a new T2b (the tool-output row raised no
+sentinel) ahead of T3 (which now raises it with a Stop event), and T5's actor whitelist (`tool_output`
+added — with the T2 row as the fixture behind it, so the entry can fail).
+
+**Tallies.** RED against unchanged `4d9c172`: **11 / 9** — A1, A2, A3, A4, L1, K1, G2, D1, R1 failed,
+each for the reason the fix removes (`1 row(s) attributed to claude`, `a sentinel was raised from tool
+output`, `user_response=PENDING`, `claude rows went 1 -> 3 by reading the ledger`, `3 of 3 row(s)
+attributed to claude`, `a ledger holding only tool-output rows blocked the commit`, `rc=1` on
+`false-positive`, `registrations under matcher Bash=0`); the controls and D2 passed at base (D2 by the
+unknown-decision refusal, which is why M5 and M6 exist). GREEN after the change: **34 / 0** on
+bash 3.2.57 (`/bin/bash`, macOS 26.4) and **34 / 0** on bash 5.3.15 (Homebrew), of which 14 are
+markers and mutants. Neighbours after the change, both shells: `test-bypass-detector` 15 / 0,
+`test-bypass-sentinel` 6 / 0 (was 5), `test-bl029-integration` 9 / 0 (was 8),
+`test-pending-approval-resolve-decision` 8 / 0, `test-pending-approval` rc 0,
+`test-bypass-detector-session-id` 5 / 0, `test-bl278-sentinel-root` 10 / 0, `test-bypass-audit-lib`
+10 / 0, `test-bypass-audit-integrity` 8 / 0, `test-verify-install-bl030-coverage` 8 / 0. Before the
+neighbours were retargeted, the change alone turned `test-bypass-detector` 13 / 2 (T5, T12),
+`test-bypass-sentinel` rc 2 at T1, `test-bl029-integration` 5 / 3 (T1, T3, T5) — the six cases named
+above, no others. `scripts/run-lints.sh` 16 / 16; `lint-tests-registered.sh` registered;
+`shellcheck -S error` clean on every touched script and suite. Registered in
+`tests/full-project-test-suite.sh` and the `tests.yml` unit lane.
+
+**Mutants, each applied by the suite's `mutate` helper, which proves location and landing before any
+verdict counts.** Location: the operative text occurs exactly once in the file and its line lies within
+N lines AFTER the marker. Landing: the operative text is gone, the replacement is present exactly once
+more than before and ON the operative line, `diff` shows one line removed and one added, and `bash -n`
+passes. A mutant that fails any of that is reported as a SETUP failure, never as a kill. Text reaches
+`awk` through `ENVIRON`, never `-v`, because `-v` applies backslash escapes: the first cut passed the
+init.sh operative (which contains `\"`) through `-v`, awk searched for `"` instead, found nothing, and
+M7 reported `operative text occurs 0 times` — the quoting trap made visible rather than silent.
+
+| Mutant | File, marker | Distance | Operative → replacement | Killed by | Survives |
+|---|---|---|---|---|---|
+| M1 | detector, `# BL-277-AUTHORSHIP` | ≤ 6 | `ACTOR="tool_output"` → `ACTOR="claude"` | A1 | S1 |
+| M2 | detector, `# BL-277-AUTHORSHIP` | ≤ 6 | `USER_RESPONSE="n/a"` → `USER_RESPONSE="PENDING"` | A3 | A1 |
+| M3 | detector, `# BL-277-SENTINEL-AUTHORED` | ≤ 4 | the authorship guard removed (the shipped `if [ ! -f "$SENTINEL" ]`) | A2, G2 | A1 |
+| M3b | detector, `# BL-277-SENTINEL-AUTHORED` | ≤ 4 | `if false; then` (sentinel never raised) | S2, G3 | S1 |
+| M4 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 4 | `false_positive`/`recorded_only` → `declined`/`abandoned` | D1 | D3 |
+| M5 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 5 | the reason guard → `if false; then` | D4 | — |
+| M6 | pending-approval, `# BL-277-FP-REASON` | ≤ 6 | the reason guard → `if false; then` | D2 | D1 |
+| M7 | init.sh, `# BL-277-MATCHER` | ≤ 5 | the group written without `"matcher": "Bash"` | R1 | the registration itself |
+
+All eight killed on both shells; each "survives" column is asserted too, so a kill that came from
+breaking something else is reported as such.
+
+**Residuals, disclosed.**
+1. **The ledger still grows on reads through Bash.** Option 3 keeps output scanning, so `cat` or `grep`
+   of a file with the vocabulary appends `tool_output` rows — three per read of the template, and the
+   ledger read back through Bash still quotes itself. Nothing blocks, but `## BL-161:`'s point stands:
+   every row dirties the tree. The scoped matcher removes the `Read`-tool half of this entirely
+   (the detector no longer runs after `Read`, `Edit` or `Write`), not the Bash half. Reducing the Bash
+   half further means deciding what output is worth a row, which is the maintainer's scan-surface call.
+2. **Existing projects keep their unscoped registration.** No upgrade path rewrites `settings.json`
+   hook groups: `upgrade-project.sh --sync-framework` delivers the three changed scripts (all in the
+   shipped set `soif_parse_shipped_scripts` derives from `init.sh`), so the behavioural fix reaches
+   them, but the detector stays in PostToolUse group `[0]` there and still runs after every tool.
+   Harmless under this change — the extra rows are `tool_output` and raise nothing — and A4 pins the
+   `.content` shape a `Read`-driven envelope takes. `verify-install.sh`'s registration row looks the
+   detector up in any group and is satisfied by both shapes. A migration that moves the group is a
+   `settings.json` write during an upgrade, which `## BL-149:` warns against doing silently; not built.
+3. **A PENDING row written before this change closes under the new vocabulary too.** `false-positive`
+   closes every PENDING `claude_bypass_proposal` row, including legacy rows the old detector wrote from
+   tool output with `actor: "claude"`. That is the intended use — those are the rows that were never
+   proposals — but the reason is applied to all of them at once, as `accept` and `decline` always have.
+4. **`escalation` rows are untouched by the third disposition**, as by the other two (the D2 fix's
+   scoping in `bypass_audit_close_pending`). Closing an escalation as a false positive has no meaning.
+
+**Container run.** Recorded in the PR body: the suite and its neighbours in `ubuntu:24.04` as a
+non-root user, `--platform linux/amd64` (this file's own note on ARM instability), with the Claude Dev
+Framework clone present because R1–R3 and M7 run `init.sh`.
 
 **Related:** `## BL-029:` (the detector, and the only backlog family that has ever touched this file —
 swept by file across full history: `scripts/hooks/bypass-detector.sh` and `scripts/lib/bypass-patterns.sh`

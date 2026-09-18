@@ -27,10 +27,10 @@ Every row has exactly these seven fields:
 | `timestamp` | string (ISO-8601 UTC) | When the event happened. |
 | `session_id` | string \| null | The Claude session UUID when known. `null` for framework-initiated events (init, upgrade backfill, SessionStart detector). |
 | `type` | enum (see [Row types](#row-types)) | What kind of event this row records. |
-| `actor` | enum: `claude` \| `user_terminal` \| `user_terminal_inferred` \| `framework` | Who triggered the event. |
+| `actor` | enum: `claude` \| `tool_output` \| `user_terminal` \| `user_terminal_inferred` \| `framework` | Who triggered the event. `tool_output` (BL-277) is text that came back through a tool — a file's contents, a program's output — so its author is NOT established; it is recorded, never escalated. |
 | `enforcement_level_at_event` | enum: `no` \| `light` \| `strict` \| `n/a` | The project's enforcement level when the row was written. `n/a` only for `enforcement_level_set` rows that record a transition. |
 | `details` | object | Type-specific payload. See per-row sections below. |
-| `user_response` | enum: `PENDING` \| `accepted` \| `declined` \| `n/a` | What the operator told `escalate-to-user` or the framework. `PENDING` only for `claude_bypass_proposal` rows that have not been resolved yet. |
+| `user_response` | enum: `PENDING` \| `accepted` \| `declined` \| `false_positive` \| `n/a` | What the operator told `escalate-to-user` or the framework. `PENDING` only for `claude_bypass_proposal` rows with `actor: "claude"` that have not been resolved yet. `false_positive` (BL-277) closes a proposal that was never one; the operator's reason is recorded in `details.false_positive_reason`. |
 | `final_outcome` | enum: `committed` \| `bypassed` \| `escalated` \| `abandoned` \| `recorded_only` \| `n/a` | Terminal disposition. `recorded_only` is the framework's "we noted this; no further action" outcome (used by the SessionStart detector and by `enforcement_level_set` rows). |
 
 ## Row types
@@ -39,12 +39,12 @@ Each type has a distinct lifecycle. Reading the log effectively means knowing th
 
 ### `claude_bypass_proposal`
 
-The Claude session attempted (or proposed) a framework bypass — most commonly `--no-verify`, `--force` push, or running a forbidden script directly. Written by the BL-029 bypass-detector hook (`scripts/hooks/bypass-detector.sh`).
+Bypass-shaped text was detected — most commonly `--no-verify`, `--force` push, or running a forbidden script directly. Written by the BL-029 bypass-detector hook (`scripts/hooks/bypass-detector.sh`). The row's `actor` says whether the Claude session wrote that text (BL-277):
 
 - **Writer:** PostToolUse hook on Bash and Stop hook on session end.
-- **Lifecycle:** starts as `user_response: "PENDING", final_outcome: "n/a"`. Resolves when the operator runs `scripts/escalate-to-user.sh --resolve --decision <accept|decline>` (or when an automated finalize runs at session end).
-- **`actor`:** always `claude`.
-- **`details`:** includes the matched pattern, the Bash command (redacted), and the assistant-message text fragment that triggered the detector.
+- **`actor: "claude"`** — the Stop arm matched the assistant's own message. Starts as `user_response: "PENDING", final_outcome: "recorded_only"` and raises the pending-approval sentinel, which blocks commits until the operator resolves it with `scripts/pending-approval.sh --resolve --decision <accept|decline|false-positive>`. `false-positive` requires `--reason "<why>"` and records it on the row as `details.false_positive_reason`; it is for matched text that was never a proposal (a rule quoted, a document described).
+- **`actor: "tool_output"`** — the PostToolUse arm matched a tool's output: a file the session read, a program's stdout. Authorship is not established, so the row is written for the record with `user_response: "n/a", final_outcome: "recorded_only"`, and no sentinel is raised. Reading `CLAUDE.md`'s own prohibitions, or this ledger, produces rows of this kind and blocks nothing.
+- **`details`:** the matched pattern, the hook event, the line of text that matched (`excerpt`), and the severity.
 
 ### `terminal_commit_blocked`
 
@@ -148,6 +148,12 @@ jq '[.[] | select(.actor == "user_terminal" or .actor == "user_terminal_inferred
 
 # 3. All currently-PENDING bypass proposals (operator never resolved).
 jq '[.[] | select(.user_response == "PENDING")] | .[] | {ts: .timestamp, type: .type, actor: .actor, details: .details}' .claude/bypass-audit.json
+
+# 3b. Proposals the operator closed as false positives, with the reason each time (BL-277).
+jq '[.[] | select(.user_response == "false_positive")] | .[] | {ts: .timestamp, pattern: .details.pattern, reason: .details.false_positive_reason}' .claude/bypass-audit.json
+
+# 3c. Bypass-shaped text that came back through a tool — recorded, never a proposal (BL-277).
+jq '[.[] | select(.actor == "tool_output")] | group_by(.details.pattern) | map({pattern: .[0].details.pattern, count: length})' .claude/bypass-audit.json
 
 # 4. All escalations and their outcomes.
 jq '[.[] | select(.type == "escalation")] | .[] | {ts: .timestamp, response: .user_response, outcome: .final_outcome, details: .details}' .claude/bypass-audit.json
