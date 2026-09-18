@@ -2991,7 +2991,7 @@ all, so a *scaffolded* project upgraded to organizational is verified against th
 for ever. Neither is adoption's defect; both are named because an adoptee receives every script
 involved.
 
-### §8.3c — v2.2's author-proposed mechanisms, indexed (M1–M16), and which ruling constrains each
+### §8.3c — v2.2's author-proposed mechanisms, indexed (M1–M17), and which ruling constrains each
 
 Every mechanism this amendment adds is labelled at its point of use; this index exists so a
 reviewer can find them all and see, per row, what is RULED (Karl's, may not be attacked) and what
@@ -3015,6 +3015,7 @@ implementation freedom §0.1's third column has always reserved.
 | M13 | `inProduction`'s name and home; the exemption predicate `adopted == true and assessment.inProduction == true`; `active_delta.exemption` and `.adoption_exemptions[]`; the resume order (an open delta first, never a greeting); `validate.sh`'s report widened | **R2** (the exemption, its population, its being recorded and visible are ruled) | §3.6, §8.5, §10-WP12c |
 | M14 | The #418 key map as a seventh `_scout_prefill_table` column; `accessibility` → `accessibility_target`; the two-way drift check on the WP2 canary; the D7-axes map | none (contributor issue #418; `## BL-282:` stays Karl's) | §5.2 |
 | M15 | The v1 stamp's migration closed by derivation over the readers | D10 (does not reach back) | §8.3 |
+| M17 | **The CDF install and the Solo hook roster are separable, and WP9c registers the roster whatever the clone does** | R-CDF (Karl, 2026-09-18) | §8.7a row 33, §10-WP9c, §12 item 29 |
 | M16 | **A regular file at the hooks path is refused at step 0** (tested on the same two paths as the symlink rule), beside R1's ruled symlink refusal (§2.1, §8.1, §10-WP9d item (iii)). The ruling names symlinks; this is the same refusal for the one remaining shape that reaches `mkdir` and fails after the adoption commit (§13-V48-C). Author-proposed: Karl ruled the symlink case, not this one. | R1 (extended 2026-09-17) | §2.1, §8.1, §10-WP9d |
 
 ### §8.4 — Fail-safe order — the between-acts row, and the Act 3/4 rows (A2)
@@ -3756,7 +3757,15 @@ each needs a backlog number, which is the supervisor's to mint:**
     greenfield's manifest base shape, every CDF rule and hook, and the condition under which the
     Solo hook roster is even registered come from `~/.claude-dev-framework/scripts/init.sh`, which
     adoption never runs. Whether an adoptee should receive it — a network clone into `$HOME`,
-    non-fatal in `init.sh` when it fails — is a question for Karl. *Gap — `## BL-296:`.*
+    non-fatal in `init.sh` when it fails — **was a question for Karl and is RULED: 2026-09-18, YES,
+    an adoptee receives it on the same terms a scaffolded project does.** The ruling settles whether;
+    it settles nothing about how, and WP9c owns the how: this is a NETWORK CLONE into `$HOME`, the
+    one thing adoption would write outside the repository it is adopting, so §8.2's rehearsal
+    (`# BL-225-PREWRITE-CALL`, which copies the ADOPTEE) says nothing about it and the design must
+    state what a failure does — `init.sh` carries on. **The roster half is ruled with it:** the Solo
+    hook roster registers INDEPENDENTLY of the CDF branch, because a roster that registers only
+    inside `if [ "$framework_valid" = true ]` is a gate a network failure switches off, which is
+    `## BL-147:`'s class. *Gap — `## BL-296:`, ruled and not designed.*
 30. **The adoption window** — a stamped, staged, uncommitted adoptee whose re-run says *already
     adopted — run resume.sh* (§13-V33). A3/WP9d. *Defect — `## BL-291:`.*
 34. **Item (6)'s `python3` disclosure is specified and NOT BUILT** (2026-09-18). Every other half
