@@ -1447,17 +1447,31 @@ _cpg_warn_no_gate_section() {
 #
 # _cpg_record_single_authority_attestation <gate_key> <reason>
 #   0 — recorded (or idempotent no-op: same reason AND same head)
-#   2 — could not write (no jq, unwritable state file, lock timeout, jq error)
+#   2 — could not write (no jq, unwritable or read-only state file, lock
+#       timeout, jq error). Every failure path returns 2; the caller treats
+#       any non-zero as "refuse".
 _cpg_record_single_authority_attestation() {
   local _sa_gate="$1" _sa_reason="$2"
   local file=".claude/process-state.json"
   local _sa_head _sa_cur_reason _sa_cur_head today actor lock_dir attempts rc
 
   command -v jq >/dev/null 2>&1 || return 2
+  # A read-only state file is refused up front. Without this, `mv` of the
+  # temp file over it would succeed on any writable directory and the
+  # refusal text below ("make the state file writable") would describe a
+  # case that in fact accepted — measured by the pre-merge review (RV4).
+  if [ -e "$file" ]; then
+    [ -w "$file" ] || return 2
+  fi
 
-  # The commit this attestation EXCUSES. An escape that never expires is a
-  # permanent bypass — the principle `_cpg_record_accum_attestation` states at
-  # its own head pin. Computed BEFORE the idempotence check, which reads it.
+  # The commit this attestation EXCUSES, recorded so the audit trail says
+  # which tree the human accepted the unmet condition for. The pin is an
+  # AUDIT FIELD and the idempotence key; nothing reads it back to decide the
+  # gate's outcome. The attestation must be supplied on every invocation, and
+  # a run without it refuses exactly as before. That is deliberately narrower
+  # than `_cpg_record_accum_attestation`, which reads its own pin back: this
+  # is a governance exception, and re-supplying it each time is the point.
+  # Computed BEFORE the idempotence check, which reads it.
   _sa_head=$(git rev-parse HEAD 2>/dev/null || printf '')
 
   if [ -f "$file" ]; then
@@ -1471,8 +1485,6 @@ _cpg_record_single_authority_attestation() {
     if [ "$_sa_cur_reason" = "$_sa_reason" ] && [ "$_sa_cur_head" = "$_sa_head" ]; then
       return 0
     fi
-  else
-    printf '{}\n' > "$file" 2>/dev/null || return 2
   fi
 
   today=$(date +%Y-%m-%d)
@@ -1487,6 +1499,12 @@ _cpg_record_single_authority_attestation() {
     fi
     sleep 0.1
   done
+
+  # Created INSIDE the lock, as the sibling recorder's comment requires: a
+  # concurrent writer must never observe a half-built file.
+  if [ ! -f "$file" ]; then
+    printf '{}\n' > "$file" 2>/dev/null || { rmdir "$lock_dir" 2>/dev/null; return 2; }
+  fi
 
   rc=0
   (
@@ -1506,7 +1524,10 @@ _cpg_record_single_authority_attestation() {
     fi
   ) || rc=1
   rmdir "$lock_dir" 2>/dev/null || true
-  return "$rc"
+  if [ "$rc" -ne 0 ]; then
+    return 2
+  fi
+  return 0
 }
 
 # _cpg_single_authority_gate <gate_key> <gate_label>

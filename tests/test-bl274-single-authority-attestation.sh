@@ -18,18 +18,27 @@
 #   the route works, by EXIT CODE ....... A13 (exit 0 attested), A14 (non-zero
 #                                         without, on the identical project)
 #   every refusal blocks, by EXIT CODE .. A5 blank reason, A17 reason unset,
-#                                         A9 unrecordable, A20 no gate key,
-#                                         A21 a value other than exactly 1
+#                                         A9 unrecordable path, A22 no jq on
+#                                         PATH, A23 read-only state file,
+#                                         A20 no gate key, A21 a value other
+#                                         than exactly 1
 #   it is recorded ...................... A6+A7 per gate and pinned to HEAD,
+#                                         with the SANITISED reason,
 #                                         A8 re-pinned when HEAD moves,
 #                                         A19 one record per gate
 #   it never CLAIMS anything ............ A3 names §XIV item 5 as BLOCKING and
 #                                         REMAINS UNMET, A18 on every firing,
 #                                         A4 bars the vocabulary of a finished
-#                                         check across the whole block,
+#                                         check across the whole block AND any
+#                                         [OK]/[PASS]-led line of the code's
+#                                         own about the attestation,
 #                                         A10/A15/A16 an operator reason cannot
 #                                         forge an [OK]-led line
 #   controls, green before the change ... A1, A11, A12, A14, A21
+#
+# The record is an audit trail and an idempotence key. Nothing reads the head
+# pin back to decide anything: the attestation must be supplied on every
+# invocation, and a run without it refuses exactly as before (A1, A14).
 #
 # Every case is a FUNCTION taking the script path, so a mutant is killed by the
 # case itself run against the mutated mirror, never by a re-typed copy of it.
@@ -158,8 +167,13 @@ state_field() {
   jq -r "$1 // \"\"" "$PROJ/.claude/process-state.json" 2>/dev/null || printf ''
 }
 
-# The attestation's own block: from its label to the line citing the entry.
-att_block() { printf '%s\n' "$OUT" | sed -n '/\[ATTESTED\]/,/See ## BL-274:/p'; }
+# The attestation's own block: from its label to the line citing the entry,
+# PLUS the line after it, so a receipt appended to the block is inside the
+# window a case inspects (RV1 in the pre-merge review appended one and the
+# earlier window, which ended at the citation, never saw it).
+att_block() {
+  printf '%s\n' "$OUT" | awk '/\[ATTESTED\]/{f=1} f{print; if (done) exit} f && /See ## BL-274:/{done=1}'
+}
 ok_led()    { grep -cE '^[[:space:]]*(\[OK\]|.\[0;32m[[:space:]]*\[OK\])' || true; }
 self_fail() { printf '%s\n' "$OUT" | grep -qE "\[FAIL\].*self-approval detected"; }
 
@@ -202,6 +216,16 @@ case_A4() {   # never the vocabulary of a finished check, anywhere in the block
   if printf '%s\n' "$b" | grep -qiE 'verif|satisf|passed|complete'; then
     WHY="the block uses the vocabulary of a finished check: $(printf '%s\n' "$b" | grep -iE 'verif|satisf|passed|complete' | head -1)"; return 1
   fi
+  # No verdict LABEL of the code's own either. `[ATTESTED]` is the block's
+  # label; an `[OK]`- or `[PASS]`-led line inside it, or anywhere in the
+  # transcript about the attestation, is `## BL-256:`'s receipt for a check
+  # that never happened, printed by the mechanism rather than the operator.
+  if printf '%s\n' "$b" | grep -qE '^[[:space:]]*(.\[[0-9;]*m)?[[:space:]]*\[(OK|PASS)\]'; then
+    WHY="the block carries a verdict-labelled line: $(printf '%s\n' "$b" | grep -E '\[(OK|PASS)\]' | head -1)"; return 1
+  fi
+  if printf '%s\n' "$OUT" | grep -E '^[[:space:]]*(.\[[0-9;]*m)?[[:space:]]*\[(OK|PASS)\]' | grep -qiE 'attest|single-authority'; then
+    WHY="an [OK]/[PASS]-led line about the attestation appears in the transcript: $(printf '%s\n' "$OUT" | grep -E '\[(OK|PASS)\]' | grep -iE 'attest|single-authority' | head -1)"; return 1
+  fi
 }
 
 # Shared by A5 and A17: a refusal for want of a reason must NAME the missing
@@ -228,13 +252,20 @@ case_A17() {  # the reason variable absent altogether
   teardown; return $r
 }
 
-case_A6A7() { # recorded per gate, pinned to the commit it excuses
+# The reason supplied carries a tab and a backslash-n; what must be recorded is
+# the SANITISED text, the same bytes the transcript shows. Recording the raw
+# variable instead is `accum_oneline`'s "a stored value reaches the transcript"
+# class waiting for a reader.
+DIRTY_REASON=$'Example Ltd has one\ttechnical director\\n who is both STA and Orchestrator.'
+CLEAN_REASON=$(printf '%s' "$DIRTY_REASON" | LC_ALL=C tr -d '\000-\037\\')
+case_A6A7() { # recorded per gate, pinned to the commit it excuses, sanitised
   [ "$have_jq" -eq 1 ] || { WHY="jq is not installed — a case that cannot run must not pass"; return 1; }
+  [ "$DIRTY_REASON" != "$CLEAN_REASON" ] || { WHY="fixture invalid — the dirty reason has nothing to strip"; return 1; }
   setup_minimal organizational "$SOLO_NAME" "$SOLO_NAME" "$SOLO_MAIL"
-  attested "$1" "$REASON"
+  attested "$1" "$DIRTY_REASON"
   local head_sha r=0
   head_sha=$( cd "$PROJ" && git rev-parse HEAD )
-  [ "$(state_field "$ST.phase_0_to_1.reason")" = "$REASON" ] || { WHY="reason not recorded verbatim"; r=1; }
+  [ "$(state_field "$ST.phase_0_to_1.reason")" = "$CLEAN_REASON" ] || { WHY="the recorded reason is not the sanitised text (got: $(state_field "$ST.phase_0_to_1.reason" | od -c | head -2 | tr -s ' ' | tr '\n' ' '))"; r=1; }
   [ -n "$(state_field "$ST.phase_0_to_1.date")" ] || { WHY="no date recorded"; r=1; }
   [ -n "$(state_field "$ST.phase_0_to_1.by")" ]   || { WHY="no actor recorded"; r=1; }
   [ "$(state_field "$ST.phase_0_to_1.gate")" = "phase_0_to_1" ] || { WHY="gate key not recorded"; r=1; }
@@ -270,6 +301,64 @@ case_A9() {   # a record that cannot be written → refused, and the gate BLOCKS
     || { WHY="not refused on the grounds that the attestation could not be recorded"; r=1; }
   [ "$RC" -ne 0 ] || { WHY="the gate exited 0 with an attestation it could not record — a route that leaves no trace"; r=1; }
   if printf '%s\n' "$OUT" | grep -q '\[ATTESTED\]'; then WHY="an unrecordable attestation was ACCEPTED"; r=1; fi
+  teardown; return $r
+}
+
+# A PATH that mirrors the real one minus jq, built once. An allow-list of "the
+# tools the gate needs" is a guess; excluding the one tool under test is a fact
+# (the shape `tests/test-bl233-wpb-accumulation.sh` A6 arrived at).
+NOJQ=""
+build_nojq() {
+  [ -z "$NOJQ" ] || return 0
+  NOJQ=$(mktemp -d)/bin; mkdir -p "$NOJQ"
+  local _ifs="$IFS" _p _x _n
+  IFS=:
+  for _p in $PATH; do
+    IFS="$_ifs"
+    if [ -d "$_p" ]; then
+      for _x in "$_p"/*; do
+        [ -x "$_x" ] || continue
+        _n="${_x##*/}"
+        [ "$_n" = "jq" ] && continue
+        [ -e "$NOJQ/$_n" ] && continue
+        ln -s "$_x" "$NOJQ/$_n" 2>/dev/null
+      done
+    fi
+    IFS=:
+  done
+  IFS="$_ifs"
+}
+case_A22() {  # jq absent → the record cannot be written → refused, BLOCKS
+  build_nojq
+  if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then WHY="the isolated PATH still resolves jq — the fixture would measure nothing"; return 3; fi
+  # PREMISE under the same PATH: an independent approver must still exit 0,
+  # or the non-zero below is not attributable to the refusal.
+  setup_clean "Alice Approver" "Bob Other" "bob@x.test"
+  run_gate "$1" "PATH=$NOJQ"; teardown
+  [ "$RC" -eq 0 ] || { WHY="without jq the clean project with an INDEPENDENT approver exits $RC, so the exit code below would not be attributable"; return 3; }
+  setup_clean "$SOLO_NAME" "$SOLO_NAME" "$SOLO_MAIL"
+  run_gate "$1" "PATH=$NOJQ" SOLO_SINGLE_AUTHORITY_ATTESTED=1 "SOLO_SINGLE_AUTHORITY_ATTESTED_REASON=$REASON"
+  local r=0
+  printf '%s\n' "$OUT" | grep -q 'COULD NOT BE RECORDED' || { WHY="without jq the attestation was not refused as unrecordable"; r=1; }
+  [ "$RC" -ne 0 ] || { WHY="without jq the gate exited 0 — an attestation accepted with no record"; r=1; }
+  if printf '%s\n' "$OUT" | grep -q '\[ATTESTED\]'; then WHY="without jq the attestation was ACCEPTED"; r=1; fi
+  teardown; return $r
+}
+
+case_A23() {  # a read-only state file → refused, BLOCKS, file untouched
+  [ "$(id -u)" -ne 0 ] || { WHY="running as root — a read-only file is writable to root, so this case cannot measure"; return 3; }
+  setup_clean "$SOLO_NAME" "$SOLO_NAME" "$SOLO_MAIL"
+  printf '{"note":"pre-existing"}\n' > "$PROJ/.claude/process-state.json"
+  chmod 0444 "$PROJ/.claude/process-state.json"
+  local before after r=0
+  before=$(cksum < "$PROJ/.claude/process-state.json")
+  attested "$1" "$REASON"
+  after=$(cksum < "$PROJ/.claude/process-state.json")
+  printf '%s\n' "$OUT" | grep -q 'COULD NOT BE RECORDED' || { WHY="a read-only state file was not refused as unrecordable"; r=1; }
+  [ "$RC" -ne 0 ] || { WHY="a read-only state file and the gate exited 0"; r=1; }
+  if printf '%s\n' "$OUT" | grep -q '\[ATTESTED\]'; then WHY="the attestation was ACCEPTED over a read-only state file"; r=1; fi
+  [ "$before" = "$after" ] || { WHY="the read-only state file was replaced"; r=1; }
+  chmod 0644 "$PROJ/.claude/process-state.json" 2>/dev/null
   teardown; return $r
 }
 
@@ -401,9 +490,11 @@ case_A21() {  # CONTROL: only the exact value 1 offers the attestation
 }
 
 run_case() {  # <id> <function> <description>
+  local rc=0
   echo "$1: $3"
   WHY=""
-  if "$2" "$SCRIPT"; then pass "$1"; else fail_ "$1" "$WHY"; fi
+  "$2" "$SCRIPT" || rc=$?
+  case "$rc" in 0) pass "$1" ;; 3) setup_ "$1" "$WHY" ;; *) fail_ "$1" "$WHY" ;; esac
 }
 
 run_case A1    case_A1    "CONTROL — no attestation: the self-approval FAIL still fires"
@@ -412,9 +503,11 @@ run_case A3    case_A3    "the block names §XIV item 5 as a BLOCKING pre-condit
 run_case A4    case_A4    "the block says NOT applied and never uses the vocabulary of a finished check"
 run_case A5    case_A5    "whitespace-only reason: refused by name, exit non-zero, nothing recorded"
 run_case A17   case_A17   "reason variable unset: refused by name, exit non-zero, nothing recorded"
-run_case A6+A7 case_A6A7  "recorded under the gate's key with reason/date/actor, pinned to git rev-parse HEAD"
+run_case A6+A7 case_A6A7  "recorded under the gate's key with the SANITISED reason, date, actor, pinned to git rev-parse HEAD"
 run_case A8    case_A8    "same reason at a NEW head: the pin is refreshed"
 run_case A9    case_A9    "the record cannot be written: refused, exit non-zero"
+run_case A22   case_A22   "jq absent from PATH: refused as unrecordable, exit non-zero, no [ATTESTED]"
+run_case A23   case_A23   "read-only state file: refused as unrecordable, exit non-zero, file untouched"
 run_case A10   case_A10   "a reason carrying an escaped newline cannot forge an [OK] line"
 run_case A11   case_A11   "CONTROL — personal deployment: the route never fires"
 run_case A12   case_A12   "attested with nothing to excuse: silent, nothing recorded"
@@ -465,6 +558,28 @@ mutate_at() {
   bash -n "$MG" 2>/dev/null || { WHY="the mutant does not parse"; return 3; }
 }
 
+# insert_after <anchor-literal> <offset> <expected-literal> <new-line>
+#   Same contract as mutate_at, for a mutation that ADDS a line: the target
+#   line must hold <expected>, the file must grow by exactly one line, the new
+#   line must sit at target+1, and the file must still parse.
+insert_after() {
+  local anchor="$1" off="$2" expect="$3" newline="$4" n aline target cur n1 n2
+  n=$(grep -c -F -- "$anchor" "$MG" || true)
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  [ "$n" -eq 1 ] || { WHY="anchor '$anchor' occurs on $n lines, need exactly 1"; return 3; }
+  aline=$(grep -n -F -- "$anchor" "$MG" | cut -d: -f1)
+  target=$((aline + off))
+  cur=$(sed -n "${target}p" "$MG")
+  case "$cur" in *"$expect"*) ;; *) WHY="line anchor${off} does not hold the expected literal '$expect' (found: $cur)"; return 3 ;; esac
+  n1=$(wc -l < "$MG")
+  BL274_LINE="$target" BL274_NEW="$newline" \
+    perl -pi -e 'if ($. == $ENV{BL274_LINE}) { $_ .= $ENV{BL274_NEW} . "\n" }' "$MG"
+  n2=$(wc -l < "$MG")
+  [ "$((n1 + 1))" -eq "$n2" ] || { WHY="line count moved by $((n2 - n1)), not 1"; return 3; }
+  [ "$(sed -n "$((target + 1))p" "$MG")" = "$newline" ] || { WHY="the inserted line is not at target+1"; return 3; }
+  bash -n "$MG" 2>/dev/null || { WHY="the mutant does not parse"; return 3; }
+}
+
 A_SA='# BL-274-SINGLE-AUTHORITY'
 A_WR='# BL-274-ATTEST-WRITE'
 A_RF='# BL-274-ATTEST-REFUSE'
@@ -473,9 +588,14 @@ A_RF='# BL-274-ATTEST-REFUSE'
 #   The named case must turn red on the mirror. The optional control must stay
 #   green on it, which shows the mutant is the narrow one its name claims.
 expect_kill() {
+  local rc=0
   WHY=""
-  if "$3" "$MG"; then
+  "$3" "$MG" || rc=$?
+  if [ "$rc" -eq 0 ]; then
     fail_ "$1" "SURVIVED — $2 stays green on the mutant"
+    return
+  elif [ "$rc" -eq 3 ]; then
+    setup_ "$1" "$2 could not run on the mutant: $WHY"
     return
   fi
   local killed_why="$WHY"
@@ -508,9 +628,9 @@ if mutate_at "$A_SA" 40 'XIV item 5' 'a governance section'; then
 else setup_ MT2 "$WHY"; fi
 unmirror
 
-echo "MT3: idempotence made reason-only (ATTEST-WRITE -28) → A8"
+echo "MT3: idempotence made reason-only (ATTEST-WRITE -32) → A8"
 mirror
-if mutate_at "$A_WR" -28 '[ "$_sa_cur_reason" = "$_sa_reason" ] && [ "$_sa_cur_head" = "$_sa_head" ]' '[ "$_sa_cur_reason" = "$_sa_reason" ]'; then
+if mutate_at "$A_WR" -32 '[ "$_sa_cur_reason" = "$_sa_reason" ] && [ "$_sa_cur_head" = "$_sa_head" ]' '[ "$_sa_cur_reason" = "$_sa_reason" ]'; then
   expect_kill MT3 A8 case_A8 A6+A7 case_A6A7
 else setup_ MT3 "$WHY"; fi
 unmirror
@@ -564,6 +684,39 @@ mirror
 if mutate_at "$A_SA" 16 'if [ -z "$_sa_reason" ]; then' 'if false; then'; then
   expect_kill MT10 A17 case_A17 A13 case_A13
 else setup_ MT10 "$WHY"; fi
+unmirror
+
+echo "MT11: an [OK]-led receipt of the code's own appended to the block (SINGLE-AUTHORITY +41, insertion) → A4"
+mirror
+# The pre-merge review's RV1: the block stays word-perfect and a fifth line
+# says [OK]. Nothing an operator supplies; the mechanism's own receipt.
+if insert_after "$A_SA" 41 'Recorded to .claude/process-state.json' '    echo "  [OK] $_sa_label: single-authority attestation recorded"'; then
+  expect_kill MT11 A4 case_A4 A3 case_A3
+else setup_ MT11 "$WHY"; fi
+unmirror
+
+echo "MT12: the recorder returns 0 instead of 2 when jq is absent (ATTEST-WRITE -59) → A22"
+mirror
+# The pre-merge review's RV8: with jq absent the recorder would report
+# success without writing, and a clean project would exit 0 with no record.
+if mutate_at "$A_WR" -59 'command -v jq >/dev/null 2>&1 || return 2' 'command -v jq >/dev/null 2>&1 || return 0'; then
+  expect_kill MT12 A22 case_A22 A13 case_A13
+else setup_ MT12 "$WHY"; fi
+unmirror
+
+echo "MT13: the RAW environment variable recorded instead of the sanitised reason (SINGLE-AUTHORITY +28) → A6+A7"
+mirror
+# The pre-merge review's RV11.
+if mutate_at "$A_SA" 28 'if _cpg_record_single_authority_attestation "$_sa_gate" "$_sa_reason"; then' 'if _cpg_record_single_authority_attestation "$_sa_gate" "$SOLO_SINGLE_AUTHORITY_ATTESTED_REASON"; then'; then
+  expect_kill MT13 A6+A7 case_A6A7 A13 case_A13
+else setup_ MT13 "$WHY"; fi
+unmirror
+
+echo "MT14: the read-only guard on the state file removed (ATTEST-WRITE -53) → A23"
+mirror
+if mutate_at "$A_WR" -53 '[ -w "$file" ] || return 2' ': # MUTANT: writability not checked'; then
+  expect_kill MT14 A23 case_A23 A13 case_A13
+else setup_ MT14 "$WHY"; fi
 unmirror
 
 # A20 needs a gate whose call site passes no key. No shipped call site does, so
