@@ -472,12 +472,13 @@ render_intake_file() {
       jq -r '
         # `## BL-301:` — the value cell was escaped and the key cell was not.
         # --set-answer now accepts any key already in answers/, so a key with
-        # a pipe, a newline or a backtick is reachable, and raw it opens a
-        # column, splits the row or closes the code span. A key with backticks
+        # a pipe, a line ending or a backtick is reachable, and raw it opens a
+        # column, splits the row or closes the code span. A lone carriage
+        # return is a line ending to a CommonMark renderer. A key with backticks
         # gets a delimiter one longer than its longest run, space-padded.
         def keycell:
           gsub("\\|"; "\\|")  # BL-301-KEY-ESCAPE-PIPE
-          | gsub("\n"; " ")  # BL-301-KEY-ESCAPE-NEWLINE
+          | gsub("[\r\n]+"; " ")  # BL-301-KEY-ESCAPE-NEWLINE
           | ([match("`+"; "g").length] | max // 0) as $n  # BL-301-KEY-ESCAPE-TICK
           | ("`" * ($n + 1)) as $d
           | if $n > 0 then $d + " " + . + " " + $d else $d + . + $d end;

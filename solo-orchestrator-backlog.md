@@ -17821,7 +17821,13 @@ where none does, with the key map held as data and drift-checked against `intake
 `save_answer` set. That second half is being designed into the brownfield architecture now
 (ADOPT-002-ARCH v2.2, in progress) and will be built with it; the first half is `## BL-282:`'s
 route, so a PR for the wizard side — the generic setter accepting adoption-recorded keys, plus the
-suite — is welcome. Adversarial review before merge."*
+suite — is welcome. Adversarial review before merge."* His merged design records the same ruling
+as `## BL-282:`'s option 2 widened — `docs/designs/2026-08-23-brownfield-adoption-v2.md` §12 item
+28: *"a generic setter on the wizard — widened to accept any key already present in the progress
+file's `answers`, adoption-recorded keys included (#418's option 3), so projects adopted before the
+rename can be amended"* — and designs the driver half in its §5.2 (M14): the key map as data in
+`_scout_prefill_table`, `accessibility` → `accessibility_target` the one rename, a two-way drift
+check against the `save_answer` set, all WP12a's. That is the half this entry does not touch.
 
 **The case, measured 2026-09-17 on `91b5066` (the `## BL-282:` tip; on `main` at `579b0b0` the flag
 does not exist at all).** `scripts/lib/scout/scout-prefill.sh`'s `_scout_prefill_table` names
@@ -17885,11 +17891,16 @@ wizard's set — so an accepted adoption-recorded key is always rendered: its An
 That claim was too wide in the first cut, and the review said so: the renderer escaped the VALUE
 cell and not the KEY cell, and this route is what makes an awkward key reachable (I2). The key cell
 is now escaped by a `keycell` function in the same jq program — a pipe is backslash-escaped so it
-does not open a column (D3; `# BL-301-KEY-ESCAPE-PIPE`), a newline becomes a space so it does not
-split the row (D4; `# BL-301-KEY-ESCAPE-NEWLINE`), and a key containing backticks gets a code-span
-delimiter one backtick longer than its longest run, space-padded, so it does not close the span
-(D5; `# BL-301-KEY-ESCAPE-TICK`). Each case asserts the exact row and that the table still has one
-row per answer. An ordinary key renders byte-for-byte as before (D1, and `## BL-282:`'s H4 and H5).
+does not open a column (D3; `# BL-301-KEY-ESCAPE-PIPE`), a line ending becomes a space so it does
+not split the row — a NEWLINE (D4) and a lone CARRIAGE RETURN (D6), which cmark-gfm also treats as
+a line ending and which the second review found still splitting the row (`# BL-301-KEY-ESCAPE-NEWLINE`)
+— and a key containing backticks gets a code-span delimiter one backtick longer than its longest
+run, space-padded, so it does not close the span (D5; `# BL-301-KEY-ESCAPE-TICK`). Each case
+asserts the exact row and that the table region still has exactly one line per answer plus its
+two header lines, counted the way a renderer reads it: carriage returns turned into line feeds
+first, and EVERY non-blank line counted, since the second half of a split row does not start with a
+pipe. An ordinary key renders byte-for-byte as before (D1, and `## BL-282:`'s H4 and H5). The VALUE
+cell's line-ending escape is `## BL-282:`'s and has the same carriage-return gap; that is fixed there.
 Everything in `PROJECT_INTAKE.md` ABOVE the appendix is preserved byte for byte (D2) — see the first
 residual.
 
@@ -17911,25 +17922,28 @@ byte-identical and no payload file created (I1). A RECORDED key carrying `.`, `"
 amended under exactly that key: the answer count is unchanged, no sibling moves, a `$(…)` in the
 VALUE stays literal (I2).
 
-**Suite:** `tests/test-bl301-adoption-recorded-keys.sh` — 58 cases driving the real wizard from an
+**Suite:** `tests/test-bl301-adoption-recorded-keys.sh` — 60 cases driving the real wizard from an
 adopted-shape fixture, stdin closed, the wizard run under the same interpreter as the suite
 (`$BASH`). Registered in `tests/full-project-test-suite.sh` and the `tests.yml` unit lane, beside
 `## BL-282:`'s.
 
 | Run | BL-301 suite | BL-282 suite |
 |---|---|---|
-| parent (the wizard at `e151dc0`, `## BL-282:`'s tip), `/bin/bash` 3.2.57 | **11 passed / 47 failed** | 36 / 0 |
-| parent, Homebrew bash 5.3.15 | **11 passed / 47 failed** | 36 / 0 |
-| head, `/bin/bash` 3.2.57 (`PATH=/bin:$PATH`, inner wizard 3.2.57) | 58 / 0 | 36 / 0 |
-| head, Homebrew bash 5.3.15 | 58 / 0 | 36 / 0 |
-| head, `ubuntu:24.04`, non-root user, bash 5.2.21, python 3.12.3, jq 1.7 | 58 / 0 | 36 / 0 |
+| parent (the wizard at `6a4205f`, `## BL-282:`'s final tip), `/bin/bash` 3.2.57 | **11 passed / 49 failed** | 41 / 0 |
+| parent, Homebrew bash 5.3.15 | **11 passed / 49 failed** | 41 / 0 |
+| head, `/bin/bash` 3.2.57 (`PATH=/bin:$PATH`, inner wizard 3.2.57) | 60 / 0 | 41 / 0 |
+| head, Homebrew bash 5.3.15 | 60 / 0 | 41 / 0 |
+| head, `ubuntu:24.04`, non-root user, bash 5.2.21, python 3.12.3, jq 1.7 | 60 / 0 | 41 / 0 |
 
 (The first cut of this fix, `711e8a1`, carried a 38-case suite and was measured against `91b5066`
 before `## BL-282:`'s write-status arm existed: 8 / 30 at the parent and 38 / 0 at head, beside a
-25-case BL-282 suite. The adversarial review reproduced those figures and returned
+25-case BL-282 suite. The first adversarial review reproduced those figures and returned
 `major_concerns` on the SUITE, not the code; N3, D3–D5, MA8–MA15 and the setup/kill distinction are
-its findings applied. The table above is the re-measurement of the 58-case suite after
-`## BL-282:`'s write-status arm, its competency bound and `main` at `363e48d` were merged in.)
+its findings applied. The second review, of `b8e4725`, returned `block` — on `## BL-282:`'s
+`e151dc0`, whose competency helper matched its own grep pattern and reddened the unit-shard suite
+`tests/test-intake-wizard-fixes.sh` (T5, 25 / 1), fixed on that branch — and, on this fix, the
+carriage-return gap (D6, MA16), the control amends inside every mutant fixture, and two wording
+corrections. The table above is the re-measurement of the 60-case suite with all of that merged in.)
 
 The eleven green at the parent are green BY DESIGN and none is counted as evidence for the fix: C1,
 R1, R2 (wizard-owned keys — the no-regression pins), G1 ×3 (the guard below), N1, N2, N3, N4 and
@@ -17937,15 +17951,15 @@ I1 (refusals that must survive; N3's teeth are shown by MA8–MA11, not by the p
 `## BL-282:`'s bound holding). A2 and D2 assert "unchanged" and would have passed at the parent on a
 refusal that wrote nothing, so both are conditioned on exit 0 and are red there.
 
-**What the 47 reds at the parent are — not all of them are evidence, and only some are
-behavioural.** FOURTEEN are behavioural reds, a verdict or a written state that differs: A1–A8, D1,
-D2, I2 (the adoption-recorded key is refused at exit 1 where the fix accepts it) and D3–D5 (the same
+**What the 49 reds at the parent are — not all of them are evidence, and only some are
+behavioural.** FIFTEEN are behavioural reds, a verdict or a written state that differs: A1–A8, D1,
+D2, I2 (the adoption-recorded key is refused at exit 1 where the fix accepts it) and D3–D6 (the same
 refusal; at head they then turn on the key-cell escape). FIVE are TEXT-ONLY reds: F1–F5 are refused
 at the parent too, at the same exit code and with the file just as untouched, and are red only
-because the refusal does not yet say `no usable answers object` / `could not read`. TWENTY-EIGHT
+because the refusal does not yet say `no usable answers object` / `could not read`. TWENTY-NINE
 are SETUP reds that say nothing about behaviour at all: thirteen M0 rows (a marker that does not
-exist yet) and fifteen mutants that cannot be applied for the same reason. The suite prints those
-fifteen under their own label and count — `[FAIL] MAn SETUP — NOT A BEHAVIOURAL KILL`, and a
+exist yet) and sixteen mutants that cannot be applied for the same reason. The suite prints those
+sixteen under their own label and count — `[FAIL] MAn SETUP — NOT A BEHAVIOURAL KILL`, and a
 closing NOTE with the number — because the review found that a mutant on the `# BL-301-IN-ANSWERS`
 line turned this suite red only by making MA6's own `sed` stop matching, which is a kill by
 brittleness and must never be read as the suite catching something.
@@ -17957,7 +17971,7 @@ if any were ever to become wizard-owned — which is precisely what ADOPT-002-AR
 do, and what `competency_matrix` WAS until `## BL-282:`'s bound — G1 fails and says the A-cases
 have gone vacuous, instead of letting them pass through the other route.
 
-**Mutants — fifteen, on a mirror, each located by distance from `# BL-301-ADOPTION-RECORDED-BEGIN`.**
+**Mutants — sixteen, on a mirror, each located by distance from `# BL-301-ADOPTION-RECORDED-BEGIN`.**
 `mutate` refuses to score a mutant unless the marker ends exactly one line, that line sits exactly
 the stated number of lines from the anchor (negative for the three in `render_intake_file`, which
 is above it), the diff's only hunk is that line, the mutated text is on it, and the result parses.
@@ -17984,6 +17998,24 @@ proof doing its job, and the reason it exists.
 | MA13 | −130 (`# BL-301-KEY-ESCAPE-PIPE`) | pipe escape removed from the key cell | D3 | the amend lands; the exact row is gone |
 | MA14 | −129 (`# BL-301-KEY-ESCAPE-NEWLINE`) | newline escape removed | D4 | the same |
 | MA15 | −128 (`# BL-301-KEY-ESCAPE-TICK`) | backtick delimiter forced to one | D5 | the same |
+| MA16 | −129 (same line as MA14) | line-ending escape narrowed to LF only — what the first cut shipped | D6 | the same, for a carriage return |
+
+**A mutant that applied is not yet a mutant that can be scored (second review, R-301-4).** The
+review deleted a neighbouring line of this fix and watched proofs that expect "accepted" fail in the
+grammar of a SURVIVED mutant ("changed nothing D3 can see") — a false statement about the suite,
+since the wizard was simply broken. So `mutate` now runs two CONTROL amends inside every mutant
+fixture before any proof: a wizard-owned key (`uptime`, `## BL-282:`'s route) and an
+adoption-recorded key (`timeline`, this route), each required to exit 0, write the value, append
+its amendment row AND print its `[OK]` line; either failing is a SETUP failure. MA1 and MA6 run
+the wizard-owned control only, because refusing every recorded key is what those two mutants DO.
+The amendment-row and `[OK]` requirements are not decoration: under bash 3.2.57 a function that
+dies on an unbound variable inside `if fn; then exit 0; fi` leaves the script at exit 0 with the
+answer written and no amendment (measured with `# BL-301-NOTE-DEFAULT`'s line deleted; bash 5
+exits 1), so an exit-code control alone would have passed a broken wizard. Measured on the final
+tree, both shells: with the ANSWERS-READ line deleted, with the NOTE-DEFAULT line deleted, and
+with the NOTE-DEFAULT line rewritten in place so no distance moves, every one of the sixteen
+mutants reports as SETUP (fifteen by the control amend and one by location in the in-place case)
+and none in the survived grammar.
 
 MA8–MA11 are the review's four survivors, landed here with the landed line asserted. Beyond the
 in-suite proof that each mints its near-miss key, the WHOLE suite was run against each mutant
@@ -18013,7 +18045,7 @@ same mutant on the unreadable-file arm, and the same argument: a file that does 
 again by the old-value read, so F5's one-refusal-line assertion is the only thing that sees it.
 
 The score, stated plainly: MA1, MA2, MA4, MA5, MA6 and MA8–MA11 are killed on exit code or written
-state; MA13–MA15 on the exact rendered row; MA3 on the diagnosis alone; MA7 and MA12 on the count of
+state; MA13–MA16 on the exact rendered row; MA3 on the diagnosis alone; MA7 and MA12 on the count of
 refusal lines alone, being equivalent on verdict and state. The three weak proofs assert their exact
 outcome, so each fails loudly the day the second line of defence is relaxed.
 
@@ -18072,16 +18104,28 @@ diff because commits here are never amended; BL-301 is the final number.
    The first cut of this entry said "this route does not have the hole", and the review showed that
    was too wide: an adoption-recorded key that rides `## BL-282:`'s arm reached it. With `answers`
    deleted, `--set-answer competency_matrix X` at `711e8a1` exited 0 with an amendment appended and
-   `[OK]` printed; at this head it is refused at exit 1 with `could not write` and no amendment. The
-   accurate claim is the narrow one: the arm THIS fix adds never had it (F1).
+   `[OK]` printed; at this head it is refused at exit 1, one refusal line, no amendment — and since
+   `## BL-282:`'s competency bound the line is THIS fix's own, `has no usable answers object —
+   nothing written`, because `competency_matrix` now reaches the F1 arm (measured; the second review
+   caught the earlier wording, which named `could not write`). The accurate claim is the narrow one:
+   the arm THIS fix adds never had it (F1).
 6. **Two behaviours the review noted as identical at the parent, not measured by this author and
    not changed here:** on a read-only progress file the route prints "answer written but …" when
    nothing was written, and two concurrent amendments can lose one update (read-modify-write with no
-   lock). Both belong to `## BL-282:`'s write path.
+   lock). Both belong to `## BL-282:`'s write path. A third, from the second review: a recorded key
+   now reaches `print_ok`, whose `echo -e` interprets backslash escapes, so a key containing `\c`
+   truncates the `[OK]` line (a key `a\nb\c` printed `[OK] a`, a newline, `b`, and nothing more);
+   the file state is correct. That is `helpers-core`'s print helper, used by every script, and is
+   being filed as its own entry rather than patched under this flag.
 7. **Not run for this entry:** `tests/full-project-test-suite.sh` and `tests/host-drivers/run-all.sh`
-   as wholes. The change touches no fixture, hook, installer or `init.sh`. Fourteen neighbouring
-   suites that name `intake-wizard.sh` were run at head on macOS after the merges: thirteen green
-   every time. `tests/test-brownfield-wp9-act-boundaries.sh` failed its case `R1b` (the adoption archive
+   as wholes. The change touches no fixture, hook, installer or `init.sh`. The fourteen
+   neighbouring suites that name `intake-wizard.sh` were run on the final tree on macOS: fourteen
+   green. Two things on the way there are worth recording. At `b8e4725`
+   `tests/test-intake-wizard-fixes.sh` was 25 / 1 (T5, "expected 9 competency domains, found 1"),
+   because `## BL-282:`'s `e151dc0` helper carried the literal `local domains=(` in its own grep
+   pattern and the suite's awk found that line first; the entry that said "thirteen green every
+   time" at that point had not re-run the fourteen after that merge, which the second review
+   caught, and `6a4205f` fixes it (26 / 0 here). And `tests/test-brownfield-wp9-act-boundaries.sh` failed its case `R1b` (the adoption archive
    item's conditionality — the collision-free control adoptee came out with an archive) in 5 of
    10 runs across the day, including runs at `91b5066` and on `main` at `579b0b0`, neither of which
    carries this change, and passed the other five at 29 / 0. That was NOT flakiness and NOT the

@@ -65,6 +65,7 @@ ODD_KEY='odd.key"$HOME[0]'
 PIPE_KEY='pipe|key'
 NL_KEY="$(printf 'line\nkey')"
 TICK_KEY='tick`key'
+CR_KEY="$(printf 'cr\rkey')"
 BODY_LINE='- **test_command** (scan-derived): pnmp test:unit'
 
 # mk_adopted <dir> [wizard-file] — a project as adoption leaves it, with a
@@ -80,7 +81,7 @@ mk_adopted() {
   printf '{"project":"P","current_phase":0,"track":"full","deployment":"personal","poc_mode":null}\n' \
     > "$d/.claude/phase-state.json"
   printf '{}\n' > "$d/.claude/process-state.json"
-  jq -n --arg odd "$ODD_KEY" --arg cmd "$OLD_CMD" --arg pk "$PIPE_KEY" --arg nk "$NL_KEY" --arg tk "$TICK_KEY" '
+  jq -n --arg odd "$ODD_KEY" --arg cmd "$OLD_CMD" --arg pk "$PIPE_KEY" --arg nk "$NL_KEY" --arg tk "$TICK_KEY" --arg ck "$CR_KEY" '
     {version: 1, started_at: "2026-09-01T00:00:00Z", last_section: 0, completed_sections: [],
      source: "adopt-project.sh",
      project_name: "P", platform: "", track: "full", deployment: "personal",
@@ -89,7 +90,7 @@ mk_adopted() {
        timeline: "", mvp_features: "", data_classification: "", competency_matrix: "",
        revenue_model: "", governance: "", accessibility: "", uptime: "99.0",
        known_risks: "", test_command: $cmd, tooling: "pnpm",
-       agent_init_prompt: "generated"} + {($odd): "odd-old", ($pk): "p-old", ($nk): "n-old", ($tk): "t-old"})}' \
+       agent_init_prompt: "generated"} + {($odd): "odd-old", ($pk): "p-old", ($nk): "n-old", ($tk): "t-old", ($ck): "c-old"})}' \
     > "$d/.claude/intake-progress.json" || return 1
   {
     printf '# Project Intake\n\nRecorded during adoption on 2026-09-01.\n\n'
@@ -491,16 +492,24 @@ d_case() {
   day="$(jq -r '.amendments[0].at // "" | .[0:10]' "$d/$PROG" 2>/dev/null)"
   want="| $cell | $val (amended $day) |"
   n_ans="$(jq -r '.answers | length' "$d/$PROG" 2>/dev/null)"
-  rows="$(awk '$0 == "### Answers" { t = 1; next } t && /^<!-- INTAKE_ANSWERS_END -->$/ { t = 0 } t && /^\|/ { n++ } END { print n + 0 }' "$d/PROJECT_INTAKE.md")"
-  if [ "$WIZ_RC" -eq 0 ] && [ -n "$day" ] && grep -q -F -x -- "$want" "$d/PROJECT_INTAKE.md" && [ "$rows" -eq $((n_ans + 2)) ]; then
-    pass "$id — $label: the row reads [$want] and the table has $rows lines for $n_ans answers"
+  # The table is read the way a CommonMark renderer reads it: a lone CARRIAGE
+  # RETURN ends a line too (review R-301-2 — cmark-gfm split a CR key into two
+  # rows), so CR is turned into LF first. And EVERY non-blank line of the
+  # table region is counted, not only lines that start with a pipe: the second
+  # half of a split row does not start with one, which is how the first cut of
+  # this counter could not see a split at all.
+  tr '\r' '\n' < "$d/PROJECT_INTAKE.md" > "$d/intake.lf"
+  rows="$(awk '$0 == "### Answers" { t = 1; next } t && /^<!-- INTAKE_ANSWERS_END -->$/ { t = 0 } t && NF { n++ } END { print n + 0 }' "$d/intake.lf")"
+  if [ "$WIZ_RC" -eq 0 ] && [ -n "$day" ] && grep -q -F -x -- "$want" "$d/intake.lf" && [ "$rows" -eq $((n_ans + 2)) ]; then
+    pass "$id — $label: the row reads [$want] and the table region has $rows lines for $n_ans answers"
   else
-    fail_ "$id" "$label: rc=$WIZ_RC; want row [$want] $(grep -q -F -x -- "$want" "$d/PROJECT_INTAKE.md" && echo present || echo MISSING); table lines=$rows (want $((n_ans + 2)))"
+    fail_ "$id" "$label: rc=$WIZ_RC; want row [$want] $(grep -q -F -x -- "$want" "$d/intake.lf" && echo present || echo MISSING); table-region lines=$rows (want $((n_ans + 2)))"
   fi
 }
 d_case D3 "a PIPE in the key"     "$PIPE_KEY" "p-new" '`pipe\|key`'
 d_case D4 "a NEWLINE in the key"  "$NL_KEY"   "n-new" '`line key`'
 d_case D5 "a BACKTICK in the key" "$TICK_KEY" "t-new" '`` tick`key ``'
+d_case D6 "a CARRIAGE RETURN in the key" "$CR_KEY" "c-new" '`cr key`'
 
 echo "=== M — mutation proofs on a mirror, each located by distance from the BL-301 anchor ==="
 
@@ -542,6 +551,37 @@ mutate() {
     fail_setup "$id" "the mutation did not land where it must (if the sed no longer matches, the marked line was edited): marker '$marker' is anchor+$d (want anchor+$want_d), hunk at line $h_ln vs marker line $m_ln, changed=$(_changed_lines "$before" "$tgt"), syntax $(_syntax_ok "$tgt" && echo ok || echo BROKEN)"
     return 1
   fi
+  # THE CONTROL AMENDS (review R-301-4). A mutant that APPLIED can still leave
+  # a wizard that is broken for some OTHER reason — a neighbouring line gone,
+  # a variable unset — and then a proof that expects "accepted" fails in the
+  # grammar of a SURVIVED mutant ("changed nothing D3 can see"), which is a
+  # false statement about the suite. So before any proof runs, the mutant
+  # wizard must still do the two ordinary things: amend a wizard-owned key
+  # (`uptime`, BL-282's route) and amend an adoption-recorded key (`timeline`,
+  # this route). Either failing is a SETUP failure. MA1 and MA6 pass
+  # `wizard-only`: refusing every recorded key is what those two mutants DO.
+  local ctl="${6:-both}" cd_
+  cd_="$(newtmp)/proj"
+  if ! mk_adopted "$cd_" "$tgt"; then fail_setup "$id" "could not build the control fixture"; return 1; fi
+  # Exit code alone is NOT a control: under bash 3.2 a function that dies on an
+  # unbound variable inside `if fn; then exit 0; fi` leaves the script at rc=0
+  # with the answer written and no amendment (measured, NOTE-DEFAULT deleted;
+  # bash 5 gives rc=1). So each control also requires its amendment row and
+  # its [OK] line.
+  wiz "$cd_" --set-answer uptime "99.9"
+  if [ "$WIZ_RC" -ne 0 ] || [ "$(jq_answer uptime "$cd_")" != "99.9" ] || [ "$(jq_amend_n "$cd_")" != "1" ] \
+     || ! grep -q -F '[OK] uptime:' "$cd_/run.out"; then
+    fail_setup "$id" "the mutant wizard cannot amend a WIZARD-OWNED key (rc=$WIZ_RC: $(grep -m1 -E 'FAIL|rror' "$cd_/run.out" | cut -c1-80)) — it is broken beyond the mutation, so nothing it does is a kill or a survival"
+    return 1
+  fi
+  if [ "$ctl" = "both" ]; then
+    wiz "$cd_" --set-answer timeline "ctl"
+    if [ "$WIZ_RC" -ne 0 ] || [ "$(jq_answer timeline "$cd_")" != "ctl" ] || [ "$(jq_amend_n "$cd_")" != "2" ] \
+       || ! grep -q -F '[OK] timeline:' "$cd_/run.out"; then
+      fail_setup "$id" "the mutant wizard cannot amend an ADOPTION-RECORDED key (rc=$WIZ_RC: $(grep -m1 -E 'FAIL|rror' "$cd_/run.out" | cut -c1-80)) — it is broken beyond the mutation, so nothing it does is a kill or a survival"
+      return 1
+    fi
+  fi
   MUT_TGT="$tgt"; MUT_D="$d"
   return 0
 }
@@ -564,7 +604,7 @@ D_UNUSABLE=63
 
 # MA1 — THE OLD VERDICT REINSTATED: the recorded-key check always says
 # "absent". A1's scenario must then be REFUSED; a wizard-owned key still works.
-if mutate MA1 BL-301-RECORDED-CHECK "$D_RECORDED_CHECK" 's/^\([[:space:]]*\).*\(  # BL-301-RECORDED-CHECK\)$/\1rec_rc=1\2/' 'rec_rc=1'; then
+if mutate MA1 BL-301-RECORDED-CHECK "$D_RECORDED_CHECK" 's/^\([[:space:]]*\).*\(  # BL-301-RECORDED-CHECK\)$/\1rec_rc=1\2/' 'rec_rc=1' wizard-only; then
   PD="$(newtmp)/proj"
   if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA1" "could not build the mutant's fixture"; else
     wiz "$PD" --set-answer test_command "$NEW_CMD"; rc_a=$WIZ_RC; got_a="$(jq_answer test_command "$PD")"
@@ -648,7 +688,7 @@ fi
 
 # MA6 — MEMBERSHIP AGAINST THE WHOLE FILE: `in answers` becomes `in data`, so
 # a top-level key (`source`) counts as recorded. N2 is what stops it.
-if mutate MA6 BL-301-IN-ANSWERS "$D_IN_ANSWERS" 's/ in answers else / in data else /' ' in data else '; then
+if mutate MA6 BL-301-IN-ANSWERS "$D_IN_ANSWERS" 's/ in answers else / in data else /' ' in data else ' wizard-only; then
   PD="$(newtmp)/proj"
   if ! mk_adopted "$PD" "$MUT_TGT"; then fail_setup "MA6" "could not build the mutant's fixture"; else
     wiz "$PD" --set-answer source "x"
@@ -759,7 +799,10 @@ render_mutant() {
   fi
 }
 render_mutant MA13 BL-301-KEY-ESCAPE-PIPE "$D_ESC_PIPE" 's/gsub("\\\\|"; "\\\\|")/./' '.  # BL-301-KEY-ESCAPE-PIPE' "$PIPE_KEY" '`pipe\|key`' D3
-render_mutant MA14 BL-301-KEY-ESCAPE-NEWLINE "$D_ESC_NL" 's/gsub("\\n"; " ")/./' '| .  # BL-301-KEY-ESCAPE-NEWLINE' "$NL_KEY" '`line key`' D4
+render_mutant MA14 BL-301-KEY-ESCAPE-NEWLINE "$D_ESC_NL" 's/gsub("\[\\r\\n\]+"; " ")/./' '| .  # BL-301-KEY-ESCAPE-NEWLINE' "$NL_KEY" '`line key`' D4
+# MA16 — the line-ending escape NARROWED back to LF only, which is what the
+# first cut shipped: a carriage return in the key splits the row again.
+render_mutant MA16 BL-301-KEY-ESCAPE-NEWLINE "$D_ESC_NL" 's/gsub("\[\\r\\n\]+"; " ")/gsub("\\n"; " ")/' '| gsub("\n"; " ")  # BL-301-KEY-ESCAPE-NEWLINE' "$CR_KEY" '`cr key`' D6
 render_mutant MA15 BL-301-KEY-ESCAPE-TICK "$D_ESC_TICK" 's#max // 0#0#' '| 0) as $n' "$TICK_KEY" '`` tick`key ``' D5
 
 echo ""
