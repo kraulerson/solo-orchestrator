@@ -20790,9 +20790,14 @@ other thing adoption writes is not (`# BL-225-PREWRITE-CALL`'s rehearsal covers 
 not the operator's home directory). So the design must say what happens when the clone fails —
 `init.sh` treats it as non-fatal and carries on — whether a refusal is possible at all for something
 outside the repository being adopted, and whether the rehearsal has anything to say about it.
-**The second half of this entry is now decided too**: the Solo hook roster must be registered
-INDEPENDENTLY of the CDF branch, because a roster that only registers inside `if [ "$framework_valid"
-= true ]` is a gate switched off by a network failure — the class `## BL-147:` names.
+**The second half of this entry is NOT ruled — Karl was asked only whether an adoptee receives the
+install, and answered that.** The design's own answer to the roster question stands as
+AUTHOR-PROPOSED and open to attack, where it has been since 2026-09-17: §10-WP9c registers the Solo
+hook roster UNCONDITIONALLY, because a roster that registers only inside `if [ "$framework_valid" =
+true ]` is a gate a network failure switches off — the class `## BL-147:` names. *(The first draft of
+this block called that "ruled with it". It was not asked, and §8.3c's ruled column is defined as
+what may NOT be attacked, so crediting it there would have removed a live design position from
+review to buy nothing — the independent review caught it.)*
 
 **Found:** 2026-09-17 by reading `init.sh`'s nesting (ADOPT-002-ARCH v2.2 §13-V38); the CDF install
 was NOT executed there.
