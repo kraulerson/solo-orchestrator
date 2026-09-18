@@ -169,7 +169,11 @@ chk "T5b: a genuinely re-included path is allowed (negation is honoured)" "${rc5
 P8a="$WORK/t8a"; _adoptee "$P8a" '.claude/'
 IFS='|' read -r rc8a err8a <<<"$(_run_marked "$P8a" 'touched' '.claude/manifest.json' 'PROJECT_INTAKE.md')"
 chk "T8a: still refuses"                            "$([ "${rc8a:-0}" -ne 0 ] && echo yes || echo no)" "yes"
-chk "T8a: labelled REFUSED, not BLOCKED"            "$(printf '%s' "$err8a" | grep -c 'REFUSED')" "1"
+# RE-AIMED BY WP9d (§10-WP9d item 5) — see E4 below for the full reasoning.
+# The label follows docs/messaging-standard.md (a check RAN); the honest
+# sentence moved to the detail, and both halves are pinned here.
+chk "T8a: labelled BLOCKED — a check ran (WP9d re-aim)" "$(printf '%s' "$err8a" | grep -c 'BLOCKED')" "1"
+chk "T8a: and still says nothing was written"       "$(printf '%s' "$err8a" | grep -c 'nothing was written')" "1"
 chk "T8a: and does NOT claim it ATTEMPTED writes"   "$(printf '%s' "$err8a" | grep -ci 'ATTEMPTED writes')" "0"
 
 # T8b: the UNBOUNDED writer ran. The planned set does not bound what an eval'd
@@ -397,9 +401,20 @@ else
   chk "E2 — and the project is BYTE-IDENTICAL afterwards (real writers, no stub)" \
     "$(_hash "$E_P")" "$E_HASH_BEFORE"
   chk "E3 — not one file, tracked, untracked or ignored, was left behind" "$E_DIRTY" "0"
-  # The refusal must be REFUSED (nothing touched), never BLOCKED (something was).
-  chk "E4 — the refusal is labelled REFUSED, so it does not claim writes it did not make" \
-    "$(grep -c '\[REFUSED\]' "$E_ERR")" "1"
+  # RE-AIMED BY WP9d (ADOPT-002-ARCH v2.2 §10-WP9d item 5). This pinned the
+  # LABEL because, at the time, the label was the only thing carrying "nothing
+  # was written" — `adopt_refuse` derived it from the disk.
+  # `docs/messaging-standard.md` draws the line elsewhere: a REFUSAL is "the
+  # tool would not begin", a BLOCK is "a check ran and you did not pass it".
+  # The pre-write rehearsal is a check that RAN. The label follows the standard
+  # now and the honest sentence is carried by the DETAIL, which is still
+  # derived — asserted below, with E5 still forbidding the ATTEMPTED claim. The
+  # property `## BL-225:` won is unchanged; only which half of the message
+  # carries it moved, and the design instructed the move.
+  chk "E4 — labelled BLOCKED (a check ran), per docs/messaging-standard.md" \
+    "$(grep -c '\[BLOCKED\]' "$E_ERR")" "1"
+  chk "E4b — and the detail still says nothing was written" \
+    "$([ "$(grep -ci 'nothing was written' "$E_ERR")" -ge 1 ] && echo yes || echo no)" "yes"
   chk "E5 — and never says adoption ATTEMPTED writes to this project" \
     "$(grep -ci 'ATTEMPTED writes' "$E_ERR")" "0"
 fi

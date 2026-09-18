@@ -117,6 +117,15 @@ adopt_refuse() {
   # rather than a proxy for one.
   if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] || [ "$_n" -gt 0 ] || adopt_has_touched_disk; then
     printf '\n[BLOCKED] %s\n' "$1" >&2
+    # THE LABEL AND THE DETAIL ANSWER DIFFERENT QUESTIONS. `adopt_block` forces
+    # the label because a named check RAN (docs/messaging-standard.md); what is
+    # on disk is still DERIVED, so a block that wrote nothing says so rather
+    # than inheriting the "ATTEMPTED writes" sentence, which would be the same
+    # unmeasured claim `## BL-225:` removed from the other direction.
+    if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] && [ "$_n" -eq 0 ] && ! adopt_has_touched_disk; then
+      printf '          %s did not begin. Nothing was committed and nothing was written.\n' "${ADOPT_OPERATION:-Adoption}" >&2
+      return 1
+    fi
     if [ "${ADOPT_COMMITTED:-0}" -eq 1 ]; then
       printf '          The adoption commit HAD already landed; a later step did not complete.\n' >&2
       printf '          %s file(s) were written and committed.\n' "$_n" >&2

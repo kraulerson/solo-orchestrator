@@ -584,6 +584,7 @@ jobs:
             tests/test-bl280-bug-gate-unmeasured-source.sh
             tests/test-bl261-contributor-sast-live.sh
             tests/test-brownfield-wp9d-driver-edges.sh
+            tests/test-brownfield-wp9d-window-rehearsal.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

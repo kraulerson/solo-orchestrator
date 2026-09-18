@@ -51,6 +51,7 @@
 _adopt_state_order() {
   printf '%s\n' approval_log   # BL-242-APPROVAL-LOG-FIRST
   printf '%s\n' phase_state intake manifest   # BF-ADOPT-STATE-ORDER
+  printf '%s\n' write_set   # BL-242-WRITE-SET — LAST: it records what every stage before it wrote
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -545,6 +546,21 @@ _adopt_preflight_adopted() {
     ( cd "$root" && _soif_adoption_head_copy_adopted ".claude/manifest.json" ) && witness="the committed copy of the manifest (the working copy no longer says so)"   # BL-242-PREFLIGHT-WITNESS2
   fi
   [ -n "$witness" ] || return 0
+
+  # BL-242-PREFLIGHT-WINDOW — the adoption window, before the generic arm. The
+  # witnesses disagree: the working copy says adopted and HEAD does not, so the
+  # adoption was written and never committed. `resume.sh` is the wrong pointer
+  # for that project; `--finish` is the right one.
+  if _adopt_in_window "$root"; then
+    adopt_block "this project is part-way through an adoption: the state was written and the commit did not land"
+    adopt_note "Nothing is lost. The files are on disk and the list of them is in"
+    adopt_note "$ADOPT_WRITE_SET_REL. Finish the adoption with:"
+    adopt_note "  bash scripts/adopt-project.sh --finish"
+    adopt_blank
+    adopt_note "If your own pre-commit hook refused the commit, it will refuse again —"
+    adopt_note "fix or bypass that hook first, then run --finish."
+    return 1
+  fi
 
   adopt_refuse "this project has already been adopted — $witness records it"
   adopt_note "Adoption is a one-time act. It archives your files, installs the framework and"
@@ -1117,7 +1133,7 @@ STAGE_SET
     _named=$(adopt_name_ignored_paths "$root" "${FILES_TO_STAGE[@]}") || _named=""
     _ignored="$_named"
     [ -n "$_ignored" ] || _ignored="$_dry"
-    adopt_refuse "git will not stage every file this adoption must commit"
+    adopt_block "git will not stage every file this adoption must commit"
     {
       printf '          NOTHING WAS STAGED — your index is exactly as you left it.\n'
       printf '          git says:\n'
@@ -1236,6 +1252,44 @@ adopt_install_hooks() {
   return 0
 }
 
+# ── WP9d item (4) — THE WRITE SET, PERSISTED (`## BL-291:`) ────────────────
+#
+# The ledger lives in `$ADOPT_WORK`, which the EXIT trap deletes. So when the
+# adoption commit is refused — the adoptee's own pre-commit hook, or no git
+# identity — the list of what was written evaporates with the run, and the only
+# way back is by hand. Persisting it into the adoptee is what makes `--finish`
+# possible at all, and it must include ITSELF or a finish would re-stage
+# everything except this file.
+ADOPT_WRITE_SET_REL=".claude/adoption/write-set.txt"
+adopt_write_write_set() {
+  local root="$1" dest="$root/$ADOPT_WRITE_SET_REL" tmp
+  # The marker precedes the FIRST write, `mkdir -p` included: `adopt_refuse`
+  # reads it to decide whether this project was touched, and a directory
+  # created before the marker is a touch it would not know about.
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
+  mkdir -p "$(dirname "$dest")" 2>/dev/null || {
+    adopt_block "could not create $(dirname "$ADOPT_WRITE_SET_REL") for the write set"; return 1; }
+  tmp="$dest.tmp.$$"
+  { adopt_written_paths; printf '%s\n' "$ADOPT_WRITE_SET_REL"; } | LC_ALL=C sort -u > "$tmp" || {
+    adopt_block "could not write the write set"; rm -f "$tmp" 2>/dev/null; return 1; }
+  mv "$tmp" "$dest" || { adopt_block "could not write the write set"; rm -f "$tmp" 2>/dev/null; return 1; }
+  adopt_record_written "$ADOPT_WRITE_SET_REL"
+  return 0
+}
+
+# _adopt_in_window ROOT — the adoption window: this project's WORKING COPY says
+# adopted and its HEAD does not. Both witnesses already exist (arm 1 asks the
+# same two questions); the window is the state BETWEEN them, which nothing read
+# before. Measured on `579b0b0`: 83 files written, the stamp set, HEAD unmoved,
+# every path still in the index, no commit-msg hook — and a re-run refusing it
+# as "already adopted" while advising `resume.sh`.
+_adopt_in_window() {
+  local root="$1"
+  ( cd "$root" && soif_adoption_adopted ".claude/manifest.json" ) || return 1
+  ( cd "$root" && _soif_adoption_head_copy_adopted ".claude/manifest.json" ) && return 1
+  return 0
+}
+
 # _adopt_hooks_live ROOT — is the commit-msg gate where git will look for it?
 #
 # Not "did the installer succeed" — that is the claim item (3) exists to stop
@@ -1324,6 +1378,7 @@ _adopt_write_phase() {
       phase_state) adopt_write_phase_state "$root" || return 1 ;;
       intake)      adopt_write_intake "$root" "$report" || return 1 ;;
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;
+      write_set)   adopt_write_write_set "$root" || return 1 ;;   # BL-242-WRITE-SET
       *)           adopt_refuse "unknown state stage '$stage'"; return 1 ;;
     esac
     if _adopt_halt_requested "$stage"; then
@@ -1367,9 +1422,35 @@ adopt_prewrite_preflight() {
   mkdir -p "$ADOPT_WORK/rehearsal" "$work" 2>/dev/null || {
     adopt_refuse "could not create the rehearsal directory"; return 1; }
 
+  # WP9d item (7) — THE BOUND, AND THE OBJECT STORE IS SHARED (`## BL-294:`).
+  # The first cut copied the whole tree, `.git/objects` included, with no bound
+  # and one failure message that named disk space. On this repository that is
+  # 57 MB and 0.43 s; on a real brownfield repository with a multi-GB history it
+  # doubles disk use on the system volume AFTER every question has been
+  # answered. Measure BEFORE copying — a bound checked afterwards is not a
+  # bound — and share the objects the rehearsal only ever reads.
+  local _reh_kb _reh_mb _reh_max _reh_t0 _reh_t1
+  _reh_max="${SOIF_ADOPT_REHEARSAL_MAX_MB:-}"
+  _reh_kb="$( du -sk "$root" 2>/dev/null | awk '{print $1+0; exit}' )"
+  case "$_reh_kb" in ''|*[!0-9]*) _reh_kb=0 ;; esac
+  _reh_mb=$(( _reh_kb / 1024 ))
+  if [ -n "$_reh_max" ] && [ "$_reh_mb" -ge "$_reh_max" ]; then   # BL-242-REHEARSAL-BOUND
+    adopt_refuse "this project measures ${_reh_mb} MB and SOIF_ADOPT_REHEARSAL_MAX_MB is ${_reh_max} — the pre-write rehearsal copies the working tree and would exceed that"
+    adopt_note "  Nothing was written. Raise or unset SOIF_ADOPT_REHEARSAL_MAX_MB to proceed."
+    return 1
+  fi
+  _reh_t0="$(date +%s 2>/dev/null)" || _reh_t0=0
   # `cp -a` keeps modes and symlinks; the trailing `/.` copies the CONTENTS so
   # the copy is the tree rather than a directory holding it.
-  cp -a "$root/." "$copy" 2>/dev/null || {
+  # BL-242-REHEARSAL-SHARED — everything EXCEPT the object store, which is then
+  # borrowed through `alternates`. The rehearsal only ever READS objects (the
+  # ignore and index oracles), so a copy of them buys nothing and costs the
+  # whole history. git treats an alternates file as authoritative, so the copy
+  # is a working repository by every oracle the rehearsal asks.
+  mkdir -p "$copy" 2>/dev/null || {
+    adopt_refuse "could not create the rehearsal copy directory"; return 1; }
+  ( cd "$root" && tar -cf - --exclude='./.git/objects' . 2>/dev/null ) \
+    | ( cd "$copy" && tar -xf - 2>/dev/null ) || {
     adopt_refuse "could not copy the project for the pre-write rehearsal (disk space?)"
     return 1; }
 
@@ -1377,6 +1458,13 @@ adopt_prewrite_preflight() {
   # afterwards, or the real run would start with the rehearsal's paths already
   # recorded and stage files it never wrote.
   saved="$ADOPT_WRITTEN_LEDGER"
+  mkdir -p "$copy/.git/objects/info" 2>/dev/null || {
+    adopt_refuse "could not prepare the rehearsal's shared object store"; return 1; }
+  printf '%s\n' "$root/.git/objects" > "$copy/.git/objects/info/alternates" || {
+    adopt_refuse "could not point the rehearsal at this project's object store"; return 1; }
+  _reh_t1="$(date +%s 2>/dev/null)" || _reh_t1="$_reh_t0"
+  adopt_note "rehearsal ran in $(( _reh_t1 - _reh_t0 ))s over ${_reh_mb} MB (objects shared, not copied)."
+
   adopt_ledger_init "$work/written" || { adopt_refuse "could not open the rehearsal ledger"; return 1; }
 
   # The touched-disk marker is a FILE at $ADOPT_WORK/touched and it is GLOBAL,
@@ -1403,6 +1491,14 @@ adopt_prewrite_preflight() {
   planned="$(adopt_written_paths)"
 
   ADOPT_WRITTEN_LEDGER="$saved"
+  # SOIF_REHEARSAL_KEEP=<dir> — the seam the suite needs. The copy is deleted
+  # at the end of the preflight, so without it neither a control nor a mutant
+  # of the shared-objects property is observable at all: the seam is
+  # load-bearing, not a convenience.
+  if [ -n "${SOIF_REHEARSAL_KEEP:-}" ]; then          # BL-242-REHEARSAL-KEEP
+    mkdir -p "$SOIF_REHEARSAL_KEEP" 2>/dev/null \
+      && cp -a "$ADOPT_WORK/rehearsal/." "$SOIF_REHEARSAL_KEEP/" 2>/dev/null || true
+  fi
   rm -rf "$ADOPT_WORK/rehearsal" 2>/dev/null || true
 
   if [ "$rc" -ne 0 ]; then
@@ -1508,7 +1604,7 @@ LANDED
     # STDOUT and refusals on STDERR, so a reader piping stderr to a log would
     # get "some of your files are refused" with no list of which.
     # ROWS, not words: `wc -w` counted "my file.txt" as two refused files.
-    adopt_refuse "your ignore rules refuse $(printf '%s' "$ignored" | grep -c .) of the files this adoption must write, so it would leave the project half-installed. NOTHING WAS WRITTEN. The refused path(s):$ignored"   # BL-225-PREWRITE-REFUSE
+    adopt_block "your ignore rules refuse $(printf '%s' "$ignored" | grep -c .) of the files this adoption must write, so it would leave the project half-installed. NOTHING WAS WRITTEN. The refused path(s):$ignored"   # BL-225-PREWRITE-REFUSE
     adopt_note "These are the files the adoption IS — skipping one produces a broken install,"
     adopt_note "not a disclosed omission. Un-ignore them (or narrow the rule) and run this again."
     adopt_note "Note that git cannot re-include a file under an ignored DIRECTORY, so a"
@@ -1658,4 +1754,70 @@ adopt_main() {
   fi
   adopt_stub_assessment
   return $rc
+}
+
+# ── WP9d item (4) — `--finish`: complete an adoption that was written but never
+# committed. NEVER `git add -A`: the operator's own uncommitted work must stay
+# theirs, which is `# BF-ADOPT-STAGE-EXPLICIT`'s property and the one a fallback
+# would destroy. The write set is the only source of what to stage; if it is
+# absent or names a path that is gone, this refuses rather than guessing.
+adopt_finish_main() {                                  # BL-242-FINISH
+  local root="$1"
+  ADOPT_OPERATION="Finishing the adoption"
+  if ! _adopt_in_window "$root"; then
+    adopt_refuse "this project is not part-way through an adoption — --finish has nothing to complete"
+    adopt_note "  --finish only completes an adoption whose state was written and whose commit"
+    adopt_note "  did not land. Run adoption itself, or scripts/resume.sh if it is already adopted."
+    return 1
+  fi
+  local ws="$root/$ADOPT_WRITE_SET_REL"
+  if [ ! -f "$ws" ] || [ ! -s "$ws" ]; then
+    adopt_refuse "the record of what that adoption wrote is missing ($ADOPT_WRITE_SET_REL) — refusing to guess which files belong to it"
+    adopt_note "  Staging everything would sweep in your own uncommitted work. Restore that file"
+    adopt_note "  from the interrupted run, or re-adopt into a clean checkout."
+    return 1
+  fi
+  local rel missing=0
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -e "$root/$rel" ] || { adopt_note "  missing: $rel"; missing=$((missing + 1)); }
+  done < "$ws"
+  if [ "$missing" -gt 0 ]; then
+    adopt_refuse "$missing path(s) the adoption recorded are no longer on disk — refusing to commit a partial adoption"
+    return 1
+  fi
+  # The same oracle the adoption commit uses: ask before staging, stop whole.
+  local blocked
+  blocked="$( cd "$root" && git add --dry-run --ignore-missing -- $(tr '\n' ' ' < "$ws") 2>&1 >/dev/null )" || true
+  if [ -n "$blocked" ]; then
+    adopt_refuse "git will not stage every file that adoption wrote"
+    adopt_note "  $blocked"
+    return 1
+  fi
+  adopt_head "Finishing the adoption"
+  local n
+  n=$(grep -c . "$ws" 2>/dev/null) || n=0
+  adopt_note "Committing exactly what the interrupted run wrote"
+  adopt_note "   $n file(s), from $ADOPT_WRITE_SET_REL. Anything else you had in progress stays"
+  adopt_note "   exactly as you left it — unstaged, uncommitted, untouched."
+  ( cd "$root" && git add -- $(tr '\n' ' ' < "$ws") ) || {   # BF-ADOPT-STAGE-EXPLICIT
+    adopt_refuse "could not stage the files that adoption wrote"; return 1; }
+  ( cd "$root" && git commit -q -m "chore: adopt ${ADOPT_PROJECT_NAME:-this project} into the Solo Orchestrator framework" ) || {
+    adopt_refuse "the adoption commit still did not succeed — your own hooks or git identity may be refusing it"
+    return 1
+  }
+  ADOPT_COMMITTED=1
+  adopt_install_hooks "$root" || return 1
+  if _adopt_hooks_live "$root"; then                    # BL-242-HOOKS-LIVE-DERIVED
+    adopt_head "Adoption complete — the project is adopted and sitting at phase 0"
+    adopt_note "From your next commit onward the framework's two message gates are live in"
+    adopt_note "this project: test-before-code ordering, and the Build-Loop commit check."
+    adopt_blank
+    adopt_note "NEXT: run this, and paste what it prints into Claude Code."
+    adopt_note "  bash scripts/resume.sh"
+    return 0
+  fi
+  adopt_block "the commit-msg gate is NOT installed where git will look for it"
+  adopt_note "  git runs this project's hooks from: ${ADOPT_HOOKS_LIVE_DIR:-(git could not say)}"
+  return 1
 }
