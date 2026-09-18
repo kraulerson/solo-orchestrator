@@ -1216,7 +1216,7 @@ adopt_install_hooks() {
   hooks="$(_adopt_hooks_dir "$root")" || { adopt_block "git could not report this repository's hooks directory"; return 1; }   # BL-242-HOOKS-DIR
   adopt_head "Turning the gates on"
   adopt_touched_disk   # BL-225-TOUCHED-DISK
-  mkdir -p "$hooks" 2>/dev/null || { adopt_refuse "could not create $hooks"; return 1; }
+  mkdir -p "$hooks" 2>/dev/null || { adopt_block "could not create $hooks"; return 1; }
 
   if [ ! -f "$hooks/commit-msg" ]; then
     adopt_touched_disk   # BL-225-TOUCHED-DISK
@@ -1234,10 +1234,14 @@ adopt_install_hooks() {
     adopt_note "The commit-msg gate was already present — left as it was."
   else
     adopt_touched_disk   # BL-225-TOUCHED-DISK
-    soif_emit_tdd_commitmsg_block >> "$hooks/commit-msg" || { adopt_refuse "could not extend the commit-msg hook"; return 1; }
+    soif_emit_tdd_commitmsg_block >> "$hooks/commit-msg" || { adopt_block "could not extend the commit-msg hook"; return 1; }
     adopt_note "Commit-msg gate installed (it composes with whatever was already in that hook)."
   fi
-  chmod +x "$hooks/commit-msg" 2>/dev/null
+  # NOT SWALLOWED. A commit-msg that is not executable is a hook git will not
+  # run; the live derivation below catches it, but a silent chmod failure is
+  # the same missing receipt one step earlier, so say it.
+  chmod +x "$hooks/commit-msg" 2>/dev/null \
+    || adopt_note "could not make the commit-msg hook executable — the gate will not run until it is."
 
   if [ -e "$hooks/pre-commit" ]; then
     # LEFT ALONE, AND ARCHIVED. WP6's archive already took a copy before any of
@@ -1247,6 +1251,22 @@ adopt_install_hooks() {
     adopt_note "You already have a pre-commit hook. It has been LEFT ALONE, and a copy is in"
     adopt_note "the archive with a restore line — see ${ADOPT_ARCHIVE_DIR:-the archive}/MANIFEST.md."
   fi
+  # SOIF_ADOPT_HOOK_FAULT — the seam the live derivation's OTHER TWO conjuncts
+  # need. `_adopt_hooks_live` asserts three facts: the hook exists, it is
+  # EXECUTABLE, and it carries the gate's marker. Only the first had a fixture,
+  # so an independent review deleted each of the other two and both suites
+  # stayed green — two thirds of that check was decorative. Neither degenerate
+  # state has a natural route: the owner's own `chmod +x` always succeeds here,
+  # and the marker is appended whenever it is absent. This produces the state
+  # for real, so the derivation OBSERVES it rather than being told the answer.
+  # Both are reachable in the field: a hooks directory on a filesystem with no
+  # exec bit (SMB, exFAT — plausible for a brownfield adoptee), and an append
+  # that exits 0 having written nothing.
+  case "${SOIF_ADOPT_HOOK_FAULT:-}" in                 # BL-242-HOOKS-FAULT-SEAM
+    noexec) chmod -x "$hooks/commit-msg" 2>/dev/null || : ;;
+    nomark) printf '%s\n' '#!/usr/bin/env bash' > "$hooks/commit-msg" 2>/dev/null || :
+            chmod +x "$hooks/commit-msg" 2>/dev/null || : ;;
+  esac
   adopt_stub_hooks
   adopt_stub_project_docs
   return 0
@@ -1293,9 +1313,19 @@ _adopt_in_window() {
 # _adopt_hooks_live ROOT — is the commit-msg gate where git will look for it?
 #
 # Not "did the installer succeed" — that is the claim item (3) exists to stop
-# resting on. Three facts, each necessary: git still reports a hooks directory,
-# a `commit-msg` in it is executable, and it carries the gate's own marker. The
-# directory is published so the failure arm can name it.
+# resting on. It asks whether git still reports a hooks directory, whether a
+# `commit-msg` in it is EXECUTABLE, and whether it carries the gate's own
+# marker. The directory is published so the failure arm can name it.
+#
+# TWO OF THE THREE FILE TESTS DISCRIMINATE, NOT THREE, and this header said
+# three until it was measured. Deleting `[ -x ]` or the marker grep each turns
+# a case RED (H5, H6 — both added after an independent review deleted them and
+# both suites stayed green). Deleting `[ -f ]` changes NOTHING: `[ -x ]` on a
+# path that does not exist is false too, so `-f` is SUBSUMED. It is kept
+# because it reads as the question a human asks first, and it is named here so
+# nobody writes a mutation proof for a conjunct that cannot fail. That is this
+# package's own subject applied to its own code: a check that cannot fail is
+# not a check, and saying so is better than pinning it.
 ADOPT_HOOKS_LIVE_DIR=""
 _adopt_hooks_live() {
   local root="$1" d
@@ -1431,6 +1461,17 @@ adopt_prewrite_preflight() {
   # bound — and share the objects the rehearsal only ever reads.
   local _reh_kb _reh_mb _reh_max _reh_t0 _reh_t1
   _reh_max="${SOIF_ADOPT_REHEARSAL_MAX_MB:-}"
+  # FAIL LOUD ON A BAD BOUND. A non-numeric value makes `[ "$x" -ge "$y" ]`
+  # print an error and evaluate FALSE — the bound switched off by a typo, with
+  # noise instead of a refusal.
+  case "$_reh_max" in
+    ''|*[!0-9]*)
+      if [ -n "$_reh_max" ]; then
+        adopt_refuse "SOIF_ADOPT_REHEARSAL_MAX_MB is '$_reh_max', which is not a number of megabytes"
+        return 1
+      fi
+      ;;
+  esac
   _reh_kb="$( du -sk "$root" 2>/dev/null | awk '{print $1+0; exit}' )"
   case "$_reh_kb" in ''|*[!0-9]*) _reh_kb=0 ;; esac
   _reh_mb=$(( _reh_kb / 1024 ))
@@ -1462,8 +1503,11 @@ adopt_prewrite_preflight() {
     adopt_refuse "could not prepare the rehearsal's shared object store"; return 1; }
   printf '%s\n' "$root/.git/objects" > "$copy/.git/objects/info/alternates" || {
     adopt_refuse "could not point the rehearsal at this project's object store"; return 1; }
+  # NOT "the rehearsal ran" — it has not. This times and names the COPY, which
+  # is the cost the bound exists for; saying otherwise would be a receipt for
+  # work not yet done, one level down from the receipt this package is about.
   _reh_t1="$(date +%s 2>/dev/null)" || _reh_t1="$_reh_t0"
-  adopt_note "rehearsal ran in $(( _reh_t1 - _reh_t0 ))s over ${_reh_mb} MB (objects shared, not copied)."
+  adopt_note "copied the project in $(( _reh_t1 - _reh_t0 ))s over ${_reh_mb} MB for the rehearsal (objects shared, not copied)."
 
   adopt_ledger_init "$work/written" || { adopt_refuse "could not open the rehearsal ledger"; return 1; }
 
@@ -1764,6 +1808,13 @@ adopt_main() {
 adopt_finish_main() {                                  # BL-242-FINISH
   local root="$1"
   ADOPT_OPERATION="Finishing the adoption"
+  # THE SAME SUBJECT, which means the same name. `ADOPT_PROJECT_NAME` is set
+  # inside `adopt_main`, and `--finish` is dispatched BEFORE it (like
+  # `--re-add`), so without this line the subject renders its `:-this project`
+  # fallback and the finished commit differs from the one the interrupted run
+  # would have made — on every real adoptee. The design says "commits with the
+  # same subject"; this is what makes that true.
+  ADOPT_PROJECT_NAME="${root##*/}"
   if ! _adopt_in_window "$root"; then
     adopt_refuse "this project is not part-way through an adoption — --finish has nothing to complete"
     adopt_note "  --finish only completes an adoption whose state was written and whose commit"
@@ -1792,14 +1843,14 @@ adopt_finish_main() {                                  # BL-242-FINISH
     [ -e "$root/$rel" ] || { adopt_note "  missing: $rel"; missing=$((missing + 1)); }
   done < "$ws"
   if [ "$missing" -gt 0 ]; then
-    adopt_refuse "$missing path(s) the adoption recorded are no longer on disk — refusing to commit a partial adoption"
+    adopt_block "$missing path(s) the adoption recorded are no longer on disk — refusing to commit a partial adoption"
     return 1
   fi
   # The same oracle the adoption commit uses: ask before staging, stop whole.
   local blocked
   blocked="$( cd "$root" && git add --dry-run --ignore-missing -- "${FINISH_PATHS[@]}" 2>&1 >/dev/null )" || true
   if [ -n "$blocked" ]; then
-    adopt_refuse "git will not stage every file that adoption wrote"
+    adopt_block "git will not stage every file that adoption wrote"
     adopt_note "  $blocked"
     return 1
   fi
@@ -1809,10 +1860,21 @@ adopt_finish_main() {                                  # BL-242-FINISH
   adopt_note "Committing exactly what the interrupted run wrote"
   adopt_note "   $n file(s), from $ADOPT_WRITE_SET_REL. Anything else you had in progress stays"
   adopt_note "   exactly as you left it — unstaged, uncommitted, untouched."
+  # PAST THIS LINE THE INDEX HOLDS THE ADOPTION. `adopt_refuse` would derive
+  # "nothing was written" here and be WRONG — `adopt_finish_main` runs without
+  # `$ADOPT_WORK` or a ledger (it is dispatched before `adopt_main`), so the
+  # derivation sees no writes and takes the REFUSED arm over an index holding
+  # every path. That is `## BL-295:`'s defect class inside the function that
+  # closes it, and `## BL-225:` measured the staging half too: `git add` on a
+  # MIXED pathspec stages the clean paths and exits 1.
   ( cd "$root" && git add -- "${FINISH_PATHS[@]}" ) || {   # BF-ADOPT-STAGE-EXPLICIT
-    adopt_refuse "could not stage the files that adoption wrote"; return 1; }
+    adopt_block "could not stage every file that adoption wrote"
+    adopt_note "  Some of them may now be staged. Check with: git status"
+    return 1; }
   ( cd "$root" && git commit -q -m "chore: adopt ${ADOPT_PROJECT_NAME:-this project} into the Solo Orchestrator framework" ) || {
-    adopt_refuse "the adoption commit still did not succeed — your own hooks or git identity may be refusing it"
+    adopt_block "the adoption commit still did not succeed — your own hooks or git identity may be refusing it"
+    adopt_note "  The $n file(s) that adoption wrote are STAGED and waiting. Nothing was lost."
+    adopt_note "  Fix or bypass what refused the commit, then run --finish again."
     return 1
   }
   ADOPT_COMMITTED=1

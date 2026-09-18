@@ -114,6 +114,8 @@ asked_anything() { grep -qF "Who is this project for?" "$RUN_OUT" 2>/dev/null; }
 wrote_anything() { [ -e "$1/.claude" ] || [ -e "$1/PROJECT_INTAKE.md" ] || [ -e "$1/APPROVAL_LOG.md" ]; }
 committed() { [ "$(git -C "$1" rev-list --count HEAD 2>/dev/null || echo 0)" -gt 1 ]; }
 says_live() { grep -qF "message gates are live" "$RUN_OUT" 2>/dev/null; }
+# The gate's own marker, read from the emitter rather than transcribed.
+SOIF_TDD_OPEN_PROBE="$( . "$REPO_ROOT/scripts/lib/hook-templates.sh" >/dev/null 2>&1; printf '%s' "${SOIF_TDD_OPEN:-SOIF BL-072 TDD gate (commit-msg)}" )"
 
 # refused_at_step0 <label> <root> — the whole R1 shape in one assertion.
 refused_at_step0() {
@@ -346,6 +348,63 @@ if [ "$RUN_RC" -ne 0 ] && committed "$H4" && ! says_live \
   pass "H4: when the gate is not where git looks, the live sentence is WITHHELD and the run blocks naming the directory — the receipt is derived from the hook, not from the installer's exit code"
 else
   fail_ "H4" "rc=$RUN_RC committed=$(committed "$H4" && echo 1 || echo 0) says_live=$(says_live && echo 1 || echo 0) named=$(grep -c 'NOT installed where git will look' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | awk -F: '{s+=$1} END{print s+0}')"
+fi
+
+# H5/H6 — THE OTHER TWO CONJUNCTS OF THE LIVE DERIVATION.
+# `_adopt_hooks_live` asserts three facts and its own header says each is
+# necessary. Before these cases only the first had a fixture: H2 removes the
+# file (so `[ -f ]` already fails), H3 is all-true, and H4's seam short-circuits
+# AFTER all three. An independent review deleted the `-x` conjunct and then the
+# marker conjunct, one at a time, and both suites stayed green — two thirds of
+# the check was decorative. Neither state has a natural route (the owner's own
+# `chmod +x` succeeds; the marker is appended whenever absent), so the installer
+# produces them through a named seam and the derivation observes them for real.
+H5="$(newtmp)"; mk_adoptee "$H5"
+H5ANS="$TOPTMP/h5ans"; _ans 1 > "$H5ANS"
+RUN_RC=0; RUN_OUT="$TOPTMP/h5out"; RUN_ERR="$TOPTMP/h5err"
+( cd "$H5" && SOIF_ADOPT_HOOK_FAULT=noexec bash "$DRIVER" --scan-report "$REPORT" ) \
+  < "$H5ANS" > "$RUN_OUT" 2> "$RUN_ERR" || RUN_RC=$?
+h5_present=0; [ -f "$H5/.git/hooks/commit-msg" ] && h5_present=1
+h5_exec=0; [ -x "$H5/.git/hooks/commit-msg" ] && h5_exec=1
+if [ "$RUN_RC" -ne 0 ] && [ "$h5_present" -eq 1 ] && [ "$h5_exec" -eq 0 ] && ! says_live \
+   && grep -q 'NOT installed where git will look' "$RUN_OUT" "$RUN_ERR" 2>/dev/null; then
+  pass "H5: a commit-msg that EXISTS and carries the marker but is NOT EXECUTABLE withholds the live sentence — git would not run it, and the receipt says so"
+else
+  fail_ "H5" "rc=$RUN_RC hook-present=$h5_present (want 1) executable=$h5_exec (want 0) says_live=$(says_live && echo 1 || echo 0) withheld=$(grep -c 'NOT installed where git will look' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | awk -F: '{s+=$1} END{print s+0}')"
+fi
+
+H6="$(newtmp)"; mk_adoptee "$H6"
+H6ANS="$TOPTMP/h6ans"; _ans 1 > "$H6ANS"
+RUN_RC=0; RUN_OUT="$TOPTMP/h6out"; RUN_ERR="$TOPTMP/h6err"
+( cd "$H6" && SOIF_ADOPT_HOOK_FAULT=nomark bash "$DRIVER" --scan-report "$REPORT" ) \
+  < "$H6ANS" > "$RUN_OUT" 2> "$RUN_ERR" || RUN_RC=$?
+h6_present=0; [ -x "$H6/.git/hooks/commit-msg" ] && h6_present=1
+h6_marked=0; grep -qF "$SOIF_TDD_OPEN_PROBE" "$H6/.git/hooks/commit-msg" 2>/dev/null && h6_marked=1
+if [ "$RUN_RC" -ne 0 ] && [ "$h6_present" -eq 1 ] && [ "$h6_marked" -eq 0 ] && ! says_live \
+   && grep -q 'NOT installed where git will look' "$RUN_OUT" "$RUN_ERR" 2>/dev/null; then
+  pass "H6: an executable commit-msg with NO gate in it withholds the live sentence — the receipt is about the gate being there, not about a file being there"
+else
+  fail_ "H6" "rc=$RUN_RC hook-executable=$h6_present (want 1) carries-marker=$h6_marked (want 0) says_live=$(says_live && echo 1 || echo 0) withheld=$(grep -c 'NOT installed where git will look' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | awk -F: '{s+=$1} END{print s+0}')"
+fi
+
+# H7 — THE LABEL'S OTHER DIRECTION. §10-WP9d item (5) requires both: the window
+# arm is a BLOCK (a check ran) and arm 1's generic already-adopted refusal is a
+# REFUSAL (the tool would not begin, and nothing of this run is on disk). With
+# only one direction pinned, collapsing the two primitives into one would pass.
+H7="$(newtmp)"; mk_adoptee "$H7"
+run_adopt "$H7"                       # a complete, landed adoption
+if [ "$RUN_RC" -eq 0 ]; then
+  run_adopt "$H7"                     # and now a second run
+  if [ "$RUN_RC" -ne 0 ] \
+     && grep -q '^\[REFUSED\]' "$RUN_OUT" "$RUN_ERR" 2>/dev/null \
+     && ! grep -q '^\[BLOCKED\]' "$RUN_OUT" "$RUN_ERR" 2>/dev/null \
+     && grep -q 'already been adopted' "$RUN_OUT" "$RUN_ERR" 2>/dev/null; then
+    pass "H7: re-running a LANDED adoption is [REFUSED], not [BLOCKED] — the other direction of the label, so the two primitives cannot be collapsed into one"
+  else
+    fail_ "H7" "rc=$RUN_RC refused=$(grep -c '^\[REFUSED\]' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | awk -F: '{s+=$1} END{print s+0}') blocked=$(grep -c '^\[BLOCKED\]' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | awk -F: '{s+=$1} END{print s+0}')"
+  fi
+else
+  fail_ "H7 setup" "the first adoption did not land (rc=$RUN_RC)"
 fi
 
 echo ""

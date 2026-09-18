@@ -131,10 +131,16 @@ run_in "$W1" --finish
 w3_commits=$(commits "$W1")
 w3_notes_tracked=0; git -C "$W1" ls-files --error-unmatch NOTES.txt >/dev/null 2>&1 && w3_notes_tracked=1
 w3_hook=0; [ -f "$W1/.git/hooks/commit-msg" ] && w3_hook=1
-if [ "$RUN_RC" -eq 0 ] && [ "$w3_commits" -eq 2 ] && head_adopted "$W1" && [ "$w3_hook" -eq 1 ] && [ "$w3_notes_tracked" -eq 0 ]; then
-  pass "WIN3: --finish lands the adoption commit, the committed manifest is adopted, the gate is installed, and the operator's own untracked file stays out of it"
+# THE SAME SUBJECT, which means the project's own name — not the `:-this project`
+# fallback the finish route rendered before the review caught it (R-5).
+w3_subject="$(git -C "$W1" log -1 --format=%s 2>/dev/null)"
+w3_named=0
+case "$w3_subject" in *"adopt $(basename "$W1") into"*) w3_named=1 ;; esac
+if [ "$RUN_RC" -eq 0 ] && [ "$w3_commits" -eq 2 ] && head_adopted "$W1" && [ "$w3_hook" -eq 1 ] \
+   && [ "$w3_notes_tracked" -eq 0 ] && [ "$w3_named" -eq 1 ]; then
+  pass "WIN3: --finish lands the adoption commit naming the project ($w3_subject), the committed manifest is adopted, the gate is installed, and the operator's own untracked file stays out of it"
 else
-  fail_ "WIN3" "rc=$RUN_RC commits=$w3_commits (want 2) head-adopted=$(head_adopted "$W1" && echo 1 || echo 0) hook=$w3_hook notes-swept-in=$w3_notes_tracked (want 0)"
+  fail_ "WIN3" "rc=$RUN_RC commits=$w3_commits (want 2) head-adopted=$(head_adopted "$W1" && echo 1 || echo 0) hook=$w3_hook notes-swept-in=$w3_notes_tracked (want 0) subject-names-the-project=$w3_named (want 1; got '$w3_subject')"
 fi
 
 # WIN4 — --finish on a LANDED adoption is refused; it is not a second commit.
@@ -199,11 +205,16 @@ echo "=== REH — the rehearsal's bound and its cost (item 7) ==="
 
 R1="$(newtmp)/p"; mkdir -p "$R1"; mk_adoptee "$R1"
 run_in "$R1"
-if [ "$RUN_RC" -eq 0 ] && grep -q 'rehearsal ran in' "$RUN_OUT" 2>/dev/null \
-   && grep -q 'objects shared' "$RUN_OUT" 2>/dev/null; then
-  pass "REH1: the transcript states what the rehearsal cost and that the object store was shared, not copied"
+# The sentence names the COPY, in the past tense, because that is what has
+# happened when it prints — the rehearsal itself has not run yet. An earlier
+# wording said "rehearsal ran in Ns" before the rehearsal ran, which is a
+# receipt for work not yet done; the review caught it (R-6).
+if [ "$RUN_RC" -eq 0 ] && grep -q 'copied the project in' "$RUN_OUT" 2>/dev/null \
+   && grep -q 'objects shared' "$RUN_OUT" 2>/dev/null \
+   && ! grep -q 'rehearsal ran in' "$RUN_OUT" 2>/dev/null; then
+  pass "REH1: the transcript states what the COPY cost and that the object store was shared — and does not claim the rehearsal ran before it has"
 else
-  fail_ "REH1" "rc=$RUN_RC says-cost=$(grep -c 'rehearsal ran in' "$RUN_OUT" 2>/dev/null) says-shared=$(grep -c 'objects shared' "$RUN_OUT" 2>/dev/null)"
+  fail_ "REH1" "rc=$RUN_RC says-copy-cost=$(grep -c 'copied the project in' "$RUN_OUT" 2>/dev/null) says-shared=$(grep -c 'objects shared' "$RUN_OUT" 2>/dev/null) claims-rehearsal-ran-early=$(grep -c 'rehearsal ran in' "$RUN_OUT" 2>/dev/null)"
 fi
 
 # REH2 — the copy really does share the object store rather than duplicating it.
@@ -230,11 +241,35 @@ R3="$(newtmp)/p"; mkdir -p "$R3"; mk_adoptee "$R3"
 RUN_RC=0; RUN_OUT="$TOPTMP/r3o"; RUN_ERR="$TOPTMP/r3e"; A3="$TOPTMP/r3a"; _ans > "$A3"
 ( cd "$R3" && SOIF_ADOPT_REHEARSAL_MAX_MB=0 bash "$DRIVER" --scan-report "$REPORT" ) < "$A3" > "$RUN_OUT" 2> "$RUN_ERR" || RUN_RC=$?
 r3_wrote=0; [ -e "$R3/.claude" ] && r3_wrote=1
+# BEFORE copying, not merely before writing. The copy lives under $ADOPT_WORK,
+# which the EXIT trap deletes, so rc, the adoptee's cleanliness and the commit
+# count are ALL identical whether the bound is measured before or after the
+# `tar` — the review predicted "measure after copying" would survive (R-13).
+# `SOIF_REHEARSAL_KEEP` is the only way to see the difference: if the copy
+# happened, the kept directory exists and holds the project's files.
+R3KEEP="$(newtmp)/keep3"
+RUN_RC=0; RUN_OUT="$TOPTMP/r3o"; RUN_ERR="$TOPTMP/r3e"; A3="$TOPTMP/r3a"; _ans > "$A3"
+( cd "$R3" && SOIF_ADOPT_REHEARSAL_MAX_MB=0 SOIF_REHEARSAL_KEEP="$R3KEEP" bash "$DRIVER" --scan-report "$REPORT" ) < "$A3" > "$RUN_OUT" 2> "$RUN_ERR" || RUN_RC=$?
+r3_wrote=0; [ -e "$R3/.claude" ] && r3_wrote=1
+r3_copied=$(find "$R3KEEP" -type f 2>/dev/null | wc -l | tr -d ' ')
+case "$r3_copied" in ''|*[!0-9]*) r3_copied=0 ;; esac
 if [ "$RUN_RC" -ne 0 ] && [ "$r3_wrote" -eq 0 ] && [ "$(commits "$R3")" -eq 1 ] \
-   && grep -qiE 'MB|rehearsal' "$RUN_OUT" "$RUN_ERR" 2>/dev/null; then
-  pass "REH3: SOIF_ADOPT_REHEARSAL_MAX_MB=0 refuses before copying — nothing written, no commit, and the message names the size"
+   && [ "$r3_copied" -eq 0 ] \
+   && grep -qiE 'MB' "$RUN_OUT" "$RUN_ERR" 2>/dev/null; then
+  pass "REH3: the bound refuses BEFORE the copy — nothing written, no commit, the message names the size, and NOT ONE FILE was copied"
 else
-  fail_ "REH3" "rc=$RUN_RC wrote=$r3_wrote (want 0) commits=$(commits "$R3") named=$(grep -ciE 'MB|rehearsal' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | awk -F: '{s+=$1} END{print s+0}')"
+  fail_ "REH3" "rc=$RUN_RC wrote=$r3_wrote (want 0) commits=$(commits "$R3") copied-files=$r3_copied (want 0) named-size=$(grep -ciE 'MB' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | awk -F: '{s+=$1} END{print s+0}')"
+fi
+
+# REH4 — a non-numeric bound must REFUSE, not switch the bound off with noise.
+R4="$(newtmp)/p"; mkdir -p "$R4"; mk_adoptee "$R4"
+RUN_RC=0; RUN_OUT="$TOPTMP/r4o"; RUN_ERR="$TOPTMP/r4e"; A4="$TOPTMP/r4a"; _ans > "$A4"
+( cd "$R4" && SOIF_ADOPT_REHEARSAL_MAX_MB=lots bash "$DRIVER" --scan-report "$REPORT" ) < "$A4" > "$RUN_OUT" 2> "$RUN_ERR" || RUN_RC=$?
+if [ "$RUN_RC" -ne 0 ] && [ ! -e "$R4/.claude" ] && [ "$(commits "$R4")" -eq 1 ] \
+   && grep -q 'not a number of megabytes' "$RUN_OUT" "$RUN_ERR" 2>/dev/null; then
+  pass "REH4: a non-numeric bound is REFUSED by name — it does not evaluate false and switch the bound off"
+else
+  fail_ "REH4" "rc=$RUN_RC wrote=$([ -e "$R4/.claude" ] && echo 1 || echo 0) commits=$(commits "$R4") named=$(grep -c 'not a number of megabytes' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | awk -F: '{s+=$1} END{print s+0}')"
 fi
 
 echo ""
