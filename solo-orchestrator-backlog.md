@@ -20614,11 +20614,22 @@ v2.1 §6.2 / §13-V9 / §12 item 10 (the design-side record of the same gap).
 
 ## BL-290: under a configured `core.hooksPath` — or a linked worktree, a submodule, a sub-directory root — adoption writes its hook where git never looks and prints that the message gates are live
 
-**Status:** Open — **RULED 2026-09-17 (Karl): adoption REFUSES at step 0** when `core.hooksPath` is
-configured or `--root` is not what `git rev-parse --show-toplevel` reports, before any write, naming
-the condition and printing the remedy; the "gates are live" sentence becomes DERIVED (printed only when
-the hook sits at the path `git rev-parse --git-path hooks` reports). Not built — ADOPT-002-ARCH v2.2
-§0.1a R1, §10-WP9d.
+**Status:** Closed — shipped + merged 2026-09-18 (PR #432, merge `8d66715`). Adoption refuses at
+step 0, before any write, on every shape this entry measured and on two the ruling did not name:
+a `--root` that is not `git rev-parse --show-toplevel` (`# BL-242-PLACEMENT-TOPLEVEL`), a `.git` that
+is a FILE — linked worktree or submodule (`# BL-242-PLACEMENT-GITDIR`), a configured `core.hooksPath`
+(`# BL-242-PLACEMENT-HOOKSPATH`), a hooks path that is a symlink or a regular file
+(`# BL-242-PLACEMENT-HOOKS-SHAPE`), and a hooks directory that is not writable
+(`# BL-242-PLACEMENT-HOOKS-WRITABLE`) — each naming the condition and printing its remedy. The hooks
+directory is resolved ONCE through git and shared with `adopt_archive_inventory`, so the enumerator and
+the writer can no longer disagree. The *"message gates are live"* sentence is now DERIVED: printed only
+when the gate is present, executable and carrying its marker. Cases in
+`tests/test-brownfield-wp9d-driver-edges.sh`.
+
+**Ruled 2026-09-17 (Karl):** adoption REFUSES at step 0 when `core.hooksPath` is configured or
+`--root` is not what `git rev-parse --show-toplevel` reports, before any write, naming the condition
+and printing the remedy; the "gates are live" sentence becomes DERIVED (printed only when the hook
+sits at the path `git rev-parse --git-path hooks` reports). ADOPT-002-ARCH v2.2 §0.1a R1, §10-WP9d.
 
 **Found:** 2026-09-17 by execution, while amending the design (ADOPT-002-ARCH v2.2 §13-V32). The
 architect review of 2026-09-16 predicted it by code reading (A1).
@@ -20659,12 +20670,15 @@ reuses), `## BL-145:` (`verify-install.sh`'s hooksPath block), `## BL-291:` (the
 
 ## BL-291: the ADOPTION WINDOW — an adoption commit the adoptee's own hook rejects leaves the project stamped, staged and uncommitted, and the re-run refuses it as "already adopted"
 
-**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.4's ADOPTION WINDOW row, §10-WP9d): arm 1
-discriminates the window (working-copy witness true, committed witness false) with its own sentence
-and a finish route; the written-paths ledger is persisted into the adoptee so `--finish` (or an
-idempotent re-run) can re-stage and re-commit without re-writing; "re-run adoption" is only ever
-advised from a refusal that precedes the stamp (§9.1-I12 — the first filing cited I17, which is the
-D7/D8 verdict invariant). Not built.
+**Status:** Closed — shipped + merged 2026-09-18 (PR #432, merge `8d66715`). The preflight arm now
+discriminates the adoption window (working-copy witness true, committed witness false) from a landed
+adoption and names the route out instead of advising `scripts/resume.sh`; `--finish`
+(`# BL-242-FINISH`) re-stages and re-commits from the persisted written-paths ledger
+(`# BL-242-WRITE-SET`) without re-writing a byte, and refuses when there is nothing part-way through
+to complete. Cases in `tests/test-brownfield-wp9d-window-rehearsal.sh`. **Owner's note on the
+fixtures:** two of this item's first mutations survived because the fixture passed for an unstated
+reason — refusing `--finish` on a landed adoption was satisfied by git refusing an EMPTY commit, and
+the missing-write-set guard by `git add` failing on an empty pathspec. Both now assert the reason.
 
 **Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V33); predicted by the 2026-09-16
 architect review (A3).
@@ -20733,10 +20747,15 @@ project's, so rehearsal and real run can disagree too.
 
 ## BL-294: the pre-write rehearsal copies the whole tree, `.git/objects` included, with no bound and no cost statement
 
-**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.2a, A7): the cost is stated, bounded
-(`SOIF_ADOPT_REHEARSAL_MAX_MB`, refuse loudly above it rather than dying in `cp`), and reduced — a
-shared-objects copy (`.git/objects/info/alternates`) keeps the ignore/index oracles at a fraction of the
-size; the transcript prints "rehearsal ran in N s over M MB". Not built.
+**Status:** Closed — shipped + merged 2026-09-18 (PR #432, merge `8d66715`). All three:
+BOUNDED — `SOIF_ADOPT_REHEARSAL_MAX_MB` refuses loudly above the bound, and refuses a non-numeric
+value rather than treating it as absent (`# BL-242-REHEARSAL-BOUND`); REDUCED — the copy borrows the
+object store through `.git/objects/info/alternates` instead of copying it
+(`# BL-242-REHEARSAL-SHARED`), which on this repository is 27 MB against 57 MB with git fully working
+in the copy; STATED — the transcript prints `copied the project in Ns over M MB for the rehearsal
+(objects shared, not copied)`. `# BL-242-REHEARSAL-KEEP` is the sibling. Cases in
+`tests/test-brownfield-wp9d-window-rehearsal.sh`. **Owner's note:** the *"no pack of its own"*
+assertion was vacuous on its first fixture, whose objects were all LOOSE; it now asserts the reason.
 
 **Found:** 2026-09-17 (ADOPT-002-ARCH v2.2 §13-V36); predicted by the architect review (A7).
 
@@ -20756,10 +20775,12 @@ flag; the fidelity argument stands, the cost was simply absent.
 
 ## BL-295: `adopt_refuse` labels its line `[BLOCKED]` or `[REFUSED]` by whether anything was written, not by whether a check ran — the messaging standard's vocabulary keys on the opposite fact
 
-**Status:** Open — owner WP9d (ADOPT-002-ARCH v2.2 §8.1, A10): two primitives — `adopt_refuse`
-(nothing ran; the tool declined to start) and `adopt_block` (a named check ran and did not pass) —
-with the "what is on disk" derivation appended as its own sentence. WP10b's secrets stop uses
-`adopt_block`. Not built.
+**Status:** Closed — shipped + merged 2026-09-18 (PR #432, merge `8d66715`). `adopt_block`
+(`# BL-242-BLOCK-LABEL`) is the second primitive: a caller that KNOWS a check ran forces the `[BLOCKED]`
+label rather than letting it be derived from what is on disk, and the disk-state derivation is
+unchanged and still appended as its own sentence — what the operator must do next does depend on it.
+Seventeen call sites in `scripts/lib/adopt/adopt-state.sh` are the checks that ran; `adopt_refuse`
+keeps every site where the tool declined to start. WP10b's secrets stop is the next caller.
 
 **Found:** 2026-09-17 (ADOPT-002-ARCH v2.2 §13-V42); predicted by the architect review (A10).
 
