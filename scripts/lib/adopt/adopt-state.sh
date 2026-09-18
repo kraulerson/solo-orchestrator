@@ -1777,9 +1777,18 @@ adopt_finish_main() {                                  # BL-242-FINISH
     adopt_note "  from the interrupted run, or re-adopt into a clean checkout."
     return 1
   fi
+  # READ INTO AN ARRAY, never `$(tr '\n' ' ' < "$ws")`. Measured: an unquoted
+  # command substitution word-splits on the space, so a written path containing
+  # one reaches `git add` as two pathspecs and the whole finish refuses with
+  # `fatal: pathspec 'a' did not match any files` — an adoption that could never
+  # be completed. Adoption writes no such path TODAY, which is exactly the kind
+  # of "today" this repository's own path (with a space in it) is a standing
+  # argument against.
   local rel missing=0
+  FINISH_PATHS=()
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
+    FINISH_PATHS+=("$rel")
     [ -e "$root/$rel" ] || { adopt_note "  missing: $rel"; missing=$((missing + 1)); }
   done < "$ws"
   if [ "$missing" -gt 0 ]; then
@@ -1788,7 +1797,7 @@ adopt_finish_main() {                                  # BL-242-FINISH
   fi
   # The same oracle the adoption commit uses: ask before staging, stop whole.
   local blocked
-  blocked="$( cd "$root" && git add --dry-run --ignore-missing -- $(tr '\n' ' ' < "$ws") 2>&1 >/dev/null )" || true
+  blocked="$( cd "$root" && git add --dry-run --ignore-missing -- "${FINISH_PATHS[@]}" 2>&1 >/dev/null )" || true
   if [ -n "$blocked" ]; then
     adopt_refuse "git will not stage every file that adoption wrote"
     adopt_note "  $blocked"
@@ -1796,11 +1805,11 @@ adopt_finish_main() {                                  # BL-242-FINISH
   fi
   adopt_head "Finishing the adoption"
   local n
-  n=$(grep -c . "$ws" 2>/dev/null) || n=0
+  n=${#FINISH_PATHS[@]}
   adopt_note "Committing exactly what the interrupted run wrote"
   adopt_note "   $n file(s), from $ADOPT_WRITE_SET_REL. Anything else you had in progress stays"
   adopt_note "   exactly as you left it — unstaged, uncommitted, untouched."
-  ( cd "$root" && git add -- $(tr '\n' ' ' < "$ws") ) || {   # BF-ADOPT-STAGE-EXPLICIT
+  ( cd "$root" && git add -- "${FINISH_PATHS[@]}" ) || {   # BF-ADOPT-STAGE-EXPLICIT
     adopt_refuse "could not stage the files that adoption wrote"; return 1; }
   ( cd "$root" && git commit -q -m "chore: adopt ${ADOPT_PROJECT_NAME:-this project} into the Solo Orchestrator framework" ) || {
     adopt_refuse "the adoption commit still did not succeed — your own hooks or git identity may be refusing it"

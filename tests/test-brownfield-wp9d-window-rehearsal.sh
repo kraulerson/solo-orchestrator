@@ -173,6 +173,28 @@ else
   fail_ "WIN6" "rc=$RUN_RC commits=$(commits "$W6") (want 1)"
 fi
 
+# WIN7 — a written path containing a SPACE. Adoption writes no such path today,
+# and this repository's own directory name is a standing argument against
+# resting on that: an unquoted `$(tr '\n' ' ' < "$ws")` word-splits, and the
+# finish refuses with `fatal: pathspec 'a' did not match any files` — an
+# adoption that could never be completed. Measured before the fix.
+W7="$(newtmp)/p"; mkdir -p "$W7"; mk_window "$W7"
+if [ -f "$W7/$WS" ]; then
+  mkdir -p "$W7/.claude/adoption/with space" && printf 'x\n' > "$W7/.claude/adoption/with space/f.txt"
+  printf '%s\n' ".claude/adoption/with space/f.txt" >> "$W7/$WS"
+  rm -f "$W7/.git/hooks/pre-commit"
+  run_in "$W7" --finish
+  w7_tracked=0
+  git -C "$W7" ls-files --error-unmatch ".claude/adoption/with space/f.txt" >/dev/null 2>&1 && w7_tracked=1
+  if [ "$RUN_RC" -eq 0 ] && [ "$w7_tracked" -eq 1 ]; then
+    pass "WIN7: a written path containing a space is staged and committed — the write set is read as lines, never word-split"
+  else
+    fail_ "WIN7" "rc=$RUN_RC space-path-tracked=$w7_tracked (want 1); $(grep -m1 'pathspec' "$RUN_OUT" "$RUN_ERR" 2>/dev/null | cut -c1-90)"
+  fi
+else
+  fail_ "WIN7 setup" "the window fixture produced no write set"
+fi
+
 echo "=== REH — the rehearsal's bound and its cost (item 7) ==="
 
 R1="$(newtmp)/p"; mkdir -p "$R1"; mk_adoptee "$R1"
