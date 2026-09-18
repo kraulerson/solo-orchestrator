@@ -17632,13 +17632,15 @@ once (`# BL-282-RERENDER`), so the rendered row reads `VALUE (amended YYYY-MM-DD
 second-home keys (`## BL-203:`) are written here and the other home is NAMED in a `[WARN]`, not
 written (W1). The narrower fifth change (bare-number
 selection in `prompt_with_suggestions`) is not in this fix. Suite: `tests/test-bl282-set-answer.sh`
-— RED on `579b0b0` at 6 passed / 30 failed: only the C1/C2 controls are green there on their own
-merits. The other four passes are VACUOUS — the flag falls through to the non-TTY refusal, so
-nothing is written, and H2's untouched answer plus S2's, S3's and the competency refusals all hold
-for the wrong reason. GREEN at 36/36 under bash 3.2.57, under bash 5.3.15, and under bash 5.2.21 in
-`ubuntu:24.04` as a non-root user; the five mirror mutants (neutered refusal, deleted re-render,
-hint narrowed to one key, write status discarded, competency family widened) are killed by K1, H4,
-K3, S1 and N3, each asserting it landed on its own marker line.
+— RED on `579b0b0` at 7 passed / 34 failed: C1, C2 and N5 are green there on their own merits (N5
+scans the script and the untouched base has no helper to collide with T5b). The other four passes
+are VACUOUS — the flag falls through to the non-TTY refusal, so nothing is written, and H2's
+untouched answer plus S2's, S3's and the competency refusals all hold for the wrong reason.
+GREEN at 41/41 under bash 3.2.57, under bash 5.3.15, and under bash 5.2.21 in
+`ubuntu:24.04` as a non-root user; the six mirror mutants (neutered refusal, deleted re-render,
+hint narrowed to one key, write status discarded, competency family widened, dispatch arm returned
+to a condition) are killed by K1, H4, K3, S1, N3 and A1, each asserting it landed on its own
+marker line.
 
 The write-status arm was added after the first cut: at `91b5066` a progress file with no `answers`
 object made `save_answer` raise, its status was discarded because `run_set_answer` is called from
@@ -17647,7 +17649,25 @@ amendment row appended anyway. S1 is that case; the other shapes already refused
 old-value read defaults `answers` to `{}` only when the key is missing. The competency bound was
 added in the same pass, from the adversarial review of the stacked follow-up: at `e1e027f`
 `--set-answer competency_zzz minted` exited 0 and MINTED a key the wizard records nowhere, which is
-the one thing the refusal exists to prevent.
+the one thing the refusal exists to prevent. The helper's first cut then carried the literal
+`local domains=(` inside its own grep pattern, 868 lines above the real array, and
+`tests/test-intake-wizard-fixes.sh` T5b takes the FIRST line matching that shape and counts the
+quoted strings on it — so T5b read 1 domain instead of 9 and the PR-blocking unit lane went red at
+`e151dc0` and on everything stacked on it. The pattern no longer contains the literal, and N5 runs
+T5b's own awk verbatim so this cannot recur. The value cell also neutralises a carriage return, not
+only a newline (N6): cmark-gfm ends a table row on a lone CR exactly as on an LF, reachable from a
+progress file edited outside the wizard.
+
+The dispatch arm also FAILED OPEN and now fails closed (A1, MP6; `# BL-282-ARM-FAILCLOSED`). It was
+`if run_set_answer "$@"; then exit 0; fi`, and putting the call in a condition disarms `errexit` for
+the whole function body, so an abort inside any command substitution there was survivable:
+execution walked on to `return 0` and the wizard reported success with the answer written. Calling
+it plainly keeps `errexit` armed, so an internal abort exits non-zero having written nothing, while
+an ordinary `return 1` still exits 1. **This was reported as a bash 3.2 fault that bash 5 did not
+have. It is not: measured with a forced abort, both `/bin/bash` 3.2.57 and bash 5.3.15 gave rc 0
+with the answer written and the amendment appended, and both give rc 1 after the fix.** The
+exposure was latent rather than live — every path in the function is guarded today — but the arm
+was one unguarded line away from silently reporting success.
 
 **Residual, measured and NOT fixed — concurrent amendments lose updates.** `save_answer` takes no
 lock, and neither does the amendment append: each is a read-modify-write of the whole file. Eight

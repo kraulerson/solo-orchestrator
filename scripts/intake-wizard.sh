@@ -488,7 +488,7 @@ render_intake_file() {
         | to_entries
         | sort_by(.key)
         | .[]
-        | "| " + (.key | keycell) + " | " + ((.value // "") | tostring | gsub("\\|"; "\\|") | gsub("\n"; " "))
+        | "| " + (.key | keycell) + " | " + ((.value // "") | tostring | gsub("\\|"; "\\|") | gsub("[\r\n]+"; " "))  # a lone CR ends a row in cmark-gfm too
           + (if $amended[.key] then " (amended " + $amended[.key] + ")" else "" end) + " |"
       ' "$PROGRESS_FILE"
     else
@@ -555,7 +555,7 @@ _bl282_key_templates() {
 # and transformed the same way, so this can never drift from what the wizard
 # actually records. A second hand-written list here would be the drift.
 _bl282_competency_keys() {
-  grep -m1 '^[[:space:]]*local domains=(' "${BASH_SOURCE[0]}" \
+  grep -m1 -E '^[[:space:]]*local domains=[(]' "${BASH_SOURCE[0]}" \
     | grep -o '"[^"]*"' | sed 's/^"//; s/"$//' \
     | tr '/ ' '_' | tr '[:upper:]' '[:lower:]'
 }
@@ -2418,8 +2418,8 @@ main() {
       # BL-282-SET-ANSWER-ARM: needs only PROGRESS_FILE, never reaches a
       # prompt, so it runs before the tier-crosscheck-6 scan and the TTY check.
       shift
-      if run_set_answer "$@"; then exit 0; fi
-      exit 1
+      run_set_answer "$@"  # BL-282-ARM-FAILCLOSED: never `if run_set_answer` — a condition disarms errexit inside it
+      exit 0
       ;;
     --data-classification|--zdr-attested|--zdr-attestation-reason|--data-classification=*|--zdr-attestation-reason=*)
       # tier-crosscheck-6 non-interactive write path. Parsed below
