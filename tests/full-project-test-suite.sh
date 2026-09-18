@@ -870,6 +870,9 @@ run_child_suite "tests/test-bl263-bl264-uat-template-dom.sh" \
 run_child_suite "tests/test-bl261-contributor-sast-live.sh" \
   "BL-261: the contributor hook's SAST arm resolves its config and RUNS in the framework checkout" \
   "BL-261 contributor SAST tests FAILED (run tests/test-bl261-contributor-sast-live.sh for details)"
+run_child_suite "tests/test-brownfield-wp9d-driver-edges.sh" \
+  "WP9d: the driver's edges — R1's step-0 placement refusals, the hooks path's shape, the write test, the identity precheck, the derived live sentence" \
+  "WP9d driver-edge tests FAILED (run tests/test-brownfield-wp9d-driver-edges.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

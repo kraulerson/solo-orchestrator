@@ -583,6 +583,7 @@ jobs:
             tests/test-bl278-sentinel-root.sh
             tests/test-bl280-bug-gate-unmeasured-source.sh
             tests/test-bl261-contributor-sast-live.sh
+            tests/test-brownfield-wp9d-driver-edges.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

@@ -75,6 +75,19 @@ adopt_blank() { printf '\n'; }
 # an ADOPT_REFUSED_REASON that nothing ever read (R-WP4-4): a variable nothing
 # reads is a claim nothing keeps, and it would have been read as a resume seam
 # that does not exist.
+# ── WP9d item (5) — THE LABEL KEYS ON WHETHER A CHECK RAN, NOT ON THE DISK ──
+#
+# `docs/messaging-standard.md` draws the line: a REFUSAL is "the tool would not
+# begin", a BLOCK is "a check ran and you did not pass it". `adopt_refuse`
+# derives the label from what is on disk, which is a different question and
+# gives the wrong word for a check that ran and wrote nothing — a step-0 stop
+# after the tier question, or WP10b's secrets stop. A caller that KNOWS a check
+# ran says so here; the derived disk-state detail below is unchanged, because
+# what the operator must do next does depend on what is on disk.
+adopt_block() {                                        # BL-242-BLOCK-LABEL
+  ADOPT_FORCE_BLOCK=1 adopt_refuse "$1"
+}
+
 adopt_refuse() {
   # BL-225-REFUSE-HONEST. The original line was "Adoption did not complete.
   # Nothing has been committed." — true, and the WHOLE message, so it read as
@@ -102,7 +115,7 @@ adopt_refuse() {
   # said "nothing was written". Same class as the claim it replaced. The flag is
   # set by every writer the moment it has touched the tree, so this reads a fact
   # rather than a proxy for one.
-  if [ "$_n" -gt 0 ] || adopt_has_touched_disk; then
+  if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] || [ "$_n" -gt 0 ] || adopt_has_touched_disk; then
     printf '\n[BLOCKED] %s\n' "$1" >&2
     if [ "${ADOPT_COMMITTED:-0}" -eq 1 ]; then
       printf '          The adoption commit HAD already landed; a later step did not complete.\n' >&2
