@@ -443,7 +443,7 @@ _adopt_rescan_secrets() {
     . "$secrets_lib" >/dev/null 2>&1 || exit 1
     # shellcheck source=/dev/null
     . "$report_lib" >/dev/null 2>&1 || exit 1
-    scout_secrets_scan "$root" "$work" >/dev/null 2>&1 || exit 1
+    scout_secrets_scan "$root" "$work" project >/dev/null 2>&1 || exit 1
     _scout_emit_secrets "$work" 2>/dev/null || exit 1
   )" || sec=""
   rm -rf "$work" 2>/dev/null
@@ -540,5 +540,201 @@ _adopt_rescan_secrets() {
     adopt_note "report — the report file may not be valid JSON. The secrets section is still"
     adopt_note "the one the survey produced, and what the re-scan found was discarded."
   fi
+  return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _adopt_secrets_scan_own ROOT SOURCE_REPORT OUT_REPORT  — §6.2b, invariant I14
+#
+# THE SECRETS STOP DECIDES ON A SCAN THIS RUN PERFORMED. Everything else in
+# Act 2 may be pre-filled from a handed-in `--scan-report`; this may not, and
+# the reason is that the three inputs a stop would otherwise trust are all
+# controlled by the party being audited:
+#
+#   1. the handed-in report itself — `adopt_obtain_report` checks `[ -f ]` and
+#      nothing more, so `{"status":"scanned","findingCount":0}` is accepted
+#      from a file that is a week stale or was edited a minute ago;
+#   2. the project's own scanner rules — a `.gitleaks.toml`, a
+#      `.gitleaksignore`, an inline `gitleaks:allow`, `GITLEAKS_CONFIG*` in the
+#      launching environment;
+#   3. the history's DEPTH — a shallow clone answers "0 findings" for the
+#      commits it does not have (`## BL-288:`).
+#
+# This function removes 1 and 2 and REPORTS 3. It does not remove 3: adoption
+# does not fetch on the operator's behalf, so a shallow adoptee yields
+# `scanned-partial` and §6.1's tier table decides what that means.
+#
+# WHY A NO-CHECKOUT SHARED CLONE RATHER THAN SCANNING IN PLACE. A scan of the
+# adoptee reads the adoptee's rule files, because that is where gitleaks looks.
+# A `--no-checkout` clone has an EMPTY working tree, so those files cannot be
+# where it looks — and `--shared` means the object store is borrowed rather
+# than copied, so the history walk costs a walk and not a copy (measured on
+# this repository: 0.04 s and 108 KB for 1,840 commits). For a SHALLOW source
+# git silently ignores `--shared` and copies the (small) shallow object store
+# instead; findings and shallowness are unaffected, only the cost, and the
+# small case is the one where copying is cheap anyway.
+#
+# The clone lives under `$ADOPT_WORK`, which `## BL-225:`'s T9 already exempts
+# as the driver's own state, so this writes NOTHING into the operator's tree.
+_adopt_secrets_scan_own() {
+  local root="$1" src_report="${2:-}" out="${3:-}"
+  local clone work sec new_obj fwcfg _cfgname
+
+  # `$3` WAS UNGUARDED WHILE `$2` WAS, AND THE ASYMMETRY WAS THE BUG. The
+  # driver runs `set -uo pipefail`, so a two-argument call did not reach any of
+  # this function's careful `adopt_note`-then-`return 1` arms — the shell
+  # aborted at the parameter expansion with `$3: unbound variable`. That is
+  # CLAUDE.md's own bash-4.0 version split, one layer up: empty here on 3.2,
+  # fatal on the runners.
+  if [ -z "$out" ]; then
+    adopt_note "The secrets stop was asked to scan without being told where to write its result."
+    return 1
+  fi
+
+  fwcfg="$ADOPT_FRAMEWORK_ROOT/templates/gitleaks/framework.toml"
+
+  local core_lib="$ADOPT_FRAMEWORK_ROOT/scripts/lib/scout/scout-core.sh"
+  local secrets_lib="$ADOPT_FRAMEWORK_ROOT/scripts/lib/scout/scout-secrets.sh"
+  local report_lib="$ADOPT_FRAMEWORK_ROOT/scripts/lib/scout/scout-report.sh"
+  if [ ! -f "$core_lib" ] || [ ! -f "$secrets_lib" ] || [ ! -f "$report_lib" ]; then
+    adopt_note "The secrets stop could not scan: this framework checkout is missing part of Scout."
+    return 1
+  fi
+
+  # THE CLONE. `--no-checkout` is the whole mechanism and `--shared` is the
+  # cost control; neither is optional, and the marked line is one line so a
+  # mutation has a single site.
+  clone="$ADOPT_WORK/history"
+  rm -rf "$clone" 2>/dev/null
+  if ! git clone --shared --no-checkout "$root" "$clone" >/dev/null 2>&1; then   # BL-242-SECRETS-OWN-SCAN
+    adopt_note "The secrets stop could not take a working copy of this project's history."
+    return 1
+  fi
+
+  if ! work="$(mktemp -d "${TMPDIR:-/tmp}/adopt-ownscan.XXXXXXXX" 2>/dev/null)"; then
+    adopt_note "The secrets stop could not scan: no temporary directory could be created."
+    return 1
+  fi
+
+  # A SUBSHELL, because these are Scout's libraries and sourcing them into the
+  # driver's shell would put their helpers in scope for every later step — the
+  # boundary `scripts/lint-module-dependencies.sh` polices. What comes back is
+  # a string.
+  #
+  # THE POLICY IS NAMED HERE, AT THE CALL SITE. `framework` is what makes this
+  # a stop's scan rather than a second survey; passing `project` would silently
+  # return this function to trusting input 2 above.
+  sec="$(
+    # shellcheck source=/dev/null
+    . "$core_lib"    >/dev/null 2>&1 || exit 1
+    # shellcheck source=/dev/null
+    . "$secrets_lib" >/dev/null 2>&1 || exit 1
+    # shellcheck source=/dev/null
+    . "$report_lib"  >/dev/null 2>&1 || exit 1
+    scout_secrets_scan "$clone" "$work" framework "$fwcfg" >/dev/null 2>&1 || exit 1   # BL-242-SECRETS-FRAMEWORK-RULES
+    _scout_emit_secrets "$work" 2>/dev/null || exit 1
+  )" || sec=""
+  rm -rf "$work" 2>/dev/null
+  rm -rf "$clone" 2>/dev/null
+
+  if [ -z "$sec" ]; then
+    adopt_note "The secrets stop's scan produced no result, so nothing is known about this"
+    adopt_note "project's history. That is not a clean result — it is the absence of one."
+    return 1
+  fi
+
+  new_obj="$(printf '{%s"_end": null}' "$sec" | jq -c '.secrets // empty' 2>/dev/null)" || new_obj=""
+  if [ -z "$new_obj" ]; then
+    adopt_note "The secrets stop's scan could not be rendered, so nothing is known about this"
+    adopt_note "project's history."
+    return 1
+  fi
+
+  # TWO FIELDS A READER CAN TELL THE TWO SCANS APART BY (§6.2b). Scout's own
+  # section carries neither, so their presence is the witness that this section
+  # came from the stop and not from a report somebody handed in.
+  #
+  # `configFile` IS DERIVED FROM THE ADOPTEE, NOT FROM THE REPORT, and that is
+  # the whole point of this function restated one field over. The own scan runs
+  # against a clone with an empty working tree, so it cannot detect the
+  # adoptee's `.gitleaks.toml` itself — and dropping the field would DELETE a
+  # disclosure rather than make one. §10's WP10b row asks that the persisted
+  # section still name the file while `rulesSource` says the stop did not use
+  # it.
+  #
+  # AN EARLIER CUT COPIED IT OUT OF `$src_report`, WHICH RE-ADMITTED INPUT 1.
+  # `--scan-report` is handed in by the party being audited, so that version
+  # let a report carry an INVENTED filename into the section the stop persists
+  # and the stamp hashes, and — worse in the other direction — let a report
+  # saying `configFile: null` SUPPRESS the disclosure for a project that really
+  # does ship one. Both reproduced before this was changed. The adoptee's own
+  # working tree is the only honest source, and this function already holds it.
+  # Detection is Scout's two names, deliberately spelled the same way.
+  local carried_cfg=""
+  for _cfgname in .gitleaks.toml gitleaks.toml; do   # BL-242-SECRETS-CONFIG-DISCLOSE
+    if [ -f "$root/$_cfgname" ]; then carried_cfg="$_cfgname"; break; fi
+  done
+  new_obj="$(printf '%s' "$new_obj" | jq -c \
+      --arg cfg "$carried_cfg" \
+      '. + {scannedBy: "adoption", rulesSource: "framework"}
+         | if ($cfg != "" and (.configFile == null or .configFile == ""))
+           then .configFile = $cfg else . end' 2>/dev/null)" || new_obj=""
+  [ -n "$new_obj" ] || { adopt_note "The secrets stop's scan could not be annotated."; return 1; }
+
+  # THE OUT REPORT IS A NEW FILE, never an in-place rewrite of the operator's
+  # input — the same two reasons `_adopt_rescan_secrets` gives: `## BL-225:`'s
+  # T9, and that a consumed report is an INPUT and rewriting it makes a re-run
+  # non-reproducible from the same arguments.
+  local base="$src_report"
+  if [ -z "$base" ] || [ ! -f "$base" ]; then base=""; fi
+
+  # `jq … "$base" > "$out"` TRUNCATES `$out` BEFORE jq OPENS `$base`, so being
+  # handed the same path for both destroys the operator's report and only then
+  # fails. The comment below says the out report is never an in-place rewrite;
+  # that was a property of the caller and enforced nowhere until here.
+  #
+  # STRING EQUALITY IS NOT ENOUGH, MEASURED. A first cut compared the two
+  # SPELLINGS. `$T/alias.json` and `$T/./alias.json` are one file with two
+  # spellings, and a symlink is a third; each walked straight into the
+  # truncation and left the operator's report at 0 bytes before the function
+  # reported failure — the exact shape the guard was added to stop. So the
+  # cheap string test is kept as a first arm and identity decides.
+  #
+  # `stat` is GNU-first with a BSD fallback, CLAUDE.md's portability rule. The
+  # identity arm only runs when `$out` already EXISTS, which on every ordinary
+  # call it does not, so this costs nothing on the normal path.
+  # `-L` IS LOAD-BEARING ON BOTH SPELLINGS: NEITHER GNU NOR BSD `stat`
+  # DEREFERENCES A SYMLINK ARGUMENT BY DEFAULT. Measured on both — BSD on this
+  # host returns `…96762428` for a link to a file that is `…96762427`, and GNU
+  # coreutils 9.4 returns `…1837568` for a link to `…1837567`; `-L` makes each
+  # return the target's. `scripts/lib/helpers-core.sh` states the same fact
+  # above `_bl199_dir_id` and states it correctly.
+  #
+  # AN EARLIER DRAFT OF THIS COMMENT SAID GNU DEREFERENCES BY DEFAULT AND BSD
+  # DOES NOT. That is inverted, and it was inferred from one platform after the
+  # BSD fallback was seen to misbehave — CLAUDE.md's own "measure it, do not
+  # reason about it" failure, committed inside a fix. It matters because CI is
+  # `ubuntu-latest`: a maintainer trusting that sentence would drop the GNU
+  # `-L` as redundant and silently re-open the symlink hole on the platform
+  # that gates merges. Without `-L` the first fix passed the alias case and
+  # still truncated the report to 0 bytes on the symlink one.
+  _soif_fileid() {
+    stat -L -c '%d:%i' "$1" 2>/dev/null || stat -L -f '%d:%i' "$1" 2>/dev/null
+  }
+  if [ -n "$base" ] && { [ "$out" = "$base" ] || { [ -e "$out" ] \
+       && [ -n "$(_soif_fileid "$out")" ] \
+       && [ "$(_soif_fileid "$out")" = "$(_soif_fileid "$base")" ]; }; }; then
+    adopt_note "The secrets stop was asked to write its result over the report it was given."
+    adopt_note "Nothing was written; the report you passed is untouched."
+    unset -f _soif_fileid 2>/dev/null
+    return 1
+  fi
+  unset -f _soif_fileid 2>/dev/null
+  if [ -n "$base" ]; then
+    jq --argjson s "$new_obj" '.secrets = $s' "$base" > "$out" 2>/dev/null
+  else
+    jq -n --argjson s "$new_obj" '{schemaVersion: 2, secrets: $s}' > "$out" 2>/dev/null
+  fi
+  [ -s "$out" ] || { adopt_note "The secrets stop's scan could not be written."; return 1; }
   return 0
 }
