@@ -20687,9 +20687,18 @@ refusal that precedes the stamp*. Four of the five shipped advisories are pre-st
 `adopt_stage_and_commit`'s ignored-paths arm, is POST-stamp — `_adopt_write_phase` runs at
 `# BL-225-WRITE-PHASE-REAL` and `adopt_stage_and_commit` is called after it, so a project reaching that
 arm is already stamped and "run adoption again" is the pointer `# BL-242-PREFLIGHT-ARM1` refuses.
-Reachability is narrow (the pre-write rehearsal normally catches an ignored path first) and it is the
-same shape as `## BL-242:`'s standing `# BL-242-RESOLVER-NO-EXEC` residual, which WP10b owns. Found
-2026-09-18 by the pre-PR review of this closure. **Owner's note on the
+Reachability is narrow (the pre-write rehearsal normally catches an ignored path first) and the bad
+advice is self-correcting — an operator who follows it hits `# BL-242-PREFLIGHT-ARM1`'s window
+sub-arm, which blocks and redirects to `--finish`. Found 2026-09-18 by the pre-PR review of this
+closure.
+
+**The shortfall is CARRIED as a residual on the Open `## BL-304:`, not only here.** The first filing
+justified leaving it in this Closed entry by analogy to `# BL-242-RESOLVER-NO-EXEC`; the second review
+refuted the analogy on the one property that makes the precedent work — that residual sits in an
+**Open** entry, which CLAUDE.md's standing `grep -n '\*\*Status:\*\* Open'` recipe surfaces and which
+names an owner, while a residual filed inside a Closed entry is invisible to that recipe forever. The
+mechanism this entry is about genuinely shipped, so it stays Closed; the shortfall now also lives
+where a standing search finds it. **Owner's note on the
 fixtures:** two of this item's first mutations survived because the fixture passed for an unstated
 reason — refusing `--finish` on a landed adoption was satisfied by git refusing an EMPTY commit, and
 the missing-write-set guard by `git add` failing on an empty pathspec. Both now assert the reason.
@@ -20799,8 +20808,11 @@ flag; the fidelity argument stands, the cost was simply absent.
 label rather than letting it be derived from what is on disk, and the disk-state derivation is
 unchanged and still appended as its own sentence — what the operator must do next does depend on it.
 Seventeen call sites in `scripts/lib/adopt/adopt-state.sh`; `adopt_refuse` keeps every site where the
-tool declined to start. **They are not all "checks" in the standard's sense** — nine are I/O failures
-(`mkdir` on the hooks directory, the two `commit-msg` writes, the write-set writes, the staging call).
+tool declined to start. **They are not all "checks" in the standard's sense.** Seven are plain I/O failures — `mkdir` on the
+hooks directory, the two `commit-msg` writes, the three write-set writes, the staging call — and two
+more are I/O on a wider reading (the hook-write fault seam's forced failure branch, and `git commit`
+itself failing). A first draft asserted "nine" over a parenthetical that enumerated seven; derived
+here rather than re-asserted, after the pre-PR review counted it.
 The `[BLOCKED]` label is right for every one of them, because writes had already landed and the disk
 derivation agrees; what `adopt_block` buys over the derivation is the sites where a check ran and
 NOTHING was written. Corrected from *"are the checks that ran"* on 2026-09-18 by the pre-PR review. WP10b's secrets stop is the next caller.
@@ -20897,16 +20909,43 @@ subject is the HOOKS directory, and only then prints the true
 **Why no case catches it.** `refused_at_step0` in `tests/test-brownfield-wp9d-driver-edges.sh` asserts
 PRESENCE only — `grep -qiE "$want"`, with `want="writ"` for the W2 case — plus rc, no question asked,
 nothing written, no commit and no live sentence. It has no assertion that a CONTRADICTORY line is
-absent, so the suite is 21/0 with the false line printing. That is the vacuity shape
-`## BL-233:`'s learning (4) names: an assertion true of the defect as well as the fix.
+absent, so the suite is 21/0 with the false line printing. That is the vacuity shape `## BL-233:`'s
+**residual 15** names — a test that was vacuous three times, whose remedy is a FLOOR that fails loudly
+when the measurement silently returns to nothing. *(An earlier draft cited "learning (4)", which is a
+heading from the Qdrant record of that work, not from the backlog entry it pointed at.
+`scripts/lint-bl-markers.sh` resolves `## BL-233:` at entry level and structurally cannot catch an
+invented item number inside one — the CITATION RULE's own failure mode, one level above what the lint
+reaches.)*
+
+**It is worse than "no absence assertion" — `want="writ"` never discriminated anything, proved by
+mutation.** Two lines on the W2 path satisfy `grep -qiE "writ"` without being the refusal: the opening
+banner *"Nothing is written until the questions are answered…"*, printed BEFORE any check runs, and
+`adopt_refuse`'s universal trailer *"… did not begin. Nothing was committed and nothing was
+written."* Replace the true refusal's text with something else entirely and W2 still passes 21/0;
+stack the fix below on top of that and it STILL passes.
 
 **Fix shape (not built).** `preflight_target_writable "$hooks" >/dev/null 2>&1` at the call site, and
 delete or correct the comment that asserts the suppression works. The design already anticipated the
 other half — §10-WP9d item (6) says of this helper *"Its failure text names project directory and
 needs parameterising for a hooks directory; that is the only work here"* — so the alternative is to
 parameterise `preflight_target_writable`'s noun rather than silence it, which serves `init.sh` too.
-Either way the case must assert the ABSENCE of `Cannot create project directory`, not just the
-presence of the refusal.
+Either way the case must do BOTH: assert the ABSENCE of `Cannot create project directory`, and
+re-anchor `want` on something the boilerplate cannot satisfy (`^\[REFUSED\].*hooks directory is not
+writable`). An absence clause alone leaves W2 unable to discriminate its own refusal text — the same
+defect one level down.
 
-**Related:** `## BL-290:` (the arm; its Closed text now points here), `## BL-242:` (the driver),
-`## BL-233:` (the vacuous-assertion class), `docs/messaging-standard.md`.
+**Residual carried here from `## BL-291:` (Closed) so a standing search can find it — the driver's
+other live messaging defect.** `adopt_stage_and_commit`'s ignored-paths arm advises *"Un-ignore them
+in .gitignore and run adoption again"* AFTER the stamp: `_adopt_write_phase`
+(`# BL-225-WRITE-PHASE-REAL`) writes `.claude/manifest.json`, and `adopt_stage_and_commit` runs after
+it, so a project reaching that arm is already stamped and "run adoption again" is the pointer
+`# BL-242-PREFLIGHT-ARM1` refuses. It is the fifth of five shipped *run adoption again* advisories;
+the other four are pre-stamp. Narrow reachability (`git check-ignore` is index-aware, so the
+pre-write rehearsal normally catches an ignored path first — this arm needs the tracked-path case)
+and self-correcting in practice, because the operator who follows it lands on the window sub-arm that
+redirects to `--finish`. BL-291 closed on its shipped mechanism and records this in full; this row
+exists so `grep -n '\*\*Status:\*\* Open'` surfaces it.
+
+**Related:** `## BL-290:` (the arm; its Closed text now points here), `## BL-291:` (the residual
+above), `## BL-242:` (the driver, and `# BL-242-RESOLVER-NO-EXEC`, the sibling advisory residual
+WP10b owns), `## BL-233:` (residual 15, the vacuity floor), `docs/messaging-standard.md`.
