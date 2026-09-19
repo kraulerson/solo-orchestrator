@@ -876,6 +876,9 @@ run_child_suite "tests/test-brownfield-wp9d-driver-edges.sh" \
 run_child_suite "tests/test-brownfield-wp9d-window-rehearsal.sh" \
   "WP9d: the adoption window and its --finish route, and the rehearsal's bound" \
   "WP9d window/rehearsal tests FAILED (run tests/test-brownfield-wp9d-window-rehearsal.sh for details)"
+run_child_suite "tests/test-brownfield-wp10b-own-scan.sh" \
+  "WP10b/1: the secrets stop scans a no-checkout clone under the framework's own rules" \
+  "WP10b own-scan tests FAILED (run tests/test-brownfield-wp10b-own-scan.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

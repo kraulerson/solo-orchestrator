@@ -235,7 +235,33 @@ _scout_secrets_render() {
   return 0
 }
 
-# scout_secrets_scan ROOT WORK — fills WORK with the secrets section's data.
+# scout_secrets_scan ROOT WORK [RULES_POLICY] [FRAMEWORK_CONFIG]
+#   — fills WORK with the secrets section's data.
+#
+# RULES_POLICY IS NAMED AT EVERY CALL SITE AND DEFAULTS TO THE SURVEY'S.
+# There are two callers and they want opposite things, so the policy is a
+# PARAMETER rather than a global or an environment seam (WP10b, §6.2b):
+#
+#   project   (default) — honour whatever the scanned project configures: a
+#               repo-local `.gitleaks.toml`, a `.gitleaksignore`, an inline
+#               `gitleaks:allow`, `GITLEAKS_CONFIG*` in the environment. This
+#               is CORRECT for Scout. `## BL-288:` states the rule: a read-only
+#               survey must not refuse, and a survey that overrode a project's
+#               own scanner configuration would be making a claim about that
+#               project under rules the project did not agree to. The report
+#               DISCLOSES the config through `configFile` instead.
+#   framework            — force the framework's own rules and ignore every
+#               project-controlled suppressor. This is for adoption's secrets
+#               STOP, which decides whether a project may be adopted and must
+#               not take that decision under rules the thing being audited
+#               wrote. FRAMEWORK_CONFIG is required here and is passed, not
+#               looked up, so this file holds no knowledge of the framework's
+#               layout.
+#
+# AN ENVIRONMENT SEAM WAS REJECTED FOR THIS. A variable that forces framework
+# rules would be readable by the survey too, and anything that can silently
+# turn the survey into a rule-overriding scan re-opens exactly what `## BL-288:`
+# closed. A parameter cannot be set by accident from outside the process.
 #
 # Writes (all inside WORK, which the entry script owns and removes):
 #   secstatus   scanned | scanned-partial | tool-unavailable | scan-failed
@@ -257,7 +283,11 @@ _scout_secrets_render() {
 # of this report where a false clean bill of health has a credential behind it.
 scout_secrets_scan() {
   local root="$1" work="$2"
+  local policy="${3:-project}" fwcfg="${4:-}"
   local _bin _mode _scope _flags _rc _version _count _cfg _commits _gitdir f
+  local _ignore_none=""
+  local _fwflags
+  _fwflags=()
 
   printf 'gitleaks\n' > "$work/sectool"
   : > "$work/secjson"
@@ -340,10 +370,80 @@ scout_secrets_scan() {
   # artifacts stay clean.
   _flags="--no-banner --redact --exit-code 0"  # SCOUT-SECRETS-REDACT
 
+  # ── THE FRAMEWORK-RULES ARM (WP10b, §6.2b) ────────────────────────────────
+  # Four suppressors, four answers, and each was MEASURED on 8.30.1 rather
+  # than assumed (§13-V35, and re-measured while building this):
+  #
+  #   .gitleaks.toml / gitleaks.toml at the scanned root  -> `-c` outranks it
+  #   GITLEAKS_CONFIG / GITLEAKS_CONFIG_TOML in the env   -> `-c` outranks it,
+  #        AND they are unset in the subshell, because relying on precedence
+  #        alone means one dropped flag restores the whole vector
+  #   an inline `gitleaks:allow` comment                  -> --ignore-gitleaks-allow
+  #   a .gitleaksignore                                   -> --gitleaks-ignore-path
+  #
+  # THE LAST ONE IS THE SUBTLE ONE AND IT IS WHY THE CWD MATTERS. gitleaks
+  # resolves `--gitleaks-ignore-path` against the PROCESS cwd, default `.`.
+  # Adoption scans a no-checkout clone whose working tree is EMPTY, so no
+  # ignore file can exist there — but only if the scan's cwd is the clone. The
+  # `cd "$root"` below is what delivers that, with the clone passed as ROOT.
+  #
+  # THE FLAG IS REDUNDANT TODAY AND IT STAYS ANYWAY — said plainly because a
+  # reader who measures it will find it so and should not have to wonder. With
+  # cwd = an empty working tree there is no `.gitleaksignore` for gitleaks to
+  # read, so dropping `--gitleaks-ignore-path` alone changes no result and NO
+  # mutation of it dies. §6.2b calls the cwd load-bearing and pins it with
+  # WP10b's proof (2); that is true of an implementation with ONE defence, and
+  # this has two. Each alone suffices, which is why neither alone has a
+  # discriminating mutant — measured, not assumed. The pair is kept because the
+  # day someone changes what ROOT points at, the flag is what still holds.
+  #
+  # THE INLINE-ALLOW CASE IS NOT COVERED BY THE EMPTY WORKING TREE, which is
+  # the trap a first reading of §6.2b walks into: the comment lives in the
+  # history BLOB, and a history walk reads blobs regardless of what is checked
+  # out. Measured on a two-plant fixture — 1 finding without the flag, 2 with.
+  if [ "$policy" = "framework" ]; then
+    # AN EMPTY `$fwcfg` IS THE DANGEROUS ONE, NOT THE MISSING FILE. A missing
+    # path makes gitleaks exit 1, which surfaces as `scan-failed` even with no
+    # guard here. An EMPTY one does not: measured on 8.30.1, `-c ""` behaves
+    # exactly as if no `-c` were given — it resumes normal config discovery and
+    # honours the scanned tree's own `.gitleaks.toml` (0 findings against 2).
+    # That is the silent fallback to the audited project's rules that this
+    # whole policy exists to refuse, so the guard covers BOTH shapes and case
+    # O9 in tests/test-brownfield-wp10b-own-scan.sh pins it.
+    if [ -z "$fwcfg" ] || [ ! -f "$fwcfg" ]; then
+      # FAIL LOUDLY. Falling back to the project's rules here would be the
+      # silent-success shape: the stop would decide under exactly the rules it
+      # exists to ignore, and say nothing.
+      printf 'scan-failed\n' > "$work/secstatus"
+      printf '%s\n' "The scan was asked to use the framework's own rules and that config could not be read (${fwcfg:-no path given}). NOTHING was scanned — treat this as unknown, not as clean." \
+        > "$work/secnote"
+      return 0
+    fi
+    _ignore_none="$work/no-ignore-here"
+    mkdir -p "$_ignore_none" 2>/dev/null
+    # AN ARRAY, NOT A STRING, AND THAT IS NOT STYLE. `$_flags` above is
+    # word-split on purpose and may be, because it holds no paths. These flags
+    # DO: the framework config and the ignore directory are absolute paths, and
+    # this framework's own checkout lives under `Claude Projects` — a directory
+    # with a SPACE in it. Appended to `$_flags`, the config path split in two
+    # and gitleaks answered `unknown flag`, which this function then reported
+    # as `scan-failed` — a stop at organizational, from a quoting bug, on every
+    # host whose checkout path contains a space. Measured before it was fixed.
+    _fwflags=( -c "$fwcfg" --ignore-gitleaks-allow --gitleaks-ignore-path "$_ignore_none" )   # SCOUT-SECRETS-FRAMEWORK-RULES
+  fi
+
   # stderr is captured, never inherited: gitleaks writes INF/WRN progress lines
   # on every run, and Scout's contract is an EMPTY stderr on a successful scan.
+  #
+  # `cd "$root"` IS LOAD-BEARING UNDER THE FRAMEWORK POLICY, not just tidy —
+  # see the `--gitleaks-ignore-path` note above. A build that scanned the clone
+  # from the adoptee's cwd reads the adoptee's `.gitleaksignore` and finds one
+  # plant fewer.
   ( cd "$root" 2>/dev/null || exit 2
-    "$_bin" "$_mode" $_flags -f json -r "$work/gl.json" . ) \
+    if [ "$policy" = "framework" ]; then
+      unset GITLEAKS_CONFIG GITLEAKS_CONFIG_TOML
+    fi
+    "$_bin" "$_mode" $_flags ${_fwflags[@]+"${_fwflags[@]}"} -f json -r "$work/gl.json" . ) \
     >"$work/gl.out" 2>"$work/gl.err"
   _rc=$?
 

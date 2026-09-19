@@ -20949,3 +20949,51 @@ exists so `grep -n '\*\*Status:\*\* Open'` surfaces it.
 **Related:** `## BL-290:` (the arm; its Closed text now points here), `## BL-291:` (the residual
 above), `## BL-242:` (the driver, and `# BL-242-RESOLVER-NO-EXEC`, the sibling advisory residual
 WP10b owns), `## BL-233:` (residual 15, the vacuity floor), `docs/messaging-standard.md`.
+
+---
+
+## BL-305: `tests/test-bl225-staging-preflight.sh`'s T9 marker scan does not exclude COMMENTS, so a comment naming `adopt_touched_disk` satisfies it for every writer in the same function
+
+**Status:** Open — the writers it currently passes over are all provably safe, so this is a vacuous
+check rather than a live hole. It is filed because the check is the one standing between a new
+adoption writer and `# BL-225-REFUSE-HONEST`'s "nothing was written" claim, and a check anyone can
+satisfy with prose is not that.
+
+**Found:** 2026-09-19 by accident, while building WP10b/1 (PR #436). A new function's explanatory
+comment named the marker in order to say the function deliberately does NOT use one — and T9 went
+green over two genuinely unmarked writers. Removing the token from that single comment flipped it
+straight to RED, which is how a comment-satisfiable check announces itself.
+
+**The asymmetry.** `_writers` has filtered comments since it was written — `grep -vE ':[0-9]+: *#'`,
+with its own comment explaining that an unfiltered first draft returned comments as writers. The
+marker scan two stanzas below has no such filter:
+
+```
+awk -v A="$fn_start" -v B="$wl" 'NR>A && NR<B && /adopt_touched_disk/ {f=1} END{exit !f}' "$wf"
+```
+
+So the writer side is comment-aware and the marker side is not, in the same test, for the same
+token.
+
+**Measured on `main` at `ba262e3`, and the pre-existing case is BENIGN — which is why nobody saw it.**
+Adding `$0 !~ /^[[:space:]]*#/` to that awk turns `Results: 35 passed, 0 failed` into
+`34 passed, 1 failed`, naming `adopt-tools.sh:492` — the `jq … > "$fresh"` write in
+`_adopt_rescan_secrets`. That write is legitimately outside the adoptee (`$fresh` is assigned
+`"$ADOPT_WORK/scout-report-refreshed.json"` on the line immediately above it), so it needs no marker
+and the file is not defective. What was satisfying T9 for it is the comment at line 477, which
+mentions `adopt_touched_disk` while explaining `## BL-225:`'s T9 rule itself. **A check being
+satisfied by the prose that documents the check** is the shape worth recording.
+
+**Fix shape (not built).** Add the comment filter to the marker scan, and in the same change give
+`_adopt_rescan_secrets`'s `> "$fresh"` the same treatment WP10b/1 gave `> "$out"` — an exclusion
+whose warrant is stated, since both are the driver's own state under `$ADOPT_WORK` rather than the
+adoptee. Deliberately NOT done in PR #436: that PR is WP10b/1, the hardening is someone else's test,
+and its one piece of fallout is in a function that PR does not otherwise touch.
+
+**Do not "fix" it by marking `$fresh`.** A marker before a non-adoptee write is WRONG — the
+exclusion list's own header says so — because it would make `adopt_refuse` report the project as
+touched by a step required to leave no trace.
+
+**Related:** `## BL-225:` (T9's owner, and the residual list this belongs beside), `## BL-242:`
+(WP10b/1's `> "$out"` exclusion and the refusal that warrants it), `## BL-233:` (residual 15, the
+vacuity floor — the same class one surface over).

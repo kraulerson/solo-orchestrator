@@ -1,0 +1,24 @@
+# The framework's own gitleaks rule set — §6.2b of ADOPT-002-ARCH.
+#
+# WHY THIS FILE IS ALMOST EMPTY, AND WHY THAT IS THE POINT. Adoption's secrets
+# STOP must decide on a scan whose rules the project being adopted did not
+# write. `-c` at this file is what guarantees that: it is the only config
+# gitleaks reads for that scan, it outranks `GITLEAKS_CONFIG`/
+# `GITLEAKS_CONFIG_TOML` in the environment (measured, 8.30.1), and it cannot
+# be a repo-local `.gitleaks.toml` because it is not in the repository.
+#
+# `useDefault = true` means the rule set IS gitleaks' own defaults for whatever
+# version is installed. That is deliberate: the framework does not maintain a
+# competing rule list it would have to keep current, and the stop is only ever
+# as good as the scanner's own rules — §6.2b says so in its trust boundary.
+#
+# ADDING A RULE OR AN ALLOWLIST HERE IS A DECISION, NOT A TWEAK. An allowlist
+# in this file suppresses a finding for EVERY adopted project at both tiers,
+# with no disclosure anywhere in the transcript — the exact shape the stop
+# exists to refuse when a project does it to itself. Anything added here needs
+# an entry and a reason.
+#
+# This file ships nowhere. The stop runs from the framework clone and reads it
+# there, so an adopted project never receives a copy (§6.2b).
+[extend]
+useDefault = true
