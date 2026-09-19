@@ -583,6 +583,8 @@ jobs:
             tests/test-bl278-sentinel-root.sh
             tests/test-bl280-bug-gate-unmeasured-source.sh
             tests/test-bl261-contributor-sast-live.sh
+            tests/test-brownfield-wp9d-driver-edges.sh
+            tests/test-brownfield-wp9d-window-rehearsal.sh
             tests/test-bl277-detector-authorship.sh
           )
 
@@ -887,6 +889,8 @@ jobs:
             tests/test-bl288-scout-shallow-history-claim.sh # 12s on PR #412 — three gitleaks git scans; belongs with the scanner leg
           )
           pin_slow_misc=(
+            tests/test-brownfield-wp9d-driver-edges.sh    #  32s local — Scout + full adoptions; `rest` was 9m36s of a 12m cap
+            tests/test-brownfield-wp9d-window-rehearsal.sh #  22s local — same shape; pinned with its sibling
             tests/test-pre-commit-gate-lints.sh        # 122s — runs 4 lint copies inside fixture projects
             tests/test-upgrade-sync-framework.sh       #  37s
             tests/test-plan-staging.sh                 #  34s

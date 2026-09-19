@@ -156,6 +156,9 @@ adopt-project — bring an existing project under the framework.
   --root DIR          the project to adopt (default: the current directory)
   --scan-report FILE  consume this Scout report instead of running a new scan
   --re-add PATH       put one of YOUR archived files back, warned and recorded
+  --finish            complete an adoption whose state was written but whose
+                      commit did not land (your own hook or git identity
+                      refused it) — stages exactly what that run wrote
   --version           print the driver's version and exit
   --help              print this and exit
 
@@ -187,6 +190,7 @@ USAGE
 ADOPT_ROOT="."
 ADOPT_REPORT=""
 ADOPT_READD=""
+ADOPT_FINISH=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -196,6 +200,7 @@ while [ "$#" -gt 0 ]; do
     --scan-report=*) ADOPT_REPORT="${1#--scan-report=}"; shift ;;
     --re-add)        [ "$#" -ge 2 ] || { echo "adopt-project: --re-add needs a path" >&2; exit 2; }; ADOPT_READD="$2"; shift 2 ;;
     --re-add=*)      ADOPT_READD="${1#--re-add=}"; shift ;;
+    --finish)        ADOPT_FINISH=1; shift ;;
     --version)       adopt_module_version; exit 0 ;;
     -h|--help)       usage; exit 0 ;;
     *)               echo "adopt-project: unrecognised option '$1'" >&2; echo "" >&2; usage >&2; exit 2 ;;
@@ -217,6 +222,15 @@ guard_not_in_framework "$ADOPT_ROOT_ABS" || exit 1
 # the adoption path exactly as WP4 shipped it.
 if [ -n "$ADOPT_READD" ]; then
   adopt_readd_main "$ADOPT_ROOT_ABS" "$ADOPT_READD"
+  exit $?
+fi
+
+# --finish is the adoption window's route out (WP9d item 4, `## BL-291:`): it
+# completes an adoption whose state was written and whose commit did not land.
+# Dispatched here for the same reason --re-add is — it is a different operation,
+# not a mode of the run, and it must not re-write anything.
+if [ -n "$ADOPT_FINISH" ]; then
+  adopt_finish_main "$ADOPT_ROOT_ABS"
   exit $?
 fi
 

@@ -353,11 +353,17 @@ echo "=== S — the fail-safe state-creation order (§8.4, §5.5) ==="
 s1_order="$( . "$L_STATE" >/dev/null 2>&1; _adopt_state_order | tr '\n' ' ' )"
 s1_sites=$(_sites "$L_STATE" 'BF-ADOPT-STATE-ORDER')
 s1_first_sites=$(_sites "$L_STATE" 'BL-242-APPROVAL-LOG-FIRST')
-if [ "$s1_order" = "approval_log phase_state intake manifest " ] \
+# WP9d (ADOPT-002-ARCH v2.2 §10-WP9d item 4) appends a FIFTH stage, `write_set`,
+# and it must be LAST: it persists what every stage before it wrote, which is
+# what makes `--finish` able to re-stage an adoption whose commit was refused
+# (`## BL-291:`). The head is still A4's and the tail through `manifest` is
+# still §8.4's — both halves this case was written for are unchanged; the list
+# grew at the end, which is the one place a new stage cannot disturb them.
+if [ "$s1_order" = "approval_log phase_state intake manifest write_set " ] \
    && [ "$s1_sites" -eq 1 ] && [ "$s1_first_sites" -eq 1 ]; then
-  pass "S1: the order is A4's log first, then §8.4's — approval_log, phase_state, intake, manifest"
+  pass "S1: the order is A4's log first, then §8.4's, then WP9d's write_set last — approval_log, phase_state, intake, manifest, write_set"
 else
-  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake manifest ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
+  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake manifest write_set ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
 fi
 
 # _assert_safe_row LABEL DIR — §8.4's TOP row: phase-state present, manifest
@@ -647,11 +653,18 @@ else
   g2_committed=$( cd "$G2R/p" && git show --name-only --format= HEAD 2>/dev/null )
   g2_wip=$(printf '%s\n' "$g2_committed" | grep -c '^src/wip.js$'); g2_wip=$(_num "$g2_wip")
   g2_state=$(printf '%s\n' "$g2_committed" | grep -c '^.claude/phase-state.json$'); g2_state=$(_num "$g2_state")
+  # TWO SITES SINCE WP9d: the adoption commit's and `--finish`'s, both marked
+  # `# BF-ADOPT-STAGE-EXPLICIT` because both carry the same property — the
+  # operator's own uncommitted work must never be swept in. The sed mutates BOTH
+  # (2 lines out, 2 in = 4 changed), and THIS case exercises the adoption-commit
+  # one; the `--finish` one has its own proof in
+  # tests/test-brownfield-wp9d-window-rehearsal.sh WIN3, which goes RED when that
+  # site alone is swapped for a blanket add. Measured both ways.
   if [ "$g2_rc" -eq 0 ] && [ "$g2_wip" -eq 1 ] && [ "$g2_state" -eq 1 ] \
-     && [ "$chgG" -eq 2 ] && [ "$stage_sites" -eq 1 ] && [ "$g2_parses" -eq 1 ]; then
+     && [ "$chgG" -eq 4 ] && [ "$stage_sites" -eq 2 ] && [ "$g2_parses" -eq 1 ]; then
     pass "G2 (MUTATION): swapped for a blanket add (1 line, mutant still parses), the SAME run sweeps the operator's half-finished file into the adoption commit — G1's assertion is load-bearing"
   else
-    fail_ "G2" "run_rc=$g2_rc wip_committed=$g2_wip (want 1 under the mutant) adoption_state_committed=$g2_state (want 1) changed_lines=$chgG (want 2) stage_sites=$stage_sites (want 1) parses=$g2_parses (want 1)"
+    fail_ "G2" "run_rc=$g2_rc wip_committed=$g2_wip (want 1 under the mutant) adoption_state_committed=$g2_state (want 1) changed_lines=$chgG (want 4) stage_sites=$stage_sites (want 1) parses=$g2_parses (want 1)"
   fi
 fi
 
