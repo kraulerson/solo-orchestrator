@@ -1766,6 +1766,14 @@ else
     _tm1b_arm() {   # $1 = framework root, $2 = lib dir, $3 = adoptee -> rc
       ( set +e
         ADOPT_PROJECT_NAME=t
+        # helpers-core FIRST: adopt-project.sh sources M2's core set before the
+        # adopt modules, and since WP9d `adopt_preflight` calls one of its
+        # functions (preflight_target_writable). `docs/module-contract.md`
+        # permits it — "the adoption driver may source core freely"; M5's
+        # re-implementation rule binds Scout, not this. Sourcing the module in
+        # isolation without core is an INCOMPLETE environment, not the driver's
+        # contract, and the arm would otherwise measure a missing function.
+        . "$REPO_ROOT/scripts/lib/helpers-core.sh" >/dev/null 2>&1
         . "$2/adopt-core.sh"  >/dev/null 2>&1
         . "$2/adopt-state.sh" >/dev/null 2>&1
         ADOPT_FRAMEWORK_ROOT="$1"

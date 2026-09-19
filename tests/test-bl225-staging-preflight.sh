@@ -247,7 +247,7 @@ _writers() {
     | grep -vE ':[0-9]+:[[:space:]]*(adopt_note|adopt_say|adopt_head|adopt_refuse|printf|echo)([[:space:]]|$)' \
     | grep -vE '\$ADOPT_WORK|\$TD_TMP|\$TMPDIR|mktemp|\$ADOPT_WRITTEN_LEDGER' \
     | grep -vE '"\$work/|"\$ADOPT_ANSWERS"|> "\$names"' \
-    | grep -vE '"\$copy"' \
+    | grep -vE '"\$copy"|"\$copy/|\$SOIF_REHEARSAL_KEEP' \
     | cut -d: -f1,2 | sort -u
 }
 # ^ THE ALLOWLIST, and every arm carries its reason:
@@ -312,6 +312,13 @@ _marker_files() {   # files that call the marker, by basename
   grep -rlE '(^|[^A-Za-z0-9_])adopt_touched_disk([^A-Za-z0-9_]|$)' "$REPO_ROOT"/scripts/lib/adopt/*.sh \
     | sed 's|.*/||' | sort -u
 }
+# THE EXCLUSIONS NAME WHAT IS NOT THE ADOPTEE, and they must name every
+# SPELLING of it. `"$copy"` was the only one when this was written; WP9d's
+# rehearsal also writes `"$copy/.git/objects/info"` (the shared object store)
+# and `$SOIF_REHEARSAL_KEEP` (a directory the operator names, outside the
+# project). Neither is a write into the adoptee, and a marker before either
+# would be WRONG — it would make `adopt_refuse` report this project as touched
+# by a rehearsal that is required to leave no trace (`# BL-225-REHEARSAL-NO-TRACE`).
 _writer_files() {   # files the recipe believes contain writers, by basename
   # `sed 's|.*/||'`, NOT `xargs -n1 basename`: this repo's path contains a
   # space, and xargs word-splits on it. Both sets picked up a spurious "Space"

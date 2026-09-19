@@ -146,14 +146,20 @@ SKILLS
   # Git hooks. Archived under `git-hooks/` and not `.git/hooks/`, exactly as
   # §7.2's tree shows: an archive directory containing a literal `.git`
   # subdirectory is a trap for every tool that walks a tree looking for one.
-  if [ -d "$root/.git/hooks" ]; then
+  # I21 — the SAME resolution the installer writes to (BL-242-HOOKS-DIR), so
+  # the directory this archives FROM can never diverge from the one the gate
+  # lands in. A literal path under the work tree is wrong wherever `core.hooksPath`
+  # is configured or `.git` is a gitfile; step 0 refuses both, and this keeps
+  # the two halves spelled once.
+  _arc_hooks="$(_adopt_hooks_dir "$root" 2>/dev/null)" || _arc_hooks=""
+  if [ -d "$_arc_hooks" ]; then
     while IFS= read -r h; do
       [ -n "$h" ] || continue
       base="${h##*/}"
       case "$base" in *.sample) continue ;; esac
       printf '%s\t%s\t%s\n' ".git/hooks/$base" "git-hook" "git-hooks/$base"
     done <<HOOKS
-$( cd "$root" 2>/dev/null && find .git/hooks -maxdepth 1 -type f 2>/dev/null | LC_ALL=C sort )
+$( find "$_arc_hooks" -maxdepth 1 -type f 2>/dev/null | LC_ALL=C sort )
 HOOKS
   fi
   return 0

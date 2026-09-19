@@ -101,7 +101,67 @@ here.
     && chown -R t /home/t/r && su t -c "cd /home/t/r && bash tests/<file>.sh"'
   ```
   Run as a NON-root user or every `chmod 555` fixture silently stays writable.
-- **THE CONTAINER RECIPE ABOVE IS A bash/git VERSION EMULATOR AND NOT A CI
+- **A `local` that DECLARES without ASSIGNING is a second version split, and it
+  is NOT the same boundary as the one above — it is bash **4.0**, not 5.2.**
+  `local t` followed by a read of `$t` under `set -u` is an empty string on
+  bash 3.2 and an `unbound variable` **that exits the shell** on 4.0 and every
+  version after. Measured, same probe, `bash:<v>` images plus this Mac —
+  `f() { local t; [ -n "$t" ] && echo hit; echo AFTER; }`:
+  ```
+  bash 3.2.57 (this Mac AND the container)   empty, prints AFTER, rc 0
+  bash 4.0.44 / 4.1.17 / 4.2.53 / 4.4.23     t: unbound variable, rc 1
+  bash 5.0.18 / 5.1.16 / 5.2.37 / 5.3.20     t: unbound variable, rc 1
+  ```
+  **Do not merge this into the `${var/pat/rep}` bullet.** That one flips at 5.2
+  and 5.1 is on the safe side; this one flips at 4.0 and every bash a runner has
+  shipped this decade is on the failing side. The 2026-09-18 commit that fixed
+  the first instance (`81316ea`) named 3.2-vs-5.2 because those were the two
+  hosts in front of it — true, and it reads as a 5.x rule, which it is not.
+  Measure the boundary before you quote one.
+
+  **It is silent in the specific way that reads as a deliberate refusal.** The
+  shell EXITS at the read: side effects from before it persist, every line after
+  it — including the message the function existed to print — never happens, and
+  the script leaves **rc 1**, which is indistinguishable from a `return 1` the
+  code meant. (**rc 127 under `bash -c`** — measured on every version from 4.0
+  up, which is why the recipe below feeds the script on stdin; reproduce with
+  `bash -c` and you get a number this bullet does not predict.) That is
+  PR #432's `slow-misc` red: `adopt-state.sh`'s symlink arm refused correctly,
+  wrote nothing, and printed no `[REFUSED]` line at all.
+  `bash -n` is clean and every macOS suite is green.
+
+  Safe spellings, all measured identical on 3.2 and 5.2: `local t=""`;
+  `local t; t=$(…)` (assigning before the first read is enough); and `${t:-}`
+  at the read site. The trap is not the `local` keyword — **`declare t` inside
+  a function, `declare g` at top level, and `local -i n` all behave the same**
+  (the integer attribute does NOT initialise to 0).
+
+  **Grepping for it gives you a population, not a defect, and grepping for
+  `set -u` UNDER-READS.** The declaration-without-assignment shape has 925 hits
+  over 155 files (2026-09-18):
+  ```
+  grep -rn --include='*.sh' -E '^[[:space:]]*local([[:space:]]+-[a-zA-Z]+)*([[:space:]]+[A-Za-z_][A-Za-z0-9_]*)+[[:space:]]*$' scripts/ init.sh tests/ templates/
+  ```
+  Almost all are assigned on the next line and harmless; the defect is the
+  subset READ before assignment, which no grep finds. And filtering that
+  population by files that themselves carry `set -u` leaves 95 — a **floor, not
+  the answer**, because the option comes from whoever RUNS the file. Every file
+  in `scripts/lib/adopt/` is sourced by `scripts/adopt-project.sh`, which is
+  `set -uo pipefail`; seven of the eight carry no `set -u` of their own
+  (`adopt-test-debt.sh` is the exception), and together they hold 31 of these
+  declarations. That is exactly where the bug was. Do not sweep the 925 — the
+  rule is **assign at the declaration**, applied to code you are already
+  touching.
+
+  Reproduce any version of it on this host without the repo:
+  ```
+  docker run --rm -i bash:5.2 bash -s < probe.sh    # also 3.2, 4.0 … 5.3
+  ```
+  Mounting the script with `-v` into `bash:*` silently produces a DIRECTORY at
+  the target path on this Docker Desktop (`/probe.sh: Is a directory`) — feed it
+  on **stdin**.
+- **THE `ubuntu:24.04` RECIPE ABOVE — the one that runs a SUITE, not the
+  `bash:<v>` probe next to it — IS A bash/git VERSION EMULATOR AND NOT A CI
   EMULATOR.** It
   diverges from both this Mac and the runner far beyond anything one missing
   tool explains, so **a red suite in it is not evidence of a defect until you
