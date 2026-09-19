@@ -578,7 +578,7 @@ _adopt_rescan_secrets() {
 # as the driver's own state, so this writes NOTHING into the operator's tree.
 _adopt_secrets_scan_own() {
   local root="$1" src_report="${2:-}" out="${3:-}"
-  local clone work sec new_obj fwcfg _cfgname
+  local clone work sec new_obj fwcfg _cfgname _out_dir _root_abs
 
   # `$3` WAS UNGUARDED WHILE `$2` WAS, AND THE ASYMMETRY WAS THE BUG. The
   # driver runs `set -uo pipefail`, so a two-argument call did not reach any of
@@ -730,6 +730,31 @@ _adopt_secrets_scan_own() {
     return 1
   fi
   unset -f _soif_fileid 2>/dev/null
+
+  # ── §9.1-I4: THE OUT REPORT IS NEVER INSIDE THE ADOPTEE ──────────────────
+  # §6.2b's whole claim about this function is that it writes NOTHING into the
+  # operator's tree — the clone and the out report are the driver's own state
+  # under `$ADOPT_WORK`. That was a property of every CALLER and enforced
+  # nowhere, which `tests/test-bl225-staging-preflight.sh`'s T9 caught: the two
+  # `jq … > "$out"` lines below are tree-writing shapes with no
+  # touched-disk marker, and the honest answer is not to exempt
+  # them but to make the claim TRUE here. A marker would be the wrong fix — it
+  # would make `adopt_refuse` report the project as touched by a step that must
+  # leave no trace (`# BL-225-REHEARSAL-NO-TRACE`'s reasoning, one function
+  # over).
+  #
+  # Physical paths on both sides: a symlinked or `..`-bearing spelling of a
+  # path inside the adoptee must not slip past a string compare — the same
+  # lesson as the identity check above, which took two review rounds.
+  _out_dir="$(cd "$(dirname "$out")" 2>/dev/null && pwd -P)" || _out_dir=""
+  _root_abs="$(cd "$root" 2>/dev/null && pwd -P)" || _root_abs=""
+  if [ -n "$_out_dir" ] && [ -n "$_root_abs" ] \
+     && { [ "$_out_dir" = "$_root_abs" ] || case "$_out_dir/" in "$_root_abs"/*) true ;; *) false ;; esac; }; then
+    adopt_note "The secrets stop was asked to write its result inside the project being adopted."
+    adopt_note "Nothing was written — this step must leave no trace in your project."
+    return 1
+  fi
+
   if [ -n "$base" ]; then
     jq --argjson s "$new_obj" '.secrets = $s' "$base" > "$out" 2>/dev/null
   else
