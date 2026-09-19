@@ -472,7 +472,12 @@ _s9_render() {  # <file> <lineno>
 # Find the ONE executable line per file that prints the remedy — the arm that
 # starts with adopt_note/scout_ and carries `set-branches` — and render that.
 s9_bad=""; s9_seen=0
-for _s9f in scripts/lib/adopt/adopt-stubs.sh scripts/lib/adopt/adopt-tools.sh \
+# `adopt-stubs.sh` was this list's first member until 2026-09-19. WP10b/2
+# retired `adopt_stub_secrets_disposition`, and the remedy it printed moved to
+# `_adopt_secrets_unshallow_remedy` in `adopt-secrets.sh` — the same two
+# commands, spelled once, now reachable from both `scanned-partial` arms of
+# §6.1's table. The SITE moved; the count of sites did not.
+for _s9f in scripts/lib/adopt/adopt-secrets.sh scripts/lib/adopt/adopt-tools.sh \
             scripts/lib/scout/scout-secrets.sh scripts/lib/scout/scout-report.sh; do
   [ -f "$REPO_ROOT/$_s9f" ] || { s9_bad="$s9_bad $_s9f(missing)"; continue; }
   _s9l="$(grep -n 'set-branches' "$REPO_ROOT/$_s9f" | grep -vE '^[0-9]+:[[:space:]]*#' | head -1 | cut -d: -f1)"

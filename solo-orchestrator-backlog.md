@@ -14662,6 +14662,20 @@ human maintains.
 
 ---
 
+**Residual carried here from WP10b/2 (PR pending) — a guard that is still correct and no longer
+observable.** `_adopt_rescan_secrets`'s `# BL-242-SECRETS-RESCAN` arm declines to re-scan a report
+that already says `scanned` or `scanned-partial`, on the stated ground that re-running the scanner
+would discard the measurement the stamp names. That reasoning held while the persisted secrets
+section came from the consumed report. Since WP10b/1 the STOP writes that section from its own scan
+(`# BL-242-SECRETS-STOP-CALL`), so the guard's effect is invisible in the persisted artifact: the
+status is the stop's either way. What the guard still buys is a skipped history walk — real, and
+worth keeping — but nothing a test can observe there. `tests/test-brownfield-wp10a-tool-resolution.sh`
+R1 and M3 were RE-AIMED at the re-scan's own transcript line on 2026-09-19 for exactly this reason;
+before that they keyed on the persisted status and had gone vacuous, with M3 reporting *"the mutation
+changed nothing"* over a mutation that applied cleanly. Filed rather than fixed: removing the guard
+would cost a redundant full-history walk on every adoption that hands in a scanned report, and that
+is a decision, not a cleanup.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

@@ -586,6 +586,7 @@ jobs:
             tests/test-brownfield-wp9d-driver-edges.sh
             tests/test-brownfield-wp9d-window-rehearsal.sh
             tests/test-brownfield-wp10b-own-scan.sh
+            tests/test-brownfield-wp10b-decision-table.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
