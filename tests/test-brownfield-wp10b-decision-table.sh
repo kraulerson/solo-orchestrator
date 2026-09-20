@@ -297,6 +297,33 @@ c_validate() {
   decide organizational "$T/r.json" "$T/good.json"
   [ "$DEC_RC" -eq 0 ] || bad="$bad [VACUITY FLOOR: a valid file was refused, rc=$DEC_RC]"
 
+  # FAIL CLOSED WHEN THE SCAN RECORDED NO COMMIT. If `.secrets.head` is absent
+  # the binding cannot be checked at all, and the first cut SKIPPED the check
+  # in that case — which was every real run, because no producer emitted the
+  # field. A sign-off from another repository was accepted. Refusing is the
+  # only safe answer, and this is what pins it independent of the producer.
+  # THE FILE'S OWN HEAD MUST BE EMPTY TOO, or this proves nothing: with a
+  # populated `scan.head` the NEXT arm refuses the mismatch and the fail-closed
+  # guard is masked. Measured — the first version of this arm passed whether or
+  # not the guard was there. Both sides empty is the shape the old code let
+  # through, because "" == "" compared equal.
+  jq 'del(.secrets.head)' "$T/r.json" > "$T/nohead.json" 2>/dev/null
+  mk_dispositions "$T/good2.json" accepted-risk "$fp"
+  jq 'del(.scan.head)' "$T/good2.json" > "$T/nohead-disp.json" 2>/dev/null
+  decide organizational "$T/nohead.json" "$T/nohead-disp.json"
+  [ "$DEC_RC" -ne 0 ] || bad="$bad [a scan with no recorded commit accepted a sign-off anyway]"
+
+  # FINDINGS WITH NO FINGERPRINT ARE NOT "ALL DISPOSITIONED". With nothing to
+  # join on, both set differences are empty and the stop lifted on a file
+  # carrying ZERO dispositions — measured. gitleaks always sets Fingerprint
+  # today, so this is defence in depth against a schema that has already
+  # changed once (`## BL-288:` took the status vocabulary 3 -> 4).
+  jq '.secrets.findings = [{ruleId: "aws-access-token", file: "x.txt", startLine: 1}]' \
+     "$T/r.json" > "$T/nofp.json" 2>/dev/null
+  jq '.dispositions = []' "$T/good2.json" > "$T/empty-disp.json" 2>/dev/null
+  decide organizational "$T/nofp.json" "$T/empty-disp.json"
+  [ "$DEC_RC" -ne 0 ] || bad="$bad [findings with no fingerprint were treated as dispositioned]"
+
   [ -z "$bad" ] && pass "D7 the disposition file is validated: signer, fingerprint membership, and the scan it is bound to" \
                 || fail_ "D7 the disposition file is validated: signer, fingerprint membership, and the scan it is bound to" "$bad"
 }
@@ -305,14 +332,27 @@ c_validate() {
 # THE STOP IS A BLOCK, NOT A REFUSAL (§8.1, WP9d's two primitives)
 # ═══════════════════════════════════════════════════════════════════════════
 c_label() {
-  local T; T=$(newtmp); mk_report "$T/r.json" scan-failed 0
-  decide organizational "$T/r.json"
-  if _has '\[BLOCKED\]' && ! _has '\[REFUSED\]'; then
-    pass "D8 a secrets stop is [BLOCKED] — a named check ran and did not pass"
-  else
-    fail_ "D8 a secrets stop is [BLOCKED] — a named check ran and did not pass" \
-      "transcript: $(printf '%s' "$DEC_OUT" | head -2 | tr '\n' ' ')"
-  fi
+  # EVERY STOPPING CELL, NOT ONE. A first cut exercised only
+  # `organizational:scan-failed`, so routing any OTHER arm through
+  # `adopt_refuse` left the suite green — measured, the review's MU7.
+  local T; T=$(newtmp)
+  mk_report "$T/failed.json"  scan-failed 0
+  mk_report "$T/unavail.json" tool-unavailable 0
+  mk_report "$T/partial.json" scanned-partial 0 shallow-history 1
+  mk_report "$T/finds.json"   scanned 1
+  mk_report "$T/weird.json"   some-status-from-the-future 0
+  local bad="" cell tier rep
+  for cell in "organizational failed" "personal tool:unavail" "organizational unavail" \
+              "organizational partial" "personal partial" "organizational finds" \
+              "organizational weird" "personal weird"; do
+    set -- $cell; tier="$1"; rep="${2#*:}"
+    decide "$tier" "$T/$rep.json"
+    [ "$DEC_RC" -ne 0 ] || { bad="$bad [$tier/$rep did not stop]"; continue; }
+    _has '\[BLOCKED\]' || bad="$bad [$tier/$rep: no BLOCKED]"
+    _has '\[REFUSED\]' && bad="$bad [$tier/$rep: said REFUSED]"
+  done
+  [ -z "$bad" ] && pass "D8 EVERY secrets stop is [BLOCKED], never [REFUSED] — a named check ran" \
+                || fail_ "D8 EVERY secrets stop is [BLOCKED], never [REFUSED] — a named check ran" "$bad"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -344,8 +384,95 @@ c_input() {
   fi
 }
 
+# ═══════════════════════════════════════════════════════════════════════════
+# (10) A STATUS THIS VERSION DOES NOT KNOW IS A STOP AT BOTH TIERS
+#      NOT HYPOTHETICAL: Scout's vocabulary already went from three words to
+#      four (`## BL-288:`) and bumped `schemaVersion` 1 -> 2 for that reason.
+#      Nothing covered this arm, so making it `return 0` left every suite green.
+# ═══════════════════════════════════════════════════════════════════════════
+c_unknown() {
+  local T; T=$(newtmp); mk_report "$T/r.json" some-status-from-the-future 0
+  local bad=""
+  for tier in organizational personal; do
+    decide "$tier" "$T/r.json"
+    [ "$DEC_RC" -ne 0 ] || bad="$bad [$tier proceeded on an unknown status]"
+  done
+  decide organizational "$T/r.json"
+  _has 'does not understand' || bad="$bad [the refusal does not name the unknown status]"
+  [ -z "$bad" ] && pass "D10 an unrecognised status stops at BOTH tiers (BL-147: a check that cannot run must not pass)" \
+                || fail_ "D10 an unrecognised status stops at BOTH tiers (BL-147: a check that cannot run must not pass)" "$bad"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# (11) BOTH WITNESSES ARE REQUIRED, INDEPENDENTLY (§6.2b)
+#      D9 strips BOTH, so it cannot see a predicate relaxed to one. Measured:
+#      dropping the `rulesSource` half left every suite green while the stop
+#      accepted a report claiming `rulesSource: "project"` — §6.2b's input 2,
+#      the audited project's own scanner rules, unguarded.
+# ═══════════════════════════════════════════════════════════════════════════
+c_witnesses() {
+  local T; T=$(newtmp); mk_report "$T/r.json" scanned 0
+  local bad=""
+  jq 'del(.secrets.scannedBy)'   "$T/r.json" > "$T/no-by.json"  2>/dev/null
+  jq 'del(.secrets.rulesSource)' "$T/r.json" > "$T/no-src.json" 2>/dev/null
+  jq '.secrets.rulesSource = "project"' "$T/r.json" > "$T/proj.json" 2>/dev/null
+  for f in no-by no-src proj; do
+    decide organizational "$T/$f.json"
+    [ "$DEC_RC" -ne 0 ] || bad="$bad [$f was accepted as the stop's own scan]"
+  done
+  decide organizational "$T/r.json"
+  [ "$DEC_RC" -eq 0 ] || bad="$bad [VACUITY FLOOR: the intact report was refused]"
+  [ -z "$bad" ] && pass "D11 scannedBy AND rulesSource are each required — one alone is not the stop's scan" \
+                || fail_ "D11 scannedBy AND rulesSource are each required — one alone is not the stop's scan" "$bad"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# (12) THE ORDERING — a stopping adoption asks NOTHING and writes NOTHING
+#      This drives the REAL driver, because the property is about where the
+#      call sits in `adopt_main` and nothing smaller can observe that. It had
+#      NO coverage anywhere: swapping the decide call back after the reverse
+#      intake left wp10a 54/0 and this suite 9/0, over a transcript that ran
+#      107 lines of interview before blocking.
+# ═══════════════════════════════════════════════════════════════════════════
+c_ordering() {
+  local label="D12 an adoption stopped by the secrets check asks no interview question and writes nothing"
+  command -v git >/dev/null 2>&1 || { skip_ "$label" "git absent"; return; }
+  local T; T=$(newtmp)
+  mkdir -p "$T/p/docs"
+  local _git_out
+  _git_out="$( ( cd "$T/p" && git init -q . \
+      && git config user.email wp10b@test.invalid && git config user.name "WP10b Test" \
+      && git config core.excludesFile /dev/null ) 2>&1 )" \
+    || { fail_ "$label" "fixture init failed: $_git_out"; return; }
+  printf '{"name":"acme"}\n' > "$T/p/package.json"
+  printf '# acme\n'          > "$T/p/README.md"
+  _git_out="$( ( cd "$T/p" && git add -A && git commit -q -m "their own history" ) 2>&1 )" \
+    || { fail_ "$label" "fixture commit failed: $_git_out"; return; }
+
+  local before after
+  before="$(cd "$T/p" && git status --porcelain; cd "$T/p" && git rev-parse HEAD)"
+
+  # No scanner => tool-unavailable => a stop at BOTH tiers (organizational has
+  # no escape at all). `1` answers the tier question; the rest are never asked
+  # if the ordering is right, which is the point.
+  printf '1\n1\n1\n1\n1\n' > "$T/answers"
+  jq -n '{schemaVersion: 2, secrets: {status: "scanned", findingCount: 0}}' > "$T/report.json"
+  local rc=0
+  ( cd "$T/p" && env SCOUT_GITLEAKS_BIN=gitleaks-does-not-exist-wp10b \
+      bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$T/report.json" ) \
+    < "$T/answers" > "$T/out" 2> "$T/err" || rc=$?
+
+  after="$(cd "$T/p" && git status --porcelain; cd "$T/p" && git rev-parse HEAD)"
+  local bad=""
+  [ "$rc" -ne 0 ] || bad="$bad [rc=0, want a stop]"
+  # THE INTERVIEW'S OWN HEADING must be absent — the decision runs before it.
+  grep -qi 'The interview' "$T/out" "$T/err" 2>/dev/null && bad="$bad [the interview ran before the stop]"
+  [ "$before" = "$after" ] || bad="$bad [the adoptee changed]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
 c_clean; c_findings; c_scan_failed; c_tool_unavailable; c_partial
-c_not_one_path; c_validate; c_label; c_input
+c_not_one_path; c_validate; c_label; c_input; c_unknown; c_witnesses; c_ordering
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

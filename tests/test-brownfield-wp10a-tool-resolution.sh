@@ -788,13 +788,20 @@ else
   _mk_resolver "$M4/resolver" already ""
   _ans 1 > "$M4/answers"
   run_adopt "$M4/p" "$M4/answers" "$M4/report.json" "$M4/fw" "SOIF_ADOPT_RESOLVER=$M4/resolver"
-  M4_NOTE="$(jq -r '.secrets.note // ""' "$M4/p/.claude/adoption/scout-report.json" 2>/dev/null)"
-  case "$M4_NOTE" in
-    *SENTINEL-DO-NOT-RESCAN*)
-      fail_ "M4 (MUTATION)" "removing the guard changed nothing — R2 may be passing for another reason" ;;
-    *)
-      pass "M4 (MUTATION) — without the guard an already-scanned report IS re-scanned: R2 is what stops it" ;;
-  esac
+  # RE-AIMED 2026-09-20, the third case in this file to go vacuous the same way
+  # and the one the WP10b/2 commit MISSED while hunting exactly this class.
+  # M4 keyed on the sentinel being GONE from `.secrets.note`. The secrets stop
+  # replaces that whole section, so the sentinel is gone whether or not this
+  # mutation is applied — R2 (unmutated) and M4 (mutated) were both green on
+  # the same fixture, over the same field, which means the discriminator was
+  # constant. Like R1 and M3, it now keys on the re-scan's own transcript line:
+  # without the guard an already-scanned report IS re-scanned, and the re-scan
+  # announces itself.
+  if grep -q 'The scan was re-run' "$RUN_OUT" 2>/dev/null; then
+    pass "M4 (MUTATION) — without the guard an already-scanned report IS re-scanned: R2's guard is what stops it"
+  else
+    fail_ "M4 (MUTATION)" "removing the guard changed nothing — the re-scan never announced itself"
+  fi
 fi
 
 echo "=== S — the fast path: a scanner already on the host costs no resolver run ==="

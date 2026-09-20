@@ -75,8 +75,12 @@ _adopt_secrets_unshallow_remedy() {                # BL-242-SECRETS-UNSHALLOW
 # adopt_secrets_decide REPORT — §6.1's table. 0 to proceed, 1 to stop.
 #
 # Reads `ADOPT_DEPLOYMENT` (step 1's answer, §6.5 — never the manifest, which
-# is not written until step 7) and `ADOPT_DISPOSITIONS_FILE` (the `--dispositions`
-# flag, the adoptee's own file, or empty).
+# is not written until step 7) and `ADOPT_DISPOSITIONS_FILE` — TODAY that is
+# the `--dispositions` flag or empty, and nothing more. §6.3 also specifies a
+# fallback to the adoptee's own `.claude/adoption/secrets-dispositions.json`
+# and an interactive prompt; NEITHER IS BUILT, and this comment said otherwise
+# until review measured it (`grep -rn secrets-dispositions scripts/` finds one
+# hit, in the flag's own help text).
 #
 # EVERY STOP IS A BLOCK, NOT A REFUSAL. `docs/messaging-standard.md` draws the
 # line: a refusal is "the tool would not begin", a block is "a named check ran
@@ -127,8 +131,15 @@ adopt_secrets_decide() {
           return 1 ;;
         *)                                         # BL-242-SECRETS-PERSONAL-FINDINGS
           _adopt_secrets_print_findings "$report"
+          # NO CLAIM ABOUT THE ADOPTION RECORD. §6.3 says the Adoption Record
+          # lists the dispositions, but that record is WP7 and is NOT BUILT —
+          # `adopt_stub_adoption_record` says so in this same transcript, a few
+          # lines later. Two contradictory sentences in one run is exactly the
+          # shape `# BL-225-REFUSE-HONEST` exists to stop, so this says what is
+          # true today and names what is not yet.
           adopt_note "These are REAL findings in your history. Adoption continues because this is a"
-          adopt_note "personal project, and they are recorded in the Adoption Record either way."
+          adopt_note "personal project. They are printed here; the Adoption Record that will list"
+          adopt_note "them permanently is not built yet, so keep this transcript."
           adopt_note "Rotate anything still live: a history rewrite does not un-leak what was fetched."
           return 0 ;;
       esac ;;
@@ -242,12 +253,23 @@ adopt_dispositions_satisfy() {
   scan_commits="$(adopt_int "$(adopt_report_read "$report" '.secrets.commitsScanned // 0')")"
   f_head="$(jq -r '.scan.head // ""' "$file" 2>/dev/null)"
   f_commits="$(adopt_int "$(jq -r '.scan.commitsScanned // 0' "$file" 2>/dev/null)")"
-  if [ -n "$scan_head" ] && [ "$f_head" != "$scan_head" ]; then   # BL-242-DISPOSITIONS-STALE
+  # FAIL CLOSED WHEN THE BINDING CANNOT BE CHECKED. The first cut skipped both
+  # arms when the scan's own values were missing — `[ -n "$scan_head" ] &&` and
+  # `[ "$scan_commits" -gt 0 ] &&` — which made the whole staleness check
+  # conditional on data that, at the time, no producer emitted. A check that
+  # silently does nothing when its input is absent is the fail-open shape
+  # `## BL-147:` names: a check that cannot run must not pass.
+  if [ -z "$scan_head" ]; then
+    adopt_note "  (this scan did not record which commit it read, so no acknowledgement can be"
+    adopt_note "   bound to it — refusing rather than accepting one that may describe another scan)"
+    return 1
+  fi
+  if [ "$f_head" != "$scan_head" ]; then   # BL-242-DISPOSITIONS-STALE
     adopt_note "  (the dispositions file was written against a different commit — it describes"
     adopt_note "   another scan, so none of it applies here)"
     return 1
   fi
-  if [ "$scan_commits" -gt 0 ] && [ "$f_commits" -ne "$scan_commits" ]; then
+  if [ "$f_commits" -ne "$scan_commits" ]; then
     adopt_note "  (the dispositions file was written against a scan of a different size —"
     adopt_note "   $f_commits commit(s) against this scan's $scan_commits)"
     return 1
@@ -262,7 +284,33 @@ adopt_dispositions_satisfy() {
       # a file carried over from elsewhere; the second refuses a partial one.
       local fps_scan fps_file missing alien
       fps_scan="$(adopt_report_read "$report" '.secrets.findings[]?.fingerprint // empty' | LC_ALL=C sort -u)"
-      fps_file="$(jq -r '.dispositions[]? | select((.by // "") != "" and (.reason // "") != "") | .fingerprint // empty' "$file" 2>/dev/null | LC_ALL=C sort -u)"
+      # NO FINGERPRINTS IS NOT "EVERYTHING IS DISPOSITIONED". With findings on
+      # the record but no fingerprint to join on, both set differences below are
+      # empty and the stop lifts on a file containing zero dispositions —
+      # measured. gitleaks always sets `Fingerprint` today, so this is
+      # defence in depth; Scout's own `fieldsMissing` machinery exists because
+      # that set is not guaranteed across versions.
+      if [ -z "$(printf '%s' "$fps_scan" | grep -c . 2>/dev/null | tr -d ' ')" ] \
+         || [ "$(printf '%s\n' "$fps_scan" | grep -c .)" -eq 0 ]; then
+        adopt_note "  (this scan reported $n_needed finding(s) but no fingerprint to join them by,"
+        adopt_note "   so no file can disposition them — refusing rather than treating that as done)"
+        return 1
+      fi
+      # THE SELECT ENFORCES §6.3'S WHOLE ROW, not just its presence. Measured
+      # against the first cut, which accepted every one of these: `by` and
+      # `reason` of pure whitespace; a row with NO `date` while the block it
+      # prints says "it needs a name, a reason and a date"; and a
+      # `disposition` of `banana-not-a-vocabulary-word`, or absent entirely —
+      # which matters forward, because §6.3 says every `accepted-risk` writes
+      # an audit row and the write stage would have had nothing to classify.
+      fps_file="$(jq -r '
+        def trimmed: (. // "") | gsub("^\\s+|\\s+$"; "");
+        .dispositions[]?
+        | select((.by | trimmed) != ""
+             and (.reason | trimmed) != ""
+             and (.date | trimmed) != ""
+             and ((.disposition // "") | IN("rotated", "false-alarm", "accepted-risk")))
+        | .fingerprint // empty' "$file" 2>/dev/null | LC_ALL=C sort -u)"
       alien="$(printf '%s\n' "$fps_file" | grep -v '^$' | LC_ALL=C comm -23 - <(printf '%s\n' "$fps_scan" | grep -v '^$') 2>/dev/null)"
       if [ -n "$alien" ]; then
         adopt_note "  (the dispositions file names finding(s) this scan did not produce — it is"
@@ -282,9 +330,13 @@ adopt_dispositions_satisfy() {
       # truncated history, and treating either as the other would let one
       # recorded decision lift a stop it was never about.
       local ok
-      ok="$(jq -r --arg k "$kind" \
-        '[.acknowledgements[]? | select((.kind // "") == $k and (.by // "") != "" and (.reason // "") != "")] | length' \
-        "$file" 2>/dev/null)"
+      ok="$(jq -r --arg k "$kind" '
+        def trimmed: (. // "") | gsub("^\\s+|\\s+$"; "");
+        [.acknowledgements[]?
+         | select((.kind // "") == $k
+              and (.by | trimmed) != ""
+              and (.reason | trimmed) != ""
+              and (.date | trimmed) != "")] | length' "$file" 2>/dev/null)"
       case "$ok" in ''|*[!0-9]*) ok=0 ;; esac
       if [ "$ok" -lt 1 ]; then
         adopt_note "  (no signed acknowledgement of kind '$kind' in the dispositions file — it"

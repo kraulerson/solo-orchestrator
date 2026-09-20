@@ -456,7 +456,36 @@ t10() {
   if [ -z "$why" ]; then pass "$label"; else fail_ "$label" "$why"; fi
 }
 
-t1; t2; t3; t4; t5; t6; t7; t8; t9; t10
+# ═══════════════════════════════════════════════════════════════════════════
+# (11) THE PRODUCED SECTION CARRIES THE COMMIT IT SCANNED
+#      §6.3 binds a disposition file to one scan by HEAD. Nothing emitted that
+#      field: Scout puts `headCommit` at the report's TOP LEVEL and `.secrets`
+#      had no `head` at all, so the validator's staleness arm read an empty
+#      string and never fired — a sign-off written against another repository
+#      was accepted. THIS CASE IS THE PRODUCER SIDE of that fix; the decision
+#      suite's fixtures hand-write the field and structurally cannot see it.
+# ═══════════════════════════════════════════════════════════════════════════
+t11() {
+  local label="O11 the produced secrets section records the commit it scanned (§6.3's binding)"
+  [ "$HAVE_GITLEAKS" -eq 1 ] || { skip_ "$label" "gitleaks absent"; return; }
+  local T; T=$(newtmp)
+  mk_hist "$T/adoptee" || { fail_ "$label" "fixture build failed"; return; }
+  local want; want=$(git -C "$T/adoptee" rev-parse HEAD 2>/dev/null)
+
+  ( . "$REPO_ROOT/scripts/lib/adopt/adopt-tools.sh" >/dev/null 2>&1
+    ADOPT_FRAMEWORK_ROOT="$REPO_ROOT"
+    ADOPT_WORK="$T/work"; mkdir -p "$ADOPT_WORK"
+    _adopt_secrets_scan_own "$T/adoptee" "" "$T/own.json" ) >/dev/null 2>&1
+
+  local got; got=$(jq -r '.secrets.head // ""' "$T/own.json" 2>/dev/null)
+  if [ -n "$want" ] && [ "$got" = "$want" ]; then
+    pass "$label"
+  else
+    fail_ "$label" ".secrets.head='$got' (want the adoptee's HEAD '$want')"
+  fi
+}
+
+t1; t2; t3; t4; t5; t6; t7; t8; t9; t10; t11
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
