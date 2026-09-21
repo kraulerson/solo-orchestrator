@@ -205,8 +205,12 @@ c_tool_unavailable() {
   [ "$DEC_RC" -eq 0 ] || bad="$bad [personal acknowledged: rc=$DEC_RC, want proceed]"
 
   # THE ACKNOWLEDGEMENT BRANCH HAS ITS OWN ROW RULES and they were pinned by
-  # nothing either. `kind` was already covered; `by`, `reason` and `date` were
-  # not.
+  # nothing. An earlier draft of this comment said `kind` was already covered.
+  # IT WAS NOT, and the PR review proved it: every `mk_dispositions` call in
+  # this suite pairs the RIGHT kind with the RIGHT status, so no case ever
+  # handed a wrong-kind acknowledgement to a stop, and relaxing the `kind`
+  # equality left all four suites green. The wrong-kind negative is in
+  # `c_partial`, where the two kinds can be crossed.
   local _a
   for _a in 'del(.acknowledgements[0].date)|ack date absent' \
             '.acknowledgements[0].by = "  "|ack signer is whitespace' \
@@ -266,6 +270,23 @@ c_partial() {
   decide personal "$T/zero.json" "$T/d.json"
   [ "$DEC_RC" -eq 0 ] || bad="$bad [personal acknowledged: rc=$DEC_RC, want proceed]"
 
+  # ONE RECORDED ACCEPTANCE MUST NOT LIFT A STOP IT WAS NEVER ABOUT. An
+  # acceptance of a MISSING SCANNER is not an acceptance of a TRUNCATED
+  # HISTORY. Relaxing the `kind` equality in the validator left every suite
+  # green, because every other fixture pairs the right kind with the right
+  # status — so this is the only case that can see it.
+  mk_dispositions "$T/wrongkind.json" ack-tool "" 1
+  decide personal "$T/zero.json" "$T/wrongkind.json"
+  [ "$DEC_RC" -ne 0 ] || bad="$bad [a tool-unavailable acceptance lifted a scanned-partial stop]"
+
+  # R-437-3: §6.1a REQUIRES the findings a partial scan DID produce to be
+  # printed at BOTH tiers — "never rendered as clean". Only the organizational
+  # arm asserted it, so deleting the print from the personal arm left every
+  # suite green, and a personal adopter who acknowledges a shallow scan would
+  # never see the credentials it actually found.
+  decide personal "$T/one.json" "$T/d.json"
+  _has 'aws-access-token' || bad="$bad [personal partial: the reachable finding was not printed]"
+
   # The reachable finding on a partial scan is printed, never withheld.
   decide organizational "$T/one.json"
   _has 'aws-access-token' || bad="$bad [org, 1 finding: the reachable finding was not printed]"
@@ -311,6 +332,22 @@ c_validate() {
   mk_dispositions "$T/alien.json" rotated "not-a-fingerprint-this-scan-produced"
   decide organizational "$T/r.json" "$T/alien.json"
   [ "$DEC_RC" -ne 0 ] || bad="$bad [a fingerprint absent from the scan was accepted]"
+
+  # THE ROW ABOVE DOES NOT TEST THE ALIEN ARM, and believing it did is what the
+  # PR review refuted: with exactly one finding, a file naming only an alien
+  # fingerprint ALSO leaves the real one undispositioned, so the `missing` arm
+  # refuses it and the `alien` arm can be deleted with every suite green.
+  # Separating them needs the real finding CORRECTLY dispositioned and an alien
+  # row present as well — then `missing` is empty and only `alien` can refuse.
+  mk_dispositions "$T/alien-base.json" rotated "$fp"
+  jq --arg fp "$fp" '.dispositions += [{fingerprint: "not-a-fingerprint-this-scan-produced",
+                                        disposition: "rotated", by: "Karl Raulerson",
+                                        reason: "carried over from another project",
+                                        date: "2026-09-21"}]' \
+     "$T/alien-base.json" > "$T/alien-plus.json" 2>/dev/null \
+    || bad="$bad [fixture jq failed for alien-plus]"
+  decide organizational "$T/r.json" "$T/alien-plus.json"
+  [ "$DEC_RC" -ne 0 ] || bad="$bad [a file carrying a foreign project's finding was accepted]"
 
   # A file bound to a DIFFERENT scan is stale.
   jq '.scan.head = "1111111111111111111111111111111111111111"' "$T/nosign.json" > "$T/stale.json" 2>/dev/null

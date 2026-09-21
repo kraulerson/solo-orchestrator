@@ -14662,7 +14662,7 @@ human maintains.
 
 ---
 
-**Residual carried here from WP10b/2 (PR pending) — a guard that is still correct and no longer
+**Residual carried here from WP10b/2 (PR #437) — a guard that is still correct and no longer
 observable.** `_adopt_rescan_secrets`'s `# BL-242-SECRETS-RESCAN` arm declines to re-scan a report
 that already says `scanned` or `scanned-partial`, on the stated ground that re-running the scanner
 would discard the measurement the stamp names. That reasoning held while the persisted secrets

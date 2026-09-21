@@ -303,8 +303,11 @@ adopt_dispositions_satisfy() {
       # measured. gitleaks always sets `Fingerprint` today, so this is
       # defence in depth; Scout's own `fieldsMissing` machinery exists because
       # that set is not guaranteed across versions.
-      if [ -z "$(printf '%s' "$fps_scan" | grep -c . 2>/dev/null | tr -d ' ')" ] \
-         || [ "$(printf '%s\n' "$fps_scan" | grep -c .)" -eq 0 ]; then
+      # ONE ARM, NOT TWO. The first cut also tested `[ -z "$(… grep -c …)" ]`,
+      # which can never be true — `grep -c` always prints a number, `0` on empty
+      # input (measured). Dead code in an enforcement predicate reads as a
+      # second defence and is not one.
+      if [ "$(printf '%s\n' "$fps_scan" | grep -c .)" -eq 0 ]; then
         adopt_note "  (this scan reported $n_needed finding(s) but no fingerprint to join them by,"
         adopt_note "   so no file can disposition them — refusing rather than treating that as done)"
         return 1
