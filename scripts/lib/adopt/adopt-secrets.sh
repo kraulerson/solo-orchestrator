@@ -79,8 +79,9 @@ _adopt_secrets_unshallow_remedy() {                # BL-242-SECRETS-UNSHALLOW
 # the `--dispositions` flag or empty, and nothing more. §6.3 also specifies a
 # fallback to the adoptee's own `.claude/adoption/secrets-dispositions.json`
 # and an interactive prompt; NEITHER IS BUILT, and this comment said otherwise
-# until review measured it (`grep -rn secrets-dispositions scripts/` finds one
-# hit, in the flag's own help text).
+# until review measured it. (Do not quote a grep count here: an earlier draft
+# said `grep -rn secrets-dispositions scripts/` finds ONE hit, and the sentence
+# saying so became the second and third.)
 #
 # EVERY STOP IS A BLOCK, NOT A REFUSAL. `docs/messaging-standard.md` draws the
 # line: a refusal is "the tool would not begin", a block is "a named check ran
@@ -270,8 +271,20 @@ adopt_dispositions_satisfy() {
     return 1
   fi
   if [ "$f_commits" -ne "$scan_commits" ]; then
-    adopt_note "  (the dispositions file was written against a scan of a different size —"
-    adopt_note "   $f_commits commit(s) against this scan's $scan_commits)"
+    if [ "$scan_commits" -eq 0 ]; then
+      # DO NOT SAY "THIS SCAN'S 0 COMMITS" WHEN NO SCAN RAN. On
+      # `tool-unavailable` the producer emits `commitsScanned: null`, which
+      # reads here as 0 — and describing a scan that never happened as one that
+      # read zero commits is the same false-precision the `personal:scan-failed`
+      # arm warns against a few cells up.
+      adopt_note "  (the dispositions file names a scan of $f_commits commit(s); this scan"
+      adopt_note "   recorded no commit count at all, because no scanner ran. Remove"
+      adopt_note "   scan.commitsScanned from the file, or record the acceptance against"
+      adopt_note "   a scan that happened.)"
+    else
+      adopt_note "  (the dispositions file was written against a scan of a different size —"
+      adopt_note "   $f_commits commit(s) against this scan's $scan_commits)"
+    fi
     return 1
   fi
 

@@ -578,7 +578,7 @@ _adopt_rescan_secrets() {
 # as the driver's own state, so this writes NOTHING into the operator's tree.
 _adopt_secrets_scan_own() {
   local root="$1" src_report="${2:-}" out="${3:-}"
-  local clone work sec new_obj fwcfg _cfgname _out_dir _root_abs _own_head
+  local clone work sec new_obj fwcfg _cfgname _out_dir _root_abs
 
   # `$3` WAS UNGUARDED WHILE `$2` WAS, AND THE ASYMMETRY WAS THE BUG. The
   # driver runs `set -uo pipefail`, so a two-argument call did not reach any of

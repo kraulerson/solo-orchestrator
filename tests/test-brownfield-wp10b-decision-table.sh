@@ -204,8 +204,37 @@ c_tool_unavailable() {
   decide personal "$T/r.json" "$T/d.json"
   [ "$DEC_RC" -eq 0 ] || bad="$bad [personal acknowledged: rc=$DEC_RC, want proceed]"
 
-  [ -z "$bad" ] && pass "D4 tool-unavailable: org refuses outright, personal stops unless acknowledged" \
-                || fail_ "D4 tool-unavailable: org refuses outright, personal stops unless acknowledged" "$bad"
+  # THE ACKNOWLEDGEMENT BRANCH HAS ITS OWN ROW RULES and they were pinned by
+  # nothing either. `kind` was already covered; `by`, `reason` and `date` were
+  # not.
+  local _a
+  for _a in 'del(.acknowledgements[0].date)|ack date absent' \
+            '.acknowledgements[0].by = "  "|ack signer is whitespace' \
+            '.acknowledgements[0].reason = ""|ack reason is empty'; do
+    jq "${_a%%|*}" "$T/d.json" > "$T/d-bad.json" 2>/dev/null \
+      || { bad="$bad [fixture jq failed for ${_a#*|}]"; continue; }
+    decide personal "$T/r.json" "$T/d-bad.json"
+    [ "$DEC_RC" -ne 0 ] || bad="$bad [${_a#*|}: accepted]"
+  done
+
+  # THE PRODUCER'S REAL SHAPE ON THIS CELL. `scout_secrets_scan` returns at the
+  # `command -v` arm BEFORE `seccommits` is written, so a real
+  # `tool-unavailable` section carries `commitsScanned: null` — not the `3`
+  # this suite's `mk_report` hand-writes. The commit-count arm is now
+  # unconditional, and this is what proves that did NOT make §6.4's escape
+  # unreachable: an acknowledgement with no `scan.commitsScanned` is accepted,
+  # one claiming a size the scan never had is refused, and the refusal names
+  # both numbers so the operator can correct it.
+  jq '.secrets.commitsScanned = null' "$T/r.json" > "$T/null-cm.json" 2>/dev/null
+  jq 'del(.scan.commitsScanned) | del(.acknowledgements[0].commitsScanned)' \
+     "$T/d.json" > "$T/ack-nocm.json" 2>/dev/null
+  decide personal "$T/null-cm.json" "$T/ack-nocm.json"
+  [ "$DEC_RC" -eq 0 ] || bad="$bad [the real tool-unavailable shape refused a valid acknowledgement, rc=$DEC_RC — §6.4's escape is unreachable]"
+  decide personal "$T/null-cm.json" "$T/d.json"
+  [ "$DEC_RC" -ne 0 ] || bad="$bad [an acknowledgement claiming a size this scan never had was accepted]"
+
+  [ -z "$bad" ] && pass "D4 tool-unavailable: org refuses outright, personal stops unless acknowledged, and §6.4's escape stays reachable on the producer's real shape" \
+                || fail_ "D4 tool-unavailable: org refuses outright, personal stops unless acknowledged, and §6.4's escape stays reachable on the producer's real shape" "$bad"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -302,6 +331,32 @@ c_validate() {
   # in that case — which was every real run, because no producer emitted the
   # field. A sign-off from another repository was accepted. Refusing is the
   # only safe answer, and this is what pins it independent of the producer.
+  # EACH OF §6.3'S ROW RULES, ONE AT A TIME, EACH ISOLATED. Review reverted
+  # all five of these conjuncts at once and every PR-blocking check stayed
+  # green (12/0, 11/0, 54/0, 16/16) while the mutant accepted a date-less row,
+  # a `banana` disposition, a whitespace signer and a date-less
+  # acknowledgement. The code was right and nothing defended it — the exact
+  # shape the commit this suite belongs to was written to remove, committed
+  # inside the fix for it. Each row below is a `jq` edit of a file that is
+  # otherwise VALID, so a green here means that conjunct and no other.
+  mk_dispositions "$T/row.json" accepted-risk "$fp"
+  local _r
+  for _r in 'del(.dispositions[0].date)|date absent' \
+            '.dispositions[0].date = ""|date empty' \
+            '.dispositions[0].disposition = "banana"|disposition out of vocabulary' \
+            'del(.dispositions[0].disposition)|disposition absent' \
+            '.dispositions[0].by = "   "|signer is whitespace' \
+            '.dispositions[0].reason = "  "|reason is whitespace'; do
+    jq "${_r%%|*}" "$T/row.json" > "$T/row-bad.json" 2>/dev/null \
+      || { bad="$bad [fixture jq failed for ${_r#*|}]"; continue; }
+    decide organizational "$T/r.json" "$T/row-bad.json"
+    [ "$DEC_RC" -ne 0 ] || bad="$bad [${_r#*|}: accepted]"
+  done
+  # THE POSITIVE CONTROL for the loop: the unedited file must still be accepted,
+  # or every row above passes against a validator that refuses everything.
+  decide organizational "$T/r.json" "$T/row.json"
+  [ "$DEC_RC" -eq 0 ] || bad="$bad [VACUITY FLOOR: the valid row was refused, rc=$DEC_RC]"
+
   # THE FILE'S OWN HEAD MUST BE EMPTY TOO, or this proves nothing: with a
   # populated `scan.head` the NEXT arm refuses the mismatch and the fail-closed
   # guard is masked. Measured — the first version of this arm passed whether or
@@ -376,6 +431,13 @@ c_input() {
   local T2; T2=$(newtmp); mk_report "$T2/own.json" scanned 0
   decide organizational "$T2/own.json"
   local rc_own=$DEC_RC
+  # R-3: the two stops BEFORE the table — this one and the no-tier one — are
+  # `adopt_block` sites that D8's loop cannot reach, because they fire before
+  # a status matters. Their label is pinned here instead.
+  decide organizational "$T/survey.json"
+  _has '\[BLOCKED\]' || fail_ "D9 label" "the not-own-report stop is not [BLOCKED]"
+  decide "" "$T2/own.json"
+  _has '\[BLOCKED\]' || fail_ "D9 label" "the no-tier stop is not [BLOCKED]"
   if [ "$rc_survey" -ne 0 ] && [ "$rc_own" -eq 0 ]; then
     pass "D9 the decision refuses a report that is not the stop's own scan"
   else
@@ -467,6 +529,12 @@ c_ordering() {
   [ "$rc" -ne 0 ] || bad="$bad [rc=0, want a stop]"
   # THE INTERVIEW'S OWN HEADING must be absent — the decision runs before it.
   grep -qi 'The interview' "$T/out" "$T/err" 2>/dev/null && bad="$bad [the interview ran before the stop]"
+  # THE POSITIVE CONTROL, the convention D7 and D9 already carry. Without it
+  # this case cannot tell "the secrets check stopped before the interview" from
+  # "the driver died before anything" — measured: a `return 2` inserted before
+  # the tier question left this case GREEN. The label goes to stderr.
+  grep -q 'no secrets scanner was available' "$T/err" 2>/dev/null \
+    || bad="$bad [the run stopped, but not at the secrets check]"
   [ "$before" = "$after" ] || bad="$bad [the adoptee changed]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
