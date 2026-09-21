@@ -843,7 +843,34 @@ echo "=== S — the fast path: a scanner already on the host costs no resolver r
 _mk_gitleaks_shim() {
   local d="$1"
   mkdir -p "$d" || return 1
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$d/gitleaks"
+  # THE SHIM MUST BE A USABLE SCANNER, NOT MERELY AN EXECUTABLE FILE. It was
+  # `exit 0` for every argument until 2026-09-21, which meant `gitleaks version`
+  # printed NOTHING and the scan wrote no report. That was survivable while
+  # Scout only asked whether the binary existed; `## BL-289:` made it ask
+  # whether it can actually perform the scan, and a binary with no readable
+  # version is now — correctly — `tool-unavailable`, which stops a personal
+  # adoption until an acceptance is recorded. S1b and S5b started failing on
+  # `adoption exited 1`, which was the new behaviour working, not a defect.
+  #
+  # These cases exist to prove the RESOLVER does not run when gitleaks is on
+  # PATH. So the shim now answers `version` with a number above the floor and
+  # writes an empty findings array, which is what "gitleaks is present and
+  # works" means. It reads the floor from the matrix rather than hard-coding
+  # one, so raising the floor again cannot silently re-break these cases.
+  local _floor=""
+  _floor="$(jq -r '.tools[] | select(.name == "gitleaks") | .min_version // "8.19.0"' \
+            "$REPO_ROOT/templates/tool-matrix/common.json" 2>/dev/null)"
+  [ -n "$_floor" ] || _floor="8.19.0"
+  cat > "$d/gitleaks" <<SHIM
+#!/usr/bin/env bash
+if [ "\${1:-}" = "version" ]; then printf '%s\n' "$_floor"; exit 0; fi
+_out=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in -r) _out="\$2"; shift 2 ;; *) shift ;; esac
+done
+[ -n "\$_out" ] && printf '[]\n' > "\$_out"
+exit 0
+SHIM
   chmod +x "$d/gitleaks" || return 1
   [ "$(PATH="$d:$PATH" command -v gitleaks 2>/dev/null)" = "$d/gitleaks" ] || return 1
   return 0
