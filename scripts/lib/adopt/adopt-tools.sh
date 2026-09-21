@@ -674,9 +674,18 @@ _adopt_secrets_scan_own() {
   for _cfgname in .gitleaks.toml gitleaks.toml; do   # BL-242-SECRETS-CONFIG-DISCLOSE
     if [ -f "$root/$_cfgname" ]; then carried_cfg="$_cfgname"; break; fi
   done
+  # `head` IS STAMPED HERE BECAUSE NO PRODUCER EMITS IT INSIDE `.secrets`.
+  # Scout puts `headCommit` at the report's TOP LEVEL; the secrets section has
+  # no such field. §6.3 binds a disposition file to one scan by HEAD, and the
+  # validator was reading `.secrets.head` — which is always empty, so that arm
+  # never fired and a sign-off written against another repository entirely was
+  # accepted. Measured before this line existed. The stop knows the commit it
+  # scanned, so the stop is what records it.
+  local _own_head=""
+  _own_head="$(git -C "$root" rev-parse HEAD 2>/dev/null)" || _own_head=""
   new_obj="$(printf '%s' "$new_obj" | jq -c \
-      --arg cfg "$carried_cfg" \
-      '. + {scannedBy: "adoption", rulesSource: "framework"}
+      --arg cfg "$carried_cfg" --arg hd "$_own_head" \
+      '. + {scannedBy: "adoption", rulesSource: "framework", head: $hd}
          | if ($cfg != "" and (.configFile == null or .configFile == ""))
            then .configFile = $cfg else . end' 2>/dev/null)" || new_obj=""
   [ -n "$new_obj" ] || { adopt_note "The secrets stop's scan could not be annotated."; return 1; }

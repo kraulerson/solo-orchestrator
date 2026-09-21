@@ -137,7 +137,7 @@ done
 # THE GUARD, BEFORE ARGUMENT PARSING — see the header. Sibling posture, kept.
 guard_not_in_framework || exit 1
 
-for _part in adopt-core adopt-evidence adopt-intake adopt-tools adopt-state adopt-archive adopt-stubs adopt-test-debt; do
+for _part in adopt-core adopt-evidence adopt-intake adopt-tools adopt-secrets adopt-state adopt-archive adopt-stubs adopt-test-debt; do
   if [ ! -f "$ADOPT_LIB_DIR/$_part.sh" ]; then
     echo "adopt-project: missing $ADOPT_LIB_DIR/$_part.sh — the driver needs its own lib directory." >&2
     exit 2
@@ -156,6 +156,12 @@ adopt-project — bring an existing project under the framework.
   --root DIR          the project to adopt (default: the current directory)
   --scan-report FILE  consume this Scout report instead of running a new scan
   --re-add PATH       put one of YOUR archived files back, warned and recorded
+  --dispositions FILE how each secrets finding was dealt with, or an accepted
+                      risk, in the shape ADOPT-002-ARCH §6.3 specifies. Needed
+                      only when the secrets check stops and you are lifting it.
+                      Adoption does not yet WRITE this file — that stage is not
+                      built, and saying it did would be a claim about a file
+                      nothing produces.
   --finish            complete an adoption whose state was written but whose
                       commit did not land (your own hook or git identity
                       refused it) — stages exactly what that run wrote
@@ -191,6 +197,12 @@ ADOPT_ROOT="."
 ADOPT_REPORT=""
 ADOPT_READD=""
 ADOPT_FINISH=""
+# `--dispositions` is EMPTY BY DEFAULT and that is not a placeholder: §6.1's
+# secrets check only reads it when a stop is on the table, and an adoption
+# whose scan came back clean never needs one. Declared here, under `set -u`,
+# so every reader sees a defined variable rather than an unbound one — the
+# `local tgt` shape that took a CI lane down on 2026-09-18, one scope up.
+ADOPT_DISPOSITIONS_FILE=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -200,6 +212,9 @@ while [ "$#" -gt 0 ]; do
     --scan-report=*) ADOPT_REPORT="${1#--scan-report=}"; shift ;;
     --re-add)        [ "$#" -ge 2 ] || { echo "adopt-project: --re-add needs a path" >&2; exit 2; }; ADOPT_READD="$2"; shift 2 ;;
     --re-add=*)      ADOPT_READD="${1#--re-add=}"; shift ;;
+    --dispositions)  [ "$#" -ge 2 ] || { echo "adopt-project: --dispositions needs a file" >&2; exit 2; }
+                     ADOPT_DISPOSITIONS_FILE="$2"; shift 2 ;;
+    --dispositions=*) ADOPT_DISPOSITIONS_FILE="${1#--dispositions=}"; shift ;;
     --finish)        ADOPT_FINISH=1; shift ;;
     --version)       adopt_module_version; exit 0 ;;
     -h|--help)       usage; exit 0 ;;
