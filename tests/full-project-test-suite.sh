@@ -879,6 +879,9 @@ run_child_suite "tests/test-brownfield-wp9d-window-rehearsal.sh" \
 run_child_suite "tests/test-brownfield-wp10b-own-scan.sh" \
   "WP10b/1: the secrets stop scans a no-checkout clone under the framework's own rules" \
   "WP10b own-scan tests FAILED (run tests/test-brownfield-wp10b-own-scan.sh for details)"
+run_child_suite "tests/test-brownfield-wp11-archive-classes.sh" \
+  "WP11: the document and state archive classes, framework-wins, and I20" \
+  "WP11 archive-class tests FAILED (run tests/test-brownfield-wp11-archive-classes.sh for details)"
 run_child_suite "tests/test-bl289-gitleaks-version-floor.sh" \
   "BL-289: the gitleaks version floor is raised to 8.19.0 and enforced" \
   "BL-289 version-floor tests FAILED (run tests/test-bl289-gitleaks-version-floor.sh for details)"
