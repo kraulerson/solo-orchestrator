@@ -285,6 +285,7 @@ scout_secrets_scan() {
   local root="$1" work="$2"
   local policy="${3:-project}" fwcfg="${4:-}"
   local _bin _mode _scope _flags _rc _version _count _cfg _commits _gitdir f
+  local _SCOUT_GITLEAKS_MIN="" _flr=""
   local _ignore_none=""
   local _fwflags
   _fwflags=()
@@ -312,6 +313,88 @@ scout_secrets_scan() {
 
   _version=$("$_bin" version 2>/dev/null | head -1 | tr -d '\r')
   printf '%s\n' "$_version" > "$work/secversion"
+
+  # ── BL-289: A SCANNER TOO OLD TO RUN THIS SCAN IS NOT A SCANNER ──────────
+  # `gitleaks git` and `gitleaks dir` — the two spellings the scan below uses —
+  # are the post-8.19.0 commands. Upstream deprecated and hid `detect`/`protect`
+  # in v8.19.0, and that is the release that made these the spelling. An 8.18.x
+  # binary does not answer `gitleaks git`.
+  #
+  # WHY THIS IS `tool-unavailable` AND NOT `scan-failed`, WHICH IS THE WHOLE
+  # POINT OF THE ENTRY. Without this arm the old binary errors and the scan is
+  # reported `scan-failed` — and §6.1's table treats the two very differently
+  # at `personal`: `scan-failed` WARNS AND CARRIES ON with no acknowledgement,
+  # while `tool-unavailable` STOPS until an acceptance is recorded. A
+  # contributor with an old gitleaks therefore adopted a personal project on a
+  # cheerful warning where the design requires a signed acceptance. The honest
+  # word for "a binary is present but cannot perform this scan" is the one that
+  # means nobody looked.
+  #
+  # THE FLOOR IS DUPLICATED FROM `templates/tool-matrix/common.json` ON PURPOSE
+  # and the duplication is PINNED: this file's header records that it sources
+  # nothing (M5), and Scout must work when pointed at a project from anywhere,
+  # so it cannot read the framework's matrix at runtime. `F1` in
+  # `tests/test-bl289-gitleaks-version-floor.sh` asserts these two spellings
+  # are the same string, so a drift is a red test rather than a silent split.
+  _SCOUT_GITLEAKS_MIN="8.19.0"   # SCOUT-SECRETS-VERSION-FLOOR
+
+  # FAIL CLOSED ON A VERSION THAT CANNOT BE READ. A binary whose version does
+  # not parse has not demonstrated it meets the floor, and `## BL-147:` is the
+  # standing rule: a check that cannot run must not pass. Assuming current
+  # would be the fail-open direction on the one question this section exists
+  # to answer honestly.
+  # WHAT COUNTS AS READABLE: the LEADING `N(.N)*` PREFIX, and nothing more.
+  # Three drafts of this line were wrong in three different ways, each measured
+  # against a real fixture rather than reasoned about:
+  #   * reading the RAW string refused a legitimate `v8.30.1` tag, because the
+  #     comparison strips the `v` and the guard did not;
+  #   * requiring the WHOLE stripped string to be numeric-dotted refused
+  #     `9.9.9-fake` — and a gitleaks built from source really does carry a
+  #     suffix, so that is a false refusal of a working scanner, which
+  #     `tests/test-brownfield-wp2-scout-sections.sh` G10 caught;
+  #   * accepting any string with a digit in it let `9abc` through as major 9.
+  # Stripping the leading non-digit run and comparing THAT satisfies all
+  # three: a suffix is ignored (awk's `+0` reads `9.9.9-fake`'s last field as
+  # 9), a `v` is stripped, and a string with no digits at all leaves an empty
+  # result the guard below refuses. The false-refusal risk is concrete (source
+  # builds exist); the residual permissiveness — `9abc` reading as major 9 — is
+  # ACCEPTED, not fixed, because it is a string no gitleaks emits.
+  # SIMPLER THAN IT WAS, DELIBERATELY. A draft also extracted the leading
+  # `N(.N)*` prefix with `grep -oE`. Measured: that is REDUNDANT — awk's `+0`
+  # coercion below already reads `9.9.9-fake`'s third field as 9 and `9abc` as
+  # 9, so the extraction changed no outcome on any input and its mutant
+  # survived. Dropped rather than kept as decoration.
+  # `2>/dev/null`: BSD sed errors with `RE error: illegal byte sequence` on a
+  # version string carrying invalid UTF-8. The behaviour is already right — the
+  # result is empty and the guard refuses — but Scout's contract is an EMPTY
+  # stderr on a successful scan, and this would leak onto it.
+  _flr=$(printf '%s' "$_version" | sed 's/^[^0-9]*//' 2>/dev/null)
+  if [ -z "$_flr" ]; then
+    printf 'tool-unavailable\n' > "$work/secstatus"
+    printf '%s\n' "A gitleaks binary was found but its version could not be read (it reported '${_version:-nothing at all}'), so there is no way to tell whether it can perform this scan. NOTHING WAS SCANNED — this is not a clean result, it is the absence of one. gitleaks ${_SCOUT_GITLEAKS_MIN} or newer is required, because the git-history scan this runs uses subcommands that older releases do not have. If you built gitleaks from source with 'go install' or a plain 'go build', the version is left unstamped and reads as 'version is set by build process' — rebuild with 'make build', which stamps it, or install a release binary." \
+      > "$work/secnote"
+    return 0
+  fi
+
+  # `awk`, not a shell loop: this file must run on bash 3.2 and the comparison
+  # needs no arrays, no `IFS` tampering (which semgrep's
+  # `bash.lang.security.ifs-tampering` rule flags) and no subshell arithmetic.
+  # Leading non-digits are stripped first so a `v8.19.0` tag compares as
+  # 8.19.0 rather than as a zero major.
+  if awk -v a="$_flr" -v b="$_SCOUT_GITLEAKS_MIN" 'BEGIN{
+        na=split(a,A,"."); nb=split(b,B,".");
+        m=(na>nb)?na:nb;
+        for(i=1;i<=m;i++){
+          x=(i<=na)?A[i]+0:0; y=(i<=nb)?B[i]+0:0;
+          if(x<y) exit 0;
+          if(x>y) exit 1;
+        }
+        exit 1 }'; then
+    printf 'tool-unavailable\n' > "$work/secstatus"
+    printf '%s\n' "The gitleaks on this host is ${_version}, and this scan needs ${_SCOUT_GITLEAKS_MIN} or newer: the git-history scan uses the 'gitleaks git' subcommand, which releases before ${_SCOUT_GITLEAKS_MIN} do not have. NOTHING WAS SCANNED — treat this as unknown, not as clean. Upgrade gitleaks (macOS: brew upgrade gitleaks; other hosts: https://github.com/gitleaks/gitleaks/releases) and scan again before treating this project as free of committed credentials." \
+      > "$work/secnote"
+    return 0
+  fi
 
   # §6.1: history is the point. `gitleaks git` walks it — a key present only in
   # a superseded commit and absent from the working tree is found — and that is
