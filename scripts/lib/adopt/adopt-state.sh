@@ -104,6 +104,55 @@ _adopt_halt_requested() {
 # is not a seam; WP6 owns the durable archive and its MANIFEST, and until then
 # the operator gets the paths on screen.
 ADOPT_COLLISION_LIST=""
+# _adopt_overwrite_inventory_check ROOT — I20, §9.1.
+#
+# planned ∩ pre-existing ⊆ inventory. Anything outside that is a path this run
+# is about to overwrite with no copy kept and no row in the record — which is
+# exactly what `## BL-292:` was, three times over.
+#
+# FAILS CLOSED. If the planned set is unavailable, or the inventory cannot be
+# read, the answer is BLOCK: the check has not been performed, and the next
+# statement writes over the operator's files. `## BL-147:` — a check that
+# cannot run must not pass.
+_adopt_overwrite_inventory_check() {
+  local root="$1"
+  local inv="" rel="" missing="" n=0
+
+  if [ -z "${ADOPT_PLANNED_WRITES:-}" ]; then
+    adopt_block "the pre-write rehearsal produced no list of what it would write"
+    adopt_note "  Adoption cannot check that your own files are archived before replacing them,"
+    adopt_note "  so it will not replace them. Nothing was written."
+    return 1
+  fi
+
+  inv="$(adopt_archive_inventory "$root" 2>/dev/null | cut -f1)" || inv=""
+
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    # Only paths that EXISTED before this run can be overwritten; a path the
+    # run creates has nothing to archive.
+    [ -e "$root/$rel" ] || continue
+    printf '%s\n' "$inv" | grep -qxF "$rel" && continue
+    missing="$missing$rel
+"
+    n=$((n + 1))
+  done <<PLANNED
+$ADOPT_PLANNED_WRITES
+PLANNED
+
+  [ "$n" -eq 0 ] && return 0
+
+  adopt_block "$n file(s) of yours would be replaced with no copy kept"
+  adopt_note "  Adoption plans to write these paths, they already exist in your project, and the"
+  adopt_note "  archive has no record of them:"
+  printf '%s' "$missing" | while IFS= read -r rel; do
+    [ -n "$rel" ] && adopt_say "     $rel"
+  done
+  adopt_note "  This is a defect in adoption, not in your project: every path it replaces must be"
+  adopt_note "  archived first. Nothing was written."
+  return 1
+}
+
 adopt_install_framework() {
   local root="$1"
   local rel src dst n_copied=0 n_collided=0
@@ -127,7 +176,27 @@ adopt_install_framework() {
       ADOPT_COLLISION_LIST="$ADOPT_COLLISION_LIST$rel
 "
       n_collided=$((n_collided + 1))
-      continue
+      # ── D1 FRAMEWORK-WINS: ARCHIVE THEIRS, INSTALL OURS ──────────────────
+      # This was `continue` — skip on collision — until WP11. That preserved
+      # the operator's bytes, which sounds like the safe direction and is not:
+      # a project carrying its own `scripts/validate.sh` received every
+      # framework script EXCEPT that one, silently, and the gates that call it
+      # then ran THEIR file. Half an installed framework is not a safer state
+      # than a replaced file with a copy in the archive; it is an unannounced
+      # one.
+      #
+      # THE RECEIPT CHECK IS WHAT MAKES THAT SAFE, and it is called ONCE per
+      # path immediately before the copy rather than once for the set: the
+      # question is not "did the archive run" but "is THIS file's copy on
+      # disk". `# BL-242-RECEIPT-CHECK` refuses when the answer is no, so the
+      # operator's bytes are never replaced on the strength of an archive that
+      # did not happen.
+      if ! adopt_receipt_check "$root" "$rel"; then   # BL-242-RECEIPT-CHECK
+        adopt_block "cannot replace $rel: this project's own copy is not in the archive"
+        adopt_note "  The framework's version of that file would overwrite yours, and the archive"
+        adopt_note "  has no copy to put back. Nothing more was written."
+        return 1
+      fi
     fi
     adopt_touched_disk   # BL-225-TOUCHED-DISK
     mkdir -p "$(dirname "$dst")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$rel")"; return 1; }
@@ -143,7 +212,20 @@ adopt_install_framework() {
   done <<INSTALL_SET
 $(soif_parse_shipped_scripts "$ADOPT_FRAMEWORK_ROOT/init.sh" "$ADOPT_FRAMEWORK_ROOT/scripts")
 INSTALL_SET
-  adopt_note "Installed $n_copied framework script(s); left $n_collided of your own file(s) untouched."
+  # NAMED, NOT COUNTED. "left 3 of your own files untouched" tells an operator
+  # nothing they can act on, and after framework-wins it would also be false —
+  # those files were REPLACED. Every path is printed, which is what makes the
+  # standing warning below checkable rather than a promise.
+  if [ "$n_collided" -gt 0 ]; then
+    adopt_note "Installed $n_copied framework script(s). $n_collided of your own file(s) were"
+    adopt_note "replaced by the framework's version; your copy of each is in the archive:"
+    printf '%s' "$ADOPT_COLLISION_LIST" | while IFS= read -r _c; do
+      [ -n "$_c" ] && adopt_say "     $_c"
+    done
+    adopt_note "The archive's MANIFEST carries a restore line for every one of them."
+  else
+    adopt_note "Installed $n_copied framework script(s); none of your own files collided."
+  fi
   if [ "$n_copied" -eq 0 ]; then
     # TWO CAUSES, AND THEY NEED DIFFERENT SENTENCES (R-WP4-2). The first cut
     # blamed the clone for both, which is a misdiagnosis in the commonest case:
@@ -1538,6 +1620,11 @@ adopt_prewrite_preflight() {
     rm -f "$ADOPT_WORK/touched" 2>/dev/null || true   # BL-225-REHEARSAL-NO-TRACE
   fi
   planned="$(adopt_written_paths)"
+  # Publish the rehearsal's planned set so I20 can check it against the
+  # archive's inventory before the real write phase runs (see
+  # `# BL-242-OVERWRITE-INVENTORY`). A global rather than a return value
+  # because the preflight's rc already means something else.
+  ADOPT_PLANNED_WRITES="$planned"
 
   ADOPT_WRITTEN_LEDGER="$saved"
   # SOIF_REHEARSAL_KEEP=<dir> — the seam the suite needs. The copy is deleted
@@ -1771,6 +1858,20 @@ adopt_main() {
   # is the live case — adopt_install_hooks appends a marked block to it — so
   # the archived copy is deliberately the PRE-composition one.
   adopt_prewrite_preflight "$root" "$report" || return 1   # BL-225-PREWRITE-CALL
+
+  # ── I20 — THE OVERWRITE INVENTORY INVARIANT ──────────────────────────────
+  # Every path this run PLANS to write that ALREADY EXISTED must have a row in
+  # the archive's inventory. Not "the archive ran"; not "these three known
+  # paths" — the intersection, computed from the rehearsal's own planned set.
+  #
+  # IT IS AN INVARIANT RATHER THAN A LIST BECAUSE THE LIST IS WHAT ROTS.
+  # `## BL-292:` was three writers added over time, none of which had an
+  # archive row, and nothing noticed for months: the defect was not that
+  # somebody chose wrongly, it was that choosing wrongly had no consequence.
+  # This gives it one, at the boundary, before the first real write — so the
+  # next writer added without a row is caught by its author rather than by a
+  # reviewer a month later.
+  _adopt_overwrite_inventory_check "$root" || return 1   # BL-242-OVERWRITE-INVENTORY
 
   _adopt_write_phase "$root" "$ADOPT_WORK" "$report" || return 1   # BL-225-WRITE-PHASE-REAL
 

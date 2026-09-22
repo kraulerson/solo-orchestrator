@@ -98,6 +98,49 @@ SURFACES
 # MANIFEST, the disclosure or the staging list by any path. A phantom entry for
 # a file the operator never had is worse than a missing one — it teaches them
 # the record is fiction.
+# ── §7.2's DOCUMENT SET, AS DATA (D3) ───────────────────────────────────────
+# One function, one row per line, so WP12b's finisher consumes the SAME list
+# this archives from and the two can never disagree about what a "framework
+# document" is. A second spelling of this set is how a document gets archived
+# and never rebuilt, or rebuilt and never archived.
+#
+# `CHANGELOG.md` IS DELIBERATELY ABSENT (row 17, `kept-by-rule`). Adoption never
+# writes it, so archiving it would take a copy of something nothing touches —
+# the opposite error to `## BL-292:` and just as misleading in the record.
+_adopt_document_set() {                       # BL-242-DOCUMENT-SET
+  printf '%s\n' CLAUDE.md FEATURES.md PROJECT_BIBLE.md PRODUCT_MANIFESTO.md PROJECT_INTAKE.md
+}
+
+# ── §7.2's STATE SET ────────────────────────────────────────────────────────
+# The two `.claude/` files Act 2 writes through `adopt_write_file`, which
+# overwrites. `PROJECT_INTAKE.md` is the third writer and lives in the document
+# set above because it is a document; the class it is archived under is what
+# the record shows, and all three are REPLACED by Act 2 rather than merely
+# archived for Act 4.
+_adopt_state_set() {                          # BL-242-STATE-SET
+  printf '%s\n' .claude/intake-progress.json .claude/orchestrator-source.json
+}
+
+# ── A NAME THAT WOULD SPLIT A ROW IS REFUSED HERE, BEFORE ANY COPY ──────────
+# The inventory's rows are TAB-separated and the MANIFEST is built from them,
+# so a path carrying a newline, carriage return or tab does not produce a bad
+# row — it produces TWO, and the second is read as a different file. Refusing at
+# the inventory is the only place where nothing has been copied yet.
+#
+# `[[:cntrl:]]`, NOT `$(printf '\n')`. Command substitution STRIPS trailing
+# newlines, so `$(printf '\n')` is the EMPTY STRING and the pattern
+# `*""*` matches every path ever passed — measured: the first cut of this
+# function refused every file, the inventory returned 1, no archive was ever
+# written, and `tests/test-brownfield-wp6-collision-archive.sh` went from 45/0
+# to 11/34. A guard that refuses everything looks like a guard right up until
+# something reads its output.
+_adopt_archive_name_ok() {                    # BL-242-INVENTORY-NAME-SAFE
+  case "$1" in
+    *[[:cntrl:]]*) return 1 ;;
+  esac
+  return 0
+}
+
 adopt_archive_inventory() {
   local root="$1"
   local rel h base
@@ -131,16 +174,85 @@ AI
     printf '%s\t%s\t%s\n' "APPROVAL_LOG.md" "approval-log" "APPROVAL_LOG.md"
   fi
 
+  # ── `script` — the install set's collisions (D1 framework-wins) ──────────
+  # Every framework script the adoptee ALREADY owns. Until WP11 the installer
+  # skipped these, so they were never replaced and needed no row; framework-wins
+  # replaces them, and a replace with no row is the silent-success class this
+  # archive exists to close. The set is `soif_parse_shipped_scripts`'s — the
+  # SAME list the installer walks, so the two cannot disagree about what a
+  # framework script is.
+  if [ -n "${ADOPT_FRAMEWORK_ROOT:-}" ]; then
+    while IFS= read -r rel; do
+      [ -n "$rel" ] || continue
+      [ -f "$root/$rel" ] || continue
+      [ -f "$ADOPT_FRAMEWORK_ROOT/$rel" ] || continue
+      [ "${SOIF_ADOPT_INVENTORY_SKIP_CLASS:-}" = "script" ] && continue
+      printf '%s\t%s\t%s\n' "$rel" "script" "$rel"
+    done <<SCRIPTSET
+$(soif_parse_shipped_scripts "$ADOPT_FRAMEWORK_ROOT/init.sh" "$ADOPT_FRAMEWORK_ROOT/scripts" 2>/dev/null)
+SCRIPTSET
+  fi
+
+  # ── `document` AND `state` — `## BL-292:` / §13-V34 ──────────────────────
+  # Act 2 writes `PROJECT_INTAKE.md`, `.claude/intake-progress.json` and
+  # `.claude/orchestrator-source.json` through `adopt_write_file`, which
+  # OVERWRITES. Until this block existed none of the three was inventoried, so
+  # a project that already tracked them had them replaced with no archive, no
+  # MANIFEST row and no sentence — in a run whose own overview says nothing is
+  # moved silently. Measured on `main`: `grep -c` over this file for either
+  # name returned 0.
+  #
+  # THE SEAM DROPS A CLASS ON PURPOSE. `SOIF_ADOPT_INVENTORY_SKIP_CLASS` is how
+  # the suite reproduces "somebody added a writer and forgot the row", which is
+  # what I20 below exists to catch. It can only ever REMOVE rows, so it cannot
+  # make a run write more than it otherwise would.
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -f "$root/$rel" ] || continue
+    [ "${SOIF_ADOPT_INVENTORY_SKIP_CLASS:-}" = "document" ] && continue
+    printf '%s\t%s\t%s\n' "$rel" "document" "$rel"
+  done <<DOCSET
+$(_adopt_document_set)
+DOCSET
+
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -f "$root/$rel" ] || continue
+    [ "${SOIF_ADOPT_INVENTORY_SKIP_CLASS:-}" = "state" ] && continue
+    printf '%s\t%s\t%s\n' "$rel" "state" "$rel"
+  done <<STATESET
+$(_adopt_state_set)
+STATESET
+
   # Skills are a directory shape, not a fixed path, so they are globbed. `find`
   # rather than a glob because bash 3.2 has no `nullglob` and an unmatched glob
   # would be passed through as a literal path.
   if [ -d "$root/.claude/skills" ]; then
-    while IFS= read -r rel; do
+    # `-print0` AND `read -d ''`, AND THAT IS THE WHOLE GUARD. A newline-bearing
+    # path read line-wise is ALREADY DESTROYED by the time any check sees it:
+    # `read` splits `.claude/skills/bad\nname/SKILL.md` into two lines, neither
+    # of which contains a control character, so a guard placed after the split
+    # can never fire. Measured — the first cut checked each line and passed
+    # every one of them while the inventory happily emitted two invented rows.
+    # NUL-separation is the only reading under which the name survives intact
+    # long enough to be refused.
+    while IFS= read -r -d '' rel; do
       [ -n "$rel" ] || continue
+      # BL-242-INVENTORY-NAME-SAFE. A skill directory's name is the one
+      # inventoried surface the operator chooses freely, so it is the one that
+      # can carry a newline, CR or tab — each of which would SPLIT this row in
+      # two and put a second, invented path into the MANIFEST. Refusing here is
+      # before any copy; refusing later would be after.
+      if ! _adopt_archive_name_ok "$rel"; then
+        printf '%s\n' "[BLOCKED] a file under .claude/skills/ has a name carrying a newline, carriage return or tab:" >&2
+        printf '%s\n' "          $(printf '%s' "$rel" | od -c -A n | tr -s ' ' | head -3)" >&2
+        printf '%s\n' "          The archive's record is one line per file, so that name cannot be recorded" >&2
+        printf '%s\n' "          without inventing a second path. Rename it and run adoption again; nothing" >&2
+        printf '%s\n' "          has been written." >&2
+        return 1
+      fi
       printf '%s\t%s\t%s\n' "$rel" "skill" "$rel"
-    done <<SKILLS
-$( cd "$root" 2>/dev/null && find .claude/skills -type f -name 'SKILL.md' 2>/dev/null | LC_ALL=C sort )
-SKILLS
+    done < <( cd "$root" 2>/dev/null && find .claude/skills -type f -name 'SKILL.md' -print0 2>/dev/null | LC_ALL=C sort -z )
   fi
 
   # Git hooks. Archived under `git-hooks/` and not `.git/hooks/`, exactly as
@@ -567,7 +679,20 @@ adopt_archive_write() {
     # the driver: a git hook that comes back at 0644 does not run, and an
     # operator restoring one would get silence rather than an error.
     adopt_touched_disk   # BL-225-TOUCHED-DISK
-    cp -p "$root/$rel" "$arc_abs/$arel" 2>/dev/null || { adopt_refuse "could not archive $rel"; return 1; }
+    # SOIF_ADOPT_ARCHIVE_SKIP_COPY=<path> — A FAULT INJECTOR, and the only way
+    # `# BL-242-RECEIPT-CHECK` can be proven. I20 catches the path with NO ROW;
+    # the receipt check catches the different failure of a row that exists while
+    # its archived COPY does not — a partial archive. Nothing else in the suite
+    # can produce that state, so without this seam the receipt check would be
+    # unfalsifiable code standing in front of an overwrite.
+    #
+    # It can only ever make the run write LESS and refuse EARLIER, which is the
+    # safe direction (`SOIF_ADOPT_HALT_AFTER`'s precedent).
+    if [ "${SOIF_ADOPT_ARCHIVE_SKIP_COPY:-}" = "$rel" ]; then
+      : # the row is still written below; the file is deliberately not copied
+    else
+      cp -p "$root/$rel" "$arc_abs/$arel" 2>/dev/null || { adopt_refuse "could not archive $rel"; return 1; }
+    fi
   done < "$work/arcinv"
 
   # ── §7.3: LOOK BEFORE ANYTHING IS STAGED ─────────────────────────────────
@@ -1058,4 +1183,36 @@ adopt_readd_main() {
     return 2
   fi
   adopt_archive_readd "$root" "$want"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# adopt_receipt_check ROOT REL — is THIS path's copy actually in the archive?
+#
+# ONE PATH, ONE QUESTION, CALLED IMMEDIATELY BEFORE THE COPY THAT REPLACES IT.
+# Not once for the set, and not "did the archive step run" — those are the two
+# shapes that pass while the one file about to be overwritten was missed. The
+# archive's MANIFEST is the record, so the MANIFEST is what this reads.
+#
+# IT FAILS CLOSED. No MANIFEST, unreadable MANIFEST, absent jq, no matching row,
+# or a row whose archived file is not on disk all answer NO. A receipt check
+# that cannot read its evidence has not seen a receipt, and the caller's next
+# act is to overwrite the operator's file.
+adopt_receipt_check() {                       # BL-242-RECEIPT-CHECK
+  local root="$1" rel="$2"
+  local arc mj arel
+
+  command -v jq >/dev/null 2>&1 || return 1
+  # `ADOPT_ARCHIVE_DIR` is the archive's path RELATIVE to the adoptee, set by
+  # `adopt_archive_write` when it creates the directory. Empty means no archive
+  # ran in this process, which is itself a NO.
+  [ -n "${ADOPT_ARCHIVE_DIR:-}" ] || return 1
+  arc="$root/$ADOPT_ARCHIVE_DIR"
+  mj="$arc/MANIFEST.json"
+  [ -f "$mj" ] || return 1
+
+  arel="$(jq -r --arg p "$rel" \
+    '[.entries[]? | select(.originalPath == $p)][0].archivedPath // ""' "$mj" 2>/dev/null)" || return 1
+  [ -n "$arel" ] || return 1
+  [ -f "$arc/$arel" ] || return 1
+  return 0
 }
