@@ -20592,8 +20592,9 @@ that shipped the mechanism, as #404 asked.
 **Logged:** 2026-09-13, from an adopter with a real instance of the shape: a limited company with a
 liability entity, insurance, ITSM and an audit trail, and exactly ONE technical authority — the same
 individual is both Senior Technical Authority and Orchestrator. The arm has run there, on top of this
-script, since 2026-09-13 (re-applied 2026-09-16 over `579b0b0`, the last commit to touch this script
-on `main`). The hunks here are the hunks in use plus the recorder hardening the pre-merge review
+script, since 2026-09-13 (re-applied 2026-09-16 over `579b0b0`, whose copy of this script is
+byte-identical to `main`'s at `d95520f`, blob `595b2b2`; its last change on `main` is `4896685`,
+landed in #412). The hunks here are the hunks in use plus the recorder hardening the pre-merge review
 asked for (a read-only state file refused, the empty file created inside the lock, one return code
 for every failure); the arm, the output and the call sites are unchanged.
 
