@@ -178,8 +178,9 @@ adopt_stub_project_docs() {
     "CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the"
   adopt_note "state are here, so the gates work; the reading material an agent picks up at the start"
   adopt_note "of a session is not, and a CLAUDE.md you already have would be a collision, not a gap."
-  adopt_note "WP6's archive covers your AI-layer settings and your git hooks; documents are neither"
-  adopt_note "YET — D3 makes them a fourth archive class, and WP11 is where that lands."
+  adopt_note "Your framework documents ARE archived now — WP11 shipped D3's `document` class, so"
+  adopt_note "each one you already owned is in the adoption archive with a restore line. What is"
+  adopt_note "not built is the WRITING of the new ones (WP12b), which is what this notice is about."
 }
 
 # WP7 — §8.6's provenance headers on reconstructed documents.

@@ -374,7 +374,96 @@ e4() {
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-a1; a2; a3; a4; a5; e1; e2; e3; e4
+# ═══════════════════════════════════════════════════════════════════════════
+# E5 — THE NAME REFUSAL REACHES THE DRIVER, NOT JUST THE FUNCTION
+#      A5 calls `adopt_archive_inventory` DIRECTLY, and its only production
+#      consumer discarded the refusal (`|| return 0`) — so the run printed
+#      "[BLOCKED] … nothing has been written", then wrote everything, composed
+#      the operator's git hook in place, and created NO archive. `## BL-292:`
+#      reproduced in the commit that closed it, past every suite and lint.
+#      A guard is only as real as its caller.
+# ═══════════════════════════════════════════════════════════════════════════
+e5() {
+  local label="E5 a name the inventory refuses stops the DRIVER, with the adoptee untouched"
+  local T=""; T=$(newtmp)
+  mk_adoptee "$T/p" || { fail_ "$label" "fixture failed"; return; }
+  local nl weird
+  nl=$'\n'
+  weird="$T/p/.claude/skills/bad${nl}name"
+  mkdir -p "$weird" 2>/dev/null || { skip_ "$label" "this filesystem refuses a newline in a path"; return; }
+  printf 'x\n' > "$weird/SKILL.md" 2>/dev/null || { skip_ "$label" "could not create the fixture"; return; }
+  # A pre-existing git hook is the file the unfixed path silently composed.
+  printf '#!/usr/bin/env bash\n# THEIR-HOOK\n' > "$T/p/.git/hooks/commit-msg"
+  chmod +x "$T/p/.git/hooks/commit-msg"
+  commit_all "$T/p" >/dev/null 2>&1
+  mk_report "$T/scan" "$T/p" || { fail_ "$label" "Scout could not survey the fixture"; return; }
+  local hook_before
+  hook_before=$(shasum -a 256 "$T/p/.git/hooks/commit-msg" | cut -d' ' -f1)
+
+  printf '1\n1\n1\n1\n1\n1\n' > "$T/answers"
+  local rc=0
+  ( cd "$T/p" && bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$T/scan/scout-report.json" ) \
+    < "$T/answers" > "$T/out" 2> "$T/err" || rc=$?
+
+  local bad="" hook_after
+  hook_after=$(shasum -a 256 "$T/p/.git/hooks/commit-msg" 2>/dev/null | cut -d' ' -f1)
+  [ "$rc" -ne 0 ] || bad="$bad [the run completed after refusing the inventory]"
+  [ "$hook_before" = "$hook_after" ] || bad="$bad [their commit-msg hook was modified anyway]"
+  # AND THE REASON GIVEN MUST BE THE REAL ONE — not a generic downstream block.
+  grep -qi 'newline, carriage return or tab' "$T/out" "$T/err" 2>/dev/null \
+    || bad="$bad [the refusal does not name the real cause]"
+  # THE DECISIVE ASSERTION, and without it this case passes for the wrong
+  # reason. Measured: with the caller's refusal-check disabled, the inventory
+  # still PRINTS its message (the rehearsal relays it) and the run still stops
+  # for an unrelated downstream reason — so rc, the hook and the text were all
+  # satisfied while the guard was off. What actually distinguishes the two is
+  # whether the run WROTE: the message says "nothing has been written", and
+  # that claim is what is checked.
+  [ ! -d "$T/p/.claude/adoption-archive" ] \
+    || bad="$bad [an archive was created after the inventory was refused]"
+  [ ! -e "$T/p/scripts/validate.sh" ] \
+    || bad="$bad [framework scripts were installed after the inventory was refused]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# E6 — THE RECORD SAYS `replaced`, BECAUSE THEY WERE
+#      `kept` means "the operator's original is still at the path". For these
+#      three it is false — Act 2 overwrites all of them — and the word is what
+#      an auditor reads. WP11 shipped the rows with the wrong word and nothing
+#      read `.disposition` to notice.
+# ═══════════════════════════════════════════════════════════════════════════
+e6() {
+  local label="E6 the three replaced paths are recorded as 'replaced', not 'kept'"
+  local T=""; T=$(newtmp)
+  mk_adoptee "$T/p" || { fail_ "$label" "fixture failed"; return; }
+  printf '# their intake\n'      > "$T/p/PROJECT_INTAKE.md"
+  printf '{"theirs":true}\n'     > "$T/p/.claude/intake-progress.json"
+  printf '{"source":"theirs"}\n' > "$T/p/.claude/orchestrator-source.json"
+  printf '# theirs\n'            > "$T/p/CLAUDE.md"
+  commit_all "$T/p" || { fail_ "$label" "commit failed"; return; }
+  mk_report "$T/scan" "$T/p" || { fail_ "$label" "Scout could not survey the fixture"; return; }
+
+  printf '1\n1\n1\n1\n1\n1\n' > "$T/answers"
+  ( cd "$T/p" && bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$T/scan/scout-report.json" ) \
+    < "$T/answers" > "$T/out" 2> "$T/err"
+
+  local mj bad="" p got
+  mj="$(find "$T/p/.claude/adoption-archive" -name MANIFEST.json 2>/dev/null | head -1)"
+  [ -n "$mj" ] || { fail_ "$label" "no MANIFEST.json"; return; }
+  for p in PROJECT_INTAKE.md .claude/intake-progress.json .claude/orchestrator-source.json; do
+    got="$(jq -r --arg p "$p" '[.entries[] | select(.originalPath == $p)][0].disposition // ""' "$mj" 2>/dev/null)"
+    [ "$got" = "replaced" ] || bad="$bad [$p: disposition='$got', want 'replaced']"
+  done
+  # THE CONTROL, and it is what stops "replaced" becoming the blanket answer:
+  # a document Act 2 does NOT write keeps its original at the path and is
+  # correctly recorded `kept`.
+  got="$(jq -r '[.entries[] | select(.originalPath == "CLAUDE.md")][0].disposition // ""' "$mj" 2>/dev/null)"
+  [ "$got" = "kept" ] || bad="$bad [CLAUDE.md: disposition='$got', want 'kept' — it is not replaced]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+a1; a2; a3; a4; a5; e1; e2; e3; e4; e5; e6
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

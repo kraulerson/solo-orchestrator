@@ -125,14 +125,34 @@ _adopt_overwrite_inventory_check() {
     return 1
   fi
 
-  inv="$(adopt_archive_inventory "$root" 2>/dev/null | cut -f1)" || inv=""
+  # THE INVENTORY'S OWN DIAGNOSTIC WINS. `2>/dev/null` here discarded it and
+  # left I20 blaming the wrong cause: on a tree whose skill directory carries a
+  # newline AND which owns `PROJECT_INTAKE.md`, the operator was told to file a
+  # bug against adoption about their intake file, when the real cause was the
+  # directory name and the fix was to rename it. `# BL-225-REFUSE-HONEST`: a
+  # refusal must name what actually happened.
+  local _inv_err="" _inv_rc=0
+  _inv_err="$ADOPT_WORK/i20-inventory-err"
+  inv="$(adopt_archive_inventory "$root" 2>"$_inv_err" | cut -f1)" || _inv_rc=$?
+  if [ "$_inv_rc" -ne 0 ]; then
+    adopt_block "the archive inventory could not be taken, so no file can be safely replaced"
+    [ -s "$_inv_err" ] && while IFS= read -r _l; do
+      [ -n "$_l" ] && adopt_note "  $_l"
+    done < "$_inv_err"
+    adopt_note "  Nothing was written."
+    return 1
+  fi
 
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     # Only paths that EXISTED before this run can be overwritten; a path the
     # run creates has nothing to archive.
     [ -e "$root/$rel" ] || continue
-    printf '%s\n' "$inv" | grep -qxF "$rel" && continue
+    # `--` so a path beginning with a dash is a pattern, not an option: without
+    # it grep exits 2 and prints usage to stderr. It fails CLOSED either way
+    # (exit 2 reads as no-match, so the run blocks), but noisily and for the
+    # wrong stated reason.
+    printf '%s\n' "$inv" | grep -qxF -- "$rel" && continue
     missing="$missing$rel
 "
     n=$((n + 1))
@@ -1534,6 +1554,7 @@ STATE_ORDER
 adopt_prewrite_preflight() {
   local root="$1" report="$2" copy work saved rc=0 planned ignored=""
   local _bl225_landed=0 _bl225_p=""
+  local _reh_err="" _rl=""
   copy="$ADOPT_WORK/rehearsal/tree"
   work="$ADOPT_WORK/rehearsal/work"
   mkdir -p "$ADOPT_WORK/rehearsal" "$work" 2>/dev/null || {
@@ -1614,7 +1635,14 @@ adopt_prewrite_preflight() {
   # names a file to keep it in, and finding `## BL-242:`'s S5 cause needed it:
   # the reversed state order fails at `manifest` because that writer hashes the
   # kept scan report, which `intake` writes earlier in the correct order.
-  _adopt_write_phase "$copy" "$work" "$report" >/dev/null 2>"${SOIF_REHEARSAL_ERR:-/dev/null}" || rc=$?
+  # THE REHEARSAL'S STDERR IS KEPT, NOT DISCARDED. It defaulted to /dev/null,
+  # so every refusal raised INSIDE the write phase reached the operator as the
+  # bare "the pre-write rehearsal did not complete (rc=1)" below — no cause, no
+  # remedy. Measured on a tree whose skill directory carries a newline: the run
+  # stopped correctly and safely, and told the operator nothing they could act
+  # on. The seam still wins when set, so the suite can point it elsewhere.
+  _reh_err="${SOIF_REHEARSAL_ERR:-$ADOPT_WORK/rehearsal-err}"
+  _adopt_write_phase "$copy" "$work" "$report" >/dev/null 2>"$_reh_err" || rc=$?
   ADOPT_REHEARSING=0
   if [ "$_touched_before" -eq 0 ] && [ -n "${ADOPT_WORK:-}" ]; then
     rm -f "$ADOPT_WORK/touched" 2>/dev/null || true   # BL-225-REHEARSAL-NO-TRACE
@@ -1639,6 +1667,16 @@ adopt_prewrite_preflight() {
 
   if [ "$rc" -ne 0 ]; then
     adopt_refuse "the pre-write rehearsal did not complete (rc=$rc) — nothing was written to your project"
+    # RELAY THE INNER REASON. `# BL-225-REFUSE-HONEST`: a refusal must name what
+    # actually happened, and the rehearsal is a WRAPPER — the thing that failed
+    # is inside it. Without this the operator is told a rehearsal exited 1 and
+    # nothing about which of their files caused it or what to do.
+    if [ -s "$_reh_err" ]; then
+      adopt_note "  The rehearsal stopped because:"
+      while IFS= read -r _rl; do
+        [ -n "$_rl" ] && adopt_note "  $_rl"
+      done < "$_reh_err"
+    fi
     return 1
   fi
   if [ -z "$planned" ]; then

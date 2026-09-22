@@ -14688,6 +14688,27 @@ count the findings lacking a fingerprint and refuse when that count is non-zero,
 all-missing case the current two-armed grep handles — and changing it belongs with a case that can
 drive a partial-fingerprint section rather than bolted onto the commit that added the first guard.
 
+**Residuals from WP11's pre-PR review (2026-09-22), recorded rather than fixed.**
+(1) **The restore line is now `@sh`-quoted, but nothing pins it.** A path with a space — which the
+inventory accepts — produced `cp …/beta gamma/SKILL.md …` and failed `Not a directory`. Fixed in the
+same commit; no case drives a restore over a spaced path, so a regression would be silent.
+(2) **I20's planned-path matching is spelling-dependent.** Unit-probed: a planned path given
+ABSOLUTELY, or a DANGLING symlink, slips past the `[ -e ]` test and is not required to have a row.
+Unreachable today — every `adopt_record_write` call site passes a relative path, enumerated — but the
+invariant's promise is that a FUTURE writer is caught, and a future writer recording an absolute path
+defeats it in silence. Fix shape: refuse a non-relative planned path rather than skipping it, and use
+`[ -e … ] || [ -L … ]`.
+(3) **The `n_copied -eq 0` tripwire's inner `n_collided > 0` arm is now unreachable** — framework-wins
+means a collision either refuses at the receipt check or falls through to a copy, so
+`n_collided > 0` implies `n_copied > 0`. The design said to delete the tripwire; it was kept and one
+comment on `_adopt_preflight_prior_archive` still cites its message as measured behaviour.
+(4) **`pending-act-4`, `kept-by-rule` and `removed-for-phase-0` are not emitted**, and
+`PRODUCT_MANIFESTO.md` is not removed from its path — the disposition vocabulary WP11's cell names
+beyond `replaced`/`kept`. WP12b is the consumer; recorded before it starts.
+(5) **Pre-existing, unrelated to WP11 but emitted on every adoption run:**
+`adopt-state.sh: line …: adopt_record_written: command not found` — a typo for `adopt_record_write`,
+present on `main`, meaning `ADOPT_WRITE_SET_REL` never enters the staging ledger.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

@@ -108,7 +108,16 @@ SURFACES
 # writes it, so archiving it would take a copy of something nothing touches —
 # the opposite error to `## BL-292:` and just as misleading in the record.
 _adopt_document_set() {                       # BL-242-DOCUMENT-SET
-  printf '%s\n' CLAUDE.md FEATURES.md PROJECT_BIBLE.md PRODUCT_MANIFESTO.md PROJECT_INTAKE.md
+  # §7.2's full document list. Five were missing from the first cut — BUGS.md,
+  # RELEASE_NOTES.md, docs/INDEX.md, docs/IDENTIFIERS.md, docs/archive/README.md
+  # — which is latent today (no writer touches them) and would NOT have been
+  # once WP12b lands: its finisher iterates THIS function, so an adoptee owning
+  # `BUGS.md` would have been overwritten with no archive row. The header calls
+  # this the single source "so the two can never disagree"; a partial list is
+  # how they disagree.
+  printf '%s\n' CLAUDE.md FEATURES.md BUGS.md RELEASE_NOTES.md PROJECT_BIBLE.md \
+                 PRODUCT_MANIFESTO.md PROJECT_INTAKE.md \
+                 docs/INDEX.md docs/IDENTIFIERS.md docs/archive/README.md
 }
 
 # ── §7.2's STATE SET ────────────────────────────────────────────────────────
@@ -649,11 +658,40 @@ adopt_archive_write() {
   local root="$1" work="$2"
   local rel class arel n=0 mode sha desc dispo staged reason
   local arc_rel arc_abs status count note first
+  local _arcinv_rc=0
 
   ADOPT_ARCHIVE_DIR=""
   ADOPT_ARCHIVE_ENTRIES=0
 
-  adopt_archive_inventory "$root" > "$work/arcinv" || return 0
+  # `|| return 0` HERE WAS `## BL-292:` REPRODUCED IN THE COMMIT THAT CLOSED IT.
+  # That spelling predates WP11 and was correct while the inventory could not
+  # fail: "no rows" legitimately means "nothing to archive, carry on". WP11 gave
+  # the inventory a REFUSAL (`# BL-242-INVENTORY-NAME-SAFE`), and this line
+  # silently converted it back into carry-on — measured end to end: an adoptee
+  # with a newline-named skill directory printed `[BLOCKED] … nothing has been
+  # written`, then wrote everything anyway, composed the operator's
+  # `.git/hooks/commit-msg` in place, and created NO archive. Replace, no row,
+  # no sentence — the exact defect, through a side door, past every suite.
+  #
+  # The two outcomes are now distinguished: rc 0 with an empty list is "nothing
+  # to archive"; rc non-zero is a refusal and the run stops.
+  #
+  # THIS CHECK HAS NO DISCRIMINATING MUTANT TODAY, AND THAT IS SAID HERE RATHER
+  # THAN DRESSED UP AS A PROOF. `_adopt_overwrite_inventory_check` calls the
+  # same inventory and refuses on the same rc, and it runs FIRST — so disabling
+  # this arm still stops the run, with I20's sentence instead of this one
+  # (measured: rc 1, no archive, the operator's hook untouched). Two
+  # independent guards on one contract; either alone is sufficient. It is kept
+  # because it belongs to the ARCHIVE's contract — "I do not report success
+  # when I refused" — which should not depend on a caller two functions away
+  # continuing to ask the same question.
+  adopt_archive_inventory "$root" > "$work/arcinv"
+  _arcinv_rc=$?
+  if [ "$_arcinv_rc" -ne 0 ]; then
+    adopt_block "the archive inventory could not be taken, so nothing can be safely replaced"
+    adopt_note "  The reason is printed above. Nothing was written."
+    return 1
+  fi
   n=$(grep -c '' < "$work/arcinv" 2>/dev/null)
   case "$n" in ''|*[!0-9]*) n=0 ;; esac
   if [ "$n" -eq 0 ]; then
@@ -735,6 +773,14 @@ adopt_archive_write() {
     case "$rel" in
       .git/hooks/commit-msg) dispo="composed" ;;
       APPROVAL_LOG.md)       dispo="replaced" ;;   # BL-242-ARCHIVE-DISPO
+      # §7.2's row table gives these three `replaced`, and the comment above
+      # states the rule they broke: `kept` means "the operator's original is
+      # still at the path", which is FALSE in the document an auditor reads.
+      # Act 2 overwrites all three; WP11 shipped the rows and left the word
+      # wrong, which review measured — `kept` against a live file whose marker
+      # was gone.
+      PROJECT_INTAKE.md|.claude/intake-progress.json|.claude/orchestrator-source.json)
+                             dispo="replaced" ;;
       *)                     dispo="kept" ;;
     esac
 
@@ -782,7 +828,8 @@ adopt_archive_write() {
       '{originalPath: $op, archivedPath: $ap, class: $cl, sha256: $sh, mode: $mo,
         disposition: $di, description: $de,
         stagedForCommit: $st, withheldReason: $re,
-        restore: ("cp " + $ad + "/" + $ap + " " + $op + " && chmod " + $mo + " " + $op)}' \
+        restore: ("cp " + ($ad + "/" + $ap | @sh) + " " + ($op | @sh)
+                  + " && chmod " + $mo + " " + ($op | @sh))}' \
       >> "$work/arcentries" 2>/dev/null
   done < "$work/arcinv"
 
