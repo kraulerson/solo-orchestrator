@@ -1131,10 +1131,24 @@ else
   run_adopt "$PM1D/p" "$PM1D/answers2" "$REPORT" "$PM1D/fw"
   PM1D_RC="$RUN_RC"
   PM1D_PHASE_AFTER="$(_json_str "$PM1D/p/.claude/phase-state.json" '.current_phase')"
-  if [ "$PM1D_PHASE_AFTER" != "$PM1D_PHASE_BEFORE" ]; then
-    pass "PM1d (MUTATION) — dropping the committed witness lets a blanked manifest re-adopt (rc $PM1D_RC) and reverts the earned state ($PM1D_PHASE_BEFORE -> $PM1D_PHASE_AFTER)"
+  # RE-AIMED 2026-09-22 (WP11), for the same reason as PM3 below. This observed
+  # the witness's absence by the REVERSION it permitted — a re-adoption rolling
+  # `current_phase` back. WP11's I20 refuses that tree one step later, because
+  # the re-adoption's planned writes land on `.claude/phase-state.json` and
+  # `.claude/manifest.json`, which already exist and carry no archive row. The
+  # earned state is therefore never reverted, which is the right outcome and
+  # the end of the old observable.
+  #
+  # Asserted at the SITE, with both halves: still refused, and refused by the
+  # OTHER guard. "Still refused" alone would pass with neither guard present.
+  PM1D_WHO=""
+  grep -qi 'already been adopted\|looks like a project this framework' "$RUN_OUT" "$RUN_ERR" 2>/dev/null && PM1D_WHO="witness"
+  grep -qi 'would be replaced with no copy kept' "$RUN_OUT" "$RUN_ERR" 2>/dev/null && PM1D_WHO="i20"
+  if [ "$PM1D_RC" -ne 0 ] && [ "$PM1D_WHO" = "i20" ] \
+     && [ "$PM1D_PHASE_AFTER" = "$PM1D_PHASE_BEFORE" ]; then
+    pass "PM1d (MUTATION) — without the committed witness the re-adoption is refused by I20 instead, earned state intact (rc $PM1D_RC)"
   else
-    fail_ "PM1d (MUTATION)" "dropping the second witness changed nothing — it is not load-bearing, or something else refuses first"
+    fail_ "PM1d (MUTATION)" "rc=$PM1D_RC refused-by='$PM1D_WHO' phase $PM1D_PHASE_BEFORE -> $PM1D_PHASE_AFTER (want rc!=0, i20, unchanged)"
   fi
 fi
 
@@ -1211,10 +1225,26 @@ else
   PM3_PHASE_AFTER="$(_json_str "$PM3/p/.claude/phase-state.json" '.current_phase')"
   PM3_ADOPTED=0
   jq -e '.adoption' "$PM3/p/.claude/manifest.json" >/dev/null 2>&1 && PM3_ADOPTED=1
-  if [ "$PM3_PHASE_AFTER" != "$PM3_PHASE_BEFORE" ] && [ "$PM3_ADOPTED" -eq 1 ]; then
-    pass "PM3 (MUTATION) — dropping arm 3 overwrites a greenfield's gate-earned state ($PM3_PHASE_BEFORE -> $PM3_PHASE_AFTER) AND stamps it, at rc $PM3_RC"
+  # RE-AIMED 2026-09-22 (WP11). This used to observe arm 3's absence by the
+  # DAMAGE it let through — a clobbered `current_phase` and a stamped manifest.
+  # WP11's I20 (`# BL-242-OVERWRITE-INVENTORY`) now refuses this same tree one
+  # step later, because `.claude/phase-state.json` and `.claude/manifest.json`
+  # are planned writes over paths that already exist with no archive row. So
+  # the damage never happens and the old observable is gone — not because arm 3
+  # stopped mattering, but because a second, independent guard catches what it
+  # was the only thing catching.
+  #
+  # The mutant is therefore observed at the SITE instead: with arm 3 present the
+  # refusal is arm 3's own sentence; with it gone the run is still refused, by a
+  # DIFFERENT one. Asserting "still refused" alone would pass against a build
+  # with neither guard, so both halves are required.
+  PM3_WHO=""
+  grep -qi 'already been adopted\|looks like a project this framework' "$RUN_OUT" "$RUN_ERR" 2>/dev/null && PM3_WHO="arm3"
+  grep -qi 'would be replaced with no copy kept' "$RUN_OUT" "$RUN_ERR" 2>/dev/null && PM3_WHO="i20"
+  if [ "$PM3_RC" -ne 0 ] && [ "$PM3_WHO" = "i20" ] && [ "$PM3_ADOPTED" -eq 0 ]; then
+    pass "PM3 (MUTATION) — without arm 3 the tree is refused by I20 instead, never stamped (rc $PM3_RC)"
   else
-    fail_ "PM3 (MUTATION)" "dropping arm 3 changed nothing observable (phase $PM3_PHASE_BEFORE -> $PM3_PHASE_AFTER, stamped=$PM3_ADOPTED)"
+    fail_ "PM3 (MUTATION)" "rc=$PM3_RC refused-by='$PM3_WHO' stamped=$PM3_ADOPTED (want rc!=0, i20, 0)"
   fi
 fi
 

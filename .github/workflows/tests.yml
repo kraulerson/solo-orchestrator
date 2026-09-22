@@ -590,6 +590,7 @@ jobs:
             tests/test-brownfield-wp10b-own-scan.sh
             tests/test-brownfield-wp10b-decision-table.sh
             tests/test-bl289-gitleaks-version-floor.sh
+            tests/test-brownfield-wp11-archive-classes.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
