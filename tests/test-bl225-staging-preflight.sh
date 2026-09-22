@@ -248,6 +248,7 @@ _writers() {
     | grep -vE '\$ADOPT_WORK|\$TD_TMP|\$TMPDIR|mktemp|\$ADOPT_WRITTEN_LEDGER' \
     | grep -vE '"\$work/|"\$ADOPT_ANSWERS"|> "\$names"' \
     | grep -vE '"\$copy"|"\$copy/|\$SOIF_REHEARSAL_KEEP' \
+    | grep -vE '> "\$out"' \
     | cut -d: -f1,2 | sort -u
 }
 # ^ THE ALLOWLIST, and every arm carries its reason:
@@ -319,6 +320,14 @@ _marker_files() {   # files that call the marker, by basename
 # project). Neither is a write into the adoptee, and a marker before either
 # would be WRONG — it would make `adopt_refuse` report this project as touched
 # by a rehearsal that is required to leave no trace (`# BL-225-REHEARSAL-NO-TRACE`).
+#
+# `> "$out"` is the fourth, added for WP10b's `_adopt_secrets_scan_own`, and it
+# is exempt BECAUSE THE FUNCTION ENFORCES IT rather than because it is asserted
+# here: that function refuses outright when `$out` resolves inside the adoptee,
+# comparing PHYSICAL paths so a symlinked or `..`-bearing spelling cannot slip
+# past. Without that guard this exclusion would be a hole — `$out` is a
+# PARAMETER, unlike `$copy`, so a future caller could aim it anywhere. If that
+# refusal is ever removed, remove this exclusion with it.
 _writer_files() {   # files the recipe believes contain writers, by basename
   # `sed 's|.*/||'`, NOT `xargs -n1 basename`: this repo's path contains a
   # space, and xargs word-splits on it. Both sets picked up a spurious "Space"

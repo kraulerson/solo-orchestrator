@@ -876,6 +876,15 @@ run_child_suite "tests/test-brownfield-wp9d-driver-edges.sh" \
 run_child_suite "tests/test-brownfield-wp9d-window-rehearsal.sh" \
   "WP9d: the adoption window and its --finish route, and the rehearsal's bound" \
   "WP9d window/rehearsal tests FAILED (run tests/test-brownfield-wp9d-window-rehearsal.sh for details)"
+run_child_suite "tests/test-brownfield-wp10b-own-scan.sh" \
+  "WP10b/1: the secrets stop scans a no-checkout clone under the framework's own rules" \
+  "WP10b own-scan tests FAILED (run tests/test-brownfield-wp10b-own-scan.sh for details)"
+run_child_suite "tests/test-bl289-gitleaks-version-floor.sh" \
+  "BL-289: the gitleaks version floor is raised to 8.19.0 and enforced" \
+  "BL-289 version-floor tests FAILED (run tests/test-bl289-gitleaks-version-floor.sh for details)"
+run_child_suite "tests/test-brownfield-wp10b-decision-table.sh" \
+  "WP10b/2: §6.1's ten-cell tier table and the dispositions that lift a stop" \
+  "WP10b decision-table tests FAILED (run tests/test-brownfield-wp10b-decision-table.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

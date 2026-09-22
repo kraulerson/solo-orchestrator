@@ -1731,9 +1731,25 @@ adopt_main() {
   # by construction rather than by a second write.
   [ -n "${ADOPT_REPORT_REFRESHED:-}" ] && report="$ADOPT_REPORT_REFRESHED"   # BL-242-RESOLVER-REFRESH
 
-  adopt_run_reverse_intake "$report" || return 1
+  # ── §8.2 STEP 3 — THE SECRETS CHECK, AND ITS POSITION IS THE POINT ───────
+  # BEFORE the reverse intake, not after it. The shipped stub ran after, which
+  # is right for a NOTICE and wrong for a STOP: an adoption that is going to be
+  # refused must not first take the operator through every question the
+  # interview asks. §8.2's step 3 row says so in as many words, and it is the
+  # reason this moved rather than being replaced in place.
+  #
+  # THE STOP'S INPUT IS A SCAN THIS RUN PERFORMS (§6.2b). Not the survey's
+  # section, not a `--scan-report` handed in — both are things the project
+  # being audited controls. `_adopt_secrets_scan_own` clones the history with
+  # no checkout and scans it under the framework's own rules.
+  _adopt_secrets_scan_own "$root" "$report" "$ADOPT_WORK/secrets-report.json" || return 1   # BL-242-SECRETS-STOP-CALL
+  # Every later step reads the report the STOP used, so the persisted copy and
+  # the stamp's `scannerReportSha256` name the scan the decision was made on —
+  # §6.2's property, now true of the stop and not only of the re-scan.
+  report="$ADOPT_WORK/secrets-report.json"
+  adopt_secrets_decide "$report" || return 1   # BL-242-SECRETS-DECIDE-CALL
 
-  adopt_stub_secrets_disposition "$report"
+  adopt_run_reverse_intake "$report" || return 1
 
   # WP5b. Was adopt_stub_test_debt_ledger; it is a real measurement now.
   # BEFORE adopt_install_framework, and that ordering is stated rather than

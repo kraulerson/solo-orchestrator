@@ -14662,6 +14662,32 @@ human maintains.
 
 ---
 
+**Residual carried here from WP10b/2 (PR #437) — a guard that is still correct and no longer
+observable.** `_adopt_rescan_secrets`'s `# BL-242-SECRETS-RESCAN` arm declines to re-scan a report
+that already says `scanned` or `scanned-partial`, on the stated ground that re-running the scanner
+would discard the measurement the stamp names. That reasoning held while the persisted secrets
+section came from the consumed report. Since WP10b/1 the STOP writes that section from its own scan
+(`# BL-242-SECRETS-STOP-CALL`), so the guard's effect is invisible in the persisted artifact: the
+status is the stop's either way. What the guard still buys is a skipped history walk — real, and
+worth keeping — but nothing a test can observe there. `tests/test-brownfield-wp10a-tool-resolution.sh`
+R1 and M3 were RE-AIMED at the re-scan's own transcript line on 2026-09-19 for exactly this reason;
+before that they keyed on the persisted status and had gone vacuous, with M3 reporting *"the mutation
+changed nothing"* over a mutation that applied cleanly. Filed rather than fixed: removing the guard
+would cost a redundant full-history walk on every adoption that hands in a scanned report, and that
+is a decision, not a cleanup.
+
+**Residual — the no-fingerprint guard covers ALL-missing, not SOME-missing (WP10b/2, 2026-09-21).**
+`adopt_dispositions_satisfy`'s findings arm refuses when a scan reports findings but NO fingerprint to
+join them by. It does not refuse when SOME findings carry one and others do not: measured on a
+two-finding section with one fingerprint and a file dispositioning that one, `rc=0` — the undispositioned
+finding is invisible to the join because it contributes nothing to either set difference. Reachability
+is a producer bug: gitleaks always sets `Fingerprint` (its `AddFinding` does) and Scout's
+`SCOUT-SECRETS-ALLOWLIST` projects it, so this needs the scanner or the projection to drop the field on
+some findings and not others. Filed rather than fixed because the fix is a different predicate —
+count the findings lacking a fingerprint and refuse when that count is non-zero, which subsumes the
+all-missing case the current two-armed grep handles — and changing it belongs with a case that can
+drive a partial-fingerprint section rather than bolted onto the commit that added the first guard.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.
@@ -20758,7 +20784,58 @@ people cannot satisfy honestly is a gate they delete — the outcome this entry 
 
 ## BL-289: the tool matrix's gitleaks floor (8.18.0) predates the `git`/`dir` subcommands Scout runs, and nothing on adoption's path enforces `min_version` at all
 
-**Status:** Open
+**Status:** Closed — shipped 2026-09-21 (PR pending; WP10b/3). The matrix floor is **8.19.0**, and
+`scout_secrets_scan` enforces it at `SCOUT-SECRETS-VERSION-FLOOR`: a gitleaks below the floor, or one
+whose version cannot be read, reports **`tool-unavailable`** rather than `scan-failed`, with a note
+naming both the version found and the version required.
+
+**THE STATUS WORD IS THE WHOLE FIX, not the version bump.** §6.1's table splits the two at `personal`:
+`scan-failed` WARNS AND CARRIES ON with no acknowledgement, while `tool-unavailable` STOPS until an
+acceptance is recorded. A contributor on 8.18.x was therefore adopting personal projects on a cheerful
+warning where the design requires a signed acceptance. Raising `min_version` alone would have changed
+nothing — nothing on adoption's path reads it, which is what this entry was filed to say.
+
+**Scope, ruled by Karl 2026-09-19:** gitleaks only. Twelve other tools declare a `min_version` that
+nothing enforces; turning enforcement on for all of them is a core change to `resolve-tools.sh` with
+`init.sh` as a second consumer, and it would start refusing setups that pass today. Recorded as
+`## BL-306:` rather than folded in here.
+
+**The floor is spelled twice and the duplication is PINNED.** Scout sources nothing (M5) and must work
+pointed at any project from anywhere, so it cannot read the framework's matrix at runtime;
+`tests/test-bl289-gitleaks-version-floor.sh` F1 asserts the matrix value and Scout's constant are the
+same string, so a drift is a red test rather than a silent split between what
+`check-versions.sh` reports and what actually refuses a scan.
+
+**Three drafts of the guard, each refuted by measurement rather than by reasoning.** (1) It read the
+RAW version string while the comparison read the stripped one, so a legitimate `v8.30.1` tag was
+refused as unreadable. (2) It then required the WHOLE stripped string to be numeric-dotted, which
+refused `9.9.9-fake` — a shape a source build really produces — and
+`tests/test-brownfield-wp2-scout-sections.sh` G10 caught it at 52/1. (3) A draft also extracted the
+leading `N(.N)*` prefix; measured, that is REDUNDANT, because awk's `+0` coercion already reads
+`9.9.9-fake`'s last field as 9, so its mutant survived and it was dropped rather than kept as
+decoration.
+
+**WHAT SHIPPED, AND WHAT IT DELIBERATELY DOES NOT DO.** Strip the leading non-digit run, refuse an
+empty result, compare with awk. There is NO end anchor: `9abc` strips to `9abc`, reads as major 9 and
+MEETS the floor. That is an ACCEPTED RESIDUAL, not a fix — the false-refusal risk is concrete (source
+builds exist) and `9abc` is a string no gitleaks emits. An earlier draft of this paragraph said the
+guard was "anchored at both ends" and that `9abc` is refused; it is not, the code's own comment says
+so, and the pre-PR review caught the record claiming a security check stricter than the one that
+shipped.
+
+**Proofs:** 6 cases, 6 mutants, every one dies — skip the floor check (F2, F3), report `scan-failed`
+instead of `tool-unavailable` (F2), lower the matrix back to 8.18.0 (F1, F4), drift Scout's own
+constant below the matrix (F1, F2, F3), flip the comparison direction (F2, F3, F4), skip the
+unreadable-version guard (F5), drop the leading-non-digit strip (F4, F5). The fixtures drive a stub
+`gitleaks` through `SCOUT_GITLEAKS_BIN`, because a proof that depended on the version a contributor
+happens to have installed would prove nothing.
+
+**One behaviour this changes for a minority install path, recorded rather than discovered later.**
+Upstream leaves `Version` unstamped unless the build stamps it, so a gitleaks installed with
+`go install` or a plain `go build` reports the literal string *"version is set by build process"* —
+no digits, therefore `tool-unavailable`, therefore a personal adoption stops for a signed acceptance
+even though the binary works. The documented source path is `make build`, which stamps `v8.30.1` and
+is handled correctly; the refusal names the remedy, and F5 pins the string.
 
 **Found:** 2026-09-16, by the merged-main adversarial sweep of ADOPT-002-ARCH v2.1 (R-DOC-11),
 while refuting §6.2's "tool resolution makes the scanner guaranteed" against the tree at `7b88c2e`.
@@ -21140,3 +21217,83 @@ exists so `grep -n '\*\*Status:\*\* Open'` surfaces it.
 **Related:** `## BL-290:` (the arm; its Closed text now points here), `## BL-291:` (the residual
 above), `## BL-242:` (the driver, and `# BL-242-RESOLVER-NO-EXEC`, the sibling advisory residual
 WP10b owns), `## BL-233:` (residual 15, the vacuity floor), `docs/messaging-standard.md`.
+
+---
+
+## BL-305: `tests/test-bl225-staging-preflight.sh`'s T9 marker scan does not exclude COMMENTS, so a comment naming `adopt_touched_disk` satisfies it for every writer in the same function
+
+**Status:** Open — the writers it currently passes over are all provably safe, so this is a vacuous
+check rather than a live hole. It is filed because the check is the one standing between a new
+adoption writer and `# BL-225-REFUSE-HONEST`'s "nothing was written" claim, and a check anyone can
+satisfy with prose is not that.
+
+**Found:** 2026-09-19 by accident, while building WP10b/1 (PR #436). A new function's explanatory
+comment named the marker in order to say the function deliberately does NOT use one — and T9 went
+green over two genuinely unmarked writers. Removing the token from that single comment flipped it
+straight to RED, which is how a comment-satisfiable check announces itself.
+
+**The asymmetry.** `_writers` has filtered comments since it was written — `grep -vE ':[0-9]+: *#'`,
+with its own comment explaining that an unfiltered first draft returned comments as writers. The
+marker scan two stanzas below has no such filter:
+
+```
+awk -v A="$fn_start" -v B="$wl" 'NR>A && NR<B && /adopt_touched_disk/ {f=1} END{exit !f}' "$wf"
+```
+
+So the writer side is comment-aware and the marker side is not, in the same test, for the same
+token.
+
+**Measured on `main` at `ba262e3`, and the pre-existing case is BENIGN — which is why nobody saw it.**
+Adding `$0 !~ /^[[:space:]]*#/` to that awk turns `Results: 35 passed, 0 failed` into
+`34 passed, 1 failed`, naming `adopt-tools.sh:492` — the `jq … > "$fresh"` write in
+`_adopt_rescan_secrets`. That write is legitimately outside the adoptee (`$fresh` is assigned
+`"$ADOPT_WORK/scout-report-refreshed.json"` on the line immediately above it), so it needs no marker
+and the file is not defective. What was satisfying T9 for it is the comment at line 477, which
+mentions `adopt_touched_disk` while explaining `## BL-225:`'s T9 rule itself. **A check being
+satisfied by the prose that documents the check** is the shape worth recording.
+
+**Fix shape (not built).** Add the comment filter to the marker scan, and in the same change give
+`_adopt_rescan_secrets`'s `> "$fresh"` the same treatment WP10b/1 gave `> "$out"` — an exclusion
+whose warrant is stated, since both are the driver's own state under `$ADOPT_WORK` rather than the
+adoptee. Deliberately NOT done in PR #436: that PR is WP10b/1, the hardening is someone else's test,
+and its one piece of fallout is in a function that PR does not otherwise touch.
+
+**Do not "fix" it by marking `$fresh`.** A marker before a non-adoptee write is WRONG — the
+exclusion list's own header says so — because it would make `adopt_refuse` report the project as
+touched by a step required to leave no trace.
+
+**Related:** `## BL-225:` (T9's owner, and the residual list this belongs beside), `## BL-242:`
+(WP10b/1's `> "$out"` exclusion and the refusal that warrants it), `## BL-233:` (residual 15, the
+vacuity floor — the same class one surface over).
+
+---
+
+## BL-306: fourteen tools declare a `min_version` that nothing enforces
+
+**Status:** Open — split out of `## BL-289:` on 2026-09-21 by Karl's scope ruling (gitleaks only, for
+now), so that the enforcement question for the rest is decided on its own terms rather than carried in
+on the back of a secrets fix.
+
+**What is measured** (2026-09-21, `templates/tool-matrix/common.json`, derived not transcribed —
+`jq -r '[.tools[] | select(.min_version != null)] | length'`): **15** tools declare a `min_version` —
+Git, jq, Node.js, Colima, Semgrep, gitleaks, Snyk CLI, Claude Code, Python 3, Rust, Go, .NET SDK, Java (Eclipse Temurin), Flutter SDK, Swift (Xcode).
+gitleaks is now enforced by `SCOUT-SECRETS-VERSION-FLOOR`, in Scout rather than in the resolver, so
+**14 remain declared and unchecked**. `grep -c min_version scripts/resolve-tools.sh` → **0**; the only
+production reader is `scripts/check-versions.sh`, an advisory report adoption never calls. (Six
+further tools carry `min_version: null` and are not counted here — Docker, GPG, Development
+Guardrails, Superpowers, Context7 MCP, Qdrant MCP. A first draft of this entry said "twelve" in its
+title, "thirteen" in its body and then listed fifteen names; the list was right and both counts were
+invented, which is what CLAUDE.md's "never round a number you did not derive" is about.)
+
+**Why this was NOT folded into `## BL-289:`.** Enforcement for the rest belongs in
+`scripts/resolve-tools.sh`, which `init.sh` also consumes — so it is a core change reviewed as such,
+not an adoption-local one. And it changes behaviour for existing users: a setup that passes today
+starts being refused the moment the field is honoured. That is a decision about who gets turned away,
+not a bug fix.
+
+**What a build here owes.** A per-tool decision about what a below-floor tool MEANS — for gitleaks it
+is `tool-unavailable`, but for a below-floor Go or Java the honest answer is probably a refusal at
+resolution rather than a status word — plus a migration position for hosts that currently pass.
+
+**Related:** `## BL-289:` (the gitleaks half, closed), `## BL-242:` (the driver), `## BL-251:`
+(`# BL-251-PROBE-HOST`, the presence-only probe).

@@ -580,16 +580,51 @@ else
   _mk_resolver "$R1/resolver" already ""
   _ans 1 > "$R1/answers"
   run_adopt "$R1/p" "$R1/answers" "$R1/report.json" "$REPO_ROOT" "SOIF_ADOPT_RESOLVER=$R1/resolver"
+  # RE-AIMED 2026-09-19 (WP10b/1). This used to assert that the PERSISTED
+  # status is `scanned`. That assertion went VACUOUS the day the secrets stop
+  # landed: the stop scans the history itself at step 3 and writes that section,
+  # so the persisted status is `scanned` whether or not the re-scan ran, and the
+  # mutation below stopped being able to fail it (measured — M3 reported "the
+  # mutation changed nothing" over a mutation that had applied cleanly).
+  #
+  # The re-scan's own TRANSCRIPT LINE is the thing only the re-scan produces,
+  # so that is what R1 and M3 now key on. Both directions still earn one marker.
   R1_AFTER="$(jq -r '.secrets.status // ""' "$R1/p/.claude/adoption/scout-report.json" 2>/dev/null)"
-  [ "$R1_AFTER" = "scanned" ] \
-    && pass "R1 — the PERSISTED report says 'scanned': Act 2 re-scanned rather than trusting a stale 'nobody looked'" \
-    || fail_ "R1" "the persisted report still says '$R1_AFTER' — the re-scan did not happen or did not land"
+  R1_WHY=""
+  grep -q 'The scan was re-run' "$RUN_OUT" 2>/dev/null \
+    || R1_WHY="the re-scan printed nothing — it did not run"
+  [ "$R1_AFTER" = "scanned" ] || R1_WHY="$R1_WHY; the persisted status is '$R1_AFTER'"
+  [ -z "$R1_WHY" ] \
+    && pass "R1 — Act 2 re-scanned a stale 'nobody looked' rather than trusting it (its own line, and the persisted status)" \
+    || fail_ "R1" "$R1_WHY"
 fi
 
-# R2 — THE CONVERSE, and it is what stops the re-scan being unconditional. A
-# report that already says `scanned` is the one Act 2 acted on; re-running the
-# scanner would discard the evidence hash the stamp records and cost a full
-# history walk for nothing.
+# R2 — SUPERSEDED BY WP10b/1 ON 2026-09-19, AND RE-AIMED RATHER THAN DELETED.
+#
+# THIS CASE USED TO ASSERT THE OPPOSITE. Until WP10b it pinned that a handed-in
+# report already saying `scanned` keeps its own `secrets` section — a sentinel
+# note planted in it survived into the persisted copy — because re-running the
+# scanner would have discarded the evidence hash the stamp records.
+#
+# §6.2b overturned exactly that, deliberately: the STOP's input may not be
+# anything the audited project controls, and a `--scan-report` is. So the stop
+# scans a no-checkout clone of the history itself and REPLACES the secrets
+# section with its own. `--scan-report` remains pre-fill for everything else in
+# the report; only this section is replaced.
+#
+# What is asserted now is the new contract, in both directions: the sentinel is
+# GONE (the section really was replaced) and the section carries WP10b/1's two
+# witnesses, `scannedBy: adoption` and `rulesSource: framework`, which Scout's
+# own section never carries. Asserting only the sentinel's absence would pass if
+# the section were simply dropped.
+#
+# ONE THING THIS NO LONGER PINS, said plainly rather than left for a reader to
+# discover: `_adopt_rescan_secrets`'s `# BL-242-SECRETS-RESCAN` guard — "only a
+# report that says nobody looked is worth asking again" — is still in the code
+# and still correct, but its effect is no longer OBSERVABLE in the persisted
+# report, because the stop overwrites that section either way. The guard now
+# buys a skipped history walk and nothing a test here can see. Recorded as a
+# residual on `## BL-242:` rather than papered over with a weaker assertion.
 R2="$(newtmp)"
 mkdir -p "$R2/p"
 if ! mk_adoptee "$R2/p"; then
@@ -600,13 +635,21 @@ else
   _mk_resolver "$R2/resolver" already ""
   _ans 1 > "$R2/answers"
   run_adopt "$R2/p" "$R2/answers" "$R2/report.json" "$REPO_ROOT" "SOIF_ADOPT_RESOLVER=$R2/resolver"
-  R2_NOTE="$(jq -r '.secrets.note // ""' "$R2/p/.claude/adoption/scout-report.json" 2>/dev/null)"
+  R2_PERSISTED="$R2/p/.claude/adoption/scout-report.json"
+  R2_NOTE="$(jq -r '.secrets.note // ""' "$R2_PERSISTED" 2>/dev/null)"
+  R2_BY="$(jq -r '.secrets.scannedBy // ""' "$R2_PERSISTED" 2>/dev/null)"
+  R2_SRC="$(jq -r '.secrets.rulesSource // ""' "$R2_PERSISTED" 2>/dev/null)"
+  R2_WHY=""
   case "$R2_NOTE" in
-    *SENTINEL-DO-NOT-RESCAN*)
-      pass "R2 — an already-scanned report is NOT re-scanned (its own note survives)" ;;
-    *)
-      fail_ "R2" "the secrets section was rewritten on a report that was already 'scanned'" ;;
+    *SENTINEL-DO-NOT-RESCAN*) R2_WHY="$R2_WHY the handed-in section survived — the stop decided on a report it was given" ;;
   esac
+  [ "$R2_BY" = "adoption" ]   || R2_WHY="$R2_WHY scannedBy='$R2_BY' (want adoption)"
+  [ "$R2_SRC" = "framework" ] || R2_WHY="$R2_WHY rulesSource='$R2_SRC' (want framework)"
+  if [ -z "$R2_WHY" ]; then
+    pass "R2 — the persisted secrets section is the STOP's own scan, not the handed-in one (§6.2b)"
+  else
+    fail_ "R2" "$R2_WHY"
+  fi
 fi
 
 # ── R3 — THE ATTESTATION TRACKS THE RESULT, NOT THE SPLICE. ───────────────
@@ -627,9 +670,20 @@ else
   _ans 1 > "$R3/answers"
   run_adopt "$R3/p" "$R3/answers" "$R3/report.json" "$REPO_ROOT" \
     "SOIF_ADOPT_RESOLVER=$R3/resolver" "SCOUT_GITLEAKS_BIN=gitleaks-does-not-exist-wp10a"
+  # RE-AIMED 2026-09-19 (WP10b/2). This used to require the run to COMPLETE and
+  # persist a `tool-unavailable` record. §6.1's table now stops adoption on that
+  # status at BOTH tiers — with no escape at organizational, and until an
+  # acknowledgement is recorded at personal — so a completed run carrying it is
+  # no longer a reachable state, and requiring one made this case unsatisfiable
+  # (measured: `the re-scan produced ''`, because nothing was ever persisted).
+  #
+  # The attestation R3/R3b test is printed by `_adopt_rescan_secrets` at step 2,
+  # BEFORE the stop, so it is still fully observable. What changed is the
+  # control: the run stopping is now the correct outcome, and this asserts that
+  # rather than a persisted artifact that must not exist.
   R3_STATUS="$(jq -r '.secrets.status // ""' "$R3/p/.claude/adoption/scout-report.json" 2>/dev/null)"
-  if [ "$R3_STATUS" = "tool-unavailable" ]; then
-    pass "R3ctl — the re-scan still could not look, so the attestation is under test"
+  if [ -z "$R3_STATUS" ] && grep -q 'STILL could not look' "$RUN_OUT" 2>/dev/null; then
+    pass "R3ctl — the re-scan could not look and the run STOPPED before persisting anything (§6.1)"
     if grep -q "history[[:space:]]*$" "$RUN_OUT" 2>/dev/null && grep -q 'was read\.' "$RUN_OUT" 2>/dev/null; then
       fail_ "R3" "the run said the history WAS READ over a record saying nothing was scanned"
     else
@@ -641,7 +695,7 @@ else
       fail_ "R3b" "the run went quiet about a re-scan that found nothing to look with"
     fi
   else
-    fail_ "R3ctl" "the re-scan produced '$R3_STATUS'; this case cannot test the attestation"
+    fail_ "R3ctl" "persisted status='$R3_STATUS' (want none — the stop must refuse tool-unavailable); re-scan line present: $(grep -c 'STILL could not look' "$RUN_OUT" 2>/dev/null)"
   fi
 fi
 
@@ -705,10 +759,15 @@ else
   _mk_resolver "$M3/resolver" already ""
   _ans 1 > "$M3/answers"
   run_adopt "$M3/p" "$M3/answers" "$M3/report.json" "$M3/fw" "SOIF_ADOPT_RESOLVER=$M3/resolver"
+  # RE-AIMED 2026-09-19 with R1, and for the same reason: the persisted status
+  # is now written by the secrets stop, so it is `scanned` with or without the
+  # re-scan and cannot discriminate this mutation. The re-scan's own line can.
   M3_AFTER="$(jq -r '.secrets.status // ""' "$M3/p/.claude/adoption/scout-report.json" 2>/dev/null)"
-  [ "$M3_AFTER" = "tool-unavailable" ] \
-    && pass "M3 (MUTATION) — without the re-scan the stale 'tool-unavailable' is persisted verbatim: R1 is what refreshes it" \
-    || fail_ "M3 (MUTATION)" "the persisted status is '$M3_AFTER' — the mutation changed nothing"
+  if grep -q 'The scan was re-run' "$RUN_OUT" 2>/dev/null; then
+    fail_ "M3 (MUTATION)" "the re-scan still announced itself — the mutation changed nothing"
+  else
+    pass "M3 (MUTATION) — without the re-scan its line is absent: R1's line is what the re-scan earns"
+  fi
 fi
 
 # M4 — THE OPPOSITE DIRECTION ON THE SAME LINE, and one marker earns both.
@@ -729,13 +788,20 @@ else
   _mk_resolver "$M4/resolver" already ""
   _ans 1 > "$M4/answers"
   run_adopt "$M4/p" "$M4/answers" "$M4/report.json" "$M4/fw" "SOIF_ADOPT_RESOLVER=$M4/resolver"
-  M4_NOTE="$(jq -r '.secrets.note // ""' "$M4/p/.claude/adoption/scout-report.json" 2>/dev/null)"
-  case "$M4_NOTE" in
-    *SENTINEL-DO-NOT-RESCAN*)
-      fail_ "M4 (MUTATION)" "removing the guard changed nothing — R2 may be passing for another reason" ;;
-    *)
-      pass "M4 (MUTATION) — without the guard an already-scanned report IS re-scanned: R2 is what stops it" ;;
-  esac
+  # RE-AIMED 2026-09-20, the third case in this file to go vacuous the same way
+  # and the one the WP10b/2 commit MISSED while hunting exactly this class.
+  # M4 keyed on the sentinel being GONE from `.secrets.note`. The secrets stop
+  # replaces that whole section, so the sentinel is gone whether or not this
+  # mutation is applied — R2 (unmutated) and M4 (mutated) were both green on
+  # the same fixture, over the same field, which means the discriminator was
+  # constant. Like R1 and M3, it now keys on the re-scan's own transcript line:
+  # without the guard an already-scanned report IS re-scanned, and the re-scan
+  # announces itself.
+  if grep -q 'The scan was re-run' "$RUN_OUT" 2>/dev/null; then
+    pass "M4 (MUTATION) — without the guard an already-scanned report IS re-scanned: R2's guard is what stops it"
+  else
+    fail_ "M4 (MUTATION)" "removing the guard changed nothing — the re-scan never announced itself"
+  fi
 fi
 
 echo "=== S — the fast path: a scanner already on the host costs no resolver run ==="
@@ -777,7 +843,34 @@ echo "=== S — the fast path: a scanner already on the host costs no resolver r
 _mk_gitleaks_shim() {
   local d="$1"
   mkdir -p "$d" || return 1
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$d/gitleaks"
+  # THE SHIM MUST BE A USABLE SCANNER, NOT MERELY AN EXECUTABLE FILE. It was
+  # `exit 0` for every argument until 2026-09-21, which meant `gitleaks version`
+  # printed NOTHING and the scan wrote no report. That was survivable while
+  # Scout only asked whether the binary existed; `## BL-289:` made it ask
+  # whether it can actually perform the scan, and a binary with no readable
+  # version is now — correctly — `tool-unavailable`, which stops a personal
+  # adoption until an acceptance is recorded. S1b and S5b started failing on
+  # `adoption exited 1`, which was the new behaviour working, not a defect.
+  #
+  # These cases exist to prove the RESOLVER does not run when gitleaks is on
+  # PATH. So the shim now answers `version` with a number above the floor and
+  # writes an empty findings array, which is what "gitleaks is present and
+  # works" means. It reads the floor from the matrix rather than hard-coding
+  # one, so raising the floor again cannot silently re-break these cases.
+  local _floor=""
+  _floor="$(jq -r '.tools[] | select(.name == "gitleaks") | .min_version // "8.19.0"' \
+            "$REPO_ROOT/templates/tool-matrix/common.json" 2>/dev/null)"
+  [ -n "$_floor" ] || _floor="8.19.0"
+  cat > "$d/gitleaks" <<SHIM
+#!/usr/bin/env bash
+if [ "\${1:-}" = "version" ]; then printf '%s\n' "$_floor"; exit 0; fi
+_out=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in -r) _out="\$2"; shift 2 ;; *) shift ;; esac
+done
+[ -n "\$_out" ] && printf '[]\n' > "\$_out"
+exit 0
+SHIM
   chmod +x "$d/gitleaks" || return 1
   [ "$(PATH="$d:$PATH" command -v gitleaks 2>/dev/null)" = "$d/gitleaks" ] || return 1
   return 0

@@ -177,7 +177,7 @@ scout_reality_probes "$ROOT_ABS" "$SCOUT_WORK"
 # reuses the test command the stack scan discovered rather than re-deriving it
 # — two derivations of one fact are two chances to disagree about it — and
 # `intakePrefill` reads both that and the reality probes' remote answer.
-scout_secrets_scan       "$ROOT_ABS" "$SCOUT_WORK"
+scout_secrets_scan       "$ROOT_ABS" "$SCOUT_WORK" project   # SCOUT-SECRETS-SURVEY-POLICY
 scout_collisions_scan    "$ROOT_ABS" "$SCOUT_WORK"
 scout_testsbaseline_scan "$ROOT_ABS" "$SCOUT_WORK" "$RUN_TESTS"
 scout_prefill_scan       "$ROOT_ABS" "$SCOUT_WORK"
