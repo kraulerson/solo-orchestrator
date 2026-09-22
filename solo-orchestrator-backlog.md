@@ -14688,6 +14688,27 @@ count the findings lacking a fingerprint and refuse when that count is non-zero,
 all-missing case the current two-armed grep handles — and changing it belongs with a case that can
 drive a partial-fingerprint section rather than bolted onto the commit that added the first guard.
 
+**Residuals from WP11's pre-PR review (2026-09-22), recorded rather than fixed.**
+(1) **The restore line is now `@sh`-quoted, but nothing pins it.** A path with a space — which the
+inventory accepts — produced `cp …/beta gamma/SKILL.md …` and failed `Not a directory`. Fixed in the
+same commit; no case drives a restore over a spaced path, so a regression would be silent.
+(2) **I20's planned-path matching is spelling-dependent.** Unit-probed: a planned path given
+ABSOLUTELY, or a DANGLING symlink, slips past the `[ -e ]` test and is not required to have a row.
+Unreachable today — every `adopt_record_write` call site passes a relative path, enumerated — but the
+invariant's promise is that a FUTURE writer is caught, and a future writer recording an absolute path
+defeats it in silence. Fix shape: refuse a non-relative planned path rather than skipping it, and use
+`[ -e … ] || [ -L … ]`.
+(3) **The `n_copied -eq 0` tripwire's inner `n_collided > 0` arm is now unreachable** — framework-wins
+means a collision either refuses at the receipt check or falls through to a copy, so
+`n_collided > 0` implies `n_copied > 0`. The design said to delete the tripwire; it was kept and one
+comment on `_adopt_preflight_prior_archive` still cites its message as measured behaviour.
+(4) **`pending-act-4`, `kept-by-rule` and `removed-for-phase-0` are not emitted**, and
+`PRODUCT_MANIFESTO.md` is not removed from its path — the disposition vocabulary WP11's cell names
+beyond `replaced`/`kept`. WP12b is the consumer; recorded before it starts.
+(5) **Pre-existing, unrelated to WP11 but emitted on every adoption run:**
+`adopt-state.sh: line …: adopt_record_written: command not found` — a typo for `adopt_record_write`,
+present on `main`, meaning `ADOPT_WRITE_SET_REL` never enters the staging ledger.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.
@@ -20978,9 +20999,18 @@ this is the likely path for any brownfield project with lint-staged, prettier, c
 
 ## BL-292: Act 2 overwrites an adoptee's own tracked `PROJECT_INTAKE.md` and `.claude/intake-progress.json` at rc 0 — no archive directory, no MANIFEST row, no sentence
 
-**Status:** Open — owner WP11 (ADOPT-002-ARCH v2.2 §7.2's `document` and `state` archive classes and
-the I20 loop): both paths join `adopt_archive_inventory`, are archived with a restore line, and are
-disclosed path by path. Not built.
+**Status:** Closed — shipped 2026-09-22 (WP11; PR pending). `adopt_archive_inventory` now emits a
+`document` class from `_adopt_document_set` (`# BL-242-DOCUMENT-SET`) and a `state` class from
+`_adopt_state_set` (`# BL-242-STATE-SET`), so all three paths Act 2 writes over —
+`PROJECT_INTAKE.md`, `.claude/intake-progress.json`, `.claude/orchestrator-source.json` — are
+archived with a MANIFEST row, a restore line and a sentence naming them.
+
+**AND THE INVARIANT, WHICH IS THE PART THAT MATTERS MORE THAN THE THREE ROWS.** This entry was three
+writers added over time, none with an archive row, and nothing noticed for months — the defect was
+not that somebody chose wrongly but that choosing wrongly had no consequence. I20
+(`# BL-242-OVERWRITE-INVENTORY`) now gives it one: between the rehearsal and the first real write,
+the rehearsal's planned set ∩ the paths that already exist must be a subset of the inventory, or the
+run BLOCKS naming each path. A fourth writer added without a row is caught by its author.
 
 **Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V34).
 
@@ -21001,10 +21031,19 @@ does not hold for these two files.
 
 ## BL-293: on a case-insensitive filesystem a case-variant collision is reported under the framework's spelling — "yours, kept: scripts/validate.sh" for an index that holds `scripts/Validate.sh`
 
-**Status:** Open — LATENT today (skip-on-collision keeps the operator's bytes); becomes a silent
-misattribution under framework-wins. Owner WP11 (ADOPT-002-ARCH v2.2 §7.2, A8): the collision
-inventory matches against `git ls-files` case-insensitively and discloses a case-variant collision by
-the operator's spelling. Not built.
+**Status:** Open — NO LONGER LATENT as of WP11 (2026-09-22), and that is a change in kind rather
+than in likelihood. This entry was filed while `adopt_install_framework` SKIPPED collisions, which
+kept the operator's bytes and made a misattributed path cosmetic. WP11 ships D1 framework-wins: the
+colliding file is now archived and REPLACED. On a case-insensitive filesystem `[ -e "$dst" ]` answers
+for either spelling, so a project tracking `scripts/Validate.sh` has it replaced while the archive
+row, the notice and the index all say `scripts/validate.sh` — the operator is told the wrong path for
+a file that really was taken.
+
+The case-folding half of WP11's cell — match the install set against `git ls-files`
+case-insensitively and disclose by the operator's spelling, which the design names as a marker this
+entry deliberately does NOT cite because the marker does not exist yet — is NOT BUILT. It is the
+one part of that cell deliberately left, because it needs a case-insensitive filesystem to prove and
+the suite must skip elsewhere; filing it here rather than shipping an unproven guard.
 
 **Found:** 2026-09-17 by execution (ADOPT-002-ARCH v2.2 §13-V34), macOS, `core.ignorecase = true`.
 
