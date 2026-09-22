@@ -235,7 +235,33 @@ _scout_secrets_render() {
   return 0
 }
 
-# scout_secrets_scan ROOT WORK — fills WORK with the secrets section's data.
+# scout_secrets_scan ROOT WORK [RULES_POLICY] [FRAMEWORK_CONFIG]
+#   — fills WORK with the secrets section's data.
+#
+# RULES_POLICY IS NAMED AT EVERY CALL SITE AND DEFAULTS TO THE SURVEY'S.
+# There are two callers and they want opposite things, so the policy is a
+# PARAMETER rather than a global or an environment seam (WP10b, §6.2b):
+#
+#   project   (default) — honour whatever the scanned project configures: a
+#               repo-local `.gitleaks.toml`, a `.gitleaksignore`, an inline
+#               `gitleaks:allow`, `GITLEAKS_CONFIG*` in the environment. This
+#               is CORRECT for Scout. `## BL-288:` states the rule: a read-only
+#               survey must not refuse, and a survey that overrode a project's
+#               own scanner configuration would be making a claim about that
+#               project under rules the project did not agree to. The report
+#               DISCLOSES the config through `configFile` instead.
+#   framework            — force the framework's own rules and ignore every
+#               project-controlled suppressor. This is for adoption's secrets
+#               STOP, which decides whether a project may be adopted and must
+#               not take that decision under rules the thing being audited
+#               wrote. FRAMEWORK_CONFIG is required here and is passed, not
+#               looked up, so this file holds no knowledge of the framework's
+#               layout.
+#
+# AN ENVIRONMENT SEAM WAS REJECTED FOR THIS. A variable that forces framework
+# rules would be readable by the survey too, and anything that can silently
+# turn the survey into a rule-overriding scan re-opens exactly what `## BL-288:`
+# closed. A parameter cannot be set by accident from outside the process.
 #
 # Writes (all inside WORK, which the entry script owns and removes):
 #   secstatus   scanned | scanned-partial | tool-unavailable | scan-failed
@@ -257,7 +283,12 @@ _scout_secrets_render() {
 # of this report where a false clean bill of health has a credential behind it.
 scout_secrets_scan() {
   local root="$1" work="$2"
+  local policy="${3:-project}" fwcfg="${4:-}"
   local _bin _mode _scope _flags _rc _version _count _cfg _commits _gitdir f
+  local _SCOUT_GITLEAKS_MIN="" _flr=""
+  local _ignore_none=""
+  local _fwflags
+  _fwflags=()
 
   printf 'gitleaks\n' > "$work/sectool"
   : > "$work/secjson"
@@ -282,6 +313,88 @@ scout_secrets_scan() {
 
   _version=$("$_bin" version 2>/dev/null | head -1 | tr -d '\r')
   printf '%s\n' "$_version" > "$work/secversion"
+
+  # ── BL-289: A SCANNER TOO OLD TO RUN THIS SCAN IS NOT A SCANNER ──────────
+  # `gitleaks git` and `gitleaks dir` — the two spellings the scan below uses —
+  # are the post-8.19.0 commands. Upstream deprecated and hid `detect`/`protect`
+  # in v8.19.0, and that is the release that made these the spelling. An 8.18.x
+  # binary does not answer `gitleaks git`.
+  #
+  # WHY THIS IS `tool-unavailable` AND NOT `scan-failed`, WHICH IS THE WHOLE
+  # POINT OF THE ENTRY. Without this arm the old binary errors and the scan is
+  # reported `scan-failed` — and §6.1's table treats the two very differently
+  # at `personal`: `scan-failed` WARNS AND CARRIES ON with no acknowledgement,
+  # while `tool-unavailable` STOPS until an acceptance is recorded. A
+  # contributor with an old gitleaks therefore adopted a personal project on a
+  # cheerful warning where the design requires a signed acceptance. The honest
+  # word for "a binary is present but cannot perform this scan" is the one that
+  # means nobody looked.
+  #
+  # THE FLOOR IS DUPLICATED FROM `templates/tool-matrix/common.json` ON PURPOSE
+  # and the duplication is PINNED: this file's header records that it sources
+  # nothing (M5), and Scout must work when pointed at a project from anywhere,
+  # so it cannot read the framework's matrix at runtime. `F1` in
+  # `tests/test-bl289-gitleaks-version-floor.sh` asserts these two spellings
+  # are the same string, so a drift is a red test rather than a silent split.
+  _SCOUT_GITLEAKS_MIN="8.19.0"   # SCOUT-SECRETS-VERSION-FLOOR
+
+  # FAIL CLOSED ON A VERSION THAT CANNOT BE READ. A binary whose version does
+  # not parse has not demonstrated it meets the floor, and `## BL-147:` is the
+  # standing rule: a check that cannot run must not pass. Assuming current
+  # would be the fail-open direction on the one question this section exists
+  # to answer honestly.
+  # WHAT COUNTS AS READABLE: the LEADING `N(.N)*` PREFIX, and nothing more.
+  # Three drafts of this line were wrong in three different ways, each measured
+  # against a real fixture rather than reasoned about:
+  #   * reading the RAW string refused a legitimate `v8.30.1` tag, because the
+  #     comparison strips the `v` and the guard did not;
+  #   * requiring the WHOLE stripped string to be numeric-dotted refused
+  #     `9.9.9-fake` — and a gitleaks built from source really does carry a
+  #     suffix, so that is a false refusal of a working scanner, which
+  #     `tests/test-brownfield-wp2-scout-sections.sh` G10 caught;
+  #   * accepting any string with a digit in it let `9abc` through as major 9.
+  # Stripping the leading non-digit run and comparing THAT satisfies all
+  # three: a suffix is ignored (awk's `+0` reads `9.9.9-fake`'s last field as
+  # 9), a `v` is stripped, and a string with no digits at all leaves an empty
+  # result the guard below refuses. The false-refusal risk is concrete (source
+  # builds exist); the residual permissiveness — `9abc` reading as major 9 — is
+  # ACCEPTED, not fixed, because it is a string no gitleaks emits.
+  # SIMPLER THAN IT WAS, DELIBERATELY. A draft also extracted the leading
+  # `N(.N)*` prefix with `grep -oE`. Measured: that is REDUNDANT — awk's `+0`
+  # coercion below already reads `9.9.9-fake`'s third field as 9 and `9abc` as
+  # 9, so the extraction changed no outcome on any input and its mutant
+  # survived. Dropped rather than kept as decoration.
+  # `2>/dev/null`: BSD sed errors with `RE error: illegal byte sequence` on a
+  # version string carrying invalid UTF-8. The behaviour is already right — the
+  # result is empty and the guard refuses — but Scout's contract is an EMPTY
+  # stderr on a successful scan, and this would leak onto it.
+  _flr=$(printf '%s' "$_version" | sed 's/^[^0-9]*//' 2>/dev/null)
+  if [ -z "$_flr" ]; then
+    printf 'tool-unavailable\n' > "$work/secstatus"
+    printf '%s\n' "A gitleaks binary was found but its version could not be read (it reported '${_version:-nothing at all}'), so there is no way to tell whether it can perform this scan. NOTHING WAS SCANNED — this is not a clean result, it is the absence of one. gitleaks ${_SCOUT_GITLEAKS_MIN} or newer is required, because the git-history scan this runs uses subcommands that older releases do not have. If you built gitleaks from source with 'go install' or a plain 'go build', the version is left unstamped and reads as 'version is set by build process' — rebuild with 'make build', which stamps it, or install a release binary." \
+      > "$work/secnote"
+    return 0
+  fi
+
+  # `awk`, not a shell loop: this file must run on bash 3.2 and the comparison
+  # needs no arrays, no `IFS` tampering (which semgrep's
+  # `bash.lang.security.ifs-tampering` rule flags) and no subshell arithmetic.
+  # Leading non-digits are stripped first so a `v8.19.0` tag compares as
+  # 8.19.0 rather than as a zero major.
+  if awk -v a="$_flr" -v b="$_SCOUT_GITLEAKS_MIN" 'BEGIN{
+        na=split(a,A,"."); nb=split(b,B,".");
+        m=(na>nb)?na:nb;
+        for(i=1;i<=m;i++){
+          x=(i<=na)?A[i]+0:0; y=(i<=nb)?B[i]+0:0;
+          if(x<y) exit 0;
+          if(x>y) exit 1;
+        }
+        exit 1 }'; then
+    printf 'tool-unavailable\n' > "$work/secstatus"
+    printf '%s\n' "The gitleaks on this host is ${_version}, and this scan needs ${_SCOUT_GITLEAKS_MIN} or newer: the git-history scan uses the 'gitleaks git' subcommand, which releases before ${_SCOUT_GITLEAKS_MIN} do not have. NOTHING WAS SCANNED — treat this as unknown, not as clean. Upgrade gitleaks (macOS: brew upgrade gitleaks; other hosts: https://github.com/gitleaks/gitleaks/releases) and scan again before treating this project as free of committed credentials." \
+      > "$work/secnote"
+    return 0
+  fi
 
   # §6.1: history is the point. `gitleaks git` walks it — a key present only in
   # a superseded commit and absent from the working tree is found — and that is
@@ -340,10 +453,80 @@ scout_secrets_scan() {
   # artifacts stay clean.
   _flags="--no-banner --redact --exit-code 0"  # SCOUT-SECRETS-REDACT
 
+  # ── THE FRAMEWORK-RULES ARM (WP10b, §6.2b) ────────────────────────────────
+  # Four suppressors, four answers, and each was MEASURED on 8.30.1 rather
+  # than assumed (§13-V35, and re-measured while building this):
+  #
+  #   .gitleaks.toml / gitleaks.toml at the scanned root  -> `-c` outranks it
+  #   GITLEAKS_CONFIG / GITLEAKS_CONFIG_TOML in the env   -> `-c` outranks it,
+  #        AND they are unset in the subshell, because relying on precedence
+  #        alone means one dropped flag restores the whole vector
+  #   an inline `gitleaks:allow` comment                  -> --ignore-gitleaks-allow
+  #   a .gitleaksignore                                   -> --gitleaks-ignore-path
+  #
+  # THE LAST ONE IS THE SUBTLE ONE AND IT IS WHY THE CWD MATTERS. gitleaks
+  # resolves `--gitleaks-ignore-path` against the PROCESS cwd, default `.`.
+  # Adoption scans a no-checkout clone whose working tree is EMPTY, so no
+  # ignore file can exist there — but only if the scan's cwd is the clone. The
+  # `cd "$root"` below is what delivers that, with the clone passed as ROOT.
+  #
+  # THE FLAG IS REDUNDANT TODAY AND IT STAYS ANYWAY — said plainly because a
+  # reader who measures it will find it so and should not have to wonder. With
+  # cwd = an empty working tree there is no `.gitleaksignore` for gitleaks to
+  # read, so dropping `--gitleaks-ignore-path` alone changes no result and NO
+  # mutation of it dies. §6.2b calls the cwd load-bearing and pins it with
+  # WP10b's proof (2); that is true of an implementation with ONE defence, and
+  # this has two. Each alone suffices, which is why neither alone has a
+  # discriminating mutant — measured, not assumed. The pair is kept because the
+  # day someone changes what ROOT points at, the flag is what still holds.
+  #
+  # THE INLINE-ALLOW CASE IS NOT COVERED BY THE EMPTY WORKING TREE, which is
+  # the trap a first reading of §6.2b walks into: the comment lives in the
+  # history BLOB, and a history walk reads blobs regardless of what is checked
+  # out. Measured on a two-plant fixture — 1 finding without the flag, 2 with.
+  if [ "$policy" = "framework" ]; then
+    # AN EMPTY `$fwcfg` IS THE DANGEROUS ONE, NOT THE MISSING FILE. A missing
+    # path makes gitleaks exit 1, which surfaces as `scan-failed` even with no
+    # guard here. An EMPTY one does not: measured on 8.30.1, `-c ""` behaves
+    # exactly as if no `-c` were given — it resumes normal config discovery and
+    # honours the scanned tree's own `.gitleaks.toml` (0 findings against 2).
+    # That is the silent fallback to the audited project's rules that this
+    # whole policy exists to refuse, so the guard covers BOTH shapes and case
+    # O9 in tests/test-brownfield-wp10b-own-scan.sh pins it.
+    if [ -z "$fwcfg" ] || [ ! -f "$fwcfg" ]; then
+      # FAIL LOUDLY. Falling back to the project's rules here would be the
+      # silent-success shape: the stop would decide under exactly the rules it
+      # exists to ignore, and say nothing.
+      printf 'scan-failed\n' > "$work/secstatus"
+      printf '%s\n' "The scan was asked to use the framework's own rules and that config could not be read (${fwcfg:-no path given}). NOTHING was scanned — treat this as unknown, not as clean." \
+        > "$work/secnote"
+      return 0
+    fi
+    _ignore_none="$work/no-ignore-here"
+    mkdir -p "$_ignore_none" 2>/dev/null
+    # AN ARRAY, NOT A STRING, AND THAT IS NOT STYLE. `$_flags` above is
+    # word-split on purpose and may be, because it holds no paths. These flags
+    # DO: the framework config and the ignore directory are absolute paths, and
+    # this framework's own checkout lives under `Claude Projects` — a directory
+    # with a SPACE in it. Appended to `$_flags`, the config path split in two
+    # and gitleaks answered `unknown flag`, which this function then reported
+    # as `scan-failed` — a stop at organizational, from a quoting bug, on every
+    # host whose checkout path contains a space. Measured before it was fixed.
+    _fwflags=( -c "$fwcfg" --ignore-gitleaks-allow --gitleaks-ignore-path "$_ignore_none" )   # SCOUT-SECRETS-FRAMEWORK-RULES
+  fi
+
   # stderr is captured, never inherited: gitleaks writes INF/WRN progress lines
   # on every run, and Scout's contract is an EMPTY stderr on a successful scan.
+  #
+  # `cd "$root"` IS LOAD-BEARING UNDER THE FRAMEWORK POLICY, not just tidy —
+  # see the `--gitleaks-ignore-path` note above. A build that scanned the clone
+  # from the adoptee's cwd reads the adoptee's `.gitleaksignore` and finds one
+  # plant fewer.
   ( cd "$root" 2>/dev/null || exit 2
-    "$_bin" "$_mode" $_flags -f json -r "$work/gl.json" . ) \
+    if [ "$policy" = "framework" ]; then
+      unset GITLEAKS_CONFIG GITLEAKS_CONFIG_TOML
+    fi
+    "$_bin" "$_mode" $_flags ${_fwflags[@]+"${_fwflags[@]}"} -f json -r "$work/gl.json" . ) \
     >"$work/gl.out" 2>"$work/gl.err"
   _rc=$?
 

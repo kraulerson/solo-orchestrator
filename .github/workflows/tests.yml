@@ -585,6 +585,9 @@ jobs:
             tests/test-bl261-contributor-sast-live.sh
             tests/test-brownfield-wp9d-driver-edges.sh
             tests/test-brownfield-wp9d-window-rehearsal.sh
+            tests/test-brownfield-wp10b-own-scan.sh
+            tests/test-brownfield-wp10b-decision-table.sh
+            tests/test-bl289-gitleaks-version-floor.sh
             tests/test-bl277-detector-authorship.sh
           )
 

@@ -197,7 +197,7 @@
       "languages": ["all"],
       "check_command": "command -v gitleaks",
       "version_command": "gitleaks version 2>/dev/null",
-      "min_version": "8.18.0",
+      "min_version": "8.19.0",
       "latest_check": {"method": "github_release", "package": "gitleaks/gitleaks"},
       "install": {
         "darwin_brew": "brew install gitleaks",
