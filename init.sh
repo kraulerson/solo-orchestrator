@@ -1985,8 +1985,38 @@ PERMEOF
         print_warn "Run manually: bash ~/.claude-dev-framework/scripts/init.sh"
       fi
 
-      # Add orchestrator hooks to SessionStart (after CDF hooks are in place)
-      if [ -f ".claude/settings.json" ] && command -v jq &>/dev/null; then
+    fi
+    # ^^ END of `if [ "$framework_valid" = true ]`.
+    #
+    # BL-296 / `## BL-147:` — THE ROSTER BELOW REGISTERS UNCONDITIONALLY, AND
+    # THAT IS THE WHOLE POINT OF MOVING THIS `fi`. Every hook below is Solo
+    # Orchestrator's OWN: the version check, the test gate, the freshness and
+    # intake and cadence checks, the Qdrant reminder, the commit gate. None of
+    # them belongs to the Development Guardrails, none needs the CDF clone, and
+    # none can run from a repository that was never cloned.
+    #
+    # They used to sit INSIDE the `framework_valid` branch, so a failed network
+    # clone — two attempts, then a warning and carry on — silently registered
+    # NONE of them. A project born on a train got no session hooks at all and
+    # said nothing about it. That is `## BL-147:`'s class exactly: a gate that a
+    # transient failure switches off, quietly, leaving something that looks
+    # installed.
+    #
+    # `.claude/settings.json` is written at PERMEOF above, unconditionally and
+    # before any of this, so the guard below is satisfied whether or not the
+    # clone worked.
+    #
+    # ONE HONEST QUALIFICATION ON THE WORD "UNCONDITIONALLY". This block is
+    # still inside `if command -v git &>/dev/null`, and that is deliberate
+    # rather than overlooked: `check_prerequisites` collects a missing git into
+    # `missing_required[]` and exits 1 long before here, so the condition cannot
+    # be false in a run that reaches this line. What the marker means, exactly,
+    # is that the roster no longer depends on the CDF CLONE — the thing a
+    # transient network failure switches off.
+
+    # Add orchestrator hooks to SessionStart (after CDF hooks are in place,
+    # when there are any)
+    if [ -f ".claude/settings.json" ] && command -v jq &>/dev/null; then   # BL-296-ROSTER-UNCONDITIONAL
         local hooks_added=false
         # Add version check hook
         if jq -e '.hooks.SessionStart' .claude/settings.json >/dev/null 2>&1; then
@@ -2165,7 +2195,6 @@ PERMEOF
         if [ "$hooks_added" = true ]; then
           print_ok "Session hooks installed (version check, test gate, MCP gate, Qdrant reminder, commit gate, tool tracking, bypass detector)"
         fi
-      fi
     fi
   fi
 

@@ -137,13 +137,25 @@ adopt_stub_framework_script_collisions() {
 # commit that includes it. The stub told each operator the opposite of what the
 # same run had just done. What is still missing is the RECORD — the eight-clause
 # Adoption Record that WP7 appends INTO this log — not the log.
-adopt_stub_adoption_record() {
-  adopt_stub_notice "the Adoption Record, the audit rows and the CI carve-out" "WP7" \
-    "APPROVAL_LOG.md exists and the phase gate reads it; what is missing is the Adoption Record INSIDE it."
-  adopt_note "The log this adoption wrote is the tier-matched template, carrying no approval of"
-  adopt_note "any kind — which is correct, because this adoption approved nothing. Until WP7"
-  adopt_note "lands, the adoption itself is recorded in the manifest and nowhere else."
-}
+# adopt_stub_adoption_record — RETIRED 2026-09-22 by WP7/1.
+#
+# The Adoption Record is no longer a stub. `adopt_write_adoption_record` in
+# `scripts/lib/adopt/adopt-record.sh` appends it to `APPROVAL_LOG.md` as the
+# `adoption_record` stage of the write phase (`# BL-242-RECORD-STAGE`), and
+# `adopt_record_clauses` holds v1 §8.8's eight-clause contract at write time
+# rather than in a comment.
+#
+# THE NAME IS LEFT HERE AS A HEADSTONE, the same as the secrets stub above,
+# because `## BL-242:`'s derivation of "what is still unbuilt" counts the
+# `adopt_stub_*` functions that are actually CALLED, and a reader following an
+# older handoff to this file should find out where the behaviour went.
+#
+# WHAT OF WP7 IS STILL OUT: the CI carve-out and the `adoption` audit row.
+# `secrets_disposition` is UNOWNED, not WP7's — `adopt_audit_event`'s own
+# header says so, and that header is the live list. An earlier draft of this
+# paragraph assigned it to WP7 while the same commit's `docs/adoption.md`
+# correctly called it unowned; two records of one fact disagreeing is the shape
+# this file exists to prevent.
 
 # The fallback PRE-COMMIT hook. Not attributed to a work package, because §10
 # names no owner for it on the adoption path — that is the honest statement and
@@ -178,7 +190,11 @@ adopt_stub_project_docs() {
     "CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the"
   adopt_note "state are here, so the gates work; the reading material an agent picks up at the start"
   adopt_note "of a session is not, and a CLAUDE.md you already have would be a collision, not a gap."
-  adopt_note "Your framework documents ARE archived now — WP11 shipped D3's `document` class, so"
+  # NO BACKTICKS IN A DOUBLE-QUOTED ARGUMENT. `document` was command
+  # substitution, so this line ran `document`, printed
+  # `adopt-stubs.sh: line 190: document: command not found` to stderr on every
+  # adoption, and told the operator "WP11 shipped D3's  class".
+  adopt_note "Your framework documents ARE archived now — WP11 shipped D3's document class, so"
   adopt_note "each one you already owned is in the adoption archive with a restore line. What is"
   adopt_note "not built is the WRITING of the new ones (WP12b), which is what this notice is about."
 }

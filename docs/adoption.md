@@ -41,6 +41,7 @@ Everything on this page is output that was observed, pasted as it printed.
 - [The reverse intake](#the-reverse-intake)
 - [What gets written, and in what order](#what-gets-written-and-in-what-order)
 - [The adoption stamp, and what happens when it is lost](#the-adoption-stamp-and-what-happens-when-it-is-lost)
+- [The Adoption Record](#the-adoption-record)
 - [The TDD exemption and its bound](#the-tdd-exemption-and-its-bound)
 - [The test-debt ledger and its ratchet](#the-test-debt-ledger-and-its-ratchet)
 - [What is not built yet](#what-is-not-built-yet)
@@ -291,8 +292,8 @@ Phase gates consistent.
 
 The log adoption writes is the **tier-matched template**, carrying no dated
 gate-approval row — because this adoption approved nothing. It makes the
-question answerable; it does not answer it. What is still missing is the
-Adoption **Record** inside that log, which is WP7's.
+question answerable; it does not answer it. The Adoption **Record** is appended
+to the end of that same log — see [The Adoption Record](#the-adoption-record).
 
 **You will still be asked.** Three routes reach the question, and all three are
 exercised by the test suite rather than assumed:
@@ -327,7 +328,14 @@ coerced:
 
 ## What gets written, and in what order
 
-### The order is `APPROVAL_LOG.md` → `phase-state.json` → intake → `manifest.json`
+### The order is `APPROVAL_LOG.md` → `phase-state.json` → intake → `manifest.json` → the Adoption Record → the write set
+
+The last two are ordered by what they read, not by taste. The **Adoption
+Record** names the commit this project was adopted at and takes that value from
+the adoption *stamp*, which the `manifest.json` stage writes — one fact, one
+source, rather than a second `git rev-parse HEAD` that could disagree. The
+**write set** is last because it records what every stage before it wrote.
+
 
 That order is data in the driver, not scattered through it, and it is chosen
 because the two half-states are **not symmetrical**:
@@ -498,6 +506,109 @@ Adoption Stamp Integrity
 **One honest residual:** a stamp written but not yet **committed** has no
 witness, so a manifest regenerated *inside* the adoption window is a loss this
 cannot see. That window is minutes long and ends at the adoption commit.
+
+---
+
+## The Adoption Record
+
+At the end of your `APPROVAL_LOG.md`, under its own `## Adoption Record`
+heading, adoption writes down what it did. Before this existed, the run's own
+findings lived in your terminal scrollback and nowhere else — the driver said so
+out loud, and the personal-tier secrets block told you to *keep this transcript*,
+because real credentials found in your history had no permanent home.
+
+It records, in these sections (six on a clean project, eight when you supply
+a `--dispositions` file):
+
+- **How this project was adopted** — the day, the enforcement tier, whether
+  proof-of-concept mode is on, and **the commit you were sitting on** when
+  adoption ran. That commit is the anchor that bounds the pre-adoption TDD
+  exemption: everything at or before it is history the framework inherited, and
+  every commit after it is held to the ordinary rules.
+- **What the credential scan read, and what it found** — the scanner, **its
+  version**, who ran it, under whose rules, the outcome, how many commits it
+  read, and how many findings there were:
+
+  ```text
+      | Field | Value |
+      |---|---|
+      | Scanner | gitleaks |
+      | Scanner version | 8.30.1 |
+      | Run by | adoption |
+      | Rules | framework |
+      | Outcome | scanned |
+      | Commits read | 412 |
+      | Findings | 1 |
+  ```
+
+  *(The two header rows are part of what the renderer emits; an earlier draft of
+  this block dropped them, which made it an edited excerpt on a page that
+  promises transcripts. The counts are this fixture's, not a universal.)*
+- **The findings, by fingerprint** — one row per match: the rule, the file and
+  line, and the fingerprint. **Never the matched value.** If you supplied a
+  `--dispositions` file, what was decided about each one and by whom follows in
+  its own table; if you did not, the record says so plainly rather than leaving
+  a blank that reads as a clean bill of health.
+- **What of yours was archived** — the archive path and the `--re-add` line.
+- **What else this run measured** — the count of source files with no test, the
+  hooks directory git will actually use, and how long the pre-write rehearsal
+  took over how many megabytes.
+
+It then names the three things a complete record would carry and this build
+cannot: the assessment's findings and verdict, the interview answers, and the
+in-production declaration. They are **named rather than omitted**, because a
+field that is simply absent reads like a measurement that came back empty.
+
+### It cannot be mistaken for an approval, and that is enforced rather than promised
+
+`APPROVAL_LOG.md` is the file four separate programs parse to decide whether a
+phase gate was crossed with evidence. Putting a free-text record into it is only
+safe if the record cannot be read as one, so the record holds an eight-part
+structural contract — no `Phase N → Phase N+1` line, no named approval-row
+literal, no attorney or legal-review heading, no pen-test exemption phrase, no
+table row starting at column 0, no `date` substring in its prose, no
+`[YYYY-MM-DD]`-style placeholder, and its own `## ` heading placed after every
+gate section.
+
+**The contract is checked before a byte is written.** If the rendered record
+would violate any clause, nothing is appended and the run refuses, naming the
+clause on stderr. The reason it is enforced rather than merely written carefully
+is that part of the record is *your* text — a path inside your repository, the
+name and reason you wrote on a disposition — and some entirely ordinary
+sentences are dangerous here. A disposition signed by a *"pen test team"* with
+the reason *"exempted by policy until Q3"* assembles into a line matching the
+framework's pen-test exemption check, which takes no window and no date: it
+greps the whole file. Copied in verbatim, two innocent cells would tell this
+framework a penetration test had been exempted.
+
+So the **row** is tested as a row, and cells are withheld from the right until
+it is clean. Real output, from that exact input:
+
+```text
+    | Fingerprint | Outcome | Decided by | Reason |
+    |---|---|---|---|
+    | dedba58f988140f973b013670a4d6834664b873a:src/config.py:generic-api-key:2 | accepted-risk | pen test team | (withheld: this text spells a phrase this log is parsed for) |
+```
+
+The fingerprint, the outcome and the person all survive; only the free-text
+reason goes, because it is the rightmost cell and the cheapest to lose.
+
+It is withheld rather than rewritten on purpose. Lowercasing your `Phase` or
+clipping your `exempted` would put words in your mouth, quietly, in the one
+document that exists to be trusted later. And it is withheld rather than
+refused, because an adoption must not fail over a security team's name. Ordinary
+text that merely *resembles* a trigger is untouched — a finding in
+`src/updater/config.yml` is printed exactly as it is.
+
+*(The first cut of this checked each cell in isolation, which is not what the
+readers do — they read lines. A real organizational adoption with the
+disposition above was **refused outright**, with the reason discarded by the
+rehearsal's output relay. Both are fixed: the row is tested as a row, and the
+failing clause is printed on stderr so the rehearsal relays it.)*
+
+**Written once.** A second run finds the heading and leaves the log alone; the
+record is never rewritten, for the same reason the adoption stamp refuses to be
+re-stamped.
 
 ---
 
@@ -916,7 +1027,7 @@ class is deliberately outside the archive — swapping out a `scripts/validate.s
 your own build may call is a decision nobody has made yet — and the run names
 it with its own `NOT DONE` block.
 
-### The CI carve-out, provenance headers and the Adoption Record — WP7
+### The CI carve-out and the provenance headers — WP7
 
 ```text
 NOT DONE — the provenance headers on reconstructed documents
@@ -924,14 +1035,23 @@ NOT DONE — the provenance headers on reconstructed documents
    PROJECT_INTAKE.md records where each answer came from, but it carries no machine-readable
    provenance header. A near-miss header is worse than none: WP7 ships a lint for the
    real one, and a lint cannot tell a near-miss from the genuine article.
-
-NOT DONE — the Adoption Record, the audit rows and the CI carve-out
-   Owner: WP7. This build does not do it, and does not pretend to.
-   APPROVAL_LOG.md exists and the phase gate reads it; what is missing is the Adoption Record INSIDE it.
-   The log this adoption wrote is the tier-matched template, carrying no approval of
-   any kind — which is correct, because this adoption approved nothing. Until WP7
-   lands, the adoption itself is recorded in the manifest and nowhere else.
 ```
+
+**The Adoption Record used to be on this list and is not any more.** The driver
+no longer prints a `NOT DONE` block for it: it appends the record to the end of
+your `APPROVAL_LOG.md` during the run, and refuses rather than writing one that
+its own eight-clause contract rejects. See
+[The Adoption Record](#the-adoption-record).
+
+What is still WP7's on that surface is narrower than it was. §8.9 names five
+`adoption_event` rows; two of them — **collision archive** and **re-add** — are
+emitted today, and two — the **adoption** row and the **`accepted-risk` secrets
+disposition** row — are not. The fifth, **blocker acceptance**, is attributed in
+the emitter's header to a work package that has since been RETIRED, and nothing
+in the v2 design reassigns it; whether it still has a subject at all is an open
+question rather than a scheduled build. **The emitter's own header in
+`scripts/lib/adopt/adopt-archive.sh` is the live list** — it names each row and
+its owner, and it is maintained with the code. Prefer it to this paragraph.
 
 **This no longer stops the gate.** Before WP9b, a freshly-adopted project got:
 
@@ -960,17 +1080,17 @@ it returns**, at rc 1. That matters for the stamp check, which runs *after* the
 precondition — so on a project whose `APPROVAL_LOG.md` is genuinely missing, the
 adoption-loss detector never gets to speak.
 
-The **Adoption Record** itself — the one place a successor reads to understand
-how this project entered the framework, carrying the assessment's findings and
-the verdict, the secrets dispositions, the collision archive path and the CI
-keep-or-retire decisions — does not exist.
-Neither does the eight-clause lint that keeps it structurally unparseable as a
-gate approval. (The archive path it would carry is real now — it is in
-`.claude/adoption-archive/*/MANIFEST.json` and in an `adoption_event` audit
-row. What is missing is the Record that gathers it with everything else.)
+The **Adoption Record** exists now, and carries what this build can honestly
+put in it: the scan and its findings by fingerprint, the dispositions and
+acknowledgements when you supplied them, the archive path, the test-debt count,
+the hooks directory and the rehearsal's measurements. What it cannot yet carry —
+the assessment's findings and verdict, the interview answers, the in-production
+declaration — it **names in its own text** rather than leaving out, so that a
+reader finding those fields absent does not read the absence as a measurement
+that came back empty.
 
-The **CI carve-out** does not exist either. Nothing installs framework CI as its
-own files, and nothing records a keep-or-retire decision about your pipelines.
+The **CI carve-out** does not exist. Nothing installs framework CI as its own
+files, and nothing records a keep-or-retire decision about your pipelines.
 Scout's SDLC findings are the only part of that surface that ships, and they are
 report-only.
 
@@ -1035,7 +1155,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Adoption refusing to commit a *recognised* secret out of your hooks | ✅ Ships — the archive is scanned before staging and a match is withheld. **A mitigation, not a guarantee** — see below |
 | Adoption never committing a file your `.gitignore` excludes | ✅ Ships — the **original's** ignore status decides, not the archive copy's |
 | Framework CI installed beside yours, with a recorded keep-or-retire | ❌ CI carve-out — **not built** |
-| A readable record of how this project entered the framework | ❌ Adoption Record — **not built** |
+| A readable record of how this project entered the framework | ✅ [The Adoption Record](#the-adoption-record) — ships, at the end of `APPROVAL_LOG.md`, with its eight-clause contract checked before it is written |
 | Secret scanning, SAST and migration checks on every commit | ❌ Deferred to WP7, by decision |
 | The framework's version of a colliding `scripts/*.sh` installed | ❌ Replacement half — **not built**, and unassigned |
 | A `CLAUDE.md` in the adopted project | ❌ **Not built** — WP11 archives yours, WP12b writes the framework's (D3) |

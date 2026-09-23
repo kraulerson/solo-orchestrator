@@ -132,15 +132,19 @@ adopt_secrets_decide() {
           return 1 ;;
         *)                                         # BL-242-SECRETS-PERSONAL-FINDINGS
           _adopt_secrets_print_findings "$report"
-          # NO CLAIM ABOUT THE ADOPTION RECORD. §6.3 says the Adoption Record
-          # lists the dispositions, but that record is WP7 and is NOT BUILT —
-          # `adopt_stub_adoption_record` says so in this same transcript, a few
-          # lines later. Two contradictory sentences in one run is exactly the
-          # shape `# BL-225-REFUSE-HONEST` exists to stop, so this says what is
-          # true today and names what is not yet.
+          # THE ADOPTION RECORD EXISTS NOW (WP7/1), AND THIS ARM SAID OTHERWISE
+          # FOR ONE COMMIT. The comment here used to explain why it made no
+          # claim about the record — because the record was not built — and
+          # ended "keep this transcript". WP7/1 built it and did not revisit
+          # this arm, so a personal-tier adoption with findings printed BOTH
+          # "the Adoption Record ... is not built yet" and, sixty lines later,
+          # "The Adoption Record is in APPROVAL_LOG.md". Two contradictory
+          # sentences in one run is the exact shape `# BL-225-REFUSE-HONEST`
+          # exists to stop, quoted by the comment that was producing it.
           adopt_note "These are REAL findings in your history. Adoption continues because this is a"
-          adopt_note "personal project. They are printed here; the Adoption Record that will list"
-          adopt_note "them permanently is not built yet, so keep this transcript."
+          adopt_note "personal project. They are printed here, and they are recorded permanently in"
+          adopt_note "the Adoption Record at the end of APPROVAL_LOG.md — by rule, file and line and"
+          adopt_note "fingerprint, never the matched value."
           adopt_note "Rotate anything still live: a history rewrite does not un-leak what was fetched."
           return 0 ;;
       esac ;;

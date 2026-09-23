@@ -177,13 +177,14 @@ state in a fail-safe order and committing exactly the files it wrote.
 and no gate is skipped: what the scan learned becomes a head start on the Phase 0
 questions rather than a shortcut past them.
 
-> **⚠ Adoption is half built.** The driver, the tier question, the reverse
-> intake's confirmations, the state writes, the adoption stamp, the test-debt
-> ledger and the collision archive (with its disclosure, recorded re-adds and
-> pre-staging secret scan) ship and work. **The assessment — the requirements
-> interview, the fitness verdict and the plan — does not exist yet, and neither
-> do the CI carve-out or the Adoption Record.** The driver prints a labelled
-> `NOT DONE` block for each during the run rather than papering over it.
+> **⚠ Adoption is not finished.** The driver, the tier question, the reverse
+> intake's confirmations, the state writes, the adoption stamp, the tier-scoped
+> credential stop, the test-debt ledger, the collision archive (with its
+> disclosure, recorded re-adds and pre-staging secret scan) and the **Adoption
+> Record** ship and work. **The assessment — the requirements interview, the
+> fitness verdict and the plan — does not exist yet, and neither does the CI
+> carve-out.** The driver prints a labelled `NOT DONE` block for each remaining
+> gap during the run rather than papering over it.
 > [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
 
 **These three pages live in this repo and are not copied into generated
@@ -204,7 +205,7 @@ not among them. Read them here.
 - **One command setup** — `./init.sh` handles everything: tool installation, project scaffolding, CI/CD generation, security tooling, Git initialization, and health check.
 - **A lifecycle after v1.0** — the [delta track](docs/delta-track.md) ships into every project: one classified unit of post-release change at a time, a brief whose acceptance checklist is the close review, a hotfix lane whose deferred retro blocks the next release, a maintenance cadence that refuses a release when a window is overdue *or unmeasurable*, and `scripts/cut-release.sh`, which decides the semver from what actually shipped, promotes the changelog, closes the `BUGS.md`/`FEATURES.md` rows, and tags.
 - **Look before you install** — [Scout](docs/scout.md) (`scripts/scout.sh`) is a read-only survey of any codebase: stack, phase evidence, reality probes, **full-history secret scanning with the value never printed**, an inventory of what the framework would otherwise overwrite, a tests baseline, and an intake prefill. It writes nothing and needs nothing installed.
-- **A second way in for existing code** — [brownfield adoption](docs/adoption.md) (`scripts/adopt-project.sh`) brings a codebase that already exists under the framework, asking the one plain-English question a scan cannot answer — **who the project is for**, which sets its enforcement tier — and landing **every adopted project at phase 0**, to go forward through the ordinary gates like any other. Nothing is marked as already done and no gate is skipped. **Half built today** — the assessment (the requirements interview, the fitness verdict and the plan), the CI carve-out and the Adoption Record are designed and not yet implemented; the certification pass is **retired**, not pending, because with no claimed rung and no derived landing it has nothing to certify. The driver says so, per capability, during the run. `## BL-242:` in `solo-orchestrator-backlog.md` is the standing record of what is and is not built, and of the decisions still to land; prefer it to this sentence. The collision archive ships: it copies the files the framework would land on into a timestamped, manifested, restorable directory, discloses every one of them by name, permits recorded re-adds, and refuses to commit an archived file a secret scanner matched.
+- **A second way in for existing code** — [brownfield adoption](docs/adoption.md) (`scripts/adopt-project.sh`) brings a codebase that already exists under the framework, asking the one plain-English question a scan cannot answer — **who the project is for**, which sets its enforcement tier — and landing **every adopted project at phase 0**, to go forward through the ordinary gates like any other. Nothing is marked as already done and no gate is skipped. **Not finished today** — the assessment (the requirements interview, the fitness verdict and the plan) and the CI carve-out are designed and not yet implemented; the certification pass is **retired**, not pending, because with no claimed rung and no derived landing it has nothing to certify. The **Adoption Record** ships: at the end of the adopted project's `APPROVAL_LOG.md`, under its own heading, adoption writes down what it scanned, what it found by fingerprint, what it archived and what it measured — and names, rather than omits, the things this build cannot yet record. It holds an eight-part structural contract that is checked before a byte is written, so the record can never be read by the framework's own gate parsers as an approval. The driver says so, per capability, during the run. `## BL-242:` in `solo-orchestrator-backlog.md` is the standing record of what is and is not built, and of the decisions still to land; prefer it to this sentence. The collision archive ships: it copies the files the framework would land on into a timestamped, manifested, restorable directory, discloses every one of them by name, permits recorded re-adds, and refuses to commit an archived file a secret scanner matched.
 
 ---
 

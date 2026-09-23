@@ -14709,6 +14709,108 @@ beyond `replaced`/`kept`. WP12b is the consumer; recorded before it starts.
 `adopt-state.sh: line …: adopt_record_written: command not found` — a typo for `adopt_record_write`,
 present on `main`, meaning `ADOPT_WRITE_SET_REL` never enters the staging ledger.
 
+### WP7/1's build (2026-09-22) — the Adoption Record exists, and the scrollback buffer stops being the record
+
+**The sentence this closes.** `adopt_stub_adoption_record` printed, on every successful run:
+*"Until WP7 lands, the adoption itself is recorded in the manifest and nowhere else."* The
+personal-tier secrets arm printed, a few lines earlier, *"the Adoption Record that will list them
+permanently is not built yet, so keep this transcript."* Real credential findings in an operator's
+history had no home but a scrollback buffer.
+
+**What landed.** `scripts/lib/adopt/adopt-record.sh` — `adopt_write_adoption_record`, wired as the
+`adoption_record` stage of the write phase (`# BL-242-RECORD-STAGE`), **between `manifest` and
+`write_set`**. After `manifest` because the record names the commit the project was adopted at and
+takes it from the STAMP rather than a second `git rev-parse HEAD` — one fact, one source. Inside the
+write phase because the phase is what the pre-write rehearsal replays, so a record written outside it
+would be the one write of the run nobody rehearsed, which is `## BL-292:`'s class exactly.
+
+It records: the adoption day, the tier, the proof-of-concept flag, the commit adopted at and what
+that anchor bounds; the scanner, who ran it, under whose rules, the outcome, the commits read and
+the finding count; every finding by rule, location and fingerprint (never the matched value —
+§6.2's redaction is a projection); the dispositions and acknowledgements when a file was supplied,
+and the true sentence when none was; the archive path and the `--re-add` line; the test-debt count,
+the hooks directory git will use, and the rehearsal's measured seconds and megabytes (kept in
+`ADOPT_REHEARSAL_SECONDS` / `ADOPT_REHEARSAL_MB`, `# BL-242-RECORD-REHEARSAL`, because a number that
+exists only in a scrollback buffer is not a record). And it names the three §8.6 rows it CANNOT
+carry — the assessment and verdict, the interview answers, the in-production declaration — rather
+than omitting them, because an absent field reads as a measurement that came back empty.
+
+**The eight clauses are ENFORCED AT WRITE TIME, not asserted in a comment, and that is the package's
+one real idea.** v1 §8.8's contract exists because `APPROVAL_LOG.md` is parsed by four programs to
+decide whether a gate was crossed. The record's content is partly OPERATOR TEXT — a path in their
+repository, the `by` and `reason` they wrote on a disposition — so the contract cannot be held by
+careful prose alone. `adopt_record_clauses` checks all eight on the rendered fragment BEFORE a byte
+reaches the file and `adopt_refuse`s naming the failing clause; `adopt_record_placed_last` and
+`adopt_record_window_clean` then derive the two positional clauses over the ASSEMBLED log.
+
+**MEASURED, AND THE FIRST CUT WAS WRONG IN BOTH DIRECTIONS.** A hostile fixture — a finding in
+`src/Phase 0 to Phase 1/cfg.yml`, a disposition `by: "IT Security Approval"`, an acknowledgement
+reason of *"penetration test was exempted for this repo"* — broke clauses 1, 2 and 4 on the first
+render. The pen-test one is the dangerous member: that reader takes **no window and no date**, it
+greps the whole file, so one operator sentence would have told this framework a penetration test was
+exempted. Such a cell is now WITHHELD with a stand-in that says why — not rewritten, because
+lowercasing someone's `Phase` or clipping their `exempted` puts words in their mouth in the one
+document that exists to be trusted later, and not refused, because an adoption must not fail over a
+directory name.
+
+Then the correction in the other direction: clause 6 was first made ABSOLUTE (no `date` substring
+anywhere), which withheld every finding whose path contained `update` — a large usability cost for
+no safety, since the reader it defeats needs PROXIMITY to a gate header, which
+`adopt_record_window_clean` forecloses by derivation. Clause 6 is now scoped to the record's own
+PROSE; the indented operator rows are exempt.
+
+**Proof.** `tests/test-brownfield-wp7-adoption-record.sh`, 11 cases, unit lane. A9 is the one the
+other ten support: it assembles a real `APPROVAL_LOG.md` from **both** shipped templates plus a real
+rendered record and runs **transcriptions** of the framework's four gate-evidence readers over it —
+`_cpg_gate_has_evidence` × four gates, `check_gate`'s `grep -A 10 … | grep -i date` × four, the
+whole-file pen-test grep, and the `Pre-Phase 0` thirty-line counter — requiring every one to report
+nothing, with a planted positive control per reader.
+
+**TRANSCRIPTIONS, NOT THE READERS THEMSELVES, and the first version of this paragraph said
+otherwise.** They are hand-copied because the sources are a 2300-line gate and a whole validator
+with their own preconditions; what is under test is the PREDICATE. The cost is drift, and drift in
+the direction that matters — a reader getting LOOSER upstream — is invisible by construction.
+Measured: deleting the `^` anchor from the REAL `_cpg_gate_has_evidence` left the suite at 10/0. Each
+transcription is now pinned against its source by that source's own literal text, so the copy and the
+original cannot part company in silence.
+
+Mutation proofs: un-indenting every table cell the renderer emits (the "well-meaning editor fix"
+§8.8 names) → **7 passed / 3 failed**; commenting out clause 5 → **8 passed / 2 failed**.
+
+*(**THE CELL COUNT HAS NOW BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND THE SECOND TIME WAS IN THE
+SENTENCE SAYING NOT TO QUOTE THE FIRST.** The commit message said "23 table cells"; the correction
+said 33 source lines / 24 indented rows / 16 data rows, derived against the tree BEFORE the same
+commit's own `Scanner version` row. Both are superseded. Derive it — two numbers, both from a
+RENDERED record rather than from source, because two people counting source lines got two different
+answers:*
+
+```
+zero-findings record: indented rows=25  data rows=17
+```
+
+*A record WITH one finding and a dispositions file has more; the original "23" is what that shape
+gives. The lesson is the one this block already carried and did not apply to itself: a count is a
+measurement of a tree, and a commit that adds a row invalidates every count taken before it.)*
+
+**AND A5 WAS VACUOUS UNTIL A MUTATION SAID SO.** Clause 5 and a stronger "clause 5b" shipped as two
+`if`s; deleting clause 5 outright left the suite at **10/0**, because every Date row the clause-5
+case plants is also a column-0 row 5b catches. A check no mutation can kill is not a check. They are
+one predicate now, with two messages.
+
+**A real bug found on the way, filed as `## BL-307:`**: `local root="$1" log="$root/APPROVAL_LOG.md"`
+never sees `root` — bash expands every right-hand side in one `local` before assigning any of them.
+Measured identical on 3.2.57, 4.0.44, 4.4.23, 5.0.18, 5.2.37 and 5.3.20, so unlike the two version
+splits CLAUDE.md records, a local run DOES reproduce it; what hides it is dynamic scoping, and two
+shipped sites are correct today only because their caller happens to hold a local of the same name.
+
+**What of WP7 is still out**, and `adopt_audit_event`'s own header is the live list: the CI
+carve-out, the `adoption` and `secrets_disposition` audit rows, the provenance-header lint, and the
+fallback pre-commit hook. `adopt_stub_adoption_record` is a headstone; the derived called-stub set is
+now **five** (`adopt_stub_assessment`, `_framework_script_collisions`, `_hooks`, `_project_docs`,
+`_provenance_headers`) — re-derive it with the recipe above rather than quoting this number.
+
+---
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.
@@ -20988,6 +21090,74 @@ and are WP9c's since v2.2; row 33 (this) stays UNOWNED.
 **Related:** `## BL-242:` (§8.7a), `## BL-284:` (`verify-install.sh`'s CDF-adjacent fixers),
 `## BL-277:` (the roster's PostToolUse arm — WP9c ships it only after that entry closes).
 
+**HALF LANDED 2026-09-22 (WP9c/1) — the ROSTER half only. The entry stays Open for the CDF
+install, which is row 33 and is still UNOWNED.** `init.sh`'s `fi` closing `if [ "$framework_valid" =
+true ]` moved UP, above the hooks-merge block, which now carries
+`# BL-296-ROSTER-UNCONDITIONAL`. Every hook in that block runs a script from the project's own
+`scripts/`; none of them belongs to the Development Guardrails, and
+`.claude/settings.json` — the guard the block reads — is written unconditionally by `init.sh`
+itself, earlier, so the move is safe rather than merely desirable.
+
+The block registers hooks that run **twelve** scripts, derived rather than counted by eye
+(`sed -n '2011,2190p' init.sh | grep -oE 'scripts/(hooks/)?[a-z0-9-]+\.sh' | LC_ALL=C sort -u`), and
+`.claude/settings.json` is written 192 lines earlier at 1819. *(A first draft of this block and of
+the commit message said "seven hooks" and "190 lines"; the same sentence then listed ten names. Both
+numbers are derived above.)*
+
+**WHAT THE PROOF IS, AND WHAT IT IS NOT.**
+`tests/test-bl296-hook-roster-unconditional.sh` is a **structural** pin, four cases. R1 locates the
+branch's matching `fi` by counting block openers against closers (skipping heredoc bodies) and
+asserts the roster's marker falls AFTER it, **and that the computed span is plausible**; R2 asserts
+every `scripts/(hooks/)?*.sh` the block registers exists in this repo, with a floor of twelve
+DISTINCT scripts; R3 asserts `.claude/settings.json` is written before the block reads it **and in
+the same function**; R4 asserts nothing at or after the marker reads `$framework_valid`. It is NOT
+behavioural — proving it by execution means faking a network failure and a full scaffold — and the
+file's header says so in as many words.
+
+**IT RUNS IN THE UNIT LANE NOW, AND THE FIRST DRAFT RAN IN NO PR-GATING LANE AT ALL.** It was
+registered only with the aggregator, and `lint-tests-registered.sh` marked it
+`unit-lane-exempt:init-sh-invoker` — which it is not: it greps `init.sh` in 39 milliseconds and
+invokes nothing. That is `## BL-181:`'s standing residual (*the predicate is "names `init.sh` on an
+executed line"*, which the `INIT=` assignment satisfies), and CLAUDE.md's own note that **an exempt
+row is a claim, not a verdict** is exactly what it cost here. Added to `tests.yml`'s `tests=(`.
+
+**SEVEN MUTATIONS, ALL RED, ALL REPLAYED AGAINST THE HARDENED SUITE** (copies under a scratch root;
+the repo's `init.sh` hashes identically before and after). Five of them passed the FIRST draft 3/0,
+and adversarial review is what produced them:
+
+| mutation | first draft | now |
+|---|---|---|
+| `M1` the `fi` back where it was | RED (the only one it caught) | RED R1 |
+| `M2` `[ "$framework_valid" = true ] &&` re-added to the marker line | **3 passed, rc 0** | RED R4 |
+| `M3` `[ "$framework_valid" = true ] \|\| return 0` as the block's first statement | **3 passed, rc 0** | RED R4 |
+| `M4` a `fi` planted in a heredoc, roster back inside the branch | **3 passed, rc 0** (span `1899-1901`) | RED R1 |
+| `M5b` a `scripts/hooks/` script renamed to one that does not exist | **3 passed, rc 0** | RED R2 |
+| `M6` the `settings.json` write lifted into a function nobody calls | **3 passed, rc 0** | RED R3 |
+
+The lesson is one sentence and it generalises: **a positional pin cannot see a data-flow defect.**
+`M2` and `M3` re-introduce the entry's whole subject without moving a line, so R4 pins the data flow
+separately. `M4` is the second half of it — an absurd computed span (`1899-1901`) is a broken
+MEASUREMENT, and a broken measurement that happens to satisfy the comparison is a pass that means
+nothing, so R1 now refuses to decide on an implausible span.
+
+**AND THE HELPER SHIPPED WITH THE BUG IT EXISTS TO CATCH — TWICE.** The first draft counted bare
+`for` / `while` / `if` tokens without stripping quoted strings, so
+`print_ok "Development Guardrails for Claude Code installed and configured"` counted as a `for …
+done` opener; the depth never returned to zero at the real `fi`, the helper walked on to the next
+unbalanced one 200 lines later, and R1 reported the roster INSIDE a branch it had already left. A
+false FAIL that time. The second was `M4` above, in the other direction. The helper now strips
+quoted strings BEFORE comments (the other order truncates a line at a `#` inside a string) and skips
+heredoc bodies, and its own awk program carries **no apostrophes**, because it lives inside a
+single-quoted shell string where one apostrophe ends the program and bash reports the syntax error
+on a later, well-formed line — which is how that paragraph broke twice while being written.
+
+**One honest qualification on the word "unconditionally", now in the code comment too:** the block
+is still inside `if command -v git &>/dev/null`. `check_prerequisites` exits 1 on a missing git long
+before this line, so the condition cannot be false in a run that reaches it — what the marker means
+is that the roster no longer depends on the CDF CLONE, the thing a transient network failure
+switches off.
+
+
 ---
 
 ## BL-304: the not-writable hooks arm prints `[FAIL] Cannot create project directory` over an unwritable HOOKS directory — `2>/dev/null` does not suppress it, because `print_fail` writes to stdout
@@ -21145,3 +21315,76 @@ resolution rather than a status word — plus a migration position for hosts tha
 
 **Related:** `## BL-289:` (the gitleaks half, closed), `## BL-242:` (the driver), `## BL-251:`
 (`# BL-251-PROBE-HOST`, the presence-only probe).
+
+---
+
+## BL-307: `local a="$1" b="$a/x"` — one `local` statement never sees its own earlier assignment, and the wrong value is silent
+
+**Status:** Open — **four** sites carried the shape when this was filed; **three remain**, the fourth
+having been fixed here. Two of the three are harmless only by accident of bash's dynamic scoping and
+one is not obviously either.
+
+*(This entry said THREE for one commit, and did not state its derivation scope, so a reader took the
+table as the population. The missed site is the one that is actually wrong — the "grep under-reads
+this surface" history CLAUDE.md records, reproduced inside the entry written about a bug found by
+that same class. Found by adversarial review.)*
+
+**Found:** 2026-09-22 while building WP7/1's `adopt_write_adoption_record`, whose first draft wrote
+`local root="$1" report="$2" log="$root/APPROVAL_LOG.md"`. Every run refused with
+`APPROVAL_LOG.md is not there, so the Adoption Record has nowhere to go` — against a project whose
+log was exactly where it should be. `log` was `/APPROVAL_LOG.md`.
+
+**The rule, measured rather than reasoned.** In ONE `local` statement bash expands every right-hand
+side BEFORE it assigns any of them, so a later name reads whatever that name meant in the ENCLOSING
+scope — empty if nothing, and the *caller's* value if the caller happens to have a local of the same
+name. `probe.sh` fed on stdin to `bash:<v>` images plus this Mac:
+
+```
+f(){ local aa="$1" bb="$aa/X"; echo "aa=$aa bb=$bb"; }; f P1
+
+  3.2.57  4.0.44  4.4.23  5.0.18  5.2.37  5.3.20      aa=P1 bb=/X      (all six identical)
+```
+
+**This is NOT a version split, and that matters.** CLAUDE.md records two traps that ARE
+(`${var/pat/rep}` at 5.2, `local` declared-without-assignment at 4.0), where a green local run hides
+a red runner. This one is the same on every bash from 3.2 to 5.3, so a local run does reproduce it —
+what hides it instead is **dynamic scoping**:
+
+```
+root=GLOBAL; k(){ local root="$1" dest="$root/x"; echo "$dest"; }; k /tmp/p     ->  GLOBAL/x
+```
+
+**The three sites, derived** (single-`local` statements only; a `;`-separated second `local` is its
+own command and is fine):
+
+| site | shape | why it works today |
+|---|---|---|
+| `scripts/lib/adopt/adopt-state.sh` `adopt_write_write_set` | `local root="$1" dest="$root/$ADOPT_WRITE_SET_REL"` | its caller `_adopt_write_phase` has a `local root` with the same value — dynamic scoping, not correctness |
+| `scripts/lib/adopt/adopt-test-debt.sh` `_td_tier_trusted` | `local root="$1" manifest="$root/.claude/manifest.json"` | same: the caller's `root` |
+| `scripts/upgrade-project.sh` `_bl099_rendered_doc_notice` | `local label="$1" prel="$2" src="$3" pfile="$PROJECT_ROOT/$prel"` | **not established** — its one call site at `# BL-099-DOC-GUARD` does hold a `prel`, but that has not been proven by execution |
+| `tests/test-bl233-wpb-accumulation.sh` `add_origin` | `local d="$1" bare="$TOPTMP/$(basename "$d").origin.git"` | **IT DOES NOT.** `basename ""` is `.`, so seven of the eleven fixtures shared ONE bare at `$TOPTMP/.origin.git`. **FIXED 2026-09-23** — two statements; suite still 100/0 |
+
+**The derivation, scope stated so the table can be re-checked**: single-`local` statements only
+(`local a=X; local b=$a` on one line is two commands and is safe), over `scripts/`, `init.sh`,
+`tests/` and `templates/`, matching a later name that expands an earlier one from the same
+statement. That is four hits today. The measurement that found the fourth one broken:
+
+```
+$ bash tests/test-bl233-wpb-accumulation.sh   # with a probe line added to add_origin
+=== distinct bares ===   7 .origin.git]   1 fixaHX0Xk.origin.git]   1 fixAyFyxX.origin.git]
+                         1 fix3qFi8i.origin.git]   1 fix2BLiUy.origin.git]
+=== total add_origin calls ===   11
+Results: 100 passed, 0 failed
+```
+
+The suite was green throughout; what was lost was its hermeticity, which no assertion looked at.
+
+**Why the remaining three are filed rather than swept.** Fixing them is a two-line change each and
+carries a real risk of its own: a site whose behaviour today comes from the caller's variable may CHANGE behaviour
+when it starts reading its own argument, and two of the three are inside the adoption write phase.
+Each wants its own execution proof, not a sed. The rule going forward is the same one CLAUDE.md gives
+for the 4.0 trap: **assign at the declaration**, applied to code you are already touching —
+`adopt-record.sh` does, with the reason in the comment.
+
+**Related:** `## BL-242:` (the package that surfaced it).
+
