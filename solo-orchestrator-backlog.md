@@ -14775,10 +14775,22 @@ transcription is now pinned against its source by that source's own literal text
 original cannot part company in silence.
 
 Mutation proofs: un-indenting every table cell the renderer emits (the "well-meaning editor fix"
-§8.8 names) → **7 passed / 3 failed**; commenting out clause 5 → **8 passed / 2 failed**. *(The
-commit message says "23 table cells". That number does not derive under any counting — 33 source
-lines emit an indented row, 24 indented rows appear in a zero-findings record, 16 of those are data
-rows. The mutation reproduces exactly; only the count is wrong. Do not quote it.)*
+§8.8 names) → **7 passed / 3 failed**; commenting out clause 5 → **8 passed / 2 failed**.
+
+*(**THE CELL COUNT HAS NOW BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND THE SECOND TIME WAS IN THE
+SENTENCE SAYING NOT TO QUOTE THE FIRST.** The commit message said "23 table cells"; the correction
+said 33 source lines / 24 indented rows / 16 data rows, derived against the tree BEFORE the same
+commit's own `Scanner version` row. Both are superseded. Derive it — two numbers, both from a
+RENDERED record rather than from source, because two people counting source lines got two different
+answers:*
+
+```
+zero-findings record: indented rows=25  data rows=17
+```
+
+*A record WITH one finding and a dispositions file has more; the original "23" is what that shape
+gives. The lesson is the one this block already carried and did not apply to itself: a count is a
+measurement of a tree, and a commit that adds a row invalidates every count taken before it.)*
 
 **AND A5 WAS VACUOUS UNTIL A MUTATION SAID SO.** Clause 5 and a stronger "clause 5b" shipped as two
 `if`s; deleting clause 5 outright left the suite at **10/0**, because every Date row the clause-5
@@ -21308,8 +21320,9 @@ resolution rather than a status word — plus a migration position for hosts tha
 
 ## BL-307: `local a="$1" b="$a/x"` — one `local` statement never sees its own earlier assignment, and the wrong value is silent
 
-**Status:** Open — **four** sites carry the shape. Two are harmless only by accident of bash's
-dynamic scoping, one is not obviously either, and the fourth is genuinely broken.
+**Status:** Open — **four** sites carried the shape when this was filed; **three remain**, the fourth
+having been fixed here. Two of the three are harmless only by accident of bash's dynamic scoping and
+one is not obviously either.
 
 *(This entry said THREE for one commit, and did not state its derivation scope, so a reader took the
 table as the population. The missed site is the one that is actually wrong — the "grep under-reads
@@ -21366,8 +21379,8 @@ Results: 100 passed, 0 failed
 
 The suite was green throughout; what was lost was its hermeticity, which no assertion looked at.
 
-**Why it is filed rather than swept.** Fixing the three is a two-line change each and carries a real
-risk of its own: a site whose behaviour today comes from the caller's variable may CHANGE behaviour
+**Why the remaining three are filed rather than swept.** Fixing them is a two-line change each and
+carries a real risk of its own: a site whose behaviour today comes from the caller's variable may CHANGE behaviour
 when it starts reading its own argument, and two of the three are inside the adoption write phase.
 Each wants its own execution proof, not a sed. The rule going forward is the same one CLAUDE.md gives
 for the 4.0 trap: **assign at the declaration**, applied to code you are already touching —

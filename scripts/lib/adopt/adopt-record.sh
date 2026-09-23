@@ -333,18 +333,38 @@ adopt_record_placed_last() {                          # BL-242-RECORD-PLACEMENT
 # predicate written so the contract would not rest on an accident of placement.
 # `.*` has no multibyte dependency in any locale.
 #
-# ── AND `Pre-Phase 0`, BECAUSE ITS READER HAS THE WIDEST WINDOW OF ALL ──────
-# `check-phase-gate.sh` counts ISO dates in `grep -A 30 "Pre-Phase 0"` with no
-# `^## ` bound. Clause 2 forbids that literal INSIDE the record; nothing bounded
-# the record's distance from a TEMPLATE one. Thirty lines, because that is the
-# widest window any reader opens.
+# ── EACH ARM TAKES ITS OWN READER'S WIDTH, DERIVED FROM THAT READER ─────────
+# A first cut used 10 for the gate arm and called 30 "the widest window any
+# reader opens". Both halves of that were wrong, and the gate half was wrong in
+# the unsafe direction. The windows, read out of `scripts/check-phase-gate.sh`:
+#
+#   grep -A 20 "$gate_name"                          :1527  the walker's
+#                                                           PERMISSIVE
+#                                                           pre-extraction, from
+#                                                           which
+#                                                           validate_approval_fields
+#                                                           pulls an approver
+#   grep -A 15 "Retroactive Phase 1.*Phase 2.*STA"   :2327  anchor ALSO matched
+#                                                           by this arm's own
+#                                                           `Phase N…Phase N`
+#   grep -A 30 "Pre-Phase 0"                         :1830  no `^## ` bound at
+#                                                           all; the widest
+#
+# So the gate arm is TWENTY, not ten — `adopt_record_placed_last`'s own header
+# names `grep -A 20` as a window the placement must defeat, and this predicate
+# was refusing only at +10 beneath it. Demonstrated at +11: the walker's
+# pre-extraction reached into the record and `validate_approval_fields` pulled
+# an `Approver` out of it. Not reachable on either shipped template — the record
+# lands ~80 lines below the last gate section — but reachable on an
+# operator-authored or truncated `APPROVAL_LOG.md`, which is exactly the case
+# this predicate exists for rather than trusting placement.
 adopt_record_window_clean() {                         # BL-242-RECORD-WINDOW
   local log="$1" rec last_gate last_pre
   [ -f "$log" ] || return 1
   rec="$(grep -n "^$ADOPT_RECORD_HEADING\$" "$log" | head -1 | cut -d: -f1)"
   [ -n "$rec" ] || return 1
   last_gate="$(grep -nE 'Phase [0-9].*Phase [0-9]' "$log" | tail -1 | cut -d: -f1)"
-  if [ -n "$last_gate" ] && [ "$rec" -le "$((last_gate + 10))" ]; then
+  if [ -n "$last_gate" ] && [ "$rec" -le "$((last_gate + 20))" ]; then
     return 1
   fi
   last_pre="$(grep -nF 'Pre-Phase 0' "$log" | tail -1 | cut -d: -f1)"
@@ -522,19 +542,28 @@ _adopt_rec_dispositions() {
   f="${ADOPT_DISPOSITIONS_FILE:-}"
   if [ -n "$f" ] && [ -f "$f" ] && command -v jq >/dev/null 2>&1; then
     # ── THE ROWS ARE EXTRACTED FIRST, AND A FAILED EXTRACTION IS SAID OUT
-    #    LOUD. `@tsv` ABORTS on a non-scalar — a `reason` that is an object, a
-    #    `disposition` that is an array — and the abort lands mid-stream:
+    #    LOUD. Two separate mechanisms, and the comment that used to sit here
+    #    conflated them — it motivated the whole guard with an abort the very
+    #    line it annotates makes impossible.
     #
-    #      jq -r '…| @tsv' disp.json 2>/dev/null ; echo rc=$?
-    #      rc=5        # and zero rows printed
+    #    `map(tostring)` handles the NON-SCALAR case, which is what `@tsv` used
+    #    to abort on (`rc=5`, zero rows printed, piped straight into a table
+    #    that then had a heading, a header row and nothing else at rc 0):
     #
-    #    Piped straight into the table that produced a heading, a header row
-    #    and NOTHING ELSE, at rc 0, in the document whose job is to record what
-    #    was decided. On organizational tier `adopt_dispositions_satisfy`
-    #    refuses such a file first; on PERSONAL tier the findings arm never
-    #    calls it and `--dispositions` is read here with no validation, so that
-    #    is a live silent-empty. `tostring` makes every scalar-ish value
-    #    printable, and the rc is checked rather than discarded.
+    #      jq -r '… | @tsv'                 d_obj.json   rc=5   0 rows
+    #      jq -r '… | map(tostring) | @tsv' d_obj.json   rc=0   fp  accepted-risk  A  {"nested":"object"}
+    #
+    #    `tostring` is TOTAL over JSON, so that abort can no longer happen and
+    #    a comment claiming it as the reason for the guard is the same defect
+    #    as a comment naming a lint that was never shipped.
+    #
+    #    The `_ok` guard covers what remains and is still reachable: a file
+    #    that is not parseable JSON at all. Verified end-to-end on a
+    #    personal-tier run with a junk `--dispositions` file — the record says
+    #    the file could not be read instead of rendering an empty table. That
+    #    path matters most on PERSONAL tier, where the findings arm never calls
+    #    `adopt_dispositions_satisfy` and `--dispositions` reaches here with no
+    #    validation at all.
     # THE DESTINATION IS SPELLED AT EVERY WRITE SITE, not held in a local.
     # tests/test-bl225-staging-preflight.sh T9 is a denylist over write SHAPES
     # with an allowlist of destinations that are not the adoptee's tree, and a

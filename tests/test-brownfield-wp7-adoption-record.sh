@@ -113,17 +113,20 @@ J
 # really produce, each aimed at one clause.
 cat > "$WORK/hostile.json" <<'J'
 {"secrets":{"tool":"gitleaks","status":"scanned","scannedBy":"adoption","rulesSource":"framework",
- "commitsScanned":412,"findingCount":2,
+ "commitsScanned":412,"findingCount":3,
  "findings":[
   {"ruleId":"aws-access-key","file":"src/Phase 0 to Phase 1/cfg.yml","startLine":3,"fingerprint":"hostilefp1"},
-  {"ruleId":"generic-api-key","file":"a|b/c.env","startLine":9,"fingerprint":"hostilefp2"}]}}
+  {"ruleId":"generic-api-key","file":"a|b/c.env","startLine":9,"fingerprint":"hostilefp2"},
+  {"ruleId":"private-key","file":"deploy/id_rsa","startLine":1,"fingerprint":"hostilefp3"}]}}
 J
 cat > "$WORK/hostile-disp.json" <<'J'
 {"dispositions":[
   {"fingerprint":"hostilefp1","disposition":"rotated","by":"A Person",
    "reason":"rotated per [YYYY-MM-DD] | see ticket","date":"2026-09-22"},
   {"fingerprint":"hostilefp2","disposition":"accepted-risk","by":"IT Security Approval",
-   "reason":"Pre-Phase 0 leftover","date":"2026-09-22"}],
+   "reason":"Pre-Phase 0 leftover","date":"2026-09-22"},
+  {"fingerprint":"hostilefp3","disposition":"accepted-risk","by":"pen test team",
+   "reason":"exempted by policy until Q3","date":"2026-09-22"}],
  "acknowledgements":[
   {"kind":"tool-unavailable","by":"Someone",
    "reason":"penetration test was exempted for this repo","date":"2026-09-22"}]}
@@ -133,18 +136,22 @@ J
 # A1 — IT RENDERS, AND IT SAYS SOMETHING
 # ═══════════════════════════════════════════════════════════════════════════
 a1() {
-  local label="A1 the record renders and carries its sections (vacuity floor)"
-  local out="$WORK/a1.md" n
+  local label="A1 the record renders and carries its sections and its named rows (vacuity floor)"
+  local out="$WORK/a1.md" n _r bad1=""
   _render "$WORK/benign.json" "" "$out" || { fail_ "$label" "the renderer exited non-zero"; return; }
   [ -s "$out" ] || { fail_ "$label" "the renderer produced nothing"; return; }
+  # NAMED ROWS, NOT ONLY A SECTION COUNT. Deleting the `Scanner version` row —
+  # which docs/adoption.md advertises in bold and prints in a code block — left
+  # this suite at 11/0.
+  for _r in 'Recorded on' 'Adopted at commit' 'Scanner' 'Scanner version' 'Outcome' \
+            'Source files with no test' 'Hooks directory git will use'; do
+    grep -qF "| $_r |" "$out" || bad1="$bad1 [the record has no '$_r' row]"
+  done
   n=$(grep -c '^### ' "$out")
   # An EMPTY record satisfies all eight clauses. Without this floor every
   # clause case below would pass against a renderer that had stopped working.
-  if [ "$n" -ge 4 ]; then
-    pass "$label ($n sections)"
-  else
-    fail_ "$label" "only $n '### ' sections — a record that says nothing satisfies every clause vacuously"
-  fi
+  [ "$n" -ge 4 ] || bad1="$bad1 [only $n '### ' sections — a record that says nothing satisfies every clause vacuously]"
+  [ -z "$bad1" ] && pass "$label ($n sections)" || fail_ "$label" "$bad1"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -201,6 +208,33 @@ a4() {
   # has an updater in it.
   grep -q 'src/updater/config.yml' "$benign" || bad="$bad [an ordinary path containing 'update' was withheld — clause 6 is over-broad]"
   grep -q 'withheld' "$benign" && bad="$bad [the benign record withholds something — the sanitiser is over-broad]"
+  # ── THE DIRECTION, NOT JUST THE FACT. `_adopt_rec_row` withholds from the
+  #    RIGHT, because the rightmost cell is the free-text reason and losing it
+  #    costs less than losing the fingerprint that says which finding the row is
+  #    about. Inverting the loop to withhold from the LEFT left this suite at
+  #    11/0 while producing the opposite of what the module comment and
+  #    docs/adoption.md both promise: the fingerprint, the outcome and the
+  #    signer destroyed, and the dangerous free text KEPT. The greps above
+  #    cannot see it — `hostilefp1` also appears in the findings table, and
+  #    `accepted-risk` / `A Person` survive on the benign row.
+  #    The assertion is on the LEFTMOST cells, because that is what "direction"
+  #    means here. On the `accepted-risk` row BOTH trailing cells are
+  #    legitimately withheld — its signer is literally `IT Security Approval`,
+  #    a clause 2 literal, caught per-cell before the row is even assembled.
+  #    `hostilefp3` IS THE ROW THAT PROVES IT, and the first attempt used the
+  #    wrong one. `hostilefp2`'s signer is literally `IT Security Approval` and
+  #    its reason carries `Pre-Phase 0`, so BOTH are caught per-cell and the row
+  #    loop never runs — direction is unobservable there. `hostilefp3` is
+  #    `pen test team` + `exempted by policy until Q3`: every cell passes alone
+  #    and only the ASSEMBLED row trips, so the loop runs and its direction is
+  #    visible. Withholding from the left leaves the free text and destroys the
+  #    fingerprint; from the right, the opposite.
+  grep -qE '^    \| hostilefp3 \| accepted-risk \| pen test team \| \(withheld' "$hostile" \
+    || bad="$bad [the cross-cell row did not keep fingerprint+outcome+signer and lose only its reason — withholding is running in the wrong direction]"
+  grep -q 'exempted by policy until Q3' "$hostile" \
+    && bad="$bad [the dangerous free text SURVIVED into the record]"
+  grep -qE '^    \| hostilefp1 \| rotated \| A Person \|' "$hostile" \
+    || bad="$bad [a row that trips nothing lost a cell anyway]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
@@ -287,13 +321,24 @@ a6() {
     _adopt_rec_render() { printf '%s\n\n%s\n' '## Adoption Record' '| Date | 2026-09-22 |' > "$3"; }
     adopt_write_adoption_record "$proj" "$WORK/benign.json"
     printf 'rc=%s\n' "$?"
-  ) > "$out" 2>&1
+  ) > "$out" 2> "$WORK/a6.err"
+  cat "$WORK/a6.err" >> "$out"
   rc="$(grep -o 'rc=[0-9]*' "$out" | tail -1)"
   after="$(wc -c < "$proj/APPROVAL_LOG.md" | tr -d ' ')"
   local bad=""
   [ "$rc" = "rc=1" ] || bad="$bad [the writer returned $rc, not 1]"
   grep -q 'REFUSED' "$out" || bad="$bad [no refusal was printed]"
   grep -q 'clause 5' "$out" || bad="$bad [the refusal does not name the failing clause]"
+  # ON STDERR SPECIFICALLY, AND THAT IS THE WHOLE OF THE FIX THIS PINS. The
+  # pre-write rehearsal runs the write phase `>/dev/null 2>"$_reh_err"` and
+  # relays only stderr, so clause lines printed with `adopt_note` (stdout)
+  # reached nobody — the one refusal whose cause is the operator's own text was
+  # the one whose cause was discarded. Reverting the two `printf … >&2` lines to
+  # `adopt_note` left wp7, wp4 AND wp9b all green, so nothing pinned it and the
+  # next person to tidy a stray `>&2` would have taken it out again.
+  if grep -q 'clause 5' "$WORK/a6.err" 2>/dev/null; then :; else
+    bad="$bad [the clause line is not on STDERR — the rehearsal relays only stderr, so the operator would never see it]"
+  fi
   [ "$before" = "$after" ] || bad="$bad [APPROVAL_LOG.md changed size $before -> $after; something was appended anyway]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
@@ -337,21 +382,51 @@ a7() {
 # A8 — PLACEMENT IS DERIVED, NOT ASSUMED
 # ═══════════════════════════════════════════════════════════════════════════
 a8() {
-  local label="A8 the placement predicates are false when the record is not last, or sits in a gate window"
+  local label="A8 the placement predicates refuse inside each reader's window and accept outside it"
   local log="$WORK/a8.md" bad=""
   _p() { ( set +u; . "$LIB/adopt-record.sh"; adopt_record_placed_last "$1" ); }
   _w() { ( set +u; . "$LIB/adopt-record.sh"; adopt_record_window_clean "$1" ); }
-  { printf '%s\n' '## Phase Gate: Phase 0 → Phase 1'
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'filler %s\n' "$i"; done
-    printf '%s\n' '## Adoption Record'; } > "$log"
+  # _fill HEADER N — a log with the record N lines below HEADER.
+  _fill() {
+    local hdr="$1" n="$2" i=1
+    printf '%s\n' "$hdr" > "$log"
+    while [ "$i" -lt "$n" ]; do printf 'filler %s\n' "$i" >> "$log"; i=$((i + 1)); done
+    printf '%s\n' '## Adoption Record' >> "$log"
+  }
+
+  # ── THE GATE ARM. Twenty, because `check-phase-gate.sh:1527` opens
+  #    `grep -A 20 "$gate_name"` for the walker's permissive pre-extraction —
+  #    the one `validate_approval_fields` pulls an approver out of. A first cut
+  #    refused only at +10 and accepted a record at +11, from which that
+  #    pre-extraction really did read an `Approver` row out of the record.
+  #    Both sides of the boundary are asserted, or a predicate that refused
+  #    EVERYTHING would pass the refusal half alone.
+  _fill '## Phase Gate: Phase 0 → Phase 1' 15
+  _w "$log" && bad="$bad [window_clean accepts a record 15 lines below a gate header — the walker's grep -A 20 reaches it]"
+  _fill '## Phase Gate: Phase 0 → Phase 1' 21
+  _w "$log" || bad="$bad [window_clean refuses a record 21 lines below a gate header — the gate window is 20, not wider]"
   _p "$log" || bad="$bad [placed_last is false for a record that IS last]"
-  _w "$log" || bad="$bad [window_clean is false for a record 13 lines below the gate header]"
   printf '%s\n' '## Something Else' >> "$log"
   _p "$log" && bad="$bad [placed_last is still true after a later '## ' section was appended]"
-  { printf '%s\n' '## Phase Gate: Phase 3 → Phase 4'
-    printf '%s\n' '## Adoption Record'; } > "$log"
-  _w "$log" && bad="$bad [window_clean is true for a record one line below a gate header — check_gate's grep -A 10 reaches it]"
-  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+  _fill '## Phase Gate: Phase 3 → Phase 4' 1
+  _w "$log" && bad="$bad [window_clean is true for a record one line below a gate header]"
+
+  # ── THE `Pre-Phase 0` ARM, WHICH SHIPPED WITH NO CASE AT ALL. Deleting the
+  #    whole arm left this suite at 11/0 — product code added by the commit
+  #    that exists to remove exactly this, in the predicate it exists to fix.
+  #    Thirty, from `check-phase-gate.sh:1830`'s `grep -A 30 "Pre-Phase 0"`,
+  #    which has no `^## ` bound at all and is the widest reader in the file.
+  _fill '## Pre-Phase 0: Pre-Conditions' 10
+  _w "$log" && bad="$bad [window_clean accepts a record 10 lines below Pre-Phase 0 — its reader's window is 30]"
+  _fill '## Pre-Phase 0: Pre-Conditions' 25
+  _w "$log" && bad="$bad [window_clean accepts a record 25 lines below Pre-Phase 0 — still inside the 30-line window]"
+  _fill '## Pre-Phase 0: Pre-Conditions' 31
+  _w "$log" || bad="$bad [window_clean refuses a record 31 lines below Pre-Phase 0 — the window is 30, not wider]"
+
+  # A log with NEITHER literal: the readers have nothing to open a window on.
+  { printf '%s\n' '# Approval Log'; printf '%s\n' '## Adoption Record'; } > "$log"
+  _w "$log" || bad="$bad [window_clean refuses a log carrying no gate header and no Pre-Phase 0 at all]"
+  [ -z "$bad" ] && pass "$label (gate arm at 20, Pre-Phase 0 arm at 30, both sides of each boundary)" || fail_ "$label" "$bad"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -554,7 +629,34 @@ a11() {
   fi
 }
 
-a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11
+# ═══════════════════════════════════════════════════════════════════════════
+# A12 — THE ROW PREDICATE'S THREE ARMS, PINNED DIRECTLY
+#
+# `_adopt_rec_row_trips` has three arms and only one of them — the pen-test
+# regex — is reachable through table assembly, because `pen.*test.*exempted`
+# spans the ` | ` cell separator and the other two are literal substrings that
+# the separator breaks. So deleting the clause 2 arm left the suite at 11/0.
+#
+# THE HONEST ANSWER IS TO PIN IT AS A UNIT RATHER THAN PRETEND IT IS REACHABLE.
+# Cross-cell assembly of `Application Owner Approval` cannot happen through a
+# markdown row — `| Application Owner | Approval granted |` does not contain the
+# literal — so the arm is defence in depth against a future caller that builds
+# a row some other way. That is a real reason to keep it and not a reason to
+# claim a behavioural proof this suite cannot give.
+# ═══════════════════════════════════════════════════════════════════════════
+a12() {
+  local label="A12 each arm of the row predicate fires, and a clean row does not"
+  local bad=""
+  _t() { ( set +u; . "$LIB/adopt-record.sh"; _adopt_rec_row_trips "$1" ); }
+  _t '    | fp | ok | Phase 0 to Phase 1 | x |'                 || bad="$bad [arm 1 (Phase) does not fire]"
+  _t '    | fp | ok | IT Security Approval | x |'               || bad="$bad [arm 2 (named approval literal) does not fire]"
+  _t '    | fp | ok | Pre-Phase 0 | x |'                        || bad="$bad [arm 2 (Pre-Phase 0) does not fire]"
+  _t '    | fp | ok | pen test team | exempted by policy |'     || bad="$bad [arm 3 (pen-test, ACROSS CELLS) does not fire]"
+  _t '    | fp | accepted-risk | A Person | rotated in Q1 |'    && bad="$bad [a clean row trips the predicate — it would withhold everything]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11; a12
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

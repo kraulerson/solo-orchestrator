@@ -517,7 +517,8 @@ findings lived in your terminal scrollback and nowhere else — the driver said 
 out loud, and the personal-tier secrets block told you to *keep this transcript*,
 because real credentials found in your history had no permanent home.
 
-It records, in five sections:
+It records, in these sections (six on a clean project, eight when you supply
+a `--dispositions` file):
 
 - **How this project was adopted** — the day, the enforcement tier, whether
   proof-of-concept mode is on, and **the commit you were sitting on** when
@@ -529,6 +530,8 @@ It records, in five sections:
   read, and how many findings there were:
 
   ```text
+      | Field | Value |
+      |---|---|
       | Scanner | gitleaks |
       | Scanner version | 8.30.1 |
       | Run by | adoption |
@@ -537,6 +540,10 @@ It records, in five sections:
       | Commits read | 412 |
       | Findings | 1 |
   ```
+
+  *(The two header rows are part of what the renderer emits; an earlier draft of
+  this block dropped them, which made it an edited excerpt on a page that
+  promises transcripts. The counts are this fixture's, not a universal.)*
 - **The findings, by fingerprint** — one row per match: the rule, the file and
   line, and the fingerprint. **Never the matched value.** If you supplied a
   `--dispositions` file, what was decided about each one and by whom follows in
