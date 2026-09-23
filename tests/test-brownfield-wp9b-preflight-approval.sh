@@ -1906,10 +1906,26 @@ else
       grep -qx '## Pre-Phase 0: Pre-Conditions' "$TM2C/p/APPROVAL_LOG.md" 2>/dev/null && TM2C_TMPL=1
       TM2C_REC=0
       grep -qx '## Adoption Record' "$TM2C/p/APPROVAL_LOG.md" 2>/dev/null && TM2C_REC=1
-      if [ "$TM2C_RC" -eq 0 ] && [ "$TM2C_TMPL" -eq 0 ] && [ "$TM2C_REC" -eq 1 ]; then
-        pass "TM2c (MUTATION) — with BOTH guards gone the project is adopted at rc 0 carrying an APPROVAL_LOG.md with NO approval log in it ($TM2C_BYTES bytes, all of it the Adoption Record): the guards are what stop it"
+      # THE ORIGINAL DISCRIMINATOR, RESTORED. The `bytes <= 1` this case used to
+      # assert was the sharp half and the first update dropped it, leaving
+      # `TM2C_TMPL=0` carrying the weight — which is near-tautological here,
+      # because the fixture ZEROES the template, so its header cannot appear
+      # under any mutation. A writer that emitted a hard-coded fallback log
+      # instead of an empty one would have failed the old assertion and passed
+      # that one. Measure the log BEFORE the record starts: that region is what
+      # the writer produced, and it must still be empty.
+      # CONTENT, NOT A BYTE COUNT, because the record prepends its own `---`
+      # separator and a raw count of the region before its heading measures
+      # that too (7 bytes, not the writer's 1 — measured). What this owns is
+      # that the approval-log half carries no CONTENT: strip the record's
+      # separator and the blank lines and nothing is left.
+      TM2C_PRE="$(awk '/^## Adoption Record$/{exit} {print}' "$TM2C/p/APPROVAL_LOG.md" 2>/dev/null \
+                  | grep -vE '^[[:space:]]*$|^---$' | grep -c .)"
+      TM2C_PRE="$(_num "$TM2C_PRE")"
+      if [ "$TM2C_RC" -eq 0 ] && [ "$TM2C_TMPL" -eq 0 ] && [ "$TM2C_REC" -eq 1 ] && [ "$TM2C_PRE" -eq 0 ]; then
+        pass "TM2c (MUTATION) — with BOTH guards gone the project is adopted at rc 0 carrying an APPROVAL_LOG.md whose approval-log half has $TM2C_PRE lines of content ($TM2C_BYTES bytes total, all of it the Adoption Record): the guards are what stop it"
       else
-        fail_ "TM2c (MUTATION)" "rc=$TM2C_RC template_header=$TM2C_TMPL (want 0) record_header=$TM2C_REC (want 1) bytes=$TM2C_BYTES — the mutation produced no silent success"
+        fail_ "TM2c (MUTATION)" "rc=$TM2C_RC template_header=$TM2C_TMPL (want 0) record_header=$TM2C_REC (want 1) pre_record_content_lines=$TM2C_PRE (want 0) bytes=$TM2C_BYTES — the mutation produced no silent success"
       fi
     fi
   fi

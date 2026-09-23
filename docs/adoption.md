@@ -524,9 +524,19 @@ It records, in five sections:
   adoption ran. That commit is the anchor that bounds the pre-adoption TDD
   exemption: everything at or before it is history the framework inherited, and
   every commit after it is held to the ordinary rules.
-- **What the credential scan read, and what it found** — the scanner and its
-  version source, who ran it, under whose rules, the outcome, how many commits
-  it read, and how many findings there were.
+- **What the credential scan read, and what it found** — the scanner, **its
+  version**, who ran it, under whose rules, the outcome, how many commits it
+  read, and how many findings there were:
+
+  ```text
+      | Scanner | gitleaks |
+      | Scanner version | 8.30.1 |
+      | Run by | adoption |
+      | Rules | framework |
+      | Outcome | scanned |
+      | Commits read | 412 |
+      | Findings | 1 |
+  ```
 - **The findings, by fingerprint** — one row per match: the rule, the file and
   line, and the fingerprint. **Never the matched value.** If you supplied a
   `--dispositions` file, what was decided about each one and by whom follows in
@@ -555,27 +565,39 @@ gate section.
 
 **The contract is checked before a byte is written.** If the rendered record
 would violate any clause, nothing is appended and the run refuses, naming the
-clause. The reason it is enforced rather than merely written carefully is that
-part of the record is *your* text — a path inside your repository, the reason
-you wrote on a disposition — and some ordinary sentences are dangerous here. A
-disposition reason of *"penetration test was exempted for this repo"* would, if
-copied in verbatim, satisfy the framework's pen-test exemption check outright:
-that check takes no window and no date, it greps the whole file. So a cell whose
-text spells one of those phrases is **withheld**, with a stand-in that says why,
-and the rest of the row is kept:
+clause on stderr. The reason it is enforced rather than merely written carefully
+is that part of the record is *your* text — a path inside your repository, the
+name and reason you wrote on a disposition — and some entirely ordinary
+sentences are dangerous here. A disposition signed by a *"pen test team"* with
+the reason *"exempted by policy until Q3"* assembles into a line matching the
+framework's pen-test exemption check, which takes no window and no date: it
+greps the whole file. Copied in verbatim, two innocent cells would tell this
+framework a penetration test had been exempted.
+
+So the **row** is tested as a row, and cells are withheld from the right until
+it is clean. Real output, from that exact input:
 
 ```text
     | Fingerprint | Outcome | Decided by | Reason |
     |---|---|---|---|
-    | def456 | accepted-risk | (withheld: this text spells a phrase this log is parsed for) | … |
+    | dedba58f988140f973b013670a4d6834664b873a:src/config.py:generic-api-key:2 | accepted-risk | pen test team | (withheld: this text spells a phrase this log is parsed for) |
 ```
+
+The fingerprint, the outcome and the person all survive; only the free-text
+reason goes, because it is the rightmost cell and the cheapest to lose.
 
 It is withheld rather than rewritten on purpose. Lowercasing your `Phase` or
 clipping your `exempted` would put words in your mouth, quietly, in the one
 document that exists to be trusted later. And it is withheld rather than
-refused, because an adoption must not fail over a directory name. Ordinary text
-that merely *resembles* a trigger is untouched — a finding in
+refused, because an adoption must not fail over a security team's name. Ordinary
+text that merely *resembles* a trigger is untouched — a finding in
 `src/updater/config.yml` is printed exactly as it is.
+
+*(The first cut of this checked each cell in isolation, which is not what the
+readers do — they read lines. A real organizational adoption with the
+disposition above was **refused outright**, with the reason discarded by the
+rehearsal's output relay. Both are fixed: the row is tested as a row, and the
+failing clause is printed on stderr so the rehearsal relays it.)*
 
 **Written once.** A second run finds the heading and leaves the log alone; the
 record is never rewritten, for the same reason the adoption stamp refuses to be

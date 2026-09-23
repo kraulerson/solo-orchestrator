@@ -14759,15 +14759,26 @@ no safety, since the reader it defeats needs PROXIMITY to a gate header, which
 `adopt_record_window_clean` forecloses by derivation. Clause 6 is now scoped to the record's own
 PROSE; the indented operator rows are exempt.
 
-**Proof.** `tests/test-brownfield-wp7-adoption-record.sh`, 10 cases, unit lane. A9 is the one the
-other nine support: it assembles a real `APPROVAL_LOG.md` from the shipped template plus a real
-rendered record and runs the framework's OWN gate-evidence predicates over it — four gates ×
-`_cpg_gate_has_evidence`, four × `check_gate`'s `grep -A 10 … | grep -i date`, plus the whole-file
-pen-test grep — and requires every one to report nothing, with a PLANTED positive control proving
-the transcribed readers can still fire.
+**Proof.** `tests/test-brownfield-wp7-adoption-record.sh`, 11 cases, unit lane. A9 is the one the
+other ten support: it assembles a real `APPROVAL_LOG.md` from **both** shipped templates plus a real
+rendered record and runs **transcriptions** of the framework's four gate-evidence readers over it —
+`_cpg_gate_has_evidence` × four gates, `check_gate`'s `grep -A 10 … | grep -i date` × four, the
+whole-file pen-test grep, and the `Pre-Phase 0` thirty-line counter — requiring every one to report
+nothing, with a planted positive control per reader.
 
-Mutation proofs: un-indenting the record's 23 table cells (the "well-meaning editor fix" §8.8 names)
-→ **7 passed / 3 failed**; commenting out clause 5 → **8 passed / 2 failed**.
+**TRANSCRIPTIONS, NOT THE READERS THEMSELVES, and the first version of this paragraph said
+otherwise.** They are hand-copied because the sources are a 2300-line gate and a whole validator
+with their own preconditions; what is under test is the PREDICATE. The cost is drift, and drift in
+the direction that matters — a reader getting LOOSER upstream — is invisible by construction.
+Measured: deleting the `^` anchor from the REAL `_cpg_gate_has_evidence` left the suite at 10/0. Each
+transcription is now pinned against its source by that source's own literal text, so the copy and the
+original cannot part company in silence.
+
+Mutation proofs: un-indenting every table cell the renderer emits (the "well-meaning editor fix"
+§8.8 names) → **7 passed / 3 failed**; commenting out clause 5 → **8 passed / 2 failed**. *(The
+commit message says "23 table cells". That number does not derive under any counting — 33 source
+lines emit an indented row, 24 indented rows appear in a zero-findings record, 16 of those are data
+rows. The mutation reproduces exactly; only the count is wrong. Do not quote it.)*
 
 **AND A5 WAS VACUOUS UNTIL A MUTATION SAID SO.** Clause 5 and a stronger "clause 5b" shipped as two
 `if`s; deleting clause 5 outright left the suite at **10/0**, because every Date row the clause-5
@@ -21297,8 +21308,13 @@ resolution rather than a status word — plus a migration position for hosts tha
 
 ## BL-307: `local a="$1" b="$a/x"` — one `local` statement never sees its own earlier assignment, and the wrong value is silent
 
-**Status:** Open — three sites carry the shape; two are currently harmless only by accident of bash's
-dynamic scoping, and one is not obviously either.
+**Status:** Open — **four** sites carry the shape. Two are harmless only by accident of bash's
+dynamic scoping, one is not obviously either, and the fourth is genuinely broken.
+
+*(This entry said THREE for one commit, and did not state its derivation scope, so a reader took the
+table as the population. The missed site is the one that is actually wrong — the "grep under-reads
+this surface" history CLAUDE.md records, reproduced inside the entry written about a bug found by
+that same class. Found by adversarial review.)*
 
 **Found:** 2026-09-22 while building WP7/1's `adopt_write_adoption_record`, whose first draft wrote
 `local root="$1" report="$2" log="$root/APPROVAL_LOG.md"`. Every run refused with
@@ -21333,6 +21349,22 @@ own command and is fine):
 | `scripts/lib/adopt/adopt-state.sh` `adopt_write_write_set` | `local root="$1" dest="$root/$ADOPT_WRITE_SET_REL"` | its caller `_adopt_write_phase` has a `local root` with the same value — dynamic scoping, not correctness |
 | `scripts/lib/adopt/adopt-test-debt.sh` `_td_tier_trusted` | `local root="$1" manifest="$root/.claude/manifest.json"` | same: the caller's `root` |
 | `scripts/upgrade-project.sh` `_bl099_rendered_doc_notice` | `local label="$1" prel="$2" src="$3" pfile="$PROJECT_ROOT/$prel"` | **not established** — its one call site at `# BL-099-DOC-GUARD` does hold a `prel`, but that has not been proven by execution |
+| `tests/test-bl233-wpb-accumulation.sh` `add_origin` | `local d="$1" bare="$TOPTMP/$(basename "$d").origin.git"` | **IT DOES NOT.** `basename ""` is `.`, so seven of the eleven fixtures shared ONE bare at `$TOPTMP/.origin.git`. **FIXED 2026-09-23** — two statements; suite still 100/0 |
+
+**The derivation, scope stated so the table can be re-checked**: single-`local` statements only
+(`local a=X; local b=$a` on one line is two commands and is safe), over `scripts/`, `init.sh`,
+`tests/` and `templates/`, matching a later name that expands an earlier one from the same
+statement. That is four hits today. The measurement that found the fourth one broken:
+
+```
+$ bash tests/test-bl233-wpb-accumulation.sh   # with a probe line added to add_origin
+=== distinct bares ===   7 .origin.git]   1 fixaHX0Xk.origin.git]   1 fixAyFyxX.origin.git]
+                         1 fix3qFi8i.origin.git]   1 fix2BLiUy.origin.git]
+=== total add_origin calls ===   11
+Results: 100 passed, 0 failed
+```
+
+The suite was green throughout; what was lost was its hermeticity, which no assertion looked at.
 
 **Why it is filed rather than swept.** Fixing the three is a two-line change each and carries a real
 risk of its own: a site whose behaviour today comes from the caller's variable may CHANGE behaviour

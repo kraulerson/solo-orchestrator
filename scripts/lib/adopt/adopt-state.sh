@@ -1405,7 +1405,13 @@ adopt_write_write_set() {
   { adopt_written_paths; printf '%s\n' "$ADOPT_WRITE_SET_REL"; } | LC_ALL=C sort -u > "$tmp" || {
     adopt_block "could not write the write set"; rm -f "$tmp" 2>/dev/null; return 1; }
   mv "$tmp" "$dest" || { adopt_block "could not write the write set"; rm -f "$tmp" 2>/dev/null; return 1; }
-  adopt_record_written "$ADOPT_WRITE_SET_REL"
+  # `adopt_record_write`, NOT `adopt_record_written`. The typo made this line a
+  # `command not found` on stderr of EVERY adoption, so the write set never
+  # recorded ITSELF — which is the one property `## BL-291:`'s own comment four
+  # lines above calls load-bearing: "it must include ITSELF or a finish would
+  # re-stage everything except this file". Found by adversarial review reading
+  # the stderr of a real run; no test looked at stderr.
+  adopt_record_write "$ADOPT_WRITE_SET_REL"
   return 0
 }
 

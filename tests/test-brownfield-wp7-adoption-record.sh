@@ -187,6 +187,15 @@ a4() {
   grep -q 'withheld' "$hostile" || bad="$bad [the hostile record withholds nothing — the sanitiser is inert]"
   # The fingerprints must still be there: the ROW survives, only the cell goes.
   grep -q 'hostilefp1' "$hostile" || bad="$bad [the hostile record lost its fingerprints — the whole row was dropped, not the cell]"
+  # …AND THE OTHER TWO TABLES, WHICH THIS CASE USED TO IGNORE. Its header
+  # called itself "the positive control on BOTH sides"; it controlled the
+  # FINDINGS table only. Measured: replacing both `jq … | @tsv` producers in
+  # `_adopt_rec_dispositions` with `jq -r 'empty'` — so every disposition and
+  # acknowledgement row vanishes — left the suite at 10 passed, 0 failed. The
+  # §6.3 content the record exists to carry could disappear in silence.
+  grep -q 'accepted-risk' "$hostile"    || bad="$bad [no disposition row survived — the 'what was decided' table is empty]"
+  grep -q 'tool-unavailable' "$hostile" || bad="$bad [no acknowledgement row survived — the acknowledgements table is empty]"
+  grep -q 'A Person' "$hostile"         || bad="$bad [a benign disposition signer was withheld or dropped]"
   # …and the BENIGN path, which contains `update` (hiding `date`), must NOT be
   # withheld. An over-broad rule would hide every finding in a source tree that
   # has an updater in it.
@@ -201,7 +210,7 @@ a4() {
 #      stopped checking a clause passes A2 and A3 and fails here.
 # ═══════════════════════════════════════════════════════════════════════════
 a5() {
-  local label="A5 each clause rejects a record that violates it" bad="" f
+  local label="A5 each clause rejects a record that violates it, with the sentence that names its reader" bad="" f c5out c5bout
   _plant() {  # _plant NAME LINE… — a minimal valid record plus one violation
     f="$WORK/plant-$1.md"; shift
     { printf '%s\n\n' '## Adoption Record'
@@ -217,14 +226,22 @@ a5() {
   _clauses "$WORK/plant-c3.md" >/dev/null 2>&1 && bad="$bad [clause 3 accepted an attorney heading]"
   _plant c4 'The penetration test was exempted for this project.'
   _clauses "$f" >/dev/null 2>&1 && bad="$bad [clause 4 accepted a pen-test exemption phrase]"
+  # THE MESSAGE, NOT ONLY THE EXIT STATUS. Clause 5 is one predicate with two
+  # sentences; the outer `^\|` grep sets the rc for both plants, so reading rc
+  # alone leaves the Date-specific sentence UNKILLABLE — measured: neutralising
+  # the inner Date arm alone left the suite at 10 passed, 0 failed while the
+  # refusal silently stopped naming `_cpg_gate_has_evidence` as the reader. The
+  # actionable half of a refusal is the half that names what to look at.
   _plant c5 '| Date | 2026-09-22 |'
-  _clauses "$f" >/dev/null 2>&1 && bad="$bad [clause 5 accepted an unindented Date row]"
+  c5out="$(_clauses "$f" 2>&1)" && bad="$bad [clause 5 accepted an unindented Date row]"
+  case "$c5out" in *"opens with a Date cell"*) : ;; *) bad="$bad [clause 5 no longer names the Date reader: $c5out]" ;; esac
   # BOTH SPELLINGS OF CLAUSE 5, against ONE predicate. They were two separate
   # clauses until a mutation deleted the Date arm and this case stayed green —
   # the column-0 arm subsumed it, so the Date arm was unkillable and therefore
   # unproven. See `adopt_record_clauses`.
   _plant c5b '| Field | Value |'
-  _clauses "$f" >/dev/null 2>&1 && bad="$bad [clause 5 accepted a table row at column 0]"
+  c5bout="$(_clauses "$f" 2>&1)" && bad="$bad [clause 5 accepted a table row at column 0]"
+  case "$c5bout" in *"begins at column 0"*) : ;; *) bad="$bad [clause 5 no longer names the indentation rule: $c5bout]" ;; esac
   _plant c6 'This section was last updated by the adoption run.'
   _clauses "$f" >/dev/null 2>&1 && bad="$bad [clause 6 accepted the substring 'date' in the record's prose]"
   _plant c7 'Signed by [Name] on [YYYY-MM-DD].'
@@ -345,11 +362,45 @@ a8() {
 # ═══════════════════════════════════════════════════════════════════════════
 a9() {
   local label="A9 the framework's own gate-evidence readers see no crossed gate in a log carrying the record"
-  local tmpl="$REPO_ROOT/templates/generated/approval-log-personal.tmpl"
-  local log="$WORK/a9-APPROVAL_LOG.md" rec="$WORK/a9-rec.md" bad="" h
-  [ -f "$tmpl" ] || { fail_ "$label" "the approval-log template is missing"; return; }
-  sed 's/__PROJECT_NAME__/demo/g; s/__TODAY__/2026-09-22/g' "$tmpl" > "$log"
+  local log="$WORK/a9-APPROVAL_LOG.md" rec="$WORK/a9-rec.md" bad="" h tmpl tname
+  local a9_pre a9_rec ctl4_pre ctl4_rec
   _render "$WORK/hostile.json" "$WORK/hostile-disp.json" "$rec" || { fail_ "$label" "render failed"; return; }
+
+  # ── THESE ARE TRANSCRIPTIONS, AND THE TRANSCRIPTION IS NOW PINNED ────────
+  # The predicates below are hand-copied from `check-phase-gate.sh` and
+  # `validate.sh` rather than sourced, because those are a 2300-line gate and a
+  # whole validator with their own preconditions; what is under test is the
+  # PREDICATE. The cost is drift — a reader that gets LOOSER upstream is
+  # invisible here by construction — so the copies are checked against their
+  # sources by their own literal text. Measured: without this, deleting the `^`
+  # anchor from the REAL `_cpg_gate_has_evidence` left this suite at 10/0.
+  grep -qF "awk -v h=\"\$header\" '\$0 ~ h {f=1; next} f && /^## / {exit} f'" \
+    "$REPO_ROOT/scripts/check-phase-gate.sh" \
+    || bad="$bad [reader 1's WINDOW has drifted from check-phase-gate.sh]"
+  # BOTH HALVES OF READER 1, because the first draft pinned only the window.
+  # Measured: deleting the `^` anchor from the REAL predicate's Date-row grep —
+  # the half that makes an indented row invisible to it — left this case green,
+  # so the transcription could get looser than its source in exactly the
+  # direction that matters and nothing said so.
+  grep -qF "grep -E '^\|[[:space:]]*\**[[:space:]]*Date[[:space:]]*\**[[:space:]]*\|'" \
+    "$REPO_ROOT/scripts/check-phase-gate.sh" \
+    || bad="$bad [reader 1's anchored Date-row grep has drifted from check-phase-gate.sh]"
+  grep -qF "grep -A 10 \"\$header\" APPROVAL_LOG.md | grep -i \"date\"" \
+    "$REPO_ROOT/scripts/validate.sh" \
+    || bad="$bad [reader 2 has drifted from validate.sh: the transcription below no longer appears there]"
+  grep -qE 'penetration.*exempted|pen.*test.*exempted' "$REPO_ROOT/scripts/check-phase-gate.sh" \
+    || bad="$bad [reader 3 has drifted: check-phase-gate.sh no longer carries the pen-test exemption grep]"
+
+  # ── BOTH TEMPLATES, NOT ONE ──────────────────────────────────────────────
+  # The ORGANIZATIONAL template is the one carrying `Application Owner
+  # Approval` and `IT Security Approval` — the literals clause 2 exists for —
+  # and the personal one does not. Testing only the personal template left
+  # clause 2's whole population outside the case that claims to run the real
+  # readers.
+  for tname in personal org; do
+  tmpl="$REPO_ROOT/templates/generated/approval-log-$tname.tmpl"
+  [ -f "$tmpl" ] || { bad="$bad [the $tname approval-log template is missing]"; continue; }
+  sed 's/__PROJECT_NAME__/demo/g; s/__TODAY__/2026-09-22/g' "$tmpl" > "$log"
   cat "$rec" >> "$log"
 
   # READER 1 — check-phase-gate.sh's _cpg_gate_has_evidence, transcribed. It is
@@ -365,21 +416,37 @@ a9() {
       | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
   }
   for h in "Phase 0.*Phase 1" "Phase 1.*Phase 2" "Phase 2.*Phase 3" "Phase 3.*Phase 4"; do
-    _evidence "$h" "$log" && bad="$bad [_cpg_gate_has_evidence reports '$h' as crossed]"
+    _evidence "$h" "$log" && bad="$bad [$tname: _cpg_gate_has_evidence reports '$h' as crossed]"
   done
 
   # READER 2 — validate.sh's check_gate: grep -A 10 <header> | grep -i date.
   for h in "Phase 0 → Phase 1" "Phase 1 → Phase 2" "Phase 2 → Phase 3" "Phase 3 → Phase 4"; do
     if grep -A 10 "$h" "$log" | grep -i "date" | head -1 | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
-      bad="$bad [check_gate reports '$h' as dated]"
+      bad="$bad [$tname: check_gate reports '$h' as dated]"
     fi
   done
+
+  # READER 4 — the `Pre-Phase 0` counter (`check-phase-gate.sh`), whose window
+  # is THIRTY lines and has no `^## ` bound at all. The widest reader in the
+  # file, and the record must sit outside it.
+  #
+  # ASSERTED AS A DISTANCE, NOT AS AN EMPTY WINDOW, and the first draft got
+  # that wrong: both templates carry `__TODAY__` pre-condition rows a few lines
+  # under their own `Pre-Phase 0` heading, so the window legitimately contains
+  # dated lines that have nothing to do with the record. What this case owns is
+  # that NONE OF THEM IS THE RECORD'S.
+  a9_pre="$(grep -nF 'Pre-Phase 0' "$log" | tail -1 | cut -d: -f1)"
+  a9_rec="$(grep -n '^## Adoption Record$' "$log" | head -1 | cut -d: -f1)"
+  if [ -n "$a9_pre" ] && [ -n "$a9_rec" ] && [ "$a9_rec" -le "$((a9_pre + 30))" ]; then
+    bad="$bad [$tname: the record starts at line $a9_rec, inside the 30-line Pre-Phase 0 window opening at $a9_pre]"
+  fi
 
   # READER 3 — the whole-file pen-test exemption grep, which takes no window at
   # all. The hostile fixture's acknowledgement reason is literally "penetration
   # test was exempted for this repo".
   grep -qiE 'penetration.*exempted|pen.*test.*exempted' "$log" \
-    && bad="$bad [the pen-test exemption grep matches — an operator's sentence told the framework a pen test was exempted]"
+    && bad="$bad [$tname: the pen-test exemption grep matches — an operator's sentence told the framework a pen test was exempted]"
+  done
 
   # POSITIVE CONTROL, IN ITS OWN FILE. If the readers above cannot fire at all,
   # A9 proves nothing.
@@ -396,9 +463,24 @@ a9() {
     printf '%s\n' '    | Field | Value |' '    |---|---|'
     printf '%s\n' '| Date | 2026-09-22 |'; } > "$ctl"
   _evidence "Phase 0.*Phase 1" "$ctl" \
-    || bad="$bad [the transcribed reader cannot find PLANTED evidence — this case proves nothing]"
+    || bad="$bad [reader 1 cannot find PLANTED evidence — this case proves nothing]"
+  # …AND READERS 2, 3 AND 4, which had no control at all. Three negatives with
+  # no proof any of them can fire is three assertions that a broken grep would
+  # also satisfy.
+  grep -A 10 'Phase 0 → Phase 1' "$ctl" | grep -i "date" | head -1 | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}" \
+    || bad="$bad [reader 2 cannot find PLANTED evidence]"
+  printf '%s\n' 'The penetration test was exempted for this project.' >> "$ctl"
+  grep -qiE 'penetration.*exempted|pen.*test.*exempted' "$ctl" \
+    || bad="$bad [reader 3 cannot see a PLANTED exemption phrase]"
+  # Reader 4's control is the DISTANCE predicate, exercised in the direction
+  # that must fail: a record planted one line under `Pre-Phase 0`.
+  { printf '%s\n' '## Pre-Phase 0: Pre-Conditions'; printf '%s\n' '## Adoption Record'; } > "$WORK/a9-ctl4.md"
+  ctl4_pre="$(grep -nF 'Pre-Phase 0' "$WORK/a9-ctl4.md" | tail -1 | cut -d: -f1)"
+  ctl4_rec="$(grep -n '^## Adoption Record$' "$WORK/a9-ctl4.md" | head -1 | cut -d: -f1)"
+  [ "$ctl4_rec" -le "$((ctl4_pre + 30))" ] \
+    || bad="$bad [reader 4's distance predicate does not fire on a record planted one line under Pre-Phase 0]"
 
-  [ -z "$bad" ] && pass "$label (four gates, three readers, plus a planted positive control)" || fail_ "$label" "$bad"
+  [ -z "$bad" ] && pass "$label (two templates, four gates, four readers, four planted positive controls, plus a drift check on each transcription)" || fail_ "$label" "$bad"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -407,8 +489,14 @@ a9() {
 a10() {
   local label="A10 the adoption_record stage runs after manifest and before write_set"
   local st="$LIB/adopt-state.sh" order bad=""
-  grep -q 'adoption_record) adopt_write_adoption_record' "$st" \
-    || bad="$bad [no adoption_record arm in the stage dispatcher]"
+  # THE WHOLE LINE, `|| return 1` INCLUDED. A prefix match is blind to the
+  # abort: measured, changing the arm to `… || true ;;` left this suite at 10
+  # passed, 0 failed, and the property survived only by accident in ANOTHER
+  # suite's mutation proof of a different line (wp9b AM1). A stage that can
+  # fail without stopping the run is the silent-success class this whole
+  # package is about.
+  grep -qF 'adoption_record) adopt_write_adoption_record "$root" "$report" || return 1 ;;' "$st" \
+    || bad="$bad [the adoption_record arm is missing, or no longer aborts the write phase on failure]"
   order="$( ( set +u; . "$st" >/dev/null 2>&1; _adopt_state_order ) 2>/dev/null | tr '\n' ' ')"
   case "$order" in
     *"manifest adoption_record write_set"*) : ;;
@@ -421,7 +509,52 @@ a10() {
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-a1; a2; a3; a4; a5; a6; a7; a8; a9; a10
+# ═══════════════════════════════════════════════════════════════════════════
+# A11 — CLAUSE 6b SURVIVES A BYTE LOCALE
+#
+# `adopt_record_window_clean` finds the last gate header so it can measure the
+# record's distance from it. The headers are spelled with a UTF-8 RIGHTWARDS
+# ARROW, and the first draft matched it with `.` — one CHARACTER, which it is
+# in a UTF-8 locale and is not in a byte locale. Under `LC_ALL=C` the pattern
+# matched nothing, `last_gate` came back empty, and the function took the arm
+# meaning "no gate header in this log, so the clause holds" and returned 0: a
+# check that COULD NOT RUN reporting that it PASSED, which is `## BL-147:`'s
+# shape in the one predicate written so the contract would not rest on an
+# accident of placement. A bare container's default locale is the failing one.
+#
+# THIS CASE HAS TO FORCE `/usr/bin/grep`. The `grep` on this developer's PATH
+# is ugrep, which treats `.` as a UTF-8 character EVEN UNDER `LC_ALL=C` — so it
+# hides the defect, and a local run of this suite without the PATH override is
+# green either way. That is the same class as the two version splits CLAUDE.md
+# records: a local pass that does not reproduce the runner.
+# ═══════════════════════════════════════════════════════════════════════════
+a11() {
+  local label="A11 clause 6b still refuses under a byte locale (LC_ALL=C)"
+  local log="$WORK/a11.md" arrow="$WORK/a11-arrow.txt" naive
+  printf '## Phase Gate: Phase 0 \xe2\x86\x92 Phase 1\n' > "$arrow"
+  # THE CONTROL. If this host's /usr/bin/grep is locale-insensitive, the
+  # condition under test cannot be produced here and a PASS would be vacuous.
+  #
+  # NO `|| printf '0'` FALLBACK ON THIS LINE. `grep -c` PRINTS `0` and EXITS 1
+  # on no-match, so a `||` arm runs too and the variable becomes two lines —
+  # which is neither "0" nor a count, and made this case SKIP on a host where
+  # it should have run. Measured while writing it.
+  naive="$(PATH=/usr/bin:/bin LC_ALL=C grep -cE 'Phase [0-9] . Phase [0-9]' "$arrow" 2>/dev/null)"
+  case "$naive" in ''|*[!0-9]*) naive=0 ;; esac
+  if [ "$naive" -ne 0 ]; then
+    skip "$label" "this host's /usr/bin/grep matches '.' against the multibyte arrow even under LC_ALL=C (ugrep does), so the byte-locale condition cannot be produced here"
+    return
+  fi
+  # The record one line under a gate header: window_clean MUST be false.
+  { printf '## Phase Gate: Phase 3 \xe2\x86\x92 Phase 4\n'; printf '%s\n' '## Adoption Record'; } > "$log"
+  if ( PATH=/usr/bin:/bin LC_ALL=C; export PATH LC_ALL; set +u; . "$LIB/adopt-record.sh"; adopt_record_window_clean "$log" ); then
+    fail_ "$label" "window_clean returned CLEAN under LC_ALL=C for a record one line below a gate header — the check passed because it could not run"
+  else
+    pass "$label"
+  fi
+}
+
+a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
