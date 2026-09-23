@@ -51,6 +51,11 @@
 _adopt_state_order() {
   printf '%s\n' approval_log   # BL-242-APPROVAL-LOG-FIRST
   printf '%s\n' phase_state intake manifest   # BF-ADOPT-STATE-ORDER
+  # AFTER `manifest` AND NOT BEFORE IT. The Adoption Record names the commit
+  # this project was adopted at, and it takes that value from the stamp rather
+  # than from a second `git rev-parse HEAD` — one fact, one source. The stamp
+  # is written by the `manifest` stage, so the record cannot precede it.
+  printf '%s\n' adoption_record   # BL-242-RECORD-STAGE
   printf '%s\n' write_set   # BL-242-WRITE-SET — LAST: it records what every stage before it wrote
 }
 
@@ -1515,6 +1520,7 @@ _adopt_write_phase() {
       phase_state) adopt_write_phase_state "$root" || return 1 ;;
       intake)      adopt_write_intake "$root" "$report" || return 1 ;;
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;
+      adoption_record) adopt_write_adoption_record "$root" "$report" || return 1 ;;   # BL-242-RECORD-STAGE
       write_set)   adopt_write_write_set "$root" || return 1 ;;   # BL-242-WRITE-SET
       *)           adopt_refuse "unknown state stage '$stage'"; return 1 ;;
     esac
@@ -1615,7 +1621,12 @@ adopt_prewrite_preflight() {
   # is the cost the bound exists for; saying otherwise would be a receipt for
   # work not yet done, one level down from the receipt this package is about.
   _reh_t1="$(date +%s 2>/dev/null)" || _reh_t1="$_reh_t0"
-  adopt_note "copied the project in $(( _reh_t1 - _reh_t0 ))s over ${_reh_mb} MB for the rehearsal (objects shared, not copied)."
+  # KEPT, NOT ONLY PRINTED. §8.6 puts the rehearsal's measured time and size in
+  # the Adoption Record, and a number that exists only in a scrollback buffer is
+  # not a record — that sentence is the whole reason this package exists.
+  ADOPT_REHEARSAL_SECONDS=$(( _reh_t1 - _reh_t0 ))   # BL-242-RECORD-REHEARSAL
+  ADOPT_REHEARSAL_MB="$_reh_mb"                      # BL-242-RECORD-REHEARSAL
+  adopt_note "copied the project in ${ADOPT_REHEARSAL_SECONDS}s over ${_reh_mb} MB for the rehearsal (objects shared, not copied)."
 
   adopt_ledger_init "$work/written" || { adopt_refuse "could not open the rehearsal ledger"; return 1; }
 
@@ -1913,7 +1924,13 @@ adopt_main() {
 
   _adopt_write_phase "$root" "$ADOPT_WORK" "$report" || return 1   # BL-225-WRITE-PHASE-REAL
 
-  adopt_stub_adoption_record
+  # `adopt_stub_adoption_record` USED TO BE HERE. The record is real now and it
+  # is written INSIDE the write phase (the `adoption_record` stage), which is
+  # where it has to be: the phase is what the pre-write rehearsal replays, so a
+  # record written outside it would be the one write of the run that nobody
+  # rehearsed — and `_adopt_overwrite_inventory_check`'s whole point is that a
+  # writer without a rehearsed, inventoried path is how `## BL-292:` happened
+  # three times over.
   adopt_stage_and_commit "$root" || return 1
 
   # AFTER the commit, and that ordering is the point — see adopt_install_hooks.

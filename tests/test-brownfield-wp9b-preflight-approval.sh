@@ -1432,14 +1432,39 @@ else
   if ! mk_adoptee "$AM1/p"; then
     fail_ "AM1 setup" "could not build the adoptee"
   else
+    # WP7/1 MOVED THIS MUTANT'S DEATH EARLIER, AND THE ASSERTION MOVED WITH IT.
+    #
+    # Until 2026-09-22 the consequence of dropping the write was that the
+    # ADOPTION STILL SUCCEEDED and the gate died afterwards on its precondition
+    # (`APPROVAL_LOG.md not found but .claude/phase-state.json exists.`). The
+    # `adoption_record` stage (`# BL-242-RECORD-STAGE`) now runs after
+    # `manifest` and appends the Adoption Record to that same log, so with the
+    # write gone it refuses — and because the refusal happens inside the write
+    # phase, the PRE-WRITE REHEARSAL hits it first and the adoption stops
+    # before touching the adoptee at all.
+    #
+    # So the mutant is still killed, harder: the project is never adopted
+    # rather than adopted into a state whose gate cannot run. The old assertion
+    # is unreachable now — the gate has no phase-state to complain about,
+    # because nothing was written — and keeping it would have this case report
+    # a silent success that is in fact the loudest possible refusal.
+    #
+    # Asserted as THREE facts, because "rc is non-zero" alone would also be
+    # satisfied by the mutation breaking the driver in some unrelated way:
+    # the run fails, the run SAYS which artefact is missing, and the adoptee is
+    # byte-for-byte untouched.
     _ans 1 > "$AM1/answers"
+    AM1_BEFORE="$(_files_written "$AM1/p")"
     run_adopt "$AM1/p" "$AM1/answers" "$REPORT" "$AM1/fw"
-    gate_in "$AM1/p" --gate phase_0_to_1
-    case "$(cat "$GATE_OUT" 2>/dev/null)" in
-      *"APPROVAL_LOG.md not found but"*)
-        pass "AM1 (MUTATION) — dropping the write returns the gate to its precondition death (rc $GATE_RC)" ;;
-      *) fail_ "AM1 (MUTATION)" "dropping the approval-log write changed nothing the gate can see" ;;
-    esac
+    AM1_RC="$RUN_RC"
+    AM1_AFTER="$(_files_written "$AM1/p")"
+    AM1_NAMED=0
+    grep -q 'APPROVAL_LOG.md' "$RUN_OUT" 2>/dev/null && AM1_NAMED=1
+    if [ "$AM1_RC" -ne 0 ] && [ "$AM1_NAMED" -eq 1 ] && [ "$AM1_AFTER" = "$AM1_BEFORE" ]; then
+      pass "AM1 (MUTATION) — dropping the write makes the run REFUSE (rc $AM1_RC), naming APPROVAL_LOG.md, with the adoptee untouched: the Adoption Record stage cannot write into a log that is not there"
+    else
+      fail_ "AM1 (MUTATION)" "rc=$AM1_RC named_the_log=$AM1_NAMED files $AM1_BEFORE -> $AM1_AFTER — dropping the approval-log write produced no refusal"
+    fi
   fi
 fi
 
@@ -1859,14 +1884,32 @@ else
     elif ! mk_adoptee "$TM2C/p"; then
       fail_ "TM2c setup" "could not build the adoptee"
     else
+      # NOT A BYTE COUNT ANY MORE, AND THE REASON IS WP7/1. This asserted
+      # `bytes <= 1`, because with both guards gone the writer produced a
+      # one-byte log. The `adoption_record` stage now APPENDS the Adoption
+      # Record to that same file later in the same run, so the mutant's log
+      # measures ~3 KB and the literal stopped discriminating — it failed
+      # while the silent success it describes was happening exactly as
+      # before.
+      #
+      # The property was never the size. It is that a project is adopted at
+      # rc 0 carrying an APPROVAL_LOG.md WITH NO APPROVAL LOG IN IT, so that
+      # is what is asserted: the rendered template's own pre-conditions header
+      # is absent, and — as the positive control that the run really did get
+      # that far — the Adoption Record IS present. A mutation that simply
+      # crashed the driver satisfies neither.
       run_adopt "$TM2C/p" "$TM2/answers" "$REPORT" "$TM2/fw"
       TM2C_RC="$RUN_RC"
       TM2C_BYTES="$(wc -c < "$TM2C/p/APPROVAL_LOG.md" 2>/dev/null | tr -d ' ')"
       TM2C_BYTES="$(_num "$TM2C_BYTES")"
-      if [ "$TM2C_RC" -eq 0 ] && [ "$TM2C_BYTES" -le 1 ]; then
-        pass "TM2c (MUTATION) — with BOTH guards gone a $TM2C_BYTES-byte APPROVAL_LOG.md is written at rc 0: the guards are what stop it"
+      TM2C_TMPL=0
+      grep -qx '## Pre-Phase 0: Pre-Conditions' "$TM2C/p/APPROVAL_LOG.md" 2>/dev/null && TM2C_TMPL=1
+      TM2C_REC=0
+      grep -qx '## Adoption Record' "$TM2C/p/APPROVAL_LOG.md" 2>/dev/null && TM2C_REC=1
+      if [ "$TM2C_RC" -eq 0 ] && [ "$TM2C_TMPL" -eq 0 ] && [ "$TM2C_REC" -eq 1 ]; then
+        pass "TM2c (MUTATION) — with BOTH guards gone the project is adopted at rc 0 carrying an APPROVAL_LOG.md with NO approval log in it ($TM2C_BYTES bytes, all of it the Adoption Record): the guards are what stop it"
       else
-        fail_ "TM2c (MUTATION)" "rc=$TM2C_RC bytes=$TM2C_BYTES — the mutation produced no silent success"
+        fail_ "TM2c (MUTATION)" "rc=$TM2C_RC template_header=$TM2C_TMPL (want 0) record_header=$TM2C_REC (want 1) bytes=$TM2C_BYTES — the mutation produced no silent success"
       fi
     fi
   fi

@@ -137,13 +137,22 @@ adopt_stub_framework_script_collisions() {
 # commit that includes it. The stub told each operator the opposite of what the
 # same run had just done. What is still missing is the RECORD — the eight-clause
 # Adoption Record that WP7 appends INTO this log — not the log.
-adopt_stub_adoption_record() {
-  adopt_stub_notice "the Adoption Record, the audit rows and the CI carve-out" "WP7" \
-    "APPROVAL_LOG.md exists and the phase gate reads it; what is missing is the Adoption Record INSIDE it."
-  adopt_note "The log this adoption wrote is the tier-matched template, carrying no approval of"
-  adopt_note "any kind — which is correct, because this adoption approved nothing. Until WP7"
-  adopt_note "lands, the adoption itself is recorded in the manifest and nowhere else."
-}
+# adopt_stub_adoption_record — RETIRED 2026-09-22 by WP7/1.
+#
+# The Adoption Record is no longer a stub. `adopt_write_adoption_record` in
+# `scripts/lib/adopt/adopt-record.sh` appends it to `APPROVAL_LOG.md` as the
+# `adoption_record` stage of the write phase (`# BL-242-RECORD-STAGE`), and
+# `adopt_record_clauses` holds v1 §8.8's eight-clause contract at write time
+# rather than in a comment.
+#
+# THE NAME IS LEFT HERE AS A HEADSTONE, the same as the secrets stub above,
+# because `## BL-242:`'s derivation of "what is still unbuilt" counts the
+# `adopt_stub_*` functions that are actually CALLED, and a reader following an
+# older handoff to this file should find out where the behaviour went.
+#
+# WHAT OF WP7 IS STILL OUT: the CI carve-out, and the `adoption` and
+# `secrets_disposition` audit rows — `adopt_audit_event`'s own header names
+# those three and is the live list.
 
 # The fallback PRE-COMMIT hook. Not attributed to a work package, because §10
 # names no owner for it on the adoption path — that is the honest statement and

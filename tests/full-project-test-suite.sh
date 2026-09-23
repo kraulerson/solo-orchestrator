@@ -891,6 +891,9 @@ run_child_suite "tests/test-brownfield-wp10b-decision-table.sh" \
 run_child_suite "tests/test-bl296-hook-roster-unconditional.sh" \
   "BL-296: Solo's own session-hook roster registers without the CDF clone" \
   "BL-296 roster tests FAILED (run tests/test-bl296-hook-roster-unconditional.sh for details)"
+run_child_suite "tests/test-brownfield-wp7-adoption-record.sh" \
+  "WP7/1: the Adoption Record and its eight-clause structural contract" \
+  "WP7 Adoption Record tests FAILED (run tests/test-brownfield-wp7-adoption-record.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.
