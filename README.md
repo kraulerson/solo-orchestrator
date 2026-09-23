@@ -180,8 +180,8 @@ questions rather than a shortcut past them.
 > **⚠ Adoption is not finished.** The driver, the tier question, the reverse
 > intake's confirmations, the state writes, the adoption stamp, the tier-scoped
 > credential stop, the test-debt ledger, the collision archive (with its
-> disclosure, recorded re-adds and pre-staging secret scan) and the **Adoption
-> Record** ship and work. **The assessment — the requirements interview, the
+> disclosure, recorded re-adds and pre-staging secret scan), the **Adoption
+> Record** and the **commit-time scanners** ship and work. **The assessment — the requirements interview, the
 > fitness verdict and the plan — does not exist yet, and neither does the CI
 > carve-out.** The driver prints a labelled `NOT DONE` block for each remaining
 > gap during the run rather than papering over it.

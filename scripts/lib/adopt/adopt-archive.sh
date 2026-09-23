@@ -772,6 +772,21 @@ adopt_archive_write() {
     # leaves every such statement unfulfilled together.
     case "$rel" in
       .git/hooks/commit-msg) dispo="composed" ;;
+      # WP7/3 MOVED THIS ROW FROM `kept` TO `replaced`, and the word was wrong
+      # for exactly one commit's worth of reasons: until WP7/3 the operator's
+      # pre-commit hook really WAS left alone, and `adopt_install_hooks` said so
+      # on screen. It is replaced now — §7.1's population is the AI-layer
+      # surfaces and every non-`.sample` file in `.git/hooks/`, and the shared
+      # writer writes the file WHOLE, so it cannot compose the way the
+      # commit-msg gate above it does. Measured on a real adoption before the
+      # fix: the MANIFEST read `.git/hooks/pre-commit  kept` beside a hook that
+      # had just been overwritten — `## BL-292:`'s class, in the field an
+      # auditor reads to learn what happened to their files.
+      # ITS OWN MARKER, NOT A SECOND `# BL-242-ARCHIVE-DISPO`. That one is a
+      # MUTATION ANCHOR — `tests/test-brownfield-wp9b-preflight-approval.sh`'s
+      # W7-anchor requires it to occur exactly once, because a harness that
+      # mutates "the line carrying this marker" must find exactly one line.
+      .git/hooks/pre-commit) dispo="replaced" ;;   # BL-242-ARCHIVE-DISPO-HOOK
       APPROVAL_LOG.md)       dispo="replaced" ;;   # BL-242-ARCHIVE-DISPO
       # §7.2's row table gives these three `replaced`, and the comment above
       # states the rule they broke: `kept` means "the operator's original is

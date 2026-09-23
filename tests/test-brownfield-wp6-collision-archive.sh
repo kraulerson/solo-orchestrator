@@ -559,18 +559,38 @@ fi
 # A restore string nobody runs is documentation; running it is the assertion.
 a5_missing=$(jq -r '[.entries[] | select((.restore // "") == "")] | length' "$A_MJ" 2>/dev/null); a5_missing=$(_num "$a5_missing")
 a5_cmd=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .restore' "$A_MJ" 2>/dev/null)
-a5_before=""; a5_after=""; a5_mode=""; a5_ran=0
-if [ -n "$a5_cmd" ] && [ -f "$A_D/p/.git/hooks/pre-commit" ]; then
-  a5_before="$(_sha "$A_D/p/.git/hooks/pre-commit")"
+# THE REFERENCE IS THE ARCHIVED COPY, NOT WHAT IS AT THE PATH NOW.
+#
+# This used to hash the live `.git/hooks/pre-commit` before the restore and
+# require the post-restore hash to equal it. That worked only while adoption
+# LEFT the operator's hook alone: the path still held their file, so
+# "before == after" was a restatement of "nothing changed" that happened to
+# coincide with "the archive holds their bytes". WP7/3 replaces the hook per
+# §7.1, so the path now holds the FRAMEWORK's — and the two hashes differ,
+# which is the restore WORKING.
+#
+# The property was always "the file comes back byte-identical to what was
+# archived". Asserted against the archive, it holds in both worlds and is
+# strictly stronger: a restore that put back the wrong bytes would have passed
+# the old form whenever the path already held them.
+a5_ref=""; a5_after=""; a5_mode=""; a5_ran=0
+# `archivedPath` IS RELATIVE TO THE ARCHIVE DIRECTORY (`git-hooks/pre-commit`),
+# not to the project — a first cut joined it to the project root, found no
+# file, and reported the restore as never having run. The archive directory is
+# the one the MANIFEST itself lives in.
+a5_arch=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .archivedPath' "$A_MJ" 2>/dev/null)
+a5_arch_abs="$(dirname "$A_MJ")/$a5_arch"
+if [ -n "$a5_cmd" ] && [ -n "$a5_arch" ] && [ -f "$a5_arch_abs" ]; then
+  a5_ref="$(_sha "$a5_arch_abs")"
   rm -f "$A_D/p/.git/hooks/pre-commit"
   ( cd "$A_D/p" && eval "$a5_cmd" ) >/dev/null 2>&1 && a5_ran=1
   a5_after="$(_sha "$A_D/p/.git/hooks/pre-commit")"
   a5_mode="$(_mode_of "$A_D/p/.git/hooks/pre-commit")"
 fi
-if [ "$a5_missing" -eq 0 ] && [ "$a5_ran" -eq 1 ] && [ -n "$a5_before" ] && [ "$a5_before" = "$a5_after" ] && [ "$a5_mode" = "755" ]; then
-  pass "A5: every entry carries a restore line, and the git-hook one RUNS — the file comes back byte-identical at mode 755"
+if [ "$a5_missing" -eq 0 ] && [ "$a5_ran" -eq 1 ] && [ -n "$a5_ref" ] && [ "$a5_ref" = "$a5_after" ] && [ "$a5_mode" = "755" ]; then
+  pass "A5: every entry carries a restore line, and the git-hook one RUNS — the file comes back byte-identical to the ARCHIVED copy at mode 755"
 else
-  fail_ "A5" "entries with no restore=$a5_missing (want 0) restore_ran=$a5_ran before=$a5_before after=$a5_after mode=$a5_mode (want 755) cmd=[$a5_cmd]"
+  fail_ "A5" "entries with no restore=$a5_missing (want 0) restore_ran=$a5_ran archived=$a5_ref restored=$a5_after mode=$a5_mode (want 755) cmd=[$a5_cmd]"
 fi
 
 # A6 — a `git-hook` entry carries a DESCRIPTION, it is derived from a closed
@@ -693,7 +713,14 @@ if [ "$HAVE_GITLEAKS" -eq 1 ]; then
   s0_status=$(jq -r '.secretsScan.status // "MISSING"' "$S_MJ" 2>/dev/null)
   s0_count=$(jq -r '.secretsScan.findingCount // "null"' "$S_MJ" 2>/dev/null); s0_count=$(_num "$s0_count")
   s0_copy=$(_count_in "$S_D/p/$S_ARCH/git-hooks/pre-commit" "$HOOK_PLANT")
-  s0_pre=$(_count_in "$S_D/p/.git/hooks/pre-commit" "$HOOK_PLANT")
+  # THE PLANT IS IN THE ARCHIVED COPY, NOT AT THE LIVE PATH. This counted the
+  # live `.git/hooks/pre-commit`, which held the operator's planted hook while
+  # adoption left it alone. WP7/3 replaces it (§7.1), so the live file is the
+  # framework's and carries no plant — correctly. What this precondition needs
+  # to establish is that the ARCHIVE captured the operator's bytes, which is
+  # what every assertion below reads, and `s0_copy` already measures exactly
+  # that. Asserting it twice against two different files is what broke.
+  s0_pre="$s0_copy"
   if [ "$S_OK" -eq 1 ] && [ "$s0_status" = "scanned" ] && [ "$s0_count" -ge 1 ] \
      && [ "$s0_copy" -eq 1 ] && [ "$s0_pre" -eq 1 ]; then
     pass "S0 PRECONDITION: the BASE32-valid plant is live in the hook, the archive copied it (probe sees it exactly $s0_copy time), and the scan reports status=scanned with findingCount=$s0_count (non-zero)"

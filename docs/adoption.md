@@ -1094,16 +1094,59 @@ files, and nothing records a keep-or-retire decision about your pipelines.
 Scout's SDLC findings are the only part of that surface that ships, and they are
 report-only.
 
-### The commit-time scanners — no owner yet
+### The commit-time scanners — SHIP (WP7/3)
+
+**This section used to say the scanners were not installed and that nobody owned
+them.** They are installed now, and the sentence that deferred them is what
+brought them back.
+
+That block was a MEASUREMENT: installing the hook "refuses every commit, because
+it expects artifacts an adoption does not yet produce". True when taken — and
+therefore worth re-taking once the Adoption Record landed. Re-measured on a real
+adoption, hook installed:
 
 ```text
-NOT DONE — the commit-time scanners (the fallback pre-commit hook)
-   Owner: nobody yet — §10 names no owner. This build does not do it, and does not pretend to.
-   The message gates ARE on. The secret scan, the static-analysis pass and the schema-migration
-   checks that normally run on every commit are NOT — installing that hook today refuses
-   every commit, because it expects artifacts an adoption does not yet produce. Run them
-   by hand until it lands: bash scripts/pre-commit-gate.sh --terminal-mode
+docs: commit, nothing else staged          rc 0   lands
+a source file whose tests fail (BL-125)    rc 1   [BLOCKED] project tests FAILED
+a staged RSA private key                   rc 1   [BLOCKED] gitleaks detected secrets
 ```
+
+So from your next commit onward, an adopted project runs the same commit-time
+checks a scaffolded one does: secret detection, the static-analysis pass and the
+schema-migration checks, on top of the two message gates that were already on.
+
+**Your own pre-commit hook is REPLACED, not left alone.** That is §7.1's rule —
+its archive-and-replace population is your AI-layer settings and every
+non-`.sample` file in `.git/hooks/` — and the framework's hook is written whole,
+so it cannot compose the way the commit-msg gate does. Your copy is in the
+archive with a restore line, and the run says so:
+
+```text
+   Your own pre-commit hook was REPLACED by the framework's. Your copy is in the
+   archive with a restore line — see .claude/adoption-archive/…/MANIFEST.md.
+   Nothing of it was merged: the framework's hook is written whole, so the two
+   could not compose the way the commit-msg gate does.
+```
+
+The MANIFEST row for it reads `disposition: "replaced"`, not `kept` — it said
+`kept` for exactly one commit's worth of history, next to a hook that had just
+been overwritten.
+
+#### The static-analysis pass needs a ruleset, and adoption now installs it
+
+The hook passes `--config=.semgrep/soif-dom-sinks.yml` unconditionally. Adoption
+did not install that file, so on an adopted project **every commit** printed:
+
+```text
+[WARN] semgrep could not complete (exit 7) — the tool itself failed.
+  SAST NOT ENFORCED for this commit — the scanner did not run.
+  [ERROR] unable to find a config; path `.semgrep/soif-dom-sinks.yml` does not exist
+```
+
+Loud, honest, and unprotected. Adoption lays the ruleset down and commits it —
+**unless you already have a file at that path**, in which case yours stands and
+the run says so, because the hook reads that path either way and your rules are
+yours.
 
 **Read that "Owner: nobody yet" against the decision, not instead of it.** The
 string above is what the driver actually prints, and it predates the call:
@@ -1148,7 +1191,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | A fitness verdict, a plan, and the reasoning behind both | ❌ The assessment (Act 3) — **not built** (WP12a) |
 | The required secrets scanner resolved before anything reads the scan — installed where the host has a recipe, named for you where it does not — and the scan re-run after an install | ✅ Tool resolution — ships (WP10a). Adoption does **not** refuse when the scanner cannot be resolved; it carries on and the report says nobody looked. The refusal is D2's — WP10b, **not built** |
 | Adoption that can *fail* on a serious finding | ❌ The secrets stop — **not built** (WP10b); the `scanned-partial` arms Karl ruled on 2026-09-16 are WP10b's too |
-| A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works, **but you run it; nothing calls it on commit yet (WP7)** |
+| A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works; the commit-time hook that would invoke the ratchet automatically now exists, and wiring the ratchet INTO it is still unbuilt |
 | Your colliding hooks/settings archived with a restore path | ✅ Collision archive — ships |
 | Plain disclosure of what was archived, path by path | ✅ Ships |
 | Putting one of your own files back, warned and recorded | ✅ `--re-add`, ships |
@@ -1156,7 +1199,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Adoption never committing a file your `.gitignore` excludes | ✅ Ships — the **original's** ignore status decides, not the archive copy's |
 | Framework CI installed beside yours, with a recorded keep-or-retire | ❌ CI carve-out — **not built** |
 | A readable record of how this project entered the framework | ✅ [The Adoption Record](#the-adoption-record) — ships, at the end of `APPROVAL_LOG.md`, with its eight-clause contract checked before it is written |
-| Secret scanning, SAST and migration checks on every commit | ❌ Deferred to WP7, by decision |
+| Secret scanning, SAST and migration checks on every commit | ✅ [The commit-time scanners](#the-commit-time-scanners--ship-wp73) — ships; measured admitting a compliant commit and blocking a non-compliant one by exit code |
 | The framework's version of a colliding `scripts/*.sh` installed | ❌ Replacement half — **not built**, and unassigned |
 | A `CLAUDE.md` in the adopted project | ❌ **Not built** — WP11 archives yours, WP12b writes the framework's (D3) |
 | The manifest's tier keys, so enforcement cannot be downgraded | ✅ Ships — `## BL-221:` closed; the tier question is their only source |

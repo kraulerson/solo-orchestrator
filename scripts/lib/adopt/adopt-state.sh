@@ -251,6 +251,8 @@ INSTALL_SET
   else
     adopt_note "Installed $n_copied framework script(s); none of your own files collided."
   fi
+  _adopt_install_semgrep_config "$root" || return 1   # BL-242-SEMGREP-CONFIG
+
   if [ "$n_copied" -eq 0 ]; then
     # TWO CAUSES, AND THEY NEED DIFFERENT SENTENCES (R-WP4-2). The first cut
     # blamed the clone for both, which is a misdiagnosis in the commonest case:
@@ -1288,6 +1290,54 @@ STAGE_SET
 }
 
 # ── The hooks (§4.5: no forward exemption) ──────────────────────────────────
+# ── _adopt_install_semgrep_config ROOT — the DOM-sink ruleset the hook reads
+#
+# WITHOUT THIS THE COMMIT-TIME SAST ARM IS INERT ON EVERY ADOPTED PROJECT, and
+# it says so itself. The emitted pre-commit hook passes
+# `--config=.semgrep/soif-dom-sinks.yml` UNCONDITIONALLY, and `init.sh`'s own
+# comment at the line that installs it for scaffolded projects
+# (`# BL-131-DOM-SINKS`) states the consequence of its absence: *"a missing file
+# makes semgrep exit non-zero and the SAST arm WARNs loudly (never a silent
+# clean pass)"*. Measured on a real adoption before this shipped, on EVERY
+# commit:
+#
+#   [WARN] semgrep could not complete (exit 7) — the tool itself failed.
+#     SAST NOT ENFORCED for this commit — the scanner did not run.
+#     [ERROR] unable to find a config; path `.semgrep/soif-dom-sinks.yml` does not exist
+#
+# So the honest arm is loud and the project is unprotected — the right
+# behaviour for a missing file, and the wrong state for a project the framework
+# just adopted.
+#
+# ONLY WHEN ABSENT, AND THAT IS A DELIBERATE NARROWING. An adoptee that already
+# has a file at this path has its OWN semgrep rules there; the hook passes the
+# path either way, so theirs satisfies it. Replacing them would be a new
+# archive-and-replace class — §7.1's population is the AI-layer surfaces and the
+# git hooks, and this is neither — and nobody has ruled on it. Keeping to
+# "write only what is not there" also keeps this writer out of I20's overwrite
+# inventory by construction rather than by a row somebody has to remember.
+_adopt_install_semgrep_config() {                      # BL-242-SEMGREP-CONFIG
+  local root="$1" src rel
+  rel=".semgrep/soif-dom-sinks.yml"
+  src="$ADOPT_FRAMEWORK_ROOT/templates/semgrep/soif-dom-sinks.yml"
+  if [ ! -f "$src" ]; then
+    adopt_note "The framework's DOM-sink ruleset is missing from this checkout, so the"
+    adopt_note "commit-time static-analysis pass will warn on every commit until it is there."
+    return 0
+  fi
+  if [ -e "$root/$rel" ]; then
+    adopt_note "You already have $rel — left as it is. The commit-time"
+    adopt_note "static-analysis pass reads that path, so your rules are what it will use."
+    return 0
+  fi
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
+  mkdir -p "$root/.semgrep" 2>/dev/null || { adopt_refuse "could not create .semgrep/"; return 1; }
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
+  cp -p "$src" "$root/$rel" 2>/dev/null || { adopt_refuse "could not install $rel"; return 1; }
+  adopt_record_write "$rel"
+  return 0
+}
+
 # adopt_install_hooks ROOT — put the framework's git hooks in place.
 #
 # WHY AFTER THE ADOPTION COMMIT, AND NOT BEFORE. The adoption commit belongs to
@@ -1308,20 +1358,34 @@ STAGE_SET
 # block, so an adoptee's existing commit-msg hook keeps working and gains the
 # framework's gates, and a second run finds the marker and stops.
 #
-# The FALLBACK PRE-COMMIT HOOK IS NOT INSTALLED, and this is a measurement
-# rather than a preference. Installed on an adoptee at this point in the build
-# it BRICKS the repository: with it in place a fixture here could not land an
-# ordinary `docs:` commit (rc 1) because the hook expects framework artifacts
-# — the Adoption Record among them — that WP7 has not landed yet. Shipping a
-# gate that refuses every commit is not enforcement, it is a broken project,
-# and the operator's only way out would be the `--no-verify` this framework
-# forbids. §10 names no owner for that hook on the adoption path, so it is
-# recorded as an open decision rather than quietly assumed; adopt_stub_hooks
-# says which checks are consequently NOT running.
+# THE FALLBACK PRE-COMMIT HOOK IS INSTALLED NOW, AND THE MEASUREMENT THAT
+# DEFERRED IT IS THE ONE THAT UN-DEFERRED IT.
 #
-# The shared writer also writes the WHOLE pre-commit file, so an adoptee's own
-# pre-commit hook is §7's own archive-and-replace example, belongs to WP6, and
-# is left untouched either way.
+# This comment used to say the hook BRICKS an adoptee: "a fixture here could
+# not land an ordinary `docs:` commit (rc 1) because the hook expects framework
+# artifacts — the Adoption Record among them — that WP7 has not landed yet."
+# That was true and it was a measurement, which is why it was worth re-taking
+# once WP7/1 landed the Record. Re-measured on a real hermetic adoption at
+# `f790e09`, hook installed, gitleaks 8.30.1 and semgrep 1.175.0 present:
+#
+#   docs: commit, nothing else staged          rc 0   lands
+#   a source file whose tests fail (BL-125)    rc 1   [BLOCKED] project tests FAILED
+#   a staged RSA private key                   rc 1   [BLOCKED] gitleaks detected secrets
+#
+# So it admits a compliant commit and blocks a non-compliant one BY EXIT CODE,
+# which is §10-WP7's stated proof obligation. Karl's decision was that this
+# hook is WP7's, "last, once the artifacts it reads exist". They exist.
+#
+# THE OPERATOR'S OWN PRE-COMMIT HOOK IS REPLACED, NOT LEFT ALONE, and that is
+# §7.1's rule rather than a new one: its archive-and-replace population is the
+# AI-layer surfaces and every non-`.sample` file in `.git/hooks/`. WP6 already
+# takes the copy — before any writer runs, so the archived bytes are THEIRS and
+# not a composition — and the MANIFEST carries a restore line. The arm that
+# used to print "It has been LEFT ALONE" is gone, because leaving it alone is
+# what left an adopted project with no commit-time scanners at all.
+#
+# The shared writer writes the WHOLE file, so this cannot compose the way the
+# commit-msg gate does. That asymmetry is why one is appended and one replaces.
 adopt_install_hooks() {
   local root="$1"
   local hooks
@@ -1355,13 +1419,30 @@ adopt_install_hooks() {
   chmod +x "$hooks/commit-msg" 2>/dev/null \
     || adopt_note "could not make the commit-msg hook executable — the gate will not run until it is."
 
-  if [ -e "$hooks/pre-commit" ]; then
-    # LEFT ALONE, AND ARCHIVED. WP6's archive already took a copy before any of
-    # this ran, so the operator has a restorable record of the hook they wrote
-    # even though nothing here replaces it. The WP4 stub that used to fire here
-    # is gone: it announced the archive as missing, and it is not.
-    adopt_note "You already have a pre-commit hook. It has been LEFT ALONE, and a copy is in"
-    adopt_note "the archive with a restore line — see ${ADOPT_ARCHIVE_DIR:-the archive}/MANIFEST.md."
+  # ── THE FALLBACK PRE-COMMIT HOOK (§10-WP7) ───────────────────────────────
+  # Written through the SHARED emitter, never a heredoc here: `init.sh` and
+  # `scripts/upgrade-project.sh --sync-framework` emit the same bytes from
+  # `soif_write_precommit_hook`, and a third spelling is how this repo's own
+  # hand-installed hook became a silent stale version (`# BL-243-HOOK-TEMPLATE`).
+  local _pc_had=0
+  [ -e "$hooks/pre-commit" ] && _pc_had=1
+  adopt_touched_disk   # BL-225-TOUCHED-DISK
+  if soif_write_precommit_hook "$hooks/pre-commit"; then   # BL-242-PRECOMMIT-INSTALL
+    if [ "$_pc_had" -eq 1 ]; then
+      adopt_note "Your own pre-commit hook was REPLACED by the framework's. Your copy is in the"
+      adopt_note "archive with a restore line — see ${ADOPT_ARCHIVE_DIR:-the archive}/MANIFEST.md."
+      adopt_note "Nothing of it was merged: the framework's hook is written whole, so the two"
+      adopt_note "could not compose the way the commit-msg gate does."
+    fi
+    adopt_note "Commit-time scanners installed: secret detection, the static-analysis pass and"
+    adopt_note "the schema-migration checks now run on every commit."
+  else
+    # NOT SWALLOWED. A hook that was not written is a scanner that does not run,
+    # and the operator has to be told which.
+    adopt_block "could not write the fallback pre-commit hook to $hooks/pre-commit"
+    adopt_note "  The commit-msg gates are on; the secret scan, the static-analysis pass and"
+    adopt_note "  the schema-migration checks are NOT. Run them by hand until it is there:"
+    adopt_note "    bash scripts/pre-commit-gate.sh --terminal-mode"
   fi
   # SOIF_ADOPT_HOOK_FAULT — the seam the live derivation's OTHER TWO conjuncts
   # need. `_adopt_hooks_live` asserts three facts: the hook exists, it is
@@ -1379,7 +1460,6 @@ adopt_install_hooks() {
     nomark) printf '%s\n' '#!/usr/bin/env bash' > "$hooks/commit-msg" 2>/dev/null || :
             chmod +x "$hooks/commit-msg" 2>/dev/null || : ;;
   esac
-  adopt_stub_hooks
   adopt_stub_project_docs
   return 0
 }

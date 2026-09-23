@@ -157,19 +157,25 @@ adopt_stub_framework_script_collisions() {
 # correctly called it unowned; two records of one fact disagreeing is the shape
 # this file exists to prevent.
 
-# The fallback PRE-COMMIT hook. Not attributed to a work package, because §10
-# names no owner for it on the adoption path — that is the honest statement and
-# the WP4 report records it as an open decision. Measured, not assumed: with
-# that hook installed at this point in the build an adopted fixture could not
-# land an ordinary `docs:` commit, because the hook expects framework artifacts
-# a WP4 adoption has not produced.
-adopt_stub_hooks() {
-  adopt_stub_notice "the commit-time scanners (the fallback pre-commit hook)" "nobody yet — §10 names no owner" \
-    "The message gates ARE on. The secret scan, the static-analysis pass and the schema-migration"
-  adopt_note "checks that normally run on every commit are NOT — installing that hook today refuses"
-  adopt_note "every commit, because it expects artifacts an adoption does not yet produce. Run them"
-  adopt_note "by hand until it lands: bash scripts/pre-commit-gate.sh --terminal-mode"
-}
+# adopt_stub_hooks — RETIRED 2026-09-23 by WP7/3.
+#
+# The commit-time scanners are installed now. `adopt_install_hooks` writes the
+# fallback pre-commit hook through the shared emitter
+# (`# BL-242-PRECOMMIT-INSTALL`) and `_adopt_install_semgrep_config` lays down
+# the DOM-sink ruleset that hook reads (`# BL-242-SEMGREP-CONFIG`), without
+# which its static-analysis arm warns on every commit instead of running.
+#
+# THE STUB'S OWN SENTENCE IS WHAT RETIRED IT. It said installing the hook
+# "refuses every commit, because it expects artifacts an adoption does not yet
+# produce" — a MEASUREMENT, and therefore one worth re-taking once WP7/1 landed
+# the Adoption Record. Re-measured on a real adoption: an ordinary `docs:`
+# commit lands at rc 0, a source file whose tests fail is blocked at rc 1, and
+# a staged private key is blocked at rc 1.
+#
+# THE NAME IS LEFT AS A HEADSTONE, like the two above it, because `## BL-242:`
+# derives "what is still unbuilt" from the `adopt_stub_*` functions that are
+# CALLED, and a reader following an older handoff should find out where the
+# behaviour went.
 
 # The adoptee's own framework DOCUMENTS — CLAUDE.md, the generated templates,
 # docs/reference/, the .gitignore additions. Every one of them is a path an

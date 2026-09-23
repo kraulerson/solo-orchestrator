@@ -591,6 +591,7 @@ jobs:
             tests/test-brownfield-wp11-archive-classes.sh
             tests/test-bl296-hook-roster-unconditional.sh
             tests/test-brownfield-wp7-adoption-record.sh
+            tests/test-brownfield-wp7b-commit-hook.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
