@@ -20988,6 +20988,74 @@ and are WP9c's since v2.2; row 33 (this) stays UNOWNED.
 **Related:** `## BL-242:` (§8.7a), `## BL-284:` (`verify-install.sh`'s CDF-adjacent fixers),
 `## BL-277:` (the roster's PostToolUse arm — WP9c ships it only after that entry closes).
 
+**HALF LANDED 2026-09-22 (WP9c/1) — the ROSTER half only. The entry stays Open for the CDF
+install, which is row 33 and is still UNOWNED.** `init.sh`'s `fi` closing `if [ "$framework_valid" =
+true ]` moved UP, above the hooks-merge block, which now carries
+`# BL-296-ROSTER-UNCONDITIONAL`. Every hook in that block runs a script from the project's own
+`scripts/`; none of them belongs to the Development Guardrails, and
+`.claude/settings.json` — the guard the block reads — is written unconditionally by `init.sh`
+itself, earlier, so the move is safe rather than merely desirable.
+
+The block registers hooks that run **twelve** scripts, derived rather than counted by eye
+(`sed -n '2011,2190p' init.sh | grep -oE 'scripts/(hooks/)?[a-z0-9-]+\.sh' | LC_ALL=C sort -u`), and
+`.claude/settings.json` is written 192 lines earlier at 1819. *(A first draft of this block and of
+the commit message said "seven hooks" and "190 lines"; the same sentence then listed ten names. Both
+numbers are derived above.)*
+
+**WHAT THE PROOF IS, AND WHAT IT IS NOT.**
+`tests/test-bl296-hook-roster-unconditional.sh` is a **structural** pin, four cases. R1 locates the
+branch's matching `fi` by counting block openers against closers (skipping heredoc bodies) and
+asserts the roster's marker falls AFTER it, **and that the computed span is plausible**; R2 asserts
+every `scripts/(hooks/)?*.sh` the block registers exists in this repo, with a floor of twelve
+DISTINCT scripts; R3 asserts `.claude/settings.json` is written before the block reads it **and in
+the same function**; R4 asserts nothing at or after the marker reads `$framework_valid`. It is NOT
+behavioural — proving it by execution means faking a network failure and a full scaffold — and the
+file's header says so in as many words.
+
+**IT RUNS IN THE UNIT LANE NOW, AND THE FIRST DRAFT RAN IN NO PR-GATING LANE AT ALL.** It was
+registered only with the aggregator, and `lint-tests-registered.sh` marked it
+`unit-lane-exempt:init-sh-invoker` — which it is not: it greps `init.sh` in 39 milliseconds and
+invokes nothing. That is `## BL-181:`'s standing residual (*the predicate is "names `init.sh` on an
+executed line"*, which the `INIT=` assignment satisfies), and CLAUDE.md's own note that **an exempt
+row is a claim, not a verdict** is exactly what it cost here. Added to `tests.yml`'s `tests=(`.
+
+**SEVEN MUTATIONS, ALL RED, ALL REPLAYED AGAINST THE HARDENED SUITE** (copies under a scratch root;
+the repo's `init.sh` hashes identically before and after). Five of them passed the FIRST draft 3/0,
+and adversarial review is what produced them:
+
+| mutation | first draft | now |
+|---|---|---|
+| `M1` the `fi` back where it was | RED (the only one it caught) | RED R1 |
+| `M2` `[ "$framework_valid" = true ] &&` re-added to the marker line | **3 passed, rc 0** | RED R4 |
+| `M3` `[ "$framework_valid" = true ] \|\| return 0` as the block's first statement | **3 passed, rc 0** | RED R4 |
+| `M4` a `fi` planted in a heredoc, roster back inside the branch | **3 passed, rc 0** (span `1899-1901`) | RED R1 |
+| `M5b` a `scripts/hooks/` script renamed to one that does not exist | **3 passed, rc 0** | RED R2 |
+| `M6` the `settings.json` write lifted into a function nobody calls | **3 passed, rc 0** | RED R3 |
+
+The lesson is one sentence and it generalises: **a positional pin cannot see a data-flow defect.**
+`M2` and `M3` re-introduce the entry's whole subject without moving a line, so R4 pins the data flow
+separately. `M4` is the second half of it — an absurd computed span (`1899-1901`) is a broken
+MEASUREMENT, and a broken measurement that happens to satisfy the comparison is a pass that means
+nothing, so R1 now refuses to decide on an implausible span.
+
+**AND THE HELPER SHIPPED WITH THE BUG IT EXISTS TO CATCH — TWICE.** The first draft counted bare
+`for` / `while` / `if` tokens without stripping quoted strings, so
+`print_ok "Development Guardrails for Claude Code installed and configured"` counted as a `for …
+done` opener; the depth never returned to zero at the real `fi`, the helper walked on to the next
+unbalanced one 200 lines later, and R1 reported the roster INSIDE a branch it had already left. A
+false FAIL that time. The second was `M4` above, in the other direction. The helper now strips
+quoted strings BEFORE comments (the other order truncates a line at a `#` inside a string) and skips
+heredoc bodies, and its own awk program carries **no apostrophes**, because it lives inside a
+single-quoted shell string where one apostrophe ends the program and bash reports the syntax error
+on a later, well-formed line — which is how that paragraph broke twice while being written.
+
+**One honest qualification on the word "unconditionally", now in the code comment too:** the block
+is still inside `if command -v git &>/dev/null`. `check_prerequisites` exits 1 on a missing git long
+before this line, so the condition cannot be false in a run that reaches it — what the marker means
+is that the roster no longer depends on the CDF CLONE, the thing a transient network failure
+switches off.
+
+
 ---
 
 ## BL-304: the not-writable hooks arm prints `[FAIL] Cannot create project directory` over an unwritable HOOKS directory — `2>/dev/null` does not suppress it, because `print_fail` writes to stdout

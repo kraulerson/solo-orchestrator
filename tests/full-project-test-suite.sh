@@ -888,6 +888,9 @@ run_child_suite "tests/test-bl289-gitleaks-version-floor.sh" \
 run_child_suite "tests/test-brownfield-wp10b-decision-table.sh" \
   "WP10b/2: §6.1's ten-cell tier table and the dispositions that lift a stop" \
   "WP10b decision-table tests FAILED (run tests/test-brownfield-wp10b-decision-table.sh for details)"
+run_child_suite "tests/test-bl296-hook-roster-unconditional.sh" \
+  "BL-296: Solo's own session-hook roster registers without the CDF clone" \
+  "BL-296 roster tests FAILED (run tests/test-bl296-hook-roster-unconditional.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.
