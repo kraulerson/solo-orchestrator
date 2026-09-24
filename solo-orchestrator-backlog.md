@@ -15008,6 +15008,34 @@ lint. (`secrets_disposition` is UNOWNED, not WP7's — `adopt_audit_event`'s hea
 
 ---
 
+### The secrets stop had no way through it (2026-09-24) — found while writing the install guide
+
+**An organizational adoption with a single credential finding could not be completed** by anyone who
+had not read the validator's source. The stop was correct: it named the findings and said "record
+one per finding … and pass the file with --dispositions". But `adopt_dispositions_satisfy` also
+requires each finding's gitleaks FINGERPRINT and the scan's own `head` and `commitsScanned`
+(`# BL-242-DISPOSITIONS-STALE`), no line of the run printed any of the three, and the scan report
+lived in `$ADOPT_WORK`, which the EXIT trap deletes. The two personal-tier acknowledgement arms
+(no scanner, shallow clone) had the same shape. It surfaced only because writing a step-by-step
+guide meant writing down what an operator types at that step, and there was nothing to write.
+
+**Fixed** by `_adopt_secrets_disposition_template` (`# BL-242-DISPOSITIONS-TEMPLATE`): each of the
+three stops PRINTS a ready-to-fill file — never writes one, because a refused run leaves the project
+as it found it — built by `jq` from the same report the validator reads, so the binding values
+match by construction. Fingerprints are `commit:file:rule:line`; the matched value never appears.
+Measured end to end on a real organizational adoption: the stop leaves 0 changes and 1 commit,
+prints a valid template bound to HEAD with one fingerprint, the UNFILLED template is still refused
+(otherwise printing it would be a one-step bypass), and the filled one completes at rc 0 with the
+decision in the Adoption Record.
+
+**Proof.** `tests/test-brownfield-dispositions-template.sh`, 4 cases, 9s. Mutations: the
+organizational call site removed → 2/2 (T1 T3); the template's `head` not bound → 2/2 (T1 T3); the
+acknowledgement kind wrong → 3/1 (T4). **Not pinned:** the two personal-tier CALL sites — T4 exercises
+the helper for both kinds at unit level, because producing "no scanner" in a real adoption means
+hiding gitleaks from PATH, which the round-trip cases need.
+
+---
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

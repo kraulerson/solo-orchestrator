@@ -164,9 +164,17 @@ once, and it is off unless you ask.
 
 ```bash
 cd /path/to/their-project
-bash /path/to/solo-orchestrator/scripts/scout.sh --out ./scan
-bash /path/to/solo-orchestrator/scripts/adopt-project.sh --scan-report ./scan/scout-report.json
+bash /path/to/solo-orchestrator/scripts/scout.sh --out /tmp/scout --run-tests
+bash /path/to/solo-orchestrator/scripts/adopt-project.sh --scan-report /tmp/scout/scout-report.json
 ```
+
+Keep Scout's output **outside** the project, so the survey never lands in the
+tree it describes. `--run-tests` tells you before adopting whether the project's
+own suite passes today — worth knowing, because once adopted a commit that
+touches source code runs that suite and is refused if it fails. Prerequisites
+(`git`, `jq`, `gitleaks`, optionally `semgrep`), what to do when a run stops,
+and how to put a replaced file back are in
+[docs/adoption.md → Quick start](docs/adoption.md#quick-start-install-and-use).
 
 It shows you what the scan found as *evidence that decides nothing*, asks the
 one question no amount of reading your code can answer — **who the project is
@@ -181,10 +189,12 @@ questions rather than a shortcut past them.
 > intake's confirmations, the state writes, the adoption stamp, the tier-scoped
 > credential stop, the test-debt ledger, the collision archive (with its
 > disclosure, recorded re-adds and pre-staging secret scan), the **Adoption
-> Record** and the **commit-time scanners** ship and work. **The assessment — the requirements interview, the
-> fitness verdict and the plan — does not exist yet, and neither does the CI
-> carve-out.** The driver prints a labelled `NOT DONE` block for each remaining
-> gap during the run rather than papering over it.
+> Record** and the **commit-time scanners** ship and work. **Three things do not
+> exist yet: the assessment (the requirements interview, the fitness verdict and
+> the plan), the framework documents an adopted project should receive — a
+> `CLAUDE.md` among them — and the CI carve-out.** The driver prints a labelled
+> `NOT DONE` block for each remaining gap during the run rather than papering
+> over it.
 > [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
 
 **These three pages live in this repo and are not copied into generated
