@@ -15139,6 +15139,37 @@ control moved from `CLAUDE.md` to `PROJECT_BIBLE.md`).
 - `PROJECT_BIBLE.md` / `PRODUCT_MANIFESTO.md` are not written; they are phase outputs, as in
   `init.sh`.
 
+### WP7's audit rows and §6.3's join table (2026-09-24) — what adoption writes down about itself
+
+**What was missing:** §8.9 names five `adoption_event` events; two had emitters
+(`collision_archive`, `collision_re_add`). `adoption` was WP7's and unbuilt;
+`secrets_disposition` was unowned, and WP10b validated dispositions and acknowledgements without
+writing either of §6.3's two records — the committed join table and the per-acceptance audit row.
+
+**What ships:**
+- a `dispositions` stage (`# BL-242-DISPOSITIONS-STAGE`, `adopt_write_dispositions` in
+  adopt-secrets.sh), on the `# BF-ADOPT-STATE-ORDER` line between `intake` and `manifest`, which
+  writes `.claude/adoption/secrets-dispositions.json` — the scan block (head, commits read, scope,
+  status, sha256 of the committed `scout-report.json`) plus the dispositions and acknowledgements
+  THIS RUN ACCEPTED, even at zero findings — and one `secrets_disposition` row per accepted risk and
+  per acknowledgement (`# BL-242-DISPOSITIONS-EVENT`). A row the ledger refuses BLOCKS the run; the
+  rehearsal meets it first, so nothing is written.
+- the `adoption` row (`# BL-242-ADOPTION-EVENT`, end of the record stage): tier, adoptedAtCommit,
+  archive dir, scan status, finding count, landed phase. It degrades loudly rather than refusing,
+  for the collision row's reason — the record and stamp are the primary records.
+- `blocker_acceptance` is declared never-to-be-emitted (WP5 retired) in `adopt_audit_event`'s header.
+- **Found while measuring, fixed:** a block raised INSIDE the rehearsal printed the COPY's
+  write-state — "80 file(s) were already written into this project" — directly beneath the real
+  run's "nothing was written to your project". `adopt_refuse` now prints the cause only while
+  rehearsing (`# BL-242-REHEARSAL-CAUSE-ONLY`). The remedy moved into the block message, since
+  the rehearsal discards stdout.
+
+**Pinned by** `tests/test-brownfield-wp7d-audit-rows.sh` (R1–R9), ten mutants killed.
+
+**Residuals:** §6.3's interactive fallback and its default read of an existing
+`.claude/adoption/secrets-dispositions.json` are not built (a re-adoption is refused at step 0, so
+the default read has no caller today); the vanished-finding report likewise.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

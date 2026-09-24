@@ -430,9 +430,10 @@ coerced:
 
 ## What gets written, and in what order
 
-### The order is `APPROVAL_LOG.md` → `phase-state.json` → intake → `manifest.json` → the framework documents → the Adoption Record → the write set
+### The order is `APPROVAL_LOG.md` → `phase-state.json` → intake → the secrets dispositions → `manifest.json` → the framework documents → the Adoption Record → the write set
 
-The framework documents follow `manifest.json` so they are written under a
+The secrets dispositions come before `manifest.json`, so an acceptance that
+cannot be recorded stops the run before the project reads as adopted. The framework documents follow `manifest.json` so they are written under a
 stamped adoption, and precede the record so the record stays the last thing in
 the log. The last two are ordered by what they read, not by taste. The **Adoption
 Record** names the commit this project was adopted at and takes that value from
@@ -1118,6 +1119,55 @@ class is deliberately outside the archive — swapping out a `scripts/validate.s
 your own build may call is a decision nobody has made yet — and the run names
 it with its own `NOT DONE` block.
 
+### The audit rows and the dispositions record — SHIP (WP7)
+
+Every adoption commits two records of what it decided, beside the Adoption
+Record:
+
+- **`.claude/adoption/secrets-dispositions.json`** — the scan this adoption
+  answered (the commit it read, how many commits, full or shallow, the status,
+  and the sha256 of the committed `scout-report.json`) and the dispositions and
+  acknowledgements **this run accepted**. It is written even when the scan found
+  nothing: *we scanned, at this commit, and found nothing* is worth keeping.
+  Fingerprints, rule ids and line numbers only — never a value. A row in your
+  `--dispositions` file that this run did not accept (an acknowledgement for a
+  scan that was complete, a disposition with no name or no real date) is not
+  copied in.
+- **`.claude/bypass-audit.json`** gains `adoption_event` rows: one
+  `adoption` row naming the tier, the commit it was adopted at and what the
+  scan said, and one `secrets_disposition` row per **accepted risk** and per
+  **acknowledgement**. `rotated` and `false-alarm` accept no risk and write no
+  row.
+
+Measured on a clean personal adoption:
+
+```text
+$ jq . .claude/adoption/secrets-dispositions.json
+{
+  "schemaVersion": 1,
+  "scan": {
+    "head": "da3a7756c1f67adf7607b0cd8cd501f2613812ff",
+    "commitsScanned": 1,
+    "scope": "full-history",
+    "status": "scanned",
+    "reportSha256": "cb3a24fb491e9388d85f2cf3a751355039eefda6a8b07ff82d5c309bb64e272c"
+  },
+  "dispositions": [],
+  "acknowledgements": []
+}
+$ jq -c '.[] | select(.details.event=="adoption") | .details' .claude/bypass-audit.json
+{"deployment":"personal","adoptedAtCommit":"da3a7756c1f67adf7607b0cd8cd501f2613812ff","archiveDir":null,"secretsScanStatus":"scanned","findingCount":0,"landedPhase":0,"event":"adoption"}
+```
+
+**An accepted risk that cannot be recorded stops the run.** If the ledger will
+not take the row — most often because `.claude/bypass-audit.json` is not valid
+JSON — adoption prints `[BLOCKED] an accepted risk could not be recorded in
+.claude/bypass-audit.json` with the command that checks the ledger, exits 1,
+and writes nothing, because the rehearsal hits it before the first real write: an acceptance that leaves no trace is not one it
+will act on. The `adoption` row is different: the Adoption Record and the stamp
+are the primary records of the act, so a ledger that refuses that row is
+reported loudly and left out of the commit, and the adoption stands.
+
 ### The framework documents — SHIP (WP12b)
 
 Adoption writes the documents `init.sh` gives a new project at the same moment,
@@ -1372,6 +1422,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Adoption refusing to commit a *recognised* secret out of your hooks | ✅ Ships — the archive is scanned before staging and a match is withheld. **A mitigation, not a guarantee** — see below |
 | Adoption never committing a file your `.gitignore` excludes | ✅ Ships — the **original's** ignore status decides, not the archive copy's |
 | Framework CI installed beside yours, with a recorded keep-or-retire | ❌ CI carve-out — **not built** |
+| An audit trail of the adoption and of every risk accepted during it | ✅ [The audit rows and the dispositions record](#the-audit-rows-and-the-dispositions-record--ship-wp7) — ships |
 | A readable record of how this project entered the framework | ✅ [The Adoption Record](#the-adoption-record) — ships, at the end of `APPROVAL_LOG.md`, with its eight-clause contract checked before it is written |
 | Secret scanning, SAST and migration checks on every commit | ✅ [The commit-time scanners](#the-commit-time-scanners--ship-wp73) — ships; measured admitting a compliant commit and blocking a non-compliant one by exit code |
 | The framework's version of a colliding `scripts/*.sh` installed | ❌ Replacement half — **not built**, and unassigned |
