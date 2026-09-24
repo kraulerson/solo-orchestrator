@@ -18,7 +18,10 @@
 #       until the operator adds it
 #   C6  a file already at the framework's own name is left alone and named
 #   C7  a project with no CI host gets no framework CI, and is told so
-#   C8  an unanswered keep-or-retire question refuses before any write
+#   C8  an unanswered keep-or-retire question refuses before any write, and
+#       the refusal is THAT question's
+#   C9  a symlinked .github/workflows is read and never written through
+#   C10 a file that cannot be read is reported as unread, never as clean
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -68,10 +71,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: npm test
-        continue-on-error: true
+        continue-on-error: true   # SECRET-LINE-TEXT-MARKER on a line a rule REPORTS
       - run: gh pr merge 12 --auto --squash
       - run: git push --force origin main
-      - run: ./deploy.sh SECRET-LINE-TEXT-MARKER
+      - run: ./deploy.sh
   # - run: git filter-branch   (a comment: must not fire)
 Y
 cat > "$G/.github/workflows/lint.yml" <<'Y'
@@ -183,10 +186,64 @@ c8() {
   [ "$RUN_RC" -ne 0 ] || bad="$bad [rc 0 with the question unanswered]"
   [ "$(cd "$p" && git rev-parse HEAD)" = "$before" ] || bad="$bad [a commit landed]"
   [ -z "$(cd "$p" && git status --porcelain)" ] || bad="$bad [files were written]"
+  # BY NAME: an answer file that simply runs out would also refuse — at the
+  # intake — so rc alone cannot tell this question's refusal from a later one.
+  grep -q 'no answer was given: what happens to .github/workflows/t.yml' "$WORK/unanswered.out" "$WORK/unanswered.err" \
+    || bad="$bad [the refusal is not the keep-or-retire question's]"
+  # AND IT STOPPED THERE: a refusal that is printed and then carried past
+  # still names the question — the run only fails later, at the intake.
+  grep -q '══ The interview' "$WORK/unanswered.out" && bad="$bad [the run carried on past the unanswered question into the intake]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-c1; c2; c3; c4; c5; c6; c7; c8
+c9() {
+  local label="C9 a symlinked .github/workflows: read, and nothing written through it" bad="" p="$WORK/linked" out="$WORK/outside-workflows" before
+  _base "$p"
+  mkdir -p "$out" "$p/.github"
+  printf 'on: pull_request\njobs:\n  t:\n    steps:\n      - run: npm test\n' > "$out/theirs.yml"
+  _commit "$p" package.json src/index.ts README.md
+  ln -s "$out" "$p/.github/workflows"
+  before="$(ls -A "$out" | tr '\n' ' ')"
+  _run "$p" linked 1 1 1 1 1 1 1 1 1 1 1
+  [ "$RUN_RC" -eq 0 ] || { fail_ "$label" "rc $RUN_RC: $(grep -E 'BLOCKED|REFUSED' "$WORK/linked.out" "$WORK/linked.err" | head -2 | tr '\n' ' ')"; return; }
+  [ "$(ls -A "$out" | tr '\n' ' ')" = "$before" ] || bad="$bad [a file was written into the folder the link points at: $(ls -A "$out" | tr '\n' ' ')]"
+  grep -q 'was NOT written: its folder is a symlink' "$WORK/linked.out" || bad="$bad [the run did not say it was not written]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+c10() {
+  local label="C10 a Latin-1 byte does not blind the rules; a file that cannot be read is NEVER reported clean" bad="" p="$WORK/latin" u="$WORK/unread" w="$WORK/unread-work"
+  # (a) A REAL RUN: a Latin-1 first line, then a force-push. macOS awk under a
+  #     UTF-8 locale aborted on the byte and the file read as clean (review).
+  _base "$p"
+  mkdir -p "$p/.github/workflows"
+  printf '# D\xe9ploiement\non: pull_request\njobs:\n  x:\n    steps:\n      - run: git push --force\n' > "$p/.github/workflows/latin.yml"
+  _commit "$p" package.json src/index.ts README.md .github/workflows/latin.yml
+  ( cd "$p" && printf '1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n' | LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 bash "$REPO_ROOT/scripts/adopt-project.sh" ) > "$WORK/latin.out" 2> "$WORK/latin.err"
+  [ "$?" -eq 0 ] || bad="$bad [the Latin-1 adoption did not complete: $(grep -E 'BLOCKED|REFUSED' "$WORK/latin.out" "$WORK/latin.err" | head -1)]"
+  grep -qE 'line [0-9]+  force-push' "$WORK/latin.out" || bad="$bad [the force-push behind a Latin-1 byte was not reported]"
+  # (b) THE AUDIT ITSELF on an unreadable file. A full adoption cannot reach
+  #     this — the rehearsal's copy refuses an unreadable file first — so the
+  #     arm is driven directly: it must say "could NOT be read" and record it,
+  #     never report the file clean.
+  if [ "$(id -u)" -ne 0 ]; then
+    mkdir -p "$u/.github/workflows" "$w"
+    printf 'on: pull_request\n' > "$u/.github/workflows/locked.yml"
+    chmod 000 "$u/.github/workflows/locked.yml"
+    ( set +u
+      for l in adopt-core adopt-ci; do . "$REPO_ROOT/scripts/lib/adopt/$l.sh" >/dev/null 2>&1; done
+      ADOPT_WORK="$w"
+      adopt_ci_audit "$u" ) > "$WORK/unread.out" 2>&1
+    chmod 644 "$u/.github/workflows/locked.yml"
+    grep -q 'locked.yml — could NOT be read' "$WORK/unread.out" || bad="$bad [the unreadable file was not named as unread]"
+    grep -q 'none matched a known way' "$WORK/unread.out" && bad="$bad [the audit called an unread file clean]"
+    grep -qF "$(printf '.github/workflows/locked.yml\tcould not be read\tnot asked')" "$w/ci-decisions.tsv" 2>/dev/null \
+      || bad="$bad [the unread file is not in what the record reads]"
+  fi
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+c1; c2; c3; c4; c5; c6; c7; c8; c9; c10
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

@@ -48,11 +48,21 @@ _adopt_ci_files() {
 
 # _adopt_ci_rules FILE — "rule<TAB>line" per finding. Comment lines are
 # skipped; matching is case-insensitive.
+# rc 0 read (with or without findings); non-zero COULD NOT READ — never "clean".
+#
+# `LC_ALL=C`, AND THE rc IS THE CALLER'S TO READ. Under a UTF-8 locale macOS
+# awk's `tolower` aborts on the first non-UTF-8 byte ("illegal byte sequence")
+# and prints nothing, so a Latin-1 comment at the top of a workflow made the
+# whole file read as clean — and the Adoption Record committed "No CI file of
+# yours matched" about a file with a force-push in it (review, measured). The
+# byte locale reads every file; the rc catches whatever still fails.
 _adopt_ci_rules() {                                    # BL-242-CI-RULES
   local f="$1"
-  awk '
+  [ -r "$f" ] || return 1
+  LC_ALL=C awk '
     { line = tolower($0) }
     line ~ /^[[:space:]]*#/ { next }
+    line ~ /gh pr merge[^#]*--admin/ { print "admin-merge\t" NR }
     line ~ /gh pr merge[^#]*--auto|enable-pull-request-automerge|automerge-action|auto-merge|automerge/ { print "auto-merge\t" NR }
     line ~ /git push[^#]*(--force|--force-with-lease|[[:space:]]-f([[:space:]]|$))|filter-repo|filter-branch/ { print "force-push\t" NR }
     line ~ /continue-on-error:[[:space:]]*true|allow_failure:[[:space:]]*true/ { print "check-skipping\t" NR }
@@ -67,7 +77,11 @@ _adopt_ci_rules() {                                    # BL-242-CI-RULES
 # ── the audit and the question (before any write) ──────────────────────────
 ADOPT_CI_DECISIONS=""
 adopt_ci_audit() {                                     # BL-242-CI-AUDIT
-  local root="$1" f rel n_files=0 hits
+  local root="$1" rel n_files=0 n_unread=0 hits
+  # The question order follows the file order, and a scripted answer file
+  # depends on it: byte order, not the locale's (en_US puts alpha.yml before
+  # Zeta.yml, C puts it after).
+  local LC_COLLATE=C
   # Scratch paths spelled with `$ADOPT_WORK` on the line, which is how
   # tests/test-bl225-staging-preflight.sh's T9 tells them from project writes.
   ADOPT_CI_DECISIONS="$ADOPT_WORK/ci-decisions.tsv"
@@ -76,15 +90,22 @@ adopt_ci_audit() {                                     # BL-242-CI-AUDIT
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     n_files=$((n_files + 1))
-    hits="$(_adopt_ci_rules "$root/$rel")"
+    if ! hits="$(_adopt_ci_rules "$root/$rel")"; then    # BL-242-CI-UNREADABLE
+      n_unread=$((n_unread + 1))
+      adopt_blank
+      adopt_say "   $rel — could NOT be read, so nothing is known about what it lets through."
+      printf '%s\tcould not be read\tnot asked\n' "$rel" >> "$ADOPT_WORK/ci-decisions.tsv"
+      continue
+    fi
     [ -n "$hits" ] || continue
     adopt_blank
     adopt_say "   $rel — the framework cannot vouch for what this lets through:"
     printf '%s\n' "$hits" | while IFS="$(printf '\t')" read -r rule line; do
       case "$rule" in
-        auto-merge)     adopt_say "     line $line  auto-merge — a change can merge without its checks passing" ;;
+        auto-merge)     adopt_say "     line $line  auto-merge — changes merge with nobody deciding, once whatever checks are required pass" ;;
+        admin-merge)    adopt_say "     line $line  admin merge — a change can merge past checks that have not passed" ;;
         force-push)     adopt_say "     line $line  force-push or history rewrite — it can erase what the audit trail relies on" ;;
-        check-skipping) adopt_say "     line $line  a failing step is allowed to pass — a red check can come out green" ;;
+        check-skipping) adopt_say "     line $line  a failing step is allowed to pass, or a job runs regardless — a red check can come out green" ;;
         deploy-on-push) adopt_say "     line $line  deploys on a branch push — code can reach production without the release phase" ;;
       esac
     done
@@ -100,6 +121,8 @@ $(_adopt_ci_files "$root")
 CIFILES
   if [ "$n_files" -eq 0 ]; then
     adopt_note "No CI configuration of yours was found, so there was nothing to read."
+  elif [ "$n_unread" -gt 0 ] && [ "$n_unread" -eq "$n_files" ]; then
+    adopt_note "None of your $n_files CI file(s) could be read, so nothing is known about them."
   elif [ ! -s "$ADOPT_CI_DECISIONS" ]; then
     adopt_note "Read $n_files CI file(s) of yours; none matched a known way around the framework's checks."
     adopt_note "This is a search for known spellings, not a proof — a workflow can still do what it likes."
@@ -164,11 +187,14 @@ adopt_write_ci() {                                     # BL-242-CI-STAGE
     gitlab)
       adopt_say  "   IT DOES NOT RUN YET. GitLab runs only .gitlab-ci.yml. To run it, add this to yours:"
       adopt_say  "     include:"
-      adopt_say  "       - local: '.gitlab-ci-solo.yml'" ;;
+      adopt_say  "       - local: '.gitlab-ci-solo.yml'"
+      adopt_say  "   BEFORE YOU ADD IT: GitLab MERGES an included file into yours, later keys winning. This"
+      adopt_say  "   one sets image, variables, cache and stages for the whole pipeline and defines jobs"
+      adopt_say  "   named test and lint — check those against your own file, or its settings replace yours." ;;
     bitbucket)
-      adopt_say  "   IT DOES NOT RUN. Bitbucket runs only bitbucket-pipelines.yml and has no way to"
-      adopt_say  "   include a second file from the same repository. Copy the steps you want from"
-      adopt_say  "   bitbucket-pipelines.solo.yml into yours." ;;
+      adopt_say  "   IT DOES NOT RUN. Bitbucket runs only bitbucket-pipelines.yml. Sharing a configuration"
+      adopt_say  "   file needs Bitbucket Premium and an exported file whose name ends in pipelines.yml,"
+      adopt_say  "   which this is not. Copy the steps you want from bitbucket-pipelines.solo.yml into yours." ;;
   esac
   return 0
 }

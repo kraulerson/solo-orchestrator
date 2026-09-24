@@ -569,14 +569,16 @@ _adopt_rec_ci() {
   _adopt_rec_row "Framework CI" "$(_adopt_rec_or "$ci" "not recorded")"
   printf '\n'
   if [ -n "$f" ] && [ -s "$f" ]; then
-    printf '%s\n' "These CI files of yours match a known way around the framework's checks. What"
-    printf '%s\n' "you decided about each is recorded here; \"retire\" is your intention, and"
-    printf '%s\n' "adoption did not carry it out."
+    printf '%s\n' "These CI files of yours matched a known way around the framework's checks, or"
+    printf '%s\n' "could not be read at all. What you decided about each is recorded here;"
+    printf '%s\n' "\"retire\" is your intention, and adoption did not carry it out."
     printf '\n'
     printf '%s\n' "    | Your file | What it matched | Your decision |"
     printf '%s\n' "    |---|---|---|"
-    while IFS="$(printf '\t')" read -r rel rules dec; do
-      [ -n "$rel" ] && _adopt_rec_row "$rel" "$rules" "$dec"
+    # Loop names of its own: `rules` is a local of the caller, `_adopt_rec_render`.
+    local _cr _cm _cd
+    while IFS="$(printf '\t')" read -r _cr _cm _cd; do
+      [ -n "$_cr" ] && _adopt_rec_row "$_cr" "$_cm" "$_cd"
     done < "$f"
     printf '\n'
   else
