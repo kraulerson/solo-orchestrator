@@ -592,6 +592,7 @@ jobs:
             tests/test-bl296-hook-roster-unconditional.sh
             tests/test-brownfield-wp7-adoption-record.sh
             tests/test-brownfield-wp7b-commit-hook.sh
+            tests/test-brownfield-dispositions-template.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -768,6 +769,13 @@ jobs:
             tests/test-brownfield-wp4-driver.sh            # 90.3s in CI (run 33880279546) — THE pole
             tests/test-brownfield-wp9-act-boundaries.sh    # 66.0s in CI (run 33880279546) — the second
             tests/test-bl200-syntax-detector.sh        #  44s on PR #416 — the `rest` shard's longest pole, moved when `rest` reached 11m12s of the 12m cap
+            # ── Re-pinned 2026-09-24, the second move in one day. On PR #442
+            #    this suite first cancelled `rest` (734s of 720s, nothing
+            #    failing); pinned to `lint-scan`, it then took THAT leg to 699s —
+            #    it costs ~172s on CI (lint-scan 527s -> 699s), more than the
+            #    local 74s suggested. This leg was the lightest on the same run
+            #    (493s), and lands near 665s with it.
+            tests/test-brownfield-wp7b-commit-hook.sh  # ~172s on CI (PR #442: lint-scan 527s -> 699s) — real adoptions and real commits
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
@@ -876,15 +884,11 @@ jobs:
             #    a second, pinning it would buy nothing, and a commented path
             #    inside an array is the shape this file warns about two arrays
             #    up. It stays in the computed complement.
-            # ── Re-pinned 2026-09-24, PR #442. The complement leg was CANCELED at
-            #    734s of the 720s cap with nothing failing — the cap fired while
-            #    this suite, last in the list, was still running (started 10m16s
-            #    in). On PR #441 the same leg had taken 672s, 48s of slack, and
-            #    this suite is two REAL adoptions plus one per guard case (74s
-            #    locally, still running at 95s on CI when cancelled). Per the
-            #    doctrine above the cap, approaching it is the RE-PIN signal,
-            #    not a raise. This leg had the most slack on the same run (527s).
-            tests/test-brownfield-wp7b-commit-hook.sh  # >95s on CI (canceled mid-run), 74s local — real adoptions and real commits
+            # wp7b WAS HERE for one PR (#442) and moved on to `pin_lint_sweep`:
+            #    it cost ~172s on CI, not the estimate, and took this leg from
+            #    527s to 699s of the 720s cap — 21s of slack, the same
+            #    "approaching" state the move was meant to cure. See its note
+            #    in `pin_lint_sweep`.
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case

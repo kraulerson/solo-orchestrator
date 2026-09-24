@@ -129,6 +129,7 @@ adopt_secrets_decide() {
           adopt_note "  An organizational adoption does not proceed past an undispositioned finding."
           adopt_note "  Record one per finding — rotated, false alarm, or accepted risk, each with a"
           adopt_note "  name and a reason — and pass the file with --dispositions."
+          _adopt_secrets_disposition_template "$report" findings
           return 1 ;;
         *)                                         # BL-242-SECRETS-PERSONAL-FINDINGS
           _adopt_secrets_print_findings "$report"
@@ -181,6 +182,7 @@ adopt_secrets_decide() {
       adopt_note "  Adoption can continue on a personal project if you accept that on the"
       adopt_note "  record — a name, a reason and a date, which adoption stores and commits."
       adopt_note "  Install gitleaks and re-run, or supply that acceptance with --dispositions."
+      _adopt_secrets_disposition_template "$report" tool-unavailable
       return 1 ;;
 
     # ── SCANNED-PARTIAL — ruled 2026-09-16 (§6.1a) ──────────────────────────
@@ -206,6 +208,7 @@ adopt_secrets_decide() {
       adopt_note "  Adoption can continue on a personal project if you accept that on the"
       adopt_note "  record. Or unshallow and scan the whole history:"
       _adopt_secrets_unshallow_remedy
+      _adopt_secrets_disposition_template "$report" scanned-partial
       return 1 ;;
 
     # ── An unknown status is a STOP at both tiers ───────────────────────────
@@ -219,6 +222,50 @@ adopt_secrets_decide() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# _adopt_secrets_disposition_template REPORT KIND — print, never write, a
+# ready-to-fill --dispositions file for THIS scan.
+#
+# WITHOUT IT THE STOP HAD NO EXIT. Every arm that asks for a dispositions file
+# names its contents — "one per finding … each with a name and a reason" — but
+# `adopt_dispositions_satisfy` also requires each finding's gitleaks FINGERPRINT
+# and the scan's own `head` and `commitsScanned` (# BL-242-DISPOSITIONS-STALE),
+# and no line of the run printed any of the three. The scan report lives in
+# `$ADOPT_WORK`, which the EXIT trap deletes. So an organizational adoption with
+# a single finding could not be completed by anyone who had not read this
+# file's source: the stop was correct and the way through it did not exist.
+#
+# PRINTED, NOT WRITTEN, because a refused run must leave the project as it
+# found it (`## BL-225:`). Built by `jq` FROM THE SAME REPORT the validator
+# reads, so the binding values match by construction rather than by a second
+# spelling of them. A fingerprint is `commit:file:rule:line` — it names where a
+# match is, never the matched value, which is why the Adoption Record already
+# carries it.
+_adopt_secrets_disposition_template() {                # BL-242-DISPOSITIONS-TEMPLATE
+  local report="$1" kind="$2" tpl
+  if [ "$kind" = "findings" ]; then
+    tpl="$(jq '{scan: {head: .secrets.head, commitsScanned: .secrets.commitsScanned},
+                dispositions: [.secrets.findings[]? | {fingerprint, disposition: "", by: "", reason: "", date: ""}]}' \
+            "$report" 2>/dev/null)"
+  else
+    tpl="$(jq --arg k "$kind" '{scan: {head: .secrets.head, commitsScanned: .secrets.commitsScanned},
+                acknowledgements: [{kind: $k, by: "", reason: "", date: ""}]}' \
+            "$report" 2>/dev/null)"
+  fi
+  [ -n "$tpl" ] || return 0
+  adopt_blank
+  adopt_note "  A dispositions file for THIS scan, ready to fill in. Save it OUTSIDE the project"
+  adopt_note "  (for example ~/adoption-dispositions.json), fill every empty field, and re-run"
+  adopt_note "  with --dispositions ~/adoption-dispositions.json. Do not change the 'scan' block"
+  adopt_note "  or the fingerprints: they bind the file to this scan and no other."
+  if [ "$kind" = "findings" ]; then
+    adopt_note "  'disposition' is one of: rotated | false-alarm | accepted-risk."
+  fi
+  adopt_note "  'date' is YYYY-MM-DD; 'by' is the person accountable for the decision."
+  adopt_blank
+  printf '%s\n' "$tpl" | sed 's/^/      /'
+  adopt_blank
+}
+
 # adopt_dispositions_satisfy REPORT FILE KIND — does FILE lift this stop?
 #
 # KIND is `findings` (every finding needs its own row) or one of the two
