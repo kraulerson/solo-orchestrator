@@ -67,6 +67,8 @@ _adopt_state_order() {
   # rehearsal replays: a document written outside it would be the one write I20
   # never checked against the archive.
   printf '%s\n' framework_docs   # BL-242-DOCS-STAGE-ORDER
+  # The framework's CI, at its own name (§7.4), before the record that names it.
+  printf '%s\n' ci   # BL-242-CI-STAGE-ORDER
   printf '%s\n' adoption_record   # BL-242-RECORD-STAGE
   printf '%s\n' write_set   # BL-242-WRITE-SET — LAST: it records what every stage before it wrote
 }
@@ -1774,6 +1776,7 @@ _adopt_write_phase() {
       dispositions) adopt_write_dispositions "$root" "$report" || return 1 ;;   # BL-242-DISPOSITIONS-STAGE
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;
       framework_docs) adopt_write_framework_docs "$root" || return 1 ;;   # BL-242-DOCS-STAGE
+      ci)          adopt_write_ci "$root" "$report" || return 1 ;;   # BL-242-CI-STAGE
       adoption_record) adopt_write_adoption_record "$root" "$report" || return 1 ;;   # BL-242-RECORD-STAGE
       write_set)   adopt_write_write_set "$root" || return 1 ;;   # BL-242-WRITE-SET
       *)           adopt_refuse "unknown state stage '$stage'"; return 1 ;;
@@ -2138,6 +2141,12 @@ adopt_main() {
   # §6.2's property, now true of the stop and not only of the re-scan.
   report="$ADOPT_WORK/secrets-report.json"
   adopt_secrets_decide "$report" || return 1   # BL-242-SECRETS-DECIDE-CALL
+
+  # THE CI AUDIT AND ITS QUESTIONS, BEFORE THE INTAKE. Read-only; its answers
+  # are held for the record. Here rather than after the intake so its questions
+  # sit at a FIXED position in the run: the intake's count depends on what the
+  # environment has installed (PR #446 measured one more on the ubuntu runner).
+  adopt_ci_audit "$root" || return 1   # BL-242-CI-AUDIT-CALL
 
   adopt_run_reverse_intake "$report" || return 1
 

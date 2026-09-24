@@ -906,6 +906,9 @@ run_child_suite "tests/test-brownfield-wp12b-framework-docs.sh" \
 run_child_suite "tests/test-brownfield-wp7d-audit-rows.sh" \
   "WP7: the audit rows and the secrets-dispositions join table" \
   "WP7 audit-row tests FAILED (run tests/test-brownfield-wp7d-audit-rows.sh for details)"
+run_child_suite "tests/test-brownfield-wp7e-ci-carveout.sh" \
+  "WP7: the CI carve-out — their pipelines read, never changed; the framework's CI at its own name" \
+  "WP7 CI carve-out tests FAILED (run tests/test-brownfield-wp7e-ci-carveout.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

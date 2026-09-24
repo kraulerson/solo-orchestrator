@@ -194,7 +194,7 @@ d8() {
   local label="D8 the stage sits after \`manifest\` and before \`adoption_record\`" order
   order="$( ( set +u; . "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" >/dev/null 2>&1; _adopt_state_order ) | tr '\n' ' ')"
   case "$order" in
-    *"manifest framework_docs adoption_record"*) pass "$label" ;;
+    *"manifest framework_docs ci adoption_record"*) pass "$label" ;;   # WP7's `ci` stage sits between them since §7.4 landed
     *) fail_ "$label" "order is: $order" ;;
   esac
 }
