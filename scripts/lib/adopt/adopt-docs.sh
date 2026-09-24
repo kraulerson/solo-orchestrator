@@ -77,6 +77,9 @@ _adopt_doc_references() {                              # BL-242-DOCS-REFERENCE
 _adopt_doc_value() {
   local v
   v="$(jq -r "$2 // \"\"" "$1" 2>/dev/null)"
+  # A newline defeats the pattern: `grep` passes if ANY line matches, and a
+  # second line reaches sed as a command of its own (`w FILE` was measured).
+  case "$v" in *[[:cntrl:]]*) printf '%s' "$3"; return 0 ;; esac
   if printf '%s' "$v" | grep -Eq "$4"; then printf '%s' "$v"; else printf '%s' "$3"; fi
 }
 
@@ -85,7 +88,7 @@ _adopt_doc_value() {
 _adopt_doc_put() {                                     # BL-242-DOCS-PUT
   local root="$1" rel="$2" src="$3" dst tmp had=0
   dst="$root/$rel"
-  if [ -L "$dst" ]; then printf 'kept-symlink'; return 0; fi
+  if [ -L "$dst" ] || adopt_path_under_link "$root" "$rel"; then printf 'kept-symlink'; return 0; fi   # BL-242-PARENT-LINK
   [ -e "$dst" ] && had=1
   if [ "$had" -eq 1 ] && [ ! -w "$dst" ]; then printf 'kept-readonly'; return 0; fi
   adopt_touched_disk   # BL-225-TOUCHED-DISK
@@ -139,7 +142,8 @@ DOCS
     [ -n "$rel" ] || continue
     [ -f "$fw/docs/$rel" ] || continue
     if [ -e "$root/docs/reference/$rel" ] || [ -L "$root/docs/reference/$rel" ]; then continue; fi
-    _adopt_doc_put "$root" "docs/reference/$rel" "$fw/docs/$rel" >/dev/null || return 1
+    out="$(_adopt_doc_put "$root" "docs/reference/$rel" "$fw/docs/$rel")" || return 1
+    case "$out" in kept-*) kept="$kept docs/reference/$rel:${out#kept-}" ;; esac
   done <<REFS
 $(_adopt_doc_references)
 REFS
@@ -162,7 +166,7 @@ REFS
     adopt_note "These were LEFT ALONE, so the framework's version of each is NOT in place:"
     for rel in $kept; do
       case "${rel##*:}" in
-        symlink)  adopt_say "     ${rel%:*} — a symlink; writing through it could overwrite a file elsewhere" ;;
+        symlink)  adopt_say "     ${rel%:*} — a symlink, or inside a symlinked folder; writing through it could overwrite a file elsewhere" ;;
         readonly) adopt_say "     ${rel%:*} — read-only" ;;
       esac
     done

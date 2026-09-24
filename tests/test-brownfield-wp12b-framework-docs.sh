@@ -26,6 +26,11 @@
 #   D9     the stub is retired, not merely silent
 #   D10    the tier reaches the render: organizational gets the branch-
 #          protection section, personal does not
+#   D11    a document inside a SYMLINKED FOLDER is left alone — the folder's
+#          real contents outside the project survive, adoption completes, and
+#          the archive row says `kept` (found by review: the first cut wrote
+#          through `docs -> /elsewhere`, even during the rehearsal)
+#   D12    an intake value carrying a newline cannot reach the renderer's sed
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -103,6 +108,16 @@ P2="$WORK/plain"
 _adoptee "$P2" || fail_ "setup" "could not build the plain adoptee"
 _adopt "$P2" plain 1; RC2=$?
 [ "$RC2" -eq 0 ] || fail_ "setup" "the plain adoption did not complete (rc $RC2): $(tail -3 "$WORK/plain.err")"
+
+# ── P3: `docs` is an ABSOLUTE symlink to a folder outside the project. Left
+# untracked: a symlink cannot be staged past this repo's own add guard, and the
+# writer reads the working tree, not the index.
+P3="$WORK/linkeddocs"
+_adoptee "$P3" || fail_ "setup" "could not build the linked-docs adoptee"
+mkdir -p "$WORK/shared-docs"
+printf 'SHARED-INDEX-ORIGINAL\n' > "$WORK/shared-docs/INDEX.md"
+ln -s "$WORK/shared-docs" "$P3/docs.tmp" && rm -rf "$P3/docs" && mv "$P3/docs.tmp" "$P3/docs"
+_adopt "$P3" linked 1; RC3=$?
 
 # ═══════════════════════════════════════════════════════════════════════════
 d1() {
@@ -198,7 +213,34 @@ d10() {
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-d1; d2; d3; d4; d5; d6; d7; d8; d9; d10
+d11() {
+  local label="D11 a document inside a SYMLINKED FOLDER is left alone, and adoption completes" bad="" n
+  [ "$RC3" -eq 0 ] || bad="$bad [adoption refused (rc $RC3): $(tail -2 "$WORK/linked.err" | tr '\n' ' ')]"
+  [ "$(cat "$WORK/shared-docs/INDEX.md")" = "SHARED-INDEX-ORIGINAL" ] || bad="$bad [the folder's INDEX.md outside the project was overwritten]"
+  n="$(ls -A "$WORK/shared-docs" | tr '\n' ' ')"
+  [ "$n" = "INDEX.md " ] || bad="$bad [files were written into the linked folder: $n]"
+  [ -L "$P3/docs" ] || bad="$bad [the docs link was replaced]"
+  [ "$(_dispo "$P3" docs/INDEX.md)" = "kept" ] || bad="$bad [docs/INDEX.md row reads '$(_dispo "$P3" docs/INDEX.md)']"
+  grep -q 'docs/INDEX.md — a symlink, or inside a symlinked folder' "$WORK/linked.out" || bad="$bad [not named as left alone]"
+  [ -s "$P3/CLAUDE.md" ] || bad="$bad [CLAUDE.md, outside the link, was not written]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+d12() {
+  local label="D12 an intake value carrying a newline falls back instead of reaching sed" got
+  # Built by jq, not printf: a raw newline in a hand-written JSON string is
+  # INVALID JSON, jq then reads nothing, and the fallback fires for the wrong
+  # reason — which is how the first cut of this case passed with the guard
+  # deleted.
+  jq -n '{platform: "web\nw /tmp/soif-d12\nweb"}' > "$WORK/ip.json"
+  [ "$(jq -r .platform "$WORK/ip.json" | wc -l | tr -d ' ')" = "3" ] \
+    || { fail_ "$label" "fixture: the value is not three lines"; return; }
+  got="$( ( set +u; . "$REPO_ROOT/scripts/lib/adopt/adopt-docs.sh" >/dev/null 2>&1
+            _adopt_doc_value "$WORK/ip.json" .platform undecided '^[a-z_]+$' ) )"
+  [ "$got" = "undecided" ] && pass "$label" || fail_ "$label" "got [$got]"
+}
+
+d1; d2; d3; d4; d5; d6; d7; d8; d9; d10; d11; d12
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

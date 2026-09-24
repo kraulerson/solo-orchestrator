@@ -810,7 +810,8 @@ adopt_archive_write() {
       # it — and `-w` answers for the TARGET, so it has to be asked first.
       # Measured: a symlinked FEATURES.md read `replaced` while it sat untouched.
       CLAUDE.md|FEATURES.md|BUGS.md|RELEASE_NOTES.md|docs/INDEX.md|docs/IDENTIFIERS.md|docs/archive/README.md)
-        if [ ! -L "$root/$rel" ] && [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-DOCS
+        # …and so is one inside a symlinked FOLDER (`# BL-242-PARENT-LINK`).
+        if [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel" && [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-DOCS
       *)                     dispo="kept" ;;
     esac
 
