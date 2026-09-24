@@ -683,7 +683,25 @@ echo "=== R — the three routes A7's deferral DEPENDS ON, each executed ==="
 
 # R1 — the route WP9a's own handoff advertises.
 r1_prompt="$TOPTMP/r1-resume"
-( cd "$CTL/p" && bash scripts/resume.sh ) > "$r1_prompt" 2>&1 || true
+# WP12a FLIPPED THIS ROUTE (as §10-WP12a said it would): on an adopted project
+# whose assessment is NOT recorded, resume.sh now prints the ASSESSMENT prompt
+# (R1b below). The §13 prompt this case pins is the Phase-0 entry that follows
+# the assessment, so it is read on a COPY of the fixture that carries an
+# assessment block — the state the finisher leaves.
+r1_assessed="$TOPTMP/r1-assessed"
+cp -R "$CTL/p" "$r1_assessed" 2>/dev/null
+jq '.adoption.assessment = {verdict: "keep", inProduction: false}' "$r1_assessed/.claude/manifest.json" > "$r1_assessed/m.tmp" \
+  && mv "$r1_assessed/m.tmp" "$r1_assessed/.claude/manifest.json"
+( cd "$r1_assessed" && bash scripts/resume.sh ) > "$r1_prompt" 2>&1 || true
+# R1b — and on the UNASSESSED fixture itself, the assessment prompt.
+r1b_out="$TOPTMP/r1b-resume"
+( cd "$CTL/p" && bash scripts/resume.sh ) > "$r1b_out" 2>&1 || true
+if grep -q 'You are running its ASSESSMENT' "$r1b_out" && grep -qF -- '--act4 --root .' "$r1b_out" \
+   && ! grep -qF "Section 13 is your initialization prompt" "$r1b_out"; then
+  pass "R1b: on an adopted, UNASSESSED project resume.sh prints the assessment prompt — naming the finisher — not a Phase-0 entry"
+else
+  fail_ "R1b: resume.sh on an adopted, unassessed project" "did not print the assessment prompt: $(head -c 300 "$r1b_out" | tr '\n' ' ')"
+fi
 r1_fallback=1; grep -qF "Section 13 is your initialization prompt" "$r1_prompt" 2>/dev/null && r1_fallback=0
 r1_heading=$(grep -c '^## 13\.' "$CTL/p/PROJECT_INTAKE.md" 2>/dev/null); r1_heading=$(_num "$r1_heading")
 # ONE HEADING, COUNTED BY TITLE RATHER THAN BY NUMBER. Counting `^## 13\.`
@@ -1029,7 +1047,10 @@ echo "=== H — Act 2 ends by handing off, and says what is NOT built (§8.1, §
 h1_act2=0; grep -qF "Act 2" "$CTL_OUT" 2>/dev/null && h1_act2=1
 h1_phase0=0; grep -qF "phase 0" "$CTL_OUT" 2>/dev/null && h1_phase0=1
 h1_resume=0; grep -qF "scripts/resume.sh" "$CTL_OUT" 2>/dev/null && h1_resume=1
-h1_owner=0; grep -qF "WP12a" "$CTL_OUT" 2>/dev/null && h1_owner=1
+# WP12a BUILT THE ASSESSMENT, so the run no longer announces it as unbuilt —
+# it names it as the next step (`# BL-242-ACT3-NEXT`).
+h1_owner=0; grep -qF "Next: the assessment (Act 3)" "$CTL_OUT" 2>/dev/null && h1_owner=1
+grep -qF "NOT DONE — the assessment" "$CTL_OUT" 2>/dev/null && h1_owner=0
 h1_stale=0; grep -qF "the certification pass" "$CTL_OUT" 2>/dev/null && h1_stale=1
 # A8's THIRD deliverable, which nothing pinned: the framework-documents notice
 # used to print "unassigned — §10 names no owner", which is false against v2 —
@@ -1042,7 +1063,7 @@ grep -qF "The framework's documents" "$CTL_OUT" 2>/dev/null || h1_docowner=0
 h1_stale_owner=0; grep -qF "unassigned — §10 names no owner" "$CTL_OUT" 2>/dev/null && h1_stale_owner=1
 if [ "$h1_act2" -eq 1 ] && [ "$h1_phase0" -eq 1 ] && [ "$h1_resume" -eq 1 ] && [ "$h1_owner" -eq 1 ] \
    && [ "$h1_stale" -eq 0 ] && [ "$h1_docowner" -eq 1 ] && [ "$h1_stale_owner" -eq 0 ]; then
-  pass "H1: the run ends by saying Act 2 completed, naming the phase-0 standing and scripts/resume.sh, and announcing the assessment as WP12a's — and it no longer announces the RETIRED certification pass"
+  pass "H1: the run ends by saying Act 2 completed, naming the phase-0 standing and scripts/resume.sh, and naming the assessment (Act 3) as the next step rather than announcing it as unbuilt — and it no longer announces the RETIRED certification pass"
 else
   fail_ "H1: the handoff block is not in its v2 shape" "act2=$h1_act2 phase0=$h1_phase0 resume=$h1_resume wp12a=$h1_owner retired-stub-still-printed=$h1_stale docs-stub-retired-and-heading-printed=$h1_docowner (want 1) stale-owner-printed=$h1_stale_owner (want 0)"
 fi

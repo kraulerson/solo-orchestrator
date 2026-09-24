@@ -60,13 +60,12 @@ adopt_stub_notice() {
 # It is announced rather than started because Act 3 is a Claude Code session,
 # not a shell step. The one honest thing this driver can do about it is name it
 # and point at the script that generates the first message.
-adopt_stub_assessment() {
-  adopt_stub_notice "the assessment (Act 3) — the requirements interview, the fitness verdict and the plan" "WP12a" \
-    "Adoption has surveyed, installed and recorded. What it has NOT done is ask you what this"
-  adopt_note "project is for, judge whether the technology fits those answers, or write you a plan."
-  adopt_note "Until that ships, PROJECT_INTAKE.md carries the cells the scan could fill and leaves"
-  adopt_note "the rest blank, and the Phase 0 questions are asked the ordinary way instead."
-}
+# adopt_stub_assessment — RETIRED 2026-09-24 by WP12a. The assessment is
+# built: Act 2 writes the prompt (`# BL-242-ASSESSMENT-PROMPT`), resume.sh
+# prints it (`# BL-242-RESUME-ASSESSMENT`), a Claude Code session conducts it,
+# and `adopt-project.sh --act4` records it (`# BL-242-ACT4-FINISH`). The run
+# now ends with `adopt_act3_next`, which names the step instead. The name is
+# left as a headstone, like the others in this file.
 
 # WP5b — the test-debt ledger and its ratchet (§5.4) — RETIRED, NOT DELETED IN
 # SPIRIT. The stub that used to live here said "existing untested files are not
