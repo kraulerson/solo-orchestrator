@@ -898,7 +898,6 @@ jobs:
             tests/test-bl131-domsink-rules.sh          #  54s
             tests/test-bl118-sast-dom-xss.sh           #  13s
             tests/test-bl200-syntax-canary.sh          # THE canary (fast): keeps the exact-spelling pin beside the sast toolchain
-            tests/test-brownfield-wp9-act-boundaries.sh #  58s on PR #444 — moved from lint-sweep; sast had 317s of headroom
             tests/test-bl261-contributor-sast-live.sh  #  24s on PR #416 — semgrep live cases; pinned here when `rest` reached 11m12s of the 12m cap
             # tests/test-bl200-syntax-detector.sh is deliberately NOT here. It first landed in
             # this shard and pushed it from ~4m46 typical to 6m31, and a slow-registry evening
@@ -971,14 +970,13 @@ jobs:
           # four adoption packages still to land. Re-pinning could only move
           # the heat, so this is a sixth leg rather than a raised cap.
           # Per-suite figures are ::group:: spans from run 36040583339.
-          # wp9-act-boundaries went to `sast` (headroom), not here, to leave
-          # this leg room for the adoption suites still to come.
           pin_adopt=(
             tests/test-brownfield-wp9b-preflight-approval.sh  # 257s on PR #444 — moved from lint-scan
             tests/test-brownfield-wp4-driver.sh               #  98s on PR #444 — moved from lint-sweep
             tests/test-brownfield-dispositions-template.sh    #  48s on PR #444 — rest's top pole
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
+            tests/test-brownfield-wp9-act-boundaries.sh       #  58s on PR #444 — from lint-sweep; first pinned to sast, which then ran 10m42s on PR #445 (its bl132 swings 77-213s)
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
