@@ -117,6 +117,14 @@ adopt_refuse() {
   # rather than a proxy for one.
   if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] || [ "$_n" -gt 0 ] || adopt_has_touched_disk; then
     printf '\n[BLOCKED] %s\n' "$1" >&2
+    # INSIDE THE REHEARSAL, THE CAUSE AND NOTHING ELSE. Everything below states
+    # what was written to "this project" — and during the rehearsal that is the
+    # COPY. `adopt_prewrite_preflight` forwards this text under its own "nothing
+    # was written to your project", so the copy's "80 file(s) were already
+    # written into this project" printed directly beneath it and contradicted
+    # it. Measured on a block raised by the dispositions stage (a corrupt audit
+    # ledger): the real tree held nothing but the operator's own `.claude/`.
+    [ "${ADOPT_REHEARSING:-0}" -eq 1 ] && return 1   # BL-242-REHEARSAL-CAUSE-ONLY
     # THE LABEL AND THE DETAIL ANSWER DIFFERENT QUESTIONS. `adopt_block` forces
     # the label because a named check RAN (docs/messaging-standard.md); what is
     # on disk is still DERIVED, so a block that wrote nothing says so rather
@@ -162,6 +170,7 @@ adopt_refuse() {
     fi
   else
     printf '\n[REFUSED] %s\n' "$1" >&2
+    [ "${ADOPT_REHEARSING:-0}" -eq 1 ] && return 1   # BL-242-REHEARSAL-CAUSE-ONLY
     printf '          %s did not begin. Nothing was committed and nothing was written.\n' "${ADOPT_OPERATION:-Adoption}" >&2
   fi
   return 1

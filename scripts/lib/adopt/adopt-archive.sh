@@ -558,15 +558,16 @@ adopt_archive_scan() {
 # because one enum member is one five-surface change and five members is five.
 # The five events the design names are:
 #
-#   adoption               the adoption itself                    (WP7 owns it)
-#   blocker_acceptance     every accepted blocker                 (WP5 owns it)
-#   secrets_disposition    every `accepted risk` disposition      (unowned)
+#   adoption               the adoption itself                    `# BL-242-ADOPTION-EVENT`
+#   blocker_acceptance     every accepted blocker                 NONE — WP5 is RETIRED
+#   secrets_disposition    every accepted risk and every          `# BL-242-DISPOSITIONS-EVENT`
+#                          acknowledgement (§6.3)
 #   collision_archive      every collision archive                THIS PACKAGE
 #   collision_re_add       every re-add                           THIS PACKAGE
 #
-# The two this package owns are emitted; the other three have no emitter yet
-# and this comment says so rather than leaving a reader to infer that adoption
-# records everything already.
+# Four are emitted. `blocker_acceptance` never will be: it belonged to v1's
+# certification pass, which v2 retired with nothing left to accept, and this
+# comment says so rather than leaving a reader to infer an emitter is pending.
 #
 # `enforcement_level_at_event` IS "n/a" AND THAT IS A DECISION. The documented
 # enum admits it, and the alternative is worse: reading the tier here would

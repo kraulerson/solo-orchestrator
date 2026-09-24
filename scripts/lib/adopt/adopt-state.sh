@@ -50,7 +50,13 @@
 # failure mode.
 _adopt_state_order() {
   printf '%s\n' approval_log   # BL-242-APPROVAL-LOG-FIRST
-  printf '%s\n' phase_state intake manifest   # BF-ADOPT-STATE-ORDER
+  # `dispositions` — §6.3's two records — AFTER `intake` and BEFORE `manifest`
+  # (BL-242-DISPOSITIONS-ORDER): inside the loop so the rehearsal covers them
+  # (its audit rows land in the COPY's ledger and are discarded with it), and
+  # before the stamp so an acceptance that cannot be recorded blocks the run
+  # before the project reads as adopted. On the §8.4 line, not a line of its
+  # own, because that line is a single-site mutation anchor.
+  printf '%s\n' phase_state intake dispositions manifest   # BF-ADOPT-STATE-ORDER
   # AFTER `manifest` AND NOT BEFORE IT. The Adoption Record names the commit
   # this project was adopted at, and it takes that value from the stamp rather
   # than from a second `git rev-parse HEAD` — one fact, one source. The stamp
@@ -1757,6 +1763,7 @@ _adopt_write_phase() {
       approval_log) adopt_write_approval_log "$root" || return 1 ;;   # BL-242-APPROVAL-LOG-WRITE
       phase_state) adopt_write_phase_state "$root" || return 1 ;;
       intake)      adopt_write_intake "$root" "$report" || return 1 ;;
+      dispositions) adopt_write_dispositions "$root" "$report" || return 1 ;;   # BL-242-DISPOSITIONS-STAGE
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;
       framework_docs) adopt_write_framework_docs "$root" || return 1 ;;   # BL-242-DOCS-STAGE
       adoption_record) adopt_write_adoption_record "$root" "$report" || return 1 ;;   # BL-242-RECORD-STAGE

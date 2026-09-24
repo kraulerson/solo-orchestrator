@@ -369,7 +369,9 @@ s1_first_sites=$(_sites "$L_STATE" 'BL-242-APPROVAL-LOG-FIRST')
 # the commit it was adopted at from the STAMP that stage writes, rather than
 # from a second `git rev-parse HEAD`. WP12b inserts `framework_docs`
 # (`# BL-242-DOCS-STAGE-ORDER`) between `manifest` and `adoption_record`, so
-# the record stays the last word in the log.
+# the record stays the last word in the log. WP7/4 then puts `dispositions`
+# (§6.3's join table and audit rows) between `intake` and `manifest`, ON the
+# `# BF-ADOPT-STATE-ORDER` line — so that line is still one site.
 #
 # THE HEAD IS STILL A4'S AND THE TAIL THROUGH `manifest` IS STILL §8.4'S, which
 # is the whole of what this case was written for: §8.4 is about which of two
@@ -378,11 +380,11 @@ s1_first_sites=$(_sites "$L_STATE" 'BL-242-APPROVAL-LOG-FIRST')
 # updated rather than loosened — a prefix match would stop discriminating the
 # next time a stage is added in the middle, which is the one place it would
 # matter.
-if [ "$s1_order" = "approval_log phase_state intake manifest framework_docs adoption_record write_set " ] \
+if [ "$s1_order" = "approval_log phase_state intake dispositions manifest framework_docs adoption_record write_set " ] \
    && [ "$s1_sites" -eq 1 ] && [ "$s1_first_sites" -eq 1 ]; then
-  pass "S1: the order is A4's log first, then §8.4's, then WP12b's framework_docs, WP7/1's adoption_record and WP9d's write_set last — approval_log, phase_state, intake, manifest, framework_docs, adoption_record, write_set"
+  pass "S1: the order is A4's log first, then §8.4's, then WP12b's framework_docs, WP7/1's adoption_record and WP9d's write_set last — approval_log, phase_state, intake, dispositions, manifest, framework_docs, adoption_record, write_set"
 else
-  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake manifest framework_docs adoption_record write_set ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
+  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake dispositions manifest framework_docs adoption_record write_set ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
 fi
 
 # _assert_safe_row LABEL DIR — §8.4's TOP row: phase-state present, manifest

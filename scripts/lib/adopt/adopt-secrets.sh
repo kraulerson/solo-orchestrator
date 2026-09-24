@@ -426,3 +426,99 @@ adopt_dispositions_satisfy() {
     *) return 1 ;;
   esac
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# adopt_write_dispositions ROOT REPORT — §6.3's two records.  # BL-242-DISPOSITIONS-STAGE
+#
+# 1. THE JOIN TABLE, `.claude/adoption/secrets-dispositions.json`, committed:
+#    the scan it answers (HEAD, commits read, scope, status, the report's
+#    sha256) and the dispositions and acknowledgements THIS RUN ACCEPTED.
+#    Written even at zero findings, because "we scanned, at this HEAD, and
+#    found nothing" is a record worth having (§6.3).
+# 2. THE EVENT — one `adoption_event` row, `details.event:
+#    "secrets_disposition"`, per `accepted-risk` disposition and per
+#    acknowledgement. `rotated` and `false-alarm` accept no risk and write no row.
+#
+# ONLY WHAT WAS ACCEPTED, the same filter the record applies: a disposition
+# counts when its fingerprint is one of THIS scan's findings and it carries a
+# decision word, a name, a reason and a real calendar day; an acknowledgement
+# counts when its kind is this scan's status and it is equally complete. The
+# operator's file can carry anything — a row reused from another run is not part
+# of this adoption's decision and must not be written down as if it were.
+#
+# FINGERPRINTS, NEVER VALUES. Every field is named; nothing is passed through.
+#
+# A ROW THAT CANNOT BE WRITTEN IS A BLOCK. §6.3: "a disposition that cannot be
+# written … is a refusal, not a warning". The acceptance is the operator's
+# signed escape from a check; an escape that leaves no trace is the posture the
+# design exists to replace.
+adopt_write_dispositions() {
+  local root="$1" report="$2" f="${ADOPT_DISPOSITIONS_FILE:-}" src rsha table rows n=0 row
+  src="$ADOPT_WORK/dispositions-src.json"
+  if [ -n "$f" ] && [ -f "$f" ]; then
+    # Scratch paths spelled with `$ADOPT_WORK` ON the line: that is how
+    # tests/test-bl225-staging-preflight.sh's T9 tells a scratch write from a
+    # write into the project.
+    jq -e 'type == "object"' "$f" >/dev/null 2>&1 && cp "$f" "$ADOPT_WORK/dispositions-src.json" 2>/dev/null \
+      || printf '{}\n' > "$ADOPT_WORK/dispositions-src.json"
+  else
+    printf '{}\n' > "$ADOPT_WORK/dispositions-src.json"
+  fi
+  rsha="$(adopt_sha256 "$report")"
+  table="$ADOPT_WORK/dispositions-table.json"
+  jq -n --slurpfile r "$report" --slurpfile d "$src" --arg rsha "$rsha" '
+    def trimmed: (. // "") | tostring | gsub("^\\s+|\\s+$"; "");
+    def isoday: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+      and ((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .);
+    def complete: ((.by | trimmed) != "") and ((.reason | trimmed) != "") and ((.date // "") | isoday);
+    ($r[0].secrets // {}) as $s
+    | ([$s.findings[]?.fingerprint | select(. != null)]) as $fps
+    | { schemaVersion: 1,
+        scan: { head: ($s.head // null), commitsScanned: ($s.commitsScanned // null),
+                scope: ($s.scope // null), status: ($s.status // null), reportSha256: $rsha },
+        dispositions: [ ($d[0].dispositions // [])[]?
+          | select(type == "object")
+          | select((.fingerprint // "") as $fp | $fps | index($fp))
+          | select((.disposition // "") | IN("rotated", "false-alarm", "accepted-risk"))
+          | select(complete)
+          | { fingerprint: (.fingerprint | tostring), disposition, by: (.by | trimmed),
+              reason: (.reason | trimmed), date }
+            + (if .disposition == "rotated" and ((.rotatedOn // "") | isoday)
+               then {rotatedOn} else {} end) ],
+        acknowledgements: [ ($d[0].acknowledgements // [])[]?
+          | select(type == "object")
+          | select((.kind // "") == ($s.status // "") and ((.kind // "") | IN("tool-unavailable", "scanned-partial")))
+          | select(complete)
+          | { kind, by: (.by | trimmed), reason: (.reason | trimmed), date,
+              scope: ($s.scope // null), commitsScanned: ($s.commitsScanned // null), head: ($s.head // null) } ] }' \
+    > "$ADOPT_WORK/dispositions-table.json" 2>/dev/null
+  if ! jq -e '.schemaVersion == 1' "$table" >/dev/null 2>&1; then
+    adopt_block "the secrets dispositions could not be assembled into their record"
+    adopt_note "  Adoption records what was decided about the scan before it continues, and it"
+    adopt_note "  could not build that record."
+    return 1
+  fi
+  adopt_write_file "$root" ".claude/adoption/secrets-dispositions.json" < "$table" || return 1
+
+  # ── the events ────────────────────────────────────────────────────────────
+  rows="$ADOPT_WORK/dispositions-rows.jsonl"
+  jq -c '(.dispositions[] | select(.disposition == "accepted-risk")
+            | {fingerprint, disposition, by, reason, date}),
+         (.acknowledgements[] | {kind, by, reason, date})' "$table" > "$ADOPT_WORK/dispositions-rows.jsonl" 2>/dev/null \
+    || { adopt_block "the accepted risks could not be read back to be recorded"; return 1; }
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    if ! adopt_audit_event "$root" "secrets_disposition" "$row"; then   # BL-242-DISPOSITIONS-EVENT
+      # The remedy is IN the message: this fires first inside the rehearsal,
+      # whose stdout is discarded, so a follow-up note would never be seen.
+      adopt_block "an accepted risk could not be recorded in .claude/bypass-audit.json, and an acceptance that leaves no trace is not one adoption acts on — check the ledger is valid JSON with: jq . .claude/bypass-audit.json"
+      return 1
+    fi
+    n=$((n + 1))
+  done < "$rows"
+  # Recorded once: the archive stage stages the ledger too when it wrote a row.
+  if [ "$n" -gt 0 ] && ! grep -qxF ".claude/bypass-audit.json" "${ADOPT_WRITTEN_LEDGER:-/dev/null}" 2>/dev/null; then
+    _adopt_record_if_stageable "$root" ".claude/bypass-audit.json"
+  fi
+  return 0
+}

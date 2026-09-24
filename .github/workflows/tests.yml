@@ -594,6 +594,7 @@ jobs:
             tests/test-brownfield-wp7b-commit-hook.sh
             tests/test-brownfield-dispositions-template.sh
             tests/test-brownfield-wp12b-framework-docs.sh
+            tests/test-brownfield-wp7d-audit-rows.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -973,6 +974,7 @@ jobs:
             tests/test-brownfield-dispositions-template.sh    #  48s on PR #444 — rest's top pole
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
+            tests/test-brownfield-wp7d-audit-rows.sh          #  36s local — five real adoptions, two with real gitleaks findings
             tests/test-brownfield-wp9-act-boundaries.sh       #  58s on PR #444 — from lint-sweep; first pinned to sast, which then ran 10m42s on PR #445 (its bl132 swings 77-213s)
           )
           # ── `commit-hooks` — the suites that drive real commits through real

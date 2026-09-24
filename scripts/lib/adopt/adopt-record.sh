@@ -683,5 +683,32 @@ adopt_write_adoption_record() {                       # BL-242-RECORD-WRITE
   fi
   adopt_note "The Adoption Record is in APPROVAL_LOG.md — what was scanned, what was found,"
   adopt_note "what was archived, and what this build does not yet know."
+  # ── THE `adoption` EVENT (§8.9) ───────────────────────────────────────────
+  # One `adoption_event` row with `details.event: "adoption"`, the first of the
+  # five events and the one that names the act itself: the tier, the commit it
+  # was adopted at (from the stamp, the record's own source), where the
+  # archive is, and what the scan said. It DEGRADES LOUDLY rather than
+  # refusing, for the collision row's reason: the Adoption Record just above it
+  # and the stamp are the primary records, so a lost row thins the trail
+  # without invalidating the act — but it must never be lost quietly.
+  local _ev
+  _ev="$(jq -n --arg tier "${ADOPT_DEPLOYMENT:-}" \
+            --arg at "$(soif_adoption_read "$root/.claude/manifest.json" '.adoption.adoptedAtCommit // ""' 2>/dev/null)" \
+            --arg arc "${ADOPT_ARCHIVE_DIR:-}" \
+            --arg st "$(adopt_report_read "$report" '.secrets.status // ""')" \
+            --argjson n "$(adopt_int "$(adopt_report_read "$report" '.secrets.findingCount // 0')")" \
+            '{deployment: $tier, adoptedAtCommit: $at, archiveDir: (if $arc == "" then null else $arc end),
+              secretsScanStatus: $st, findingCount: $n, landedPhase: 0}' 2>/dev/null)"
+  if [ -n "$_ev" ] && adopt_audit_event "$root" "adoption" "$_ev"; then   # BL-242-ADOPTION-EVENT
+    if ! grep -qxF ".claude/bypass-audit.json" "${ADOPT_WRITTEN_LEDGER:-/dev/null}" 2>/dev/null; then
+      _adopt_record_if_stageable "$root" ".claude/bypass-audit.json"
+    fi
+  else
+    adopt_say "   THE ADOPTION HAPPENED. ITS AUDIT ROW could not be recorded."
+    adopt_note "The Adoption Record above and the stamp in .claude/manifest.json are the primary"
+    adopt_note "records and are not in doubt. The line in .claude/bypass-audit.json that would let"
+    adopt_note "someone find this adoption from the audit trail is missing — check the ledger:"
+    adopt_note "  jq . .claude/bypass-audit.json"
+  fi
   return 0
 }
