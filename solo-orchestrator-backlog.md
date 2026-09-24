@@ -15189,6 +15189,33 @@ writing either of §6.3's two records — the committed join table and the per-a
 `.claude/adoption/secrets-dispositions.json` are not built (a re-adoption is refused at step 0, so
 the default read has no caller today); the vanished-finding report likewise.
 
+### WP7's CI carve-out (2026-09-24) — their pipelines read, never changed; the framework's CI at its own name
+
+**What ships** (`scripts/lib/adopt/adopt-ci.sh`, v1 §7.4 carried unchanged by v2 §7.4):
+- `adopt_ci_audit` (`# BL-242-CI-AUDIT`, called at `# BL-242-CI-AUDIT-CALL` after the secrets
+  decision and BEFORE the intake, so its questions sit at a fixed position — the intake's count
+  varies with the environment, which PR #446 measured on the runner) reads every CI file for four
+  shapes (`# BL-242-CI-RULES`: auto-merge, force-push/history rewrite, check-skipping,
+  deploy-on-push), reports a line NUMBER and never the line's text, and asks keep-or-retire once per
+  flagged file. An unanswered question refuses before any write.
+- the `ci` write stage (`# BL-242-CI-STAGE`, after `framework_docs`, before `adoption_record`)
+  installs `init.sh`'s language template at a framework-owned name (`# BL-242-CI-DEST`): GitHub
+  `.github/workflows/solo-gates.yml` (runs), GitLab `.gitlab-ci-solo.yml` (runs once the operator
+  adds the printed `include`), Bitbucket `bitbucket-pipelines.solo.yml` (cannot run — the operator
+  copies steps). Host `other` gets none, as in `init.sh`. A file already at the framework's name is
+  left alone and named; writes go through `_adopt_doc_put`, so a symlinked folder is not written
+  through.
+- the Adoption Record's **Your CI** section (`# BL-242-RECORD-CI`).
+
+**Pinned by** `tests/test-brownfield-wp7e-ci-carveout.sh` (C1–C8), ten mutants killed — the first
+cut of C2 could not see a commented-out rule firing (the report prints numbers, not text) and was
+re-aimed at the line number.
+
+**Residuals:** the detector is a net of known spellings, not a parser; `scripts/verify-install.sh`
+still keys `CI pipeline exists` on the canonical path (v1 §7.4's false-pass note), so on an adopted
+GitLab/Bitbucket project it reports THEIR pipeline as the framework's; the release pipeline
+(`generate_release`) is not laid down by adoption.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

@@ -9,15 +9,14 @@ the files it wrote.
 > **What ships, and what does not.** Adoption itself works end to end: Scout's
 > survey, the tier question, the credential scan and its tier-scoped stop, the
 > reverse intake, the state writes and adoption stamp, the collision archive
-> with `--re-add`, the test-debt ledger, the **Adoption Record**, the
-> **commit-time scanners**, and the **framework documents** — a rendered
-> `CLAUDE.md` among them. Two things are designed and **not built**: the
-> *assessment* (the requirements interview, the fitness verdict and the plan —
-> Act 3, a Claude Code session), and the *CI carve-out*. The run prints a
-> labelled `NOT DONE` block, naming its owner, for the assessment — and for the
-> provenance headers on reconstructed documents. It prints **none** for the CI
-> carve-out, because nothing in the run touches your pipelines at all: adoption
-> neither installs framework CI nor records a decision about yours. See
+> with `--re-add`, the test-debt ledger, the **Adoption Record** and the audit
+> rows, the **commit-time scanners**, the **framework documents** — a rendered
+> `CLAUDE.md` among them — and the **CI carve-out** (the framework's CI at its
+> own filename; yours read for risky patterns, never changed). What is designed
+> and **not built** is the *assessment* (the requirements interview, the fitness
+> verdict and the plan — Act 3, a Claude Code session) and the provenance
+> headers on reconstructed documents; the run prints a labelled `NOT DONE`
+> block, naming its owner, for each. See
 > [What is not built yet](#what-is-not-built-yet).
 
 Everything on this page is output that was observed, pasted as it printed.
@@ -1238,13 +1237,11 @@ your `APPROVAL_LOG.md` during the run, and refuses rather than writing one that
 its own eight-clause contract rejects. See
 [The Adoption Record](#the-adoption-record).
 
-What is still WP7's on that surface is narrower than it was. §8.9 names five
-`adoption_event` rows; two of them — **collision archive** and **re-add** — are
-emitted today, and two — the **adoption** row and the **`accepted-risk` secrets
-disposition** row — are not. The fifth, **blocker acceptance**, is attributed in
-the emitter's header to a work package that has since been RETIRED, and nothing
-in the v2 design reassigns it; whether it still has a subject at all is an open
-question rather than a scheduled build. **The emitter's own header in
+§8.9 names five `adoption_event` rows. Four are emitted — **collision
+archive**, **re-add**, **adoption** and **secrets disposition** (see
+[The audit rows](#the-audit-rows-and-the-dispositions-record--ship-wp7)). The
+fifth, **blocker acceptance**, belonged to the retired certification pass and
+will not be emitted. **The emitter's own header in
 `scripts/lib/adopt/adopt-archive.sh` is the live list** — it names each row and
 its owner, and it is maintained with the code. Prefer it to this paragraph.
 
@@ -1284,10 +1281,55 @@ declaration — it **names in its own text** rather than leaving out, so that a
 reader finding those fields absent does not read the absence as a measurement
 that came back empty.
 
-The **CI carve-out** does not exist. Nothing installs framework CI as its own
-files, and nothing records a keep-or-retire decision about your pipelines.
-Scout's SDLC findings are the only part of that surface that ships, and they are
-report-only.
+The **CI carve-out** ships — see
+[The CI carve-out](#the-ci-carve-out--ships-wp7) below.
+
+### The CI carve-out — SHIPS (WP7)
+
+**Your pipelines are read, never changed.** Adoption reads every CI file you
+have — `.github/workflows/*.yml`, `.gitlab-ci.yml`, `bitbucket-pipelines.yml` —
+for four ways a pipeline can let code around the framework's checks:
+
+| Finding | What it looks for |
+|---|---|
+| auto-merge | `gh pr merge … --auto`, auto-merge actions |
+| force-push or history rewrite | `git push --force`, `filter-repo`, `filter-branch` |
+| a failing step is allowed to pass | `continue-on-error: true`, `allow_failure: true`, `if: always()` |
+| deploys on a branch push | a deploy in a workflow triggered by a branch push, with no tag, release or manual trigger |
+
+It is a search for known spellings, not a parser, and the run says so. It
+reports a **line number**, never the line — a workflow can carry a credential.
+For each file with a finding it asks once, **before anything is written**:
+*keep* it as it is, or *retire* it. Your answer goes into the Adoption Record;
+"retire" is your intention, and adoption does not carry it out. A file with no
+finding asks nothing. Measured:
+
+```text
+══ Your CI — read, not changed
+
+   .github/workflows/release.yml — the framework cannot vouch for what this lets through:
+     line 10  a failing step is allowed to pass — a red check can come out green
+     line 6  deploys on a branch push — code can reach production without the release phase
+Keep .github/workflows/release.yml as it is, or will you retire it?
+   1) Keep it — it stays exactly as it is
+   2) Retire it — I will remove or change it myself
+```
+
+**The framework's CI is installed as its own file**, from the template `init.sh`
+uses for the project's language, and **never at the canonical path**. On GitLab
+and Bitbucket the canonical file is your whole pipeline, and replacing it would
+take your deploy offline:
+
+| Host | Framework CI | Runs? |
+|---|---|---|
+| GitHub | `.github/workflows/solo-gates.yml` | Yes, from your next push — GitHub runs every workflow. It may fail on code that predates adoption; that is a finding, not a breakage. |
+| GitLab | `.gitlab-ci-solo.yml` | **Not until you add** `include: - local: '.gitlab-ci-solo.yml'` to your `.gitlab-ci.yml`. The run prints the lines. |
+| Bitbucket | `bitbucket-pipelines.solo.yml` | **No.** Bitbucket runs only `bitbucket-pipelines.yml` and cannot include a second file from the same repository; copy the steps you want into yours. |
+| none found | nothing | `init.sh` lays no CI down for host `other` either; supply your own. |
+
+A file already at the framework's name is yours: left alone, and the run says
+so. The Adoption Record's **Your CI** section names the framework's file (or why
+none was installed) and your decision for each flagged file.
 
 ### The commit-time scanners — SHIP (WP7/3)
 
@@ -1426,7 +1468,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Putting one of your own files back, warned and recorded | ✅ `--re-add`, ships |
 | Adoption refusing to commit a *recognised* secret out of your hooks | ✅ Ships — the archive is scanned before staging and a match is withheld. **A mitigation, not a guarantee** — see below |
 | Adoption never committing a file your `.gitignore` excludes | ✅ Ships — the **original's** ignore status decides, not the archive copy's |
-| Framework CI installed beside yours, with a recorded keep-or-retire | ❌ CI carve-out — **not built** |
+| Framework CI installed beside yours, with a recorded keep-or-retire | ✅ [The CI carve-out](#the-ci-carve-out--ships-wp7) — ships; on GitLab it runs once you add one `include`, on Bitbucket you copy its steps |
 | An audit trail of the adoption and of every risk accepted during it | ✅ [The audit rows and the dispositions record](#the-audit-rows-and-the-dispositions-record--ship-wp7) — ships |
 | A readable record of how this project entered the framework | ✅ [The Adoption Record](#the-adoption-record) — ships, at the end of `APPROVAL_LOG.md`, with its eight-clause contract checked before it is written |
 | Secret scanning, SAST and migration checks on every commit | ✅ [The commit-time scanners](#the-commit-time-scanners--ship-wp73) — ships; measured admitting a compliant commit and blocking a non-compliant one by exit code |
