@@ -591,6 +591,7 @@ jobs:
             tests/test-brownfield-wp11-archive-classes.sh
             tests/test-bl296-hook-roster-unconditional.sh
             tests/test-brownfield-wp7-adoption-record.sh
+            tests/test-brownfield-wp7b-commit-hook.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -875,6 +876,15 @@ jobs:
             #    a second, pinning it would buy nothing, and a commented path
             #    inside an array is the shape this file warns about two arrays
             #    up. It stays in the computed complement.
+            # ── Re-pinned 2026-09-24, PR #442. The complement leg was CANCELED at
+            #    734s of the 720s cap with nothing failing — the cap fired while
+            #    this suite, last in the list, was still running (started 10m16s
+            #    in). On PR #441 the same leg had taken 672s, 48s of slack, and
+            #    this suite is two REAL adoptions plus one per guard case (74s
+            #    locally, still running at 95s on CI when cancelled). Per the
+            #    doctrine above the cap, approaching it is the RE-PIN signal,
+            #    not a raise. This leg had the most slack on the same run (527s).
+            tests/test-brownfield-wp7b-commit-hook.sh  # >95s on CI (canceled mid-run), 74s local — real adoptions and real commits
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
@@ -896,6 +906,7 @@ jobs:
           pin_slow_misc=(
             tests/test-brownfield-wp9d-driver-edges.sh    #  32s local — Scout + full adoptions; `rest` was 9m36s of a 12m cap
             tests/test-brownfield-wp9d-window-rehearsal.sh #  22s local — same shape; pinned with its sibling
+            tests/test-brownfield-wp11-archive-classes.sh  #  36.5s on PR #442 — moved WITH wp7b, the complement's second pole: wp7b alone would leave it at ~89% of the cap, and it takes a new suite nearly every work package
             tests/test-pre-commit-gate-lints.sh        # 122s — runs 4 lint copies inside fixture projects
             tests/test-upgrade-sync-framework.sh       #  37s
             tests/test-plan-staging.sh                 #  34s

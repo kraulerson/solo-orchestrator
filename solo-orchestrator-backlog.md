@@ -14811,6 +14811,203 @@ now **five** (`adopt_stub_assessment`, `_framework_script_collisions`, `_hooks`,
 
 ---
 
+### WP7/3's build (2026-09-23) — the commit-time scanners, and the measurement that un-deferred them
+
+**The stub's own sentence is what retired it.** `adopt_stub_hooks` printed, on every run: the
+scanners "are NOT [on] — installing that hook today refuses every commit, because it expects
+artifacts an adoption does not yet produce." That was a MEASUREMENT, not a preference, which is
+exactly why it was worth re-taking once WP7/1 landed the Adoption Record it named. Re-measured on a
+real hermetic adoption at `f790e09`, hook installed, gitleaks 8.30.1 and semgrep 1.175.0 present:
+
+```
+docs: commit, nothing else staged          rc 0   lands
+a source file whose tests fail (BL-125)    rc 1   [BLOCKED] project tests FAILED
+a staged RSA private key                   rc 1   [BLOCKED] gitleaks detected secrets
+```
+
+That is §10-WP7's stated proof obligation — admits a compliant commit, blocks a non-compliant one
+BY EXIT CODE — so the hook ships. Karl's decision was always that it is WP7's, "last, once the
+artifacts it reads exist".
+
+**Two writers, and the second is what makes the first worth having.**
+`# BL-242-PRECOMMIT-INSTALL` writes the hook through the SHARED emitter
+(`soif_write_precommit_hook`), byte-identical to what `init.sh` and `upgrade-project.sh
+--sync-framework` emit — `B3` asserts that with `cmp`, because a third spelling is how this repo's
+own hook became a silent stale version (`# BL-243-HOOK-TEMPLATE`).
+`# BL-242-SEMGREP-CONFIG` installs `.semgrep/soif-dom-sinks.yml`, **without which the hook's
+static-analysis arm is inert on every adopted project.** The hook passes that path unconditionally;
+`init.sh`'s own comment at the line that installs it for scaffolded projects states the
+consequence, and it is what a real adoption printed on EVERY commit before this shipped:
+
+```
+[WARN] semgrep could not complete (exit 7) — the tool itself failed.
+  SAST NOT ENFORCED for this commit — the scanner did not run.
+  [ERROR] unable to find a config; path `.semgrep/soif-dom-sinks.yml` does not exist
+```
+
+Loud and honest, and an unprotected project. Installed **only when absent** — an adoptee with a file
+at that path has its own rules there and the hook reads the path either way. That narrowing is
+deliberate: replacing it would be a new archive-and-replace class (§7.1's population is the AI-layer
+surfaces and the git hooks, and this is neither), and "write only what is not there" also keeps this
+writer out of I20's overwrite inventory by construction rather than by a row somebody has to
+remember.
+
+**THE OPERATOR'S OWN PRE-COMMIT HOOK IS NOW REPLACED, AND THE ARCHIVE ROW SAID `kept`.** §7.1 puts
+every non-`.sample` file in `.git/hooks/` in the archive-and-replace bucket, and WP6 already takes
+the copy before any writer runs — so replacing is the designed behaviour and the restore line makes
+it reversible. But `_adopt_archive_dispo`'s `case` had no arm for it, so a real adoption wrote
+`.git/hooks/pre-commit  kept` into the MANIFEST beside a hook it had just overwritten. `kept` means
+"the operator's original is still at the path". That is `## BL-292:`'s class in the field an auditor
+reads, found by executing the new path rather than by reading the diff, and fixed in the same commit
+(`# BL-242-ARCHIVE-DISPO-HOOK` — its own marker, because `# BL-242-ARCHIVE-DISPO` is a mutation
+anchor `wp9b`'s W7-anchor requires to be unique; an earlier draft of this sentence cited the wrong
+one).
+
+**Proof.** `tests/test-brownfield-wp7b-commit-hook.sh`, 9 cases, unit lane, 27.7s — it runs TWO REAL
+ADOPTIONS and then makes real commits, because every cheap way of asking the question answers a
+different one, and that is precisely how the deferral survived a whole work package unexamined.
+Three mutation proofs, each restored byte-identically:
+
+| mutation | result |
+|---|---|
+| the semgrep ruleset is never installed | **6/3** — B1, B2 and B7 |
+| the hook is never written | **6/3** — B3, B8, and **B6: a private key reaches a commit** |
+| the archive row says `kept` again | **8/1** — B8 |
+
+`B9` re-derives `## BL-242:`'s own called-stub set and pins it at **four**
+(`adopt_stub_assessment`, `_framework_script_collisions`, `_project_docs`, `_provenance_headers`) —
+down from seven before WP10b/2, six before WP7/1 and five before this. Re-derive it with the recipe
+above rather than quoting the number.
+
+**AND THE HOOK SET OFF A FORK BOMB NINE SUITES HAD BEEN CARRYING.** Nine adoption fixtures write
+`package.json` with `"test":"npm test"` — a script that calls ITSELF. Measured: 71 nested `npm`
+processes eight seconds after one `npm test`. Nothing ever ran it, because adoption installed no
+pre-commit hook. The hook's BL-125 arm runs the project's tests whenever a SOURCE file is staged, and
+`tests/test-brownfield-wp4-driver.sh`'s H1 stages one after adoption — so that suite went from about
+two minutes to **1028 seconds, serially**, and would have blown its CI shard. Fixed there
+(`"test":"exit 0"`, 83–95s across three measured runs, 24/0 — H1's feature commit is still refused, now by the commit-msg TDD gate
+as designed rather than by a runaway process that eventually failed).
+
+**RESIDUAL — the other eight still carry it**, and they are fast today only because none of them
+commits a source file after adoption. The first one that does will hang its shard. Derive the set
+rather than trusting this list: `grep -rln '"test":"npm test"' tests/`. Left in place because each
+may assert on what Scout reads out of that script, which was not checked file by file; the fix, where
+safe, is the same one token.
+
+**Three older suites needed their assertions re-aimed, not loosened**, because they described a
+world where the operator's hook was left alone: `wp4-driver` H2 (their hook is now REPLACED —
+`sha_before != sha_after` is the assertion, and the archive must still hold their original bytes),
+H3 (the run now claims the scanners rather than disclosing their absence), and `wp6-collision-archive`
+A5 and S0 (the restore is now checked against the ARCHIVED copy, which holds in both worlds and is
+strictly stronger). `wp10a`'s X1b and M1 matched `secret.detection` case-insensitively, which the new
+install message also satisfies — tightened to the resolver's own line prefix `Secret detection:`
+rather than rewording product text to dodge a test. And the new MANIFEST arm takes its own marker
+(`# BL-242-ARCHIVE-DISPO-HOOK`), because `# BL-242-ARCHIVE-DISPO` is a mutation anchor that
+`wp9b`'s W7-anchor requires to be unique.
+
+**ADVERSARIAL REVIEW RETURNED `block`, AND IT WAS RIGHT: THE FIRST CUT DESTROYED AN OPERATOR'S
+HOOK FOR GOOD.** `soif_write_precommit_hook` writes with `printf >`, which FOLLOWS A SYMLINK, and the
+archive collects plain files only. Reproduced before fixing: a `.git/hooks/pre-commit` linked to a
+shared hook OUTSIDE the repository — one file serving many repos — adopted at rc 0, the shared file
+became 1707 lines of framework hook, no archive was taken, and the run printed *"Your copy is in the
+archive with a restore line"*. Permanent loss, reported as safe. Two siblings came with it: a
+`chmod 444` hook was left in place but MADE EXECUTABLE (the emitter ends in `chmod +x` and returns
+its status, so a failed write still returned 0), with "Commit-time scanners installed" printed over
+it; and on the documented `--finish` recovery path an operator's EDITED hook was overwritten while
+the archive held only the pre-edit version — the one that had refused every commit.
+
+The fix is one invariant, not three patches: **never overwrite bytes the archive cannot give back.**
+`_adopt_precommit_replace_ok` (`# BL-242-PRECOMMIT-GUARD`) refuses a symlink, a read-only file (BEFORE
+the emitter runs, so its `chmod +x` never fires), and any plain file whose sha256 differs from the
+MANIFEST row's. What is written is then verified BY CONTENT against a fresh emitter render, not by
+exit code. And the run's exit code carries the outcome (`# BL-242-PRECOMMIT-RECEIPT`, on both the
+full run and `--finish`): rc 1 with "the adoption itself landed; this step did not", the same shape
+as the commit-msg gate's receipt, because a caller reading rc 0 would take the project as fully
+gated. The `.semgrep` installer had the same class in miniature — `-e` is false for a dangling link,
+so `cp -p` followed it out of the project during the rehearsal — and now tests `-L` too.
+
+Pinned as `B10`–`B13` in `tests/test-brownfield-wp7b-commit-hook.sh`, each mutation-proved. The review
+also found `B5` vacuous — with NO pre-commit hook installed it still passed, because a `feat:`
+commit with no test is refused by the commit-msg TDD gate too — so it now requires `project tests
+FAILED`, the pre-commit arm's own sentence; and `B8` now requires the `REPLACED` line to be ABSENT on
+a project that had no hook.
+
+**THE VERIFICATION ROUND RETURNED `major_concerns`: the three blockers held, and the invariant
+still had holes.** All five were reproduced by the reviewer on real adoptions and are fixed:
+- **A HARDLINKED hook was written through.** `-L` is false for a hardlink, so the guard passed it and
+  a file sharing its inode outside the repository became 1707 lines of framework hook. Fixed by
+  construction rather than by another refusal: the hook is now rendered beside the path and RENAMED
+  over it (`mv`), which replaces the directory entry and leaves the shared inode alone.
+- **The guard trusted the MANIFEST row, not the archived file.** A copy withheld for a secret match is
+  disclosed with "Rotate it at the source; deleting the file does not un-leak it", which invites the
+  deletion; `--finish` then replaced the hook at rc 0 with "Your copy is in the archive" over an empty
+  `git-hooks/`. The guard now requires the archived FILE to exist with the row's sha256.
+- **`--finish` printed "did not begin. Nothing was committed and nothing was written"** under a commit
+  that had just landed 85 files, on every run of the path the guard exists for. `adopt_refuse` tested
+  that arm before `ADOPT_COMMITTED` (`# BL-242-REFUSE-AFTER-COMMIT`).
+- **The remedy led nowhere.** "Move your hook aside and run this again" — and a re-run refuses as
+  already adopted, `--finish` as not part-way through. The refusal now prints the shared emitter's
+  own command, which ships into every adoptee, and `B16` runs the command TAKEN FROM THE RUN'S OUTPUT
+  and then lands a compliant commit.
+- **A failed `mktemp` in `$TMPDIR` inverted the report** — "could not be written" over a hook that HAD
+  been replaced, undisclosed. The reference render now lives in the hooks directory, which step 0
+  already requires to be writable.
+
+Plus four surviving mutants, each now killed: the `-L` / `-e` order (B10b — a DANGLING link, which B10's
+existing target could not distinguish, and which under the mutant created a 1707-line file outside the
+repository), the completeness check and the failed arm (B17, through a new `pctrunc` value on the
+existing `SOIF_ADOPT_HOOK_FAULT` seam), the real archive directory in the REPLACED line (B8), and the
+`.semgrep` installer's outcome on a dangling link (B13).
+
+**THE THIRD ROUND RETURNED `minor_concerns`** — no path that destroys an operator's hook, all eight
+earlier fixes holding under real adoptions. Fixed from it: `--finish` still printed a false receipt
+("0 file(s) were written and committed" under `85 files changed` — the first fix moved which arm
+printed, not what it derived); the MANIFEST recorded `replaced` for a READ-ONLY hook the run then left
+alone (now `kept`, decided at archive time, where writability is already knowable); B17's cleanup
+check used plain `ls`, which hides the dot-named temp file, so the cleanup was untested; a planted or
+leftover file at the temp name was written through (now cleared first); and the `-x` check was reached
+by nothing (new `pcnoexec` fault value, B17b).
+
+**RESIDUALS from these reviews, recorded not fixed** — each is a design call rather than a defect in
+what shipped:
+- **After `--finish` refuses an EDITED hook, the committed MANIFEST still says `replaced`**, and its
+  restore line points at the pre-edit version — the one that blocked every commit. The MANIFEST is
+  committed before the edit can be known, so correcting it needs a second commit. The run and
+  `docs/adoption.md` both now say not to run that restore line.
+- **Three guard lines are still unkilled by the suite**: the archived-file sha comparison when the
+  file is ALTERED rather than removed (B15 only removes it; hand-run, an altered copy is refused), the
+  post-`mv` sha comparison, and the post-`mv` `! -L` test. The last two are reachable only through a
+  race or a planted link.
+- **Run as root, `-w` is true on a `chmod 444` file**, so a read-only hook is replaced rather than
+  refused. It is archived and restorable, so nothing is lost, but it contradicts the docs' "left
+  alone"; not executed, since it needs root.
+- **The adoptee's test command has no time bound.** The hook runs it `sh -c … </dev/null` with no
+  timeout; a hanging or watch-mode suite hangs every source commit. `docs/adoption.md` now tells the
+  operator and names `.claude/test-command` as the override. A bound in the emitter is shared-code
+  work for `init.sh` projects too, and wants its own entry.
+- **A suite that is already red blocks every source commit from day one**, and adoption neither
+  runs nor mentions it. Documented; detecting it would mean adoption running the adoptee's tests,
+  which is a decision, not a fix.
+- **Hook managers that install into `.git/hooks/pre-commit` (the Python `pre-commit` framework,
+  lefthook) are replaced, not chained**, so their checks stop. This is §7.1's ruling as written, and
+  it is the commonest real-world case; chaining the archived hook first would keep them. Karl's call.
+- **`soif_write_precommit_hook` returns `chmod`'s status**, so every caller — `init.sh` and
+  `upgrade-project.sh --sync-framework` included — reads a failed write as success. Adoption now
+  verifies by content; the emitter itself is unchanged because it is shared code with two other
+  callers and their own suites.
+- **Order against the design**: §10 says the hook comes "last" in WP7. It ships ahead of the CI
+  carve-out, the audit row and the provenance lint; the review found no artifact the hook reads from
+  any of those, so this is a recorded deviation, not a dependency broken.
+
+**Corrections to the commit message of `f80877a`**, which is already in history: it says "FOUR OLDER
+SUITES" and the diff touched three (`wp4`, `wp6`, `wp10a`); and the wp4 timing is 83–95s across
+three runs, not a single 87s.
+
+**What of WP7 is still out:** the CI carve-out, the `adoption` audit row, and the provenance-header
+lint. (`secrets_disposition` is UNOWNED, not WP7's — `adopt_audit_event`'s header is the live list.)
+
+---
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

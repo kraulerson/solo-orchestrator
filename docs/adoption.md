@@ -1094,39 +1094,116 @@ files, and nothing records a keep-or-retire decision about your pipelines.
 Scout's SDLC findings are the only part of that surface that ships, and they are
 report-only.
 
-### The commit-time scanners — no owner yet
+### The commit-time scanners — SHIP (WP7/3)
+
+**This section used to say the scanners were not installed and that nobody owned
+them.** They are installed now, and the sentence that deferred them is what
+brought them back.
+
+That block was a MEASUREMENT: installing the hook "refuses every commit, because
+it expects artifacts an adoption does not yet produce". True when taken — and
+therefore worth re-taking once the Adoption Record landed. Re-measured on a real
+adoption, hook installed:
 
 ```text
-NOT DONE — the commit-time scanners (the fallback pre-commit hook)
-   Owner: nobody yet — §10 names no owner. This build does not do it, and does not pretend to.
-   The message gates ARE on. The secret scan, the static-analysis pass and the schema-migration
-   checks that normally run on every commit are NOT — installing that hook today refuses
-   every commit, because it expects artifacts an adoption does not yet produce. Run them
-   by hand until it lands: bash scripts/pre-commit-gate.sh --terminal-mode
+docs: commit, nothing else staged          rc 0   lands
+a source file whose tests fail (BL-125)    rc 1   [BLOCKED] project tests FAILED
+a staged RSA private key                   rc 1   [BLOCKED] gitleaks detected secrets
 ```
 
-**Read that "Owner: nobody yet" against the decision, not instead of it.** The
-string above is what the driver actually prints, and it predates the call:
-**Karl's decision is that the commit-time hook is installed by WP7**, once the
-artifacts it reads exist. So the owner is WP7, and the driver's text will say so
-once it is next touched. It is quoted here unedited because this page reproduces
-what the tool prints rather than what it ought to print.
+So from your next commit onward, an adopted project runs the same commit-time
+checks a scaffolded one does: secret detection, the static-analysis pass and the
+schema-migration checks, on top of the two message gates that were already on.
 
-The behaviour either way is what the block describes: installing that hook today
-would refuse every commit, so until WP7 the two **message** gates are live —
-test-before-code ordering, and the Build-Loop commit check, both demonstrated
-above — and the scanner arms are not. Run them by hand.
+**Your own pre-commit hook is REPLACED, not left alone.** That is §7.1's rule —
+its archive-and-replace population is your AI-layer settings and every
+non-`.sample` file in `.git/hooks/` — and the framework's hook is written whole,
+so it cannot compose the way the commit-msg gate does. Your copy is in the
+archive with a restore line, and the run says so:
 
-**The test-debt ratchet is in the same position, for the same reason and one
-more.** Its two arms exist and are enforced on the tier ladder, but nothing
-calls them on commit yet, so it is `adopt-test-debt.sh --check` by hand or from
-CI until WP7 lands. The extra reason is structural rather than schedule:
-`scripts/pre-commit-gate.sh` is **core** and the ratchet is **module** code, so
-a call from the gate to the ratchet is exactly the `core → module` edge
+```text
+   Your own pre-commit hook was REPLACED by the framework's. Your copy is in the
+   archive with a restore line — see .claude/adoption-archive/…/MANIFEST.md.
+   Nothing of it was merged: the framework's hook is written whole, so the two
+   could not compose the way the commit-msg gate does.
+```
+
+The MANIFEST row for it reads `disposition: "replaced"`, not `kept` — it said
+`kept` for exactly one commit's worth of history, next to a hook that had just
+been overwritten.
+
+#### The static-analysis pass needs a ruleset, and adoption now installs it
+
+The hook passes `--config=.semgrep/soif-dom-sinks.yml` unconditionally. Adoption
+did not install that file, so on an adopted project **every commit** printed:
+
+```text
+[WARN] semgrep could not complete (exit 7) — the tool itself failed.
+  SAST NOT ENFORCED for this commit — the scanner did not run.
+  [ERROR] unable to find a config; path `.semgrep/soif-dom-sinks.yml` does not exist
+```
+
+Loud, honest, and unprotected. Adoption lays the ruleset down and commits it —
+**unless you already have a file at that path**, in which case yours stands and
+the run says so, because the hook reads that path either way and your rules are
+yours.
+
+#### When the scanners are NOT installed — and the run says so
+
+Adoption never overwrites bytes its archive cannot give back. In four cases
+that means your hook stays exactly where it is, the scanners are **not**
+installed, and the run ends with **exit code 1** — the adoption itself landed,
+this step did not, and a script reading the exit code must not take the project
+as fully gated:
+
+| Your `.git/hooks/pre-commit` is… | What happens |
+|---|---|
+| **a symlink** — to one shared hook several repositories use, or dangling | Left alone. Writing through it would overwrite the file at the far end, and the archive cannot hold a copy of a link's target. |
+| **read-only** | Left alone, permissions included. |
+| **different from the archived copy** — you edited it after a refused adoption commit, before `--finish` | Left alone. Overwriting it would lose your edit, with only the older version to restore. **Do not run the archive's restore line for it** — that line was written before your edit and would put the older version back. The run says so. |
+| **without a restorable copy** — the archived file was removed, or the path is not a regular file | Left alone. Replacing it would leave nothing to put back. |
+
+A **hardlinked** hook is replaced safely: the framework's hook is written beside
+yours and renamed over the path, so the file it shares an inode with elsewhere
+is untouched.
+
+Each refusal prints the reason and a command that works. Move your hook aside,
+then run, from the project root:
+
+```bash
+bash -c '. scripts/lib/hook-templates.sh && soif_write_precommit_hook .git/hooks/pre-commit'
+```
+
+Re-running the adoption, or `--finish`, will **not** do it — both refuse on a
+project that is already adopted. Or run the scanners by hand on each commit:
+`bash scripts/pre-commit-gate.sh --terminal-mode`.
+
+#### Three things to know before you rely on it
+
+- **A test suite that already fails will block source commits.** The hook runs
+  your project's own test command whenever a source file is staged, and refuses
+  the commit if it fails. Adoption does not run your tests, so it cannot warn you
+  in advance. If your suite is red today, fix it — or point the hook at a command
+  that passes by writing it to `.claude/test-command` — before your first
+  source commit.
+- **Your test command has no time limit.** A suite that hangs, or waits for
+  input in watch mode, will hang the commit. The same `.claude/test-command`
+  file is how you give the hook a command that finishes.
+- **Tools that install into `.git/hooks/pre-commit` are replaced, not chained.**
+  The Python `pre-commit` framework and lefthook both work that way, so their
+  lint and format checks stop running on commit. Your hook is in the archive
+  and `--re-add` puts it back, but then the framework's scanners are not
+  installed. (husky 5 and later use `core.hooksPath`, which adoption refuses
+  before writing anything; husky 4 and earlier install into `.git/hooks` and are
+  replaced like the others.)
+
+**The test-debt ratchet is still run by hand.** The commit-time hook now exists,
+but nothing wires the ratchet into it, for a structural reason:
+`scripts/pre-commit-gate.sh` is **core** and the ratchet is **module** code, so a
+call from the gate to the ratchet is exactly the `core → module` edge
 [the module contract](module-contract.md)'s M3 forbids and
-`scripts/lint-module-dependencies.sh` reds on. Whatever WP7 does about the hook
-has to reach the ratchet without spending the module's severability on one
-convenience call.
+`scripts/lint-module-dependencies.sh` reds on. Until that is designed, run
+`adopt-test-debt.sh --check` by hand or from CI.
 
 ### And one more, from this page rather than the driver
 
@@ -1148,7 +1225,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | A fitness verdict, a plan, and the reasoning behind both | ❌ The assessment (Act 3) — **not built** (WP12a) |
 | The required secrets scanner resolved before anything reads the scan — installed where the host has a recipe, named for you where it does not — and the scan re-run after an install | ✅ Tool resolution — ships (WP10a). Adoption does **not** refuse when the scanner cannot be resolved; it carries on and the report says nobody looked. The refusal is D2's — WP10b, **not built** |
 | Adoption that can *fail* on a serious finding | ❌ The secrets stop — **not built** (WP10b); the `scanned-partial` arms Karl ruled on 2026-09-16 are WP10b's too |
-| A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works, **but you run it; nothing calls it on commit yet (WP7)** |
+| A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works; the commit-time hook that would invoke the ratchet automatically now exists, and wiring the ratchet INTO it is still unbuilt |
 | Your colliding hooks/settings archived with a restore path | ✅ Collision archive — ships |
 | Plain disclosure of what was archived, path by path | ✅ Ships |
 | Putting one of your own files back, warned and recorded | ✅ `--re-add`, ships |
@@ -1156,7 +1233,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Adoption never committing a file your `.gitignore` excludes | ✅ Ships — the **original's** ignore status decides, not the archive copy's |
 | Framework CI installed beside yours, with a recorded keep-or-retire | ❌ CI carve-out — **not built** |
 | A readable record of how this project entered the framework | ✅ [The Adoption Record](#the-adoption-record) — ships, at the end of `APPROVAL_LOG.md`, with its eight-clause contract checked before it is written |
-| Secret scanning, SAST and migration checks on every commit | ❌ Deferred to WP7, by decision |
+| Secret scanning, SAST and migration checks on every commit | ✅ [The commit-time scanners](#the-commit-time-scanners--ship-wp73) — ships; measured admitting a compliant commit and blocking a non-compliant one by exit code |
 | The framework's version of a colliding `scripts/*.sh` installed | ❌ Replacement half — **not built**, and unassigned |
 | A `CLAUDE.md` in the adopted project | ❌ **Not built** — WP11 archives yours, WP12b writes the framework's (D3) |
 | The manifest's tier keys, so enforcement cannot be downgraded | ✅ Ships — `## BL-221:` closed; the tier question is their only source |

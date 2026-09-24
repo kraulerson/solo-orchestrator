@@ -122,13 +122,23 @@ adopt_refuse() {
     # on disk is still DERIVED, so a block that wrote nothing says so rather
     # than inheriting the "ATTEMPTED writes" sentence, which would be the same
     # unmeasured claim `## BL-225:` removed from the other direction.
-    if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] && [ "$_n" -eq 0 ] && ! adopt_has_touched_disk; then
+    # NOT AFTER A COMMIT. `--finish` keeps no write ledger and no touched-disk
+    # marker, so a block raised AFTER its commit landed met this arm first and
+    # printed "did not begin. Nothing was committed and nothing was written" —
+    # on every `--finish` whose commit-time scanners could not be installed,
+    # directly under a commit that had just landed 85 files. Measured by review.
+    if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] && [ "$_n" -eq 0 ] && ! adopt_has_touched_disk \
+       && [ "${ADOPT_COMMITTED:-0}" -ne 1 ]; then   # BL-242-REFUSE-AFTER-COMMIT
       printf '          %s did not begin. Nothing was committed and nothing was written.\n' "${ADOPT_OPERATION:-Adoption}" >&2
       return 1
     fi
     if [ "${ADOPT_COMMITTED:-0}" -eq 1 ]; then
       printf '          The adoption commit HAD already landed; a later step did not complete.\n' >&2
-      printf '          %s file(s) were written and committed.\n' "$_n" >&2
+      # THE COUNT ONLY WHEN THERE IS ONE. `--finish` keeps no write ledger, so
+      # `_n` is 0 there and this printed "0 file(s) were written and committed"
+      # directly under `85 files changed` — the fix for the "did not begin" line
+      # moved WHICH arm printed without changing what it derived.
+      [ "$_n" -gt 0 ] && printf '          %s file(s) were written and committed.\n' "$_n" >&2
     elif [ "$_n" -gt 0 ]; then
       printf '          Nothing was committed. %s file(s) were already written into this project.\n' "$_n" >&2
       # No promise about the index: adopt_refuse does not know the adoptee's
