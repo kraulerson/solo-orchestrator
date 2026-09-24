@@ -15028,11 +15028,42 @@ prints a valid template bound to HEAD with one fingerprint, the UNFILLED templat
 (otherwise printing it would be a one-step bypass), and the filled one completes at rc 0 with the
 decision in the Adoption Record.
 
-**Proof.** `tests/test-brownfield-dispositions-template.sh`, 4 cases, 9s. Mutations: the
-organizational call site removed → 2/2 (T1 T3); the template's `head` not bound → 2/2 (T1 T3); the
-acknowledgement kind wrong → 3/1 (T4). **Not pinned:** the two personal-tier CALL sites — T4 exercises
-the helper for both kinds at unit level, because producing "no scanner" in a real adoption means
-hiding gitleaks from PATH, which the round-trip cases need.
+**Proof.** `tests/test-brownfield-dispositions-template.sh`, 7 cases, ~37s.
+
+**THE REVIEW OF THAT FIX RETURNED `major_concerns`, AND THE WORST OF IT WAS OLDER THAN THE FIX.** The
+organizational stop held against everything — a stale template, an acknowledgement-shaped file,
+out-of-vocabulary dispositions. But on the PERSONAL tier, the acceptance the new template collects
+was **recorded nowhere**: `_adopt_rec_dispositions` returned at `findingCount == 0` before it reached
+the acknowledgements, and the two stops that need an acknowledgement most — no scanner at all, and a
+shallow clone that found nothing — are exactly the zero-finding cases. Both completed at rc 0 under a
+stop that had just promised "a name, a reason and a date, which adoption stores and commits", and a
+design rule that the acknowledgement is "RECORDED, and refused if it cannot be recorded". The findings
+half and the acknowledgements half of the record are now independent; measured on a real
+no-scanner personal adoption, the record carries
+`| tool-unavailable | Karl | 2026-09-24 | personal repo, no scanner here |`.
+
+Also from that review, each fixed:
+- **`date` was required and never checked.** "x", "tomorrow" and "0000-00-00" all lifted an
+  organizational stop, and the value was recorded nowhere. The validator now requires a real calendar
+  day (a `jq` round trip through `fromdateiso8601 | todate`, so a lenient `strptime` cannot normalise
+  2026-02-30 into March), and the record carries it as a "Decided on" column.
+- **The two personal call sites were unpinned**, with a note that hiding gitleaks from PATH was
+  something the round-trip cases needed — false, since PATH is set per run. T6 and T7 now run both
+  stops in real adoptions (a `/usr/bin:/bin` PATH with a control that it really hides gitleaks; a
+  `file://` depth-1 clone) and require the acknowledgement in the record.
+- **A template listing only the FIRST finding passed**, because the fixture had one. It now has two,
+  in two commits, and T1 requires one blank row per finding.
+- The banner claimed a `NOT DONE` block for the CI carve-out; the run prints none. The guide's "if it
+  stops" section covered only the organizational stop; the prerequisites table had `jq`'s exit code
+  and the git-identity wording wrong.
+
+Mutations, each restored byte-identically: tool-unavailable call site removed → T6; scanned-partial
+call site removed → T7; wrong kind passed → T6; first finding only → T1 T3; a pre-filled disposition →
+T1; the date check reverted → T5; acknowledgements skipped at zero findings → T6 T7.
+
+**Residual, the honest floor**: `by = "n/a"` with `reason = "n/a"` still lifts an organizational stop.
+The validator checks that a person and a reason were GIVEN, not that they are good ones; judging that
+is not a shell predicate's job, and the record shows exactly what was written.
 
 ---
 

@@ -255,10 +255,12 @@ _adopt_secrets_disposition_template() {                # BL-242-DISPOSITIONS-TEM
   adopt_blank
   adopt_note "  A dispositions file for THIS scan, ready to fill in. Save it OUTSIDE the project"
   adopt_note "  (for example ~/adoption-dispositions.json), fill every empty field, and re-run"
-  adopt_note "  with --dispositions ~/adoption-dispositions.json. Do not change the 'scan' block"
-  adopt_note "  or the fingerprints: they bind the file to this scan and no other."
+  adopt_note "  with --dispositions ~/adoption-dispositions.json."
   if [ "$kind" = "findings" ]; then
-    adopt_note "  'disposition' is one of: rotated | false-alarm | accepted-risk."
+    adopt_note "  Do not change the 'scan' block or the fingerprints: they bind the file to this"
+    adopt_note "  scan and no other. 'disposition' is one of: rotated | false-alarm | accepted-risk."
+  else
+    adopt_note "  Do not change the 'scan' block or the 'kind': they bind the file to this scan."
   fi
   adopt_note "  'date' is YYYY-MM-DD; 'by' is the person accountable for the decision."
   adopt_blank
@@ -370,12 +372,19 @@ adopt_dispositions_satisfy() {
       # `disposition` of `banana-not-a-vocabulary-word`, or absent entirely —
       # which matters forward, because §6.3 says every `accepted-risk` writes
       # an audit row and the write stage would have had nothing to classify.
+      # A REAL CALENDAR DAY, NOT MERELY A NON-EMPTY STRING. `date` was required
+      # and never checked: "x", "tomorrow" and "0000-00-00" all lifted an
+      # organizational stop (measured by review), and the value was recorded
+      # nowhere, so the template's "'date' is YYYY-MM-DD" was decoration. The
+      # round trip through `fromdateiso8601 | todate` also refuses a 2026-02-30
+      # that a lenient strptime would silently normalise to March.
       fps_file="$(jq -r '
         def trimmed: (. // "") | gsub("^\\s+|\\s+$"; "");
+        def isoday: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") and ((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .);
         .dispositions[]?
         | select((.by | trimmed) != ""
              and (.reason | trimmed) != ""
-             and (.date | trimmed) != ""
+             and ((.date // "") | isoday)
              and ((.disposition // "") | IN("rotated", "false-alarm", "accepted-risk")))
         | .fingerprint // empty' "$file" 2>/dev/null | LC_ALL=C sort -u)"
       alien="$(printf '%s\n' "$fps_file" | grep -v '^$' | LC_ALL=C comm -23 - <(printf '%s\n' "$fps_scan" | grep -v '^$') 2>/dev/null)"
@@ -386,7 +395,8 @@ adopt_dispositions_satisfy() {
       fi
       missing="$(printf '%s\n' "$fps_scan" | grep -v '^$' | LC_ALL=C comm -23 - <(printf '%s\n' "$fps_file" | grep -v '^$') 2>/dev/null)"
       if [ -n "$missing" ]; then
-        adopt_note "  (finding(s) with no signed disposition — every row needs a name and a reason)"
+        adopt_note "  (finding(s) with no signed disposition — every row needs a name, a reason, a"
+        adopt_note "   'disposition' of rotated, false-alarm or accepted-risk, and a real 'date' as YYYY-MM-DD)"
         return 1
       fi
       return 0 ;;
@@ -399,15 +409,16 @@ adopt_dispositions_satisfy() {
       local ok
       ok="$(jq -r --arg k "$kind" '
         def trimmed: (. // "") | gsub("^\\s+|\\s+$"; "");
+        def isoday: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") and ((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .);
         [.acknowledgements[]?
          | select((.kind // "") == $k
               and (.by | trimmed) != ""
               and (.reason | trimmed) != ""
-              and (.date | trimmed) != "")] | length' "$file" 2>/dev/null)"
+              and ((.date // "") | isoday))] | length' "$file" 2>/dev/null)"
       case "$ok" in ''|*[!0-9]*) ok=0 ;; esac
       if [ "$ok" -lt 1 ]; then
         adopt_note "  (no signed acknowledgement of kind '$kind' in the dispositions file — it"
-        adopt_note "   needs a name, a reason and a date)"
+        adopt_note "   needs a name, a reason and a real 'date' as YYYY-MM-DD)"
         return 1
       fi
       return 0 ;;

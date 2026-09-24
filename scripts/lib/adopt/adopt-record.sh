@@ -508,107 +508,99 @@ _adopt_rec_render() {
 # `_adopt_secrets_print_findings` prints from, and it is why this reads the
 # report's fields by name instead of echoing rows.
 _adopt_rec_dispositions() {
-  local report="$1" n f
+  local report="$1" n f _ok have_file=0 n_ack
   n="$(adopt_int "$(adopt_report_read "$report" '.secrets.findingCount // 0')")"
+  f="${ADOPT_DISPOSITIONS_FILE:-}"
+  [ -n "$f" ] && [ -f "$f" ] && command -v jq >/dev/null 2>&1 && have_file=1
+
+  # ── ACKNOWLEDGEMENTS ARE NOT A KIND OF FINDING, AND THE FIRST CUT FILED THEM
+  #    AS ONE. This function returned at `findingCount == 0` before it reached
+  #    the acknowledgements, so the two stops that need them MOST — a personal
+  #    adoption with NO scanner, and a shallow clone that found nothing — both
+  #    completed at rc 0 with the operator's signed acceptance recorded nowhere,
+  #    under a stop that had just said "a name, a reason and a date, which
+  #    adoption stores and commits" and a design rule that the acknowledgement
+  #    is "RECORDED, and refused if it cannot be recorded". Measured by review on
+  #    real personal-tier runs. The findings half and the acknowledgements half
+  #    are now independent.
   if [ "$n" -eq 0 ]; then
     printf '%s\n' "No credential findings were reported, so there is nothing to disposition."
     printf '\n'
+  else
+    printf '%s\n\n' "### The findings, by fingerprint"
+    printf '%s\n' "Each row is a match in this project's history. The matched value is NOT reproduced"
+    printf '%s\n' "here — only the rule that matched, where it sits, and the fingerprint that names it."
+    printf '%s\n' "Rotate anything still live: rewriting history does not un-leak what was already"
+    printf '%s\n' "fetched."
+    printf '\n'
+    printf '%s\n' "    | Rule | Where | Fingerprint |"
+    printf '%s\n' "    |---|---|---|"
+    adopt_report_read "$report" \
+      '.secrets.findings[]? | [(.ruleId // "?"), ((.file // "?") + ":" + ((.startLine // "?") | tostring)), (.fingerprint // "?")] | @tsv' \
+      2>/dev/null | head -200 | while IFS="$(printf '\t')" read -r rule where fp; do
+        _adopt_rec_row "$rule" "$where" "$fp"
+      done
+    if [ "$n" -gt 200 ]; then
+      printf '\n%s\n' "…and $((n - 200)) more, which the run printed in full on screen."
+    fi
+    printf '\n'
+    if [ "$have_file" -eq 1 ]; then
+      # `map(tostring)` handles a non-scalar value, which `@tsv` used to abort
+      # on; the `_ok` guard covers a file that is not parseable JSON at all.
+      # The DECIDED-ON column is the operator's own `date` field, which the
+      # validator now requires to be a real calendar day. It is labelled
+      # "Decided on" because the record's prose may not contain the word this
+      # column is about (clause 6).
+      _ok=1
+      jq -r '.dispositions[]? | [(.fingerprint // "?"), (.disposition // "?"), (.by // "?"), (.date // "?"), (.reason // "?")] | map(tostring) | @tsv' \
+        "$f" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
+      printf '%s\n\n' "### What was decided about them"
+      if [ "$_ok" -eq 0 ]; then
+        printf '%s\n' "The dispositions file could not be read as a list of decisions. Nothing is"
+        printf '%s\n' "recorded here, and that is a failure to read the file rather than a finding that"
+        printf '%s\n' "nothing was decided — the file is still where you left it."
+        printf '\n'
+      else
+        printf '%s\n' "    | Fingerprint | Outcome | Decided by | Decided on | Reason |"
+        printf '%s\n' "    |---|---|---|---|---|"
+        head -200 "$ADOPT_WORK/record-dispositions.tsv" | while IFS="$(printf '\t')" read -r fp d by on why; do
+          _adopt_rec_row "$fp" "$d" "$by" "$on" "$why"
+        done
+        printf '\n'
+      fi
+    else
+      printf '%s\n' "No dispositions file was supplied, so no outcome is recorded against any finding"
+      printf '%s\n' "above. That is the true statement about this run and it is not a clean bill of"
+      printf '%s\n' "health: the findings are real and nobody has yet said what was done about them."
+      printf '\n'
+    fi
+  fi
+
+  # ── ACKNOWLEDGEMENTS, WHENEVER THE FILE CARRIES ANY ────────────────────────
+  # Rendered only when there are rows: a heading over an empty table is the
+  # "heading, header row, nothing else" shape that reads as a record of nothing.
+  [ "$have_file" -eq 1 ] || return 0
+  _ok=1
+  jq -r '.acknowledgements[]? | [(.kind // "?"), (.by // "?"), (.date // "?"), (.reason // "?")] | map(tostring) | @tsv' \
+    "$f" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
+  if [ "$_ok" -eq 0 ]; then
+    printf '%s\n\n' "### Acknowledgements"
+    printf '%s\n' "The acknowledgements in that file could not be read. Nothing is recorded here."
+    printf '\n'
     return 0
   fi
-  printf '%s\n\n' "### The findings, by fingerprint"
-  printf '%s\n' "Each row is a match in this project's history. The matched value is NOT reproduced"
-  printf '%s\n' "here — only the rule that matched, where it sits, and the fingerprint that names it."
-  printf '%s\n' "Rotate anything still live: rewriting history does not un-leak what was already"
-  printf '%s\n' "fetched."
+  n_ack="$(grep -c . "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null)"
+  case "$n_ack" in ''|*[!0-9]*) n_ack=0 ;; esac
+  [ "$n_ack" -gt 0 ] || return 0
+  printf '%s\n\n' "### Acknowledgements"
+  printf '%s\n' "What was accepted on the record in place of a complete scan, and by whom."
   printf '\n'
-  printf '%s\n' "    | Rule | Where | Fingerprint |"
-  printf '%s\n' "    |---|---|---|"
-  # The loop writes at most 200 rows; a history with more than that has a
-  # bigger problem than a truncated table, and an unbounded table would bury
-  # the rest of the log.
-  adopt_report_read "$report" \
-    '.secrets.findings[]? | [(.ruleId // "?"), ((.file // "?") + ":" + ((.startLine // "?") | tostring)), (.fingerprint // "?")] | @tsv' \
-    2>/dev/null | head -200 | while IFS="$(printf '\t')" read -r rule where fp; do
-      _adopt_rec_row "$rule" "$where" "$fp"
-    done
-  if [ "$n" -gt 200 ]; then
-    printf '\n%s\n' "…and $((n - 200)) more, which the run printed in full on screen."
-  fi
+  printf '%s\n' "    | Kind | Given by | Decided on | Reason |"
+  printf '%s\n' "    |---|---|---|---|"
+  head -50 "$ADOPT_WORK/record-dispositions.tsv" | while IFS="$(printf '\t')" read -r kind by on why; do
+    _adopt_rec_row "$kind" "$by" "$on" "$why"
+  done
   printf '\n'
-  # THE RECORDED OUTCOMES, when a dispositions file lifted the stop. Absent
-  # means absent: a personal-tier adoption carries on with findings and no
-  # dispositions file at all, and saying "none recorded" is the true sentence
-  # for that run — not "all clear".
-  f="${ADOPT_DISPOSITIONS_FILE:-}"
-  if [ -n "$f" ] && [ -f "$f" ] && command -v jq >/dev/null 2>&1; then
-    # ── THE ROWS ARE EXTRACTED FIRST, AND A FAILED EXTRACTION IS SAID OUT
-    #    LOUD. Two separate mechanisms, and the comment that used to sit here
-    #    conflated them — it motivated the whole guard with an abort the very
-    #    line it annotates makes impossible.
-    #
-    #    `map(tostring)` handles the NON-SCALAR case, which is what `@tsv` used
-    #    to abort on (`rc=5`, zero rows printed, piped straight into a table
-    #    that then had a heading, a header row and nothing else at rc 0):
-    #
-    #      jq -r '… | @tsv'                 d_obj.json   rc=5   0 rows
-    #      jq -r '… | map(tostring) | @tsv' d_obj.json   rc=0   fp  accepted-risk  A  {"nested":"object"}
-    #
-    #    `tostring` is TOTAL over JSON, so that abort can no longer happen and
-    #    a comment claiming it as the reason for the guard is the same defect
-    #    as a comment naming a lint that was never shipped.
-    #
-    #    The `_ok` guard covers what remains and is still reachable: a file
-    #    that is not parseable JSON at all. Verified end-to-end on a
-    #    personal-tier run with a junk `--dispositions` file — the record says
-    #    the file could not be read instead of rendering an empty table. That
-    #    path matters most on PERSONAL tier, where the findings arm never calls
-    #    `adopt_dispositions_satisfy` and `--dispositions` reaches here with no
-    #    validation at all.
-    # THE DESTINATION IS SPELLED AT EVERY WRITE SITE, not held in a local.
-    # tests/test-bl225-staging-preflight.sh T9 is a denylist over write SHAPES
-    # with an allowlist of destinations that are not the adoptee's tree, and a
-    # redirect into a local variable hid ADOPT_WORK behind that variable — so a
-    # scratch write read as an unmarked write into the project. It is right to
-    # flag that: a reader of the line could not tell either.
-    local _ok
-    _ok=1
-    jq -r '.dispositions[]? | [(.fingerprint // "?"), (.disposition // "?"), (.by // "?"), (.reason // "?")] | map(tostring) | @tsv' \
-      "$f" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
-    printf '%s\n\n' "### What was decided about them"
-    if [ "$_ok" -eq 0 ]; then
-      printf '%s\n' "The dispositions file could not be read as a list of decisions. Nothing is"
-      printf '%s\n' "recorded here, and that is a failure to read the file rather than a finding that"
-      printf '%s\n' "nothing was decided — the file is still where you left it."
-      printf '\n'
-    else
-      printf '%s\n' "    | Fingerprint | Outcome | Decided by | Reason |"
-      printf '%s\n' "    |---|---|---|---|"
-      head -200 "$ADOPT_WORK/record-dispositions.tsv" | while IFS="$(printf '\t')" read -r fp d by why; do
-        _adopt_rec_row "$fp" "$d" "$by" "$why"
-      done
-      printf '\n'
-    fi
-    _ok=1
-    jq -r '.acknowledgements[]? | [(.kind // "?"), (.by // "?"), (.reason // "?")] | map(tostring) | @tsv' \
-      "$f" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
-    printf '%s\n\n' "### Acknowledgements"
-    if [ "$_ok" -eq 0 ]; then
-      printf '%s\n' "The acknowledgements in that file could not be read. Nothing is recorded here."
-      printf '\n'
-    else
-      printf '%s\n' "    | Kind | Given by | Reason |"
-      printf '%s\n' "    |---|---|---|"
-      head -50 "$ADOPT_WORK/record-dispositions.tsv" | while IFS="$(printf '\t')" read -r kind by why; do
-        _adopt_rec_row "$kind" "$by" "$why"
-      done
-      printf '\n'
-    fi
-  else
-    printf '%s\n' "No dispositions file was supplied, so no outcome is recorded against any finding"
-    printf '%s\n' "above. That is the true statement about this run and it is not a clean bill of"
-    printf '%s\n' "health: the findings are real and nobody has yet said what was done about them."
-    printf '\n'
-  fi
 }
 
 # ── adopt_write_adoption_record ROOT REPORT — the stage ─────────────────────

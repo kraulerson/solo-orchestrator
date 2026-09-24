@@ -14,8 +14,11 @@ the files it wrote.
 > *assessment* (the requirements interview, the fitness verdict and the plan —
 > Act 3, a Claude Code session), the *framework documents* an adopted project
 > should receive (a `CLAUDE.md` among them), and the *CI carve-out*. The run
-> prints a labelled `NOT DONE` block for each one, naming its owner — see
-> [What is not built yet](#what-is-not-built-yet).
+> prints a labelled `NOT DONE` block, naming its owner, for the assessment and
+> the documents — and for the provenance headers on reconstructed documents. It
+> prints **none** for the CI carve-out, because nothing in the run touches your
+> pipelines at all: adoption neither installs framework CI nor records a
+> decision about yours. See [What is not built yet](#what-is-not-built-yet).
 
 Everything on this page is output that was observed, pasted as it printed.
 
@@ -27,9 +30,9 @@ Everything on this page is output that was observed, pasted as it printed.
 
 | Tool | Why | If it is missing |
 |---|---|---|
-| `git`, with a commit identity | Adoption ends in one commit on your current branch | Refused before anything is written |
-| `jq` | Every state file adoption writes is JSON | Refused — adoption cannot run without it |
-| `shasum` or `sha256sum` | The adoption stamp hashes the survey it was made from | Refused before the stamp |
+| `git`, able to resolve a commit identity | Adoption ends in one commit on your current branch | Refused before anything is written. git can often derive an identity from the system when none is configured; the refusal fires only when it cannot |
+| `jq` | Every state file adoption writes is JSON | Stops at once with `adopt-project: jq is required.` and **exit code 2** — the "unusable target" code, not a refusal |
+| `shasum` or `sha256sum` | The adoption stamp hashes the survey it was made from | Refused during the pre-write rehearsal, before anything is written |
 | `gitleaks` | The credential scan of your history | **Organizational**: the adoption stops, with no override. **Personal**: it can continue if you accept that on the record |
 | `semgrep` | The commit-time static-analysis pass | Every commit prints `semgrep not found — pre-commit SAST skipped.`; nothing blocks |
 
@@ -92,6 +95,17 @@ a stop, or a halt); `2` bad usage.
   `--dispositions ~/adoption-dispositions.json`. The decisions go into the
   Adoption Record. On a personal project the findings are recorded and adoption
   continues.
+- **No scanner, or a shallow clone** (personal): without `gitleaks`, or on a
+  `git clone --depth` that only has part of the history, a personal adoption
+  stops and prints the same kind of file — this time with one
+  `acknowledgements` entry of kind `tool-unavailable` or `scanned-partial`. Fill
+  in `by`, `reason` and `date`, and re-run with `--dispositions`. The acceptance
+  goes into the Adoption Record. For a shallow clone the run also prints the two
+  commands that fetch the full history, which is the better answer if you can.
+  An organizational adoption with no scanner cannot be accepted this way:
+  install `gitleaks` and run again.
+- **Every `date` must be a real calendar day written `YYYY-MM-DD`.** "tomorrow",
+  "0000-00-00" and 2026-02-30 are refused.
 - **Your own pre-commit hook refused the adoption commit**: fix or bypass that
   hook, then run `adopt-project.sh --finish`. It commits exactly the files the
   first run wrote.

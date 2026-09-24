@@ -193,8 +193,9 @@ questions rather than a shortcut past them.
 > exist yet: the assessment (the requirements interview, the fitness verdict and
 > the plan), the framework documents an adopted project should receive — a
 > `CLAUDE.md` among them — and the CI carve-out.** The driver prints a labelled
-> `NOT DONE` block for each remaining gap during the run rather than papering
-> over it.
+> `NOT DONE` block for the first two during the run rather than papering over
+> them; it prints none for the CI carve-out, because adoption does not touch
+> your pipelines at all.
 > [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
 
 **These three pages live in this repo and are not copied into generated

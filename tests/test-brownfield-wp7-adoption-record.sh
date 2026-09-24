@@ -229,7 +229,7 @@ a4() {
   #    and only the ASSEMBLED row trips, so the loop runs and its direction is
   #    visible. Withholding from the left leaves the free text and destroys the
   #    fingerprint; from the right, the opposite.
-  grep -qE '^    \| hostilefp3 \| accepted-risk \| pen test team \| \(withheld' "$hostile" \
+  grep -qE '^    \| hostilefp3 \| accepted-risk \| pen test team \| 2026-09-22 \| \(withheld' "$hostile" \
     || bad="$bad [the cross-cell row did not keep fingerprint+outcome+signer and lose only its reason — withholding is running in the wrong direction]"
   grep -q 'exempted by policy until Q3' "$hostile" \
     && bad="$bad [the dangerous free text SURVIVED into the record]"
