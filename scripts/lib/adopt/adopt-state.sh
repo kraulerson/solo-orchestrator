@@ -55,6 +55,12 @@ _adopt_state_order() {
   # this project was adopted at, and it takes that value from the stamp rather
   # than from a second `git rev-parse HEAD` — one fact, one source. The stamp
   # is written by the `manifest` stage, so the record cannot precede it.
+  # AFTER `manifest` so the documents are written under a stamped adoption, and
+  # BEFORE `adoption_record` so the record is still the last word in the log.
+  # Inside the loop, not after it, because this loop is what the pre-write
+  # rehearsal replays: a document written outside it would be the one write I20
+  # never checked against the archive.
+  printf '%s\n' framework_docs   # BL-242-DOCS-STAGE-ORDER
   printf '%s\n' adoption_record   # BL-242-RECORD-STAGE
   printf '%s\n' write_set   # BL-242-WRITE-SET — LAST: it records what every stage before it wrote
 }
@@ -1607,7 +1613,6 @@ adopt_install_hooks() {
     nomark) printf '%s\n' '#!/usr/bin/env bash' > "$hooks/commit-msg" 2>/dev/null || :
             chmod +x "$hooks/commit-msg" 2>/dev/null || : ;;
   esac
-  adopt_stub_project_docs
   return 0
 }
 
@@ -1753,6 +1758,7 @@ _adopt_write_phase() {
       phase_state) adopt_write_phase_state "$root" || return 1 ;;
       intake)      adopt_write_intake "$root" "$report" || return 1 ;;
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;
+      framework_docs) adopt_write_framework_docs "$root" || return 1 ;;   # BL-242-DOCS-STAGE
       adoption_record) adopt_write_adoption_record "$root" "$report" || return 1 ;;   # BL-242-RECORD-STAGE
       write_set)   adopt_write_write_set "$root" || return 1 ;;   # BL-242-WRITE-SET
       *)           adopt_refuse "unknown state stage '$stage'"; return 1 ;;

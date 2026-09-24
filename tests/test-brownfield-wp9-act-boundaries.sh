@@ -1034,13 +1034,17 @@ h1_stale=0; grep -qF "the certification pass" "$CTL_OUT" 2>/dev/null && h1_stale
 # A8's THIRD deliverable, which nothing pinned: the framework-documents notice
 # used to print "unassigned — §10 names no owner", which is false against v2 —
 # D3 gives them to WP11 (archive) and WP12b (write). Reverting it was green.
-h1_docowner=0; grep -qF "WP11 archives them, WP12b writes them (D3)" "$CTL_OUT" 2>/dev/null && h1_docowner=1
+# WP12b THEN SHIPPED IT, so the notice is retired: the owner line must be GONE
+# and the documents' own heading PRESENT — the absence alone is satisfied by a
+# driver that stopped printing anything about documents.
+h1_docowner=1; grep -qF "WP11 archives them, WP12b writes them (D3)" "$CTL_OUT" 2>/dev/null && h1_docowner=0
+grep -qF "The framework's documents" "$CTL_OUT" 2>/dev/null || h1_docowner=0
 h1_stale_owner=0; grep -qF "unassigned — §10 names no owner" "$CTL_OUT" 2>/dev/null && h1_stale_owner=1
 if [ "$h1_act2" -eq 1 ] && [ "$h1_phase0" -eq 1 ] && [ "$h1_resume" -eq 1 ] && [ "$h1_owner" -eq 1 ] \
    && [ "$h1_stale" -eq 0 ] && [ "$h1_docowner" -eq 1 ] && [ "$h1_stale_owner" -eq 0 ]; then
   pass "H1: the run ends by saying Act 2 completed, naming the phase-0 standing and scripts/resume.sh, and announcing the assessment as WP12a's — and it no longer announces the RETIRED certification pass"
 else
-  fail_ "H1: the handoff block is not in its v2 shape" "act2=$h1_act2 phase0=$h1_phase0 resume=$h1_resume wp12a=$h1_owner retired-stub-still-printed=$h1_stale docs-owner-named=$h1_docowner (want 1) stale-owner-printed=$h1_stale_owner (want 0)"
+  fail_ "H1: the handoff block is not in its v2 shape" "act2=$h1_act2 phase0=$h1_phase0 resume=$h1_resume wp12a=$h1_owner retired-stub-still-printed=$h1_stale docs-stub-retired-and-heading-printed=$h1_docowner (want 1) stale-owner-printed=$h1_stale_owner (want 0)"
 fi
 
 echo ""

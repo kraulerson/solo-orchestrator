@@ -802,6 +802,15 @@ adopt_archive_write() {
       # was gone.
       PROJECT_INTAKE.md|.claude/intake-progress.json|.claude/orchestrator-source.json)
                              dispo="replaced" ;;
+      # WP12b writes these (`# BL-242-DOCS-STAGE`) — except where the path is
+      # read-only, which `_adopt_doc_put` leaves alone. The same rule as the
+      # hook arm above, for the same reason: a restore line against a file
+      # nobody touched is a false audit record. A SYMLINK is left alone too, and
+      # unlike a hook one DOES reach this loop — the inventory's `-f` follows
+      # it — and `-w` answers for the TARGET, so it has to be asked first.
+      # Measured: a symlinked FEATURES.md read `replaced` while it sat untouched.
+      CLAUDE.md|FEATURES.md|BUGS.md|RELEASE_NOTES.md|docs/INDEX.md|docs/IDENTIFIERS.md|docs/archive/README.md)
+        if [ ! -L "$root/$rel" ] && [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-DOCS
       *)                     dispo="kept" ;;
     esac
 
