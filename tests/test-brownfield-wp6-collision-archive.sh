@@ -723,7 +723,7 @@ if [ "$HAVE_GITLEAKS" -eq 1 ]; then
   s0_pre="$s0_copy"
   if [ "$S_OK" -eq 1 ] && [ "$s0_status" = "scanned" ] && [ "$s0_count" -ge 1 ] \
      && [ "$s0_copy" -eq 1 ] && [ "$s0_pre" -eq 1 ]; then
-    pass "S0 PRECONDITION: the BASE32-valid plant is live in the hook, the archive copied it (probe sees it exactly $s0_copy time), and the scan reports status=scanned with findingCount=$s0_count (non-zero)"
+    pass "S0 PRECONDITION: the BASE32-valid plant reached the archived copy of their hook (probe sees it exactly $s0_copy time), and the scan reports status=scanned with findingCount=$s0_count (non-zero)"
   else
     fail_ "S0 PRECONDITION" "setup=$S_OK status='$s0_status' (want scanned) findingCount=$s0_count (want >=1) plant-in-archive-copy=$s0_copy (want 1) plant-in-hook=$s0_pre (want 1) — a dud plant makes every assertion below vacuous"
   fi

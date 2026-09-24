@@ -1148,28 +1148,49 @@ Loud, honest, and unprotected. Adoption lays the ruleset down and commits it —
 the run says so, because the hook reads that path either way and your rules are
 yours.
 
-**Read that "Owner: nobody yet" against the decision, not instead of it.** The
-string above is what the driver actually prints, and it predates the call:
-**Karl's decision is that the commit-time hook is installed by WP7**, once the
-artifacts it reads exist. So the owner is WP7, and the driver's text will say so
-once it is next touched. It is quoted here unedited because this page reproduces
-what the tool prints rather than what it ought to print.
+#### When the scanners are NOT installed — and the run says so
 
-The behaviour either way is what the block describes: installing that hook today
-would refuse every commit, so until WP7 the two **message** gates are live —
-test-before-code ordering, and the Build-Loop commit check, both demonstrated
-above — and the scanner arms are not. Run them by hand.
+Adoption never overwrites bytes its archive cannot give back. In three cases
+that means your hook stays exactly where it is, the scanners are **not**
+installed, and the run ends with **exit code 1** — the adoption itself landed,
+this step did not, and a script reading the exit code must not take the project
+as fully gated:
 
-**The test-debt ratchet is in the same position, for the same reason and one
-more.** Its two arms exist and are enforced on the tier ladder, but nothing
-calls them on commit yet, so it is `adopt-test-debt.sh --check` by hand or from
-CI until WP7 lands. The extra reason is structural rather than schedule:
-`scripts/pre-commit-gate.sh` is **core** and the ratchet is **module** code, so
-a call from the gate to the ratchet is exactly the `core → module` edge
+| Your `.git/hooks/pre-commit` is… | What happens |
+|---|---|
+| **a symlink** — e.g. to one shared hook several repositories use | Left alone. Writing through it would overwrite the file at the far end, and the archive cannot hold a copy of a link's target. |
+| **read-only** | Left alone, permissions included. |
+| **different from the archived copy** — you edited it after a refused adoption commit, before `--finish` | Left alone. Overwriting it would lose your edit, with only the older version to restore. |
+
+Each prints the reason and the remedy: move your hook aside and run the command
+again, or run the scanners by hand on each commit —
+`bash scripts/pre-commit-gate.sh --terminal-mode`.
+
+#### Three things to know before you rely on it
+
+- **A test suite that already fails will block source commits.** The hook runs
+  your project's own test command whenever a source file is staged, and refuses
+  the commit if it fails. Adoption does not run your tests, so it cannot warn you
+  in advance. If your suite is red today, fix it — or point the hook at a command
+  that passes by writing it to `.claude/test-command` — before your first
+  source commit.
+- **Your test command has no time limit.** A suite that hangs, or waits for
+  input in watch mode, will hang the commit. The same `.claude/test-command`
+  file is how you give the hook a command that finishes.
+- **Tools that install into `.git/hooks/pre-commit` are replaced, not chained.**
+  The Python `pre-commit` framework and lefthook both work that way, so their
+  lint and format checks stop running on commit. Your hook is in the archive
+  and `--re-add` puts it back, but then the framework's scanners are not
+  installed. (husky uses `core.hooksPath`, which adoption refuses before writing
+  anything.)
+
+**The test-debt ratchet is still run by hand.** The commit-time hook now exists,
+but nothing wires the ratchet into it, for a structural reason:
+`scripts/pre-commit-gate.sh` is **core** and the ratchet is **module** code, so a
+call from the gate to the ratchet is exactly the `core → module` edge
 [the module contract](module-contract.md)'s M3 forbids and
-`scripts/lint-module-dependencies.sh` reds on. Whatever WP7 does about the hook
-has to reach the ratchet without spending the module's severability on one
-convenience call.
+`scripts/lint-module-dependencies.sh` reds on. Until that is designed, run
+`adopt-test-debt.sh --check` by hand or from CI.
 
 ### And one more, from this page rather than the driver
 

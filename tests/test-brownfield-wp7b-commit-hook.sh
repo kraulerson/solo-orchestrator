@@ -173,10 +173,15 @@ b5() {
   printf 'export function add(a,b){return a+b}\n' > "$P1/src/add.js"
   rc="$(_commit "$P1" "feat: add" src/add.js)"
   ( cd "$P1" && jq '.scripts.test = "exit 0"' package.json > package.json.tmp && mv package.json.tmp package.json )
-  if [ "$rc" != "0" ] && grep -q 'BLOCKED' "$WORK/commit.out"; then
+  # `project tests FAILED`, NOT any `BLOCKED`. The commit is `feat:` with no
+  # test, so the commit-msg TDD gate refuses it TOO — and with the pre-commit
+  # hook removed entirely, that gate alone made this case pass. Measured by
+  # review: `if soif_write_precommit_hook …` → `if true`, and B5 stayed green.
+  # This case exists to prove the PRE-COMMIT hook's test arm, so it names it.
+  if [ "$rc" != "0" ] && grep -q 'project tests FAILED' "$WORK/commit.out"; then
     pass "$label (rc=$rc)"
   else
-    fail_ "$label" "rc=$rc and no [BLOCKED] line — the commit-time test arm is not running"
+    fail_ "$label" "rc=$rc and no 'project tests FAILED' — the pre-commit hook's test arm did not run (a commit-msg refusal does not count)"
   fi
   ( cd "$P1" && git reset -q HEAD src/add.js 2>/dev/null; rm -f src/add.js )
 }
@@ -230,6 +235,9 @@ b8() {
   local bad="" dispo
   grep -q 'REPLACED by the framework' "$WORK/ownhook.out" \
     || bad="$bad [the run never told them their hook was replaced]"
+  # AND ONLY THEN. A sentence printed on every run is not a disclosure.
+  grep -q 'REPLACED by the framework' "$WORK/plain.out" \
+    && bad="$bad [the run claims a hook was REPLACED on a project that had none]"
   grep -q 'THEIR-OWN-PRE-COMMIT-MARKER' "$P2/.git/hooks/pre-commit" 2>/dev/null \
     && bad="$bad [their hook is still at the path — it was not replaced]"
   # …and the archived copy must be THEIRS, not a copy of the framework's.
@@ -266,7 +274,88 @@ b9() {
   [ -z "$bad" ] && pass "$label (4 stubs still called)" || fail_ "$label" "$bad"
 }
 
-b1; b2; b3; b4; b5; b6; b7; b8; b9
+# ═══════════════════════════════════════════════════════════════════════════
+# B10-B13 — THE GUARD. Never overwrite bytes the archive cannot give back.
+#
+# All four were found by adversarial review against the first cut, and the first
+# is why this suite exists in its current form: a symlinked hook was written
+# THROUGH, destroying a file outside the repository, while the run said the
+# operator's copy was safe in the archive.
+# ═══════════════════════════════════════════════════════════════════════════
+b10() {
+  local label="B10 a symlinked hook is NOT written through — the file it points at survives"
+  local p="$WORK/sym" bad=""
+  _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
+  mkdir -p "$WORK/shared-hooks"
+  printf '#!/bin/sh\n# SHARED-HOOK-OUTSIDE-THE-REPO\nexit 0\n' > "$WORK/shared-hooks/pre-commit"
+  chmod +x "$WORK/shared-hooks/pre-commit"
+  ln -s "$WORK/shared-hooks/pre-commit" "$p/.git/hooks/pre-commit"
+  _adopt "$p" sym
+  grep -q 'SHARED-HOOK-OUTSIDE-THE-REPO' "$WORK/shared-hooks/pre-commit" \
+    || bad="$bad [the SHARED hook outside the repository was overwritten — permanent data loss]"
+  [ -L "$p/.git/hooks/pre-commit" ] || bad="$bad [the link itself was replaced]"
+  grep -q 'is a SYMLINK' "$WORK/sym.out" || bad="$bad [the run never said why it did not install]"
+  grep -q 'Your copy is in the' "$WORK/sym.out" \
+    && bad="$bad [the run claims an archived copy that does not exist]"
+  [ "$ADOPT_RC" -ne 0 ] || bad="$bad [rc 0 — a caller would read this project as fully gated]"
+  # NOT `git log | grep -q` — under `set -o pipefail` that pipeline FAILS when
+  # grep exits on its first match and git log takes SIGPIPE, so a landed commit
+  # read as missing. Measured while writing this case.
+  [ -n "$(cd "$p" && git log --oneline --grep='adopt' -1 2>/dev/null)" ] || bad="$bad [the adoption itself did not land]"
+  [ -z "$bad" ] && pass "$label (rc $ADOPT_RC: landed, scanners not installed, and it says so)" || fail_ "$label" "$bad"
+}
+
+b11() {
+  local label="B11 a read-only hook is left exactly as it was, permissions included"
+  local p="$WORK/ro" bad="" mode
+  _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
+  printf '#!/bin/sh\n# THEIR-READONLY-HOOK\nexit 0\n' > "$p/.git/hooks/pre-commit"
+  chmod 444 "$p/.git/hooks/pre-commit"
+  _adopt "$p" ro
+  grep -q 'THEIR-READONLY-HOOK' "$p/.git/hooks/pre-commit" || bad="$bad [their read-only hook was overwritten]"
+  # THE MODE IS THE SHARPER HALF. The emitter ends in `chmod +x` even when its
+  # write failed, which SWITCHED ON a hook git had never run.
+  mode="$(ls -l "$p/.git/hooks/pre-commit" | cut -c1-10)"
+  [ "$mode" = "-r--r--r--" ] || bad="$bad [mode is $mode, not -r--r--r-- — their hook was made executable]"
+  grep -q 'Commit-time scanners installed' "$WORK/ro.out" && bad="$bad [the run claims scanners it did not install]"
+  [ "$ADOPT_RC" -ne 0 ] || bad="$bad [rc 0 for a project whose scanners are not installed]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b12() {
+  local label="B12 --finish does not overwrite a hook the operator changed after the archive was taken"
+  local p="$WORK/fin" bad="" frc
+  _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
+  printf '#!/bin/sh\n# THEIR-V1\nexit 1\n' > "$p/.git/hooks/pre-commit"
+  chmod +x "$p/.git/hooks/pre-commit"
+  _adopt "$p" fin
+  [ "$ADOPT_RC" -ne 0 ] || bad="$bad [their refusing hook did not stop the adoption commit — the fixture is not exercising --finish]"
+  # EXACTLY WHAT THE REFUSAL TEXT TELLS THEM TO DO: fix the hook, then --finish.
+  printf '#!/bin/sh\n# THEIR-V2\nexit 0\n' > "$p/.git/hooks/pre-commit"
+  ( cd "$p" && bash "$REPO_ROOT/scripts/adopt-project.sh" --finish ) > "$WORK/fin2.out" 2>&1; frc=$?
+  grep -q 'THEIR-V2' "$p/.git/hooks/pre-commit" \
+    || bad="$bad [their edited hook was overwritten, and only the pre-edit version is archived — the edit is lost]"
+  grep -q 'changed after the archive was taken' "$WORK/fin2.out" || bad="$bad [the run never said why]"
+  [ "$frc" -ne 0 ] || bad="$bad [--finish returned 0 with the scanners not installed]"
+  [ -n "$(cd "$p" && git log --oneline --grep='adopt' -1 2>/dev/null)" ] || bad="$bad [--finish did not land the adoption commit]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b13() {
+  local label="B13 a dangling .semgrep symlink is not followed out of the project"
+  local p="$WORK/dsem" bad=""
+  _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
+  mkdir -p "$p/.semgrep"
+  ln -s "$WORK/outside-planted.yml" "$p/.semgrep/soif-dom-sinks.yml"
+  _adopt "$p" dsem
+  # `-e` is FALSE for a dangling link, so `cp -p` followed it and CREATED the
+  # file at the far end — during the rehearsal, before a refusal that said
+  # nothing had been written.
+  [ -e "$WORK/outside-planted.yml" ] && bad="$bad [a file was created OUTSIDE the project through the link]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b1; b2; b3; b4; b5; b6; b7; b8; b9; b10; b11; b12; b13
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
