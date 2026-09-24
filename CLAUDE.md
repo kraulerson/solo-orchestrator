@@ -378,7 +378,7 @@ here.
   HOUSE RULES).
   - **Adding a test is still a ONE-LINE edit** — append it to the canonical
     array. The lane is sharded (matrix `shard: [lint-sweep, lint-scan, sast,
-    slow-misc, rest]`), but only the measured long poles are pinned to a
+    slow-misc, adopt, rest]`), but only the measured long poles are pinned to a
     shard by the `pin_*` arrays; `rest` is the COMPLEMENT, so a new entry
     lands there automatically.
   - **Never write the literal array-opening token (`tests`+`=`+`(`) anywhere

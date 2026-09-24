@@ -178,7 +178,7 @@ jobs:
       # PR author sees one failure and cannot tell what else is broken.
       fail-fast: false
       matrix:
-        shard: [lint-sweep, lint-scan, sast, slow-misc, rest]
+        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -318,7 +318,7 @@ jobs:
           # it. Delete a name here and its `pin_*` array is ORPHANED — it
           # no longer enters `pinned`, so those paths fall back into `rest`
           # and STILL RUN. Fail-safe, not silently dropped.
-          shard_names="lint-sweep lint-scan sast slow-misc rest"
+          shard_names="lint-sweep lint-scan sast slow-misc adopt rest"
 
           roster="|"
           shard_arms=0
@@ -767,8 +767,6 @@ jobs:
             #    90.3s vs a 40s claim is far outside that band. The move is
             #    justified on the suite measurement; the leg percentages above
             #    are context, not the evidence.
-            tests/test-brownfield-wp4-driver.sh            # 90.3s in CI (run 33880279546) — THE pole
-            tests/test-brownfield-wp9-act-boundaries.sh    # 66.0s in CI (run 33880279546) — the second
             tests/test-bl200-syntax-detector.sh        #  44s on PR #416 — the `rest` shard's longest pole, moved when `rest` reached 11m12s of the 12m cap
             # ── Re-pinned 2026-09-24, the second move in one day. On PR #442
             #    this suite first cancelled `rest` (734s of 720s, nothing
@@ -878,7 +876,6 @@ jobs:
             #    comment said wp10a belongs "beside its sibling" — it does not:
             #    its siblings are in `slow-misc`, which is the leg this pin
             #    deliberately avoids.)*
-            tests/test-brownfield-wp9b-preflight-approval.sh   # 334s local / ~174s on the runner — THE pole
             tests/test-brownfield-wp10a-tool-resolution.sh     #  45s local (S/MS block added nine adoptions) / ~30s on the runner
             #    The BL-221 suite that landed alongside this one is NOT pinned
             #    and is deliberately not named as a path here: it measures under
@@ -896,6 +893,7 @@ jobs:
             tests/test-bl131-domsink-rules.sh          #  54s
             tests/test-bl118-sast-dom-xss.sh           #  13s
             tests/test-bl200-syntax-canary.sh          # THE canary (fast): keeps the exact-spelling pin beside the sast toolchain
+            tests/test-brownfield-wp9-act-boundaries.sh #  58s on PR #444 — moved from lint-sweep; sast had 317s of headroom
             tests/test-bl261-contributor-sast-live.sh  #  24s on PR #416 — semgrep live cases; pinned here when `rest` reached 11m12s of the 12m cap
             # tests/test-bl200-syntax-detector.sh is deliberately NOT here. It first landed in
             # this shard and pushed it from ~4m46 typical to 6m31, and a slow-registry evening
@@ -961,6 +959,22 @@ jobs:
             tests/test-bl276-stdin-hang.sh               # 53s on PR #412 — the complement's new longest pole; bounds four stdin-hang cases with timeouts by design
             tests/test-bl233-wpb-accumulation.sh         # 43s on PR #412 — moved WITH bl276 so the complement lands near 85% of the cap, not 99%: run 35028774242 hit 748s against 720s with 0 failures
           )
+          # ── `adopt` — the brownfield adoption suites (2026-09-24) ─────────
+          # PR #444 measured four legs within 140s of the 720s cap: lint-scan
+          # 663s, lint-sweep 681s, rest 680s, slow-misc 585s, sast 403s —
+          # 3012s over five legs, ~84% each however they were re-pinned, with
+          # four adoption packages still to land. Re-pinning could only move
+          # the heat, so this is a sixth leg rather than a raised cap.
+          # Per-suite figures are ::group:: spans from run 36040583339.
+          # wp9-act-boundaries went to `sast` (headroom), not here, to leave
+          # this leg room for the adoption suites still to come.
+          pin_adopt=(
+            tests/test-brownfield-wp9b-preflight-approval.sh  # 257s on PR #444 — moved from lint-scan
+            tests/test-brownfield-wp4-driver.sh               #  98s on PR #444 — moved from lint-sweep
+            tests/test-brownfield-dispositions-template.sh    #  48s on PR #444 — rest's top pole
+            tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
+            tests/test-brownfield-wp12b-framework-docs.sh     #  ~13s local, three real adoptions — from rest
+          )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
           # pinned-set build and the dispatch go through this function, so
@@ -974,6 +988,7 @@ jobs:
               lint-scan)  printf '%s\n' "${pin_lint_scan[@]}" ;;
               sast)       printf '%s\n' "${pin_sast[@]}" ;;
               slow-misc)  printf '%s\n' "${pin_slow_misc[@]}" ;;
+              adopt)      printf '%s\n' "${pin_adopt[@]}" ;;
               rest)       : ;;
               *) echo "shard roster: '$1' is in the roster but has no arm in pins_for" >&2
                  return 1 ;;
