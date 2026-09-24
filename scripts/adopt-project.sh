@@ -159,9 +159,10 @@ adopt-project — bring an existing project under the framework.
   --dispositions FILE how each secrets finding was dealt with, or an accepted
                       risk, in the shape ADOPT-002-ARCH §6.3 specifies. Needed
                       only when the secrets check stops and you are lifting it.
-                      Adoption does not yet WRITE this file — that stage is not
-                      built, and saying it did would be a claim about a file
-                      nothing produces.
+                      The decisions this run accepts are committed to
+                      .claude/adoption/secrets-dispositions.json, and each
+                      accepted risk or acknowledgement is also written to
+                      .claude/bypass-audit.json. Your file itself is not copied.
   --finish            complete an adoption whose state was written but whose
                       commit did not land (your own hook or git identity
                       refused it) — stages exactly what that run wrote

@@ -150,12 +150,10 @@ adopt_stub_framework_script_collisions() {
 # `adopt_stub_*` functions that are actually CALLED, and a reader following an
 # older handoff to this file should find out where the behaviour went.
 #
-# WHAT OF WP7 IS STILL OUT: the CI carve-out and the `adoption` audit row.
-# `secrets_disposition` is UNOWNED, not WP7's — `adopt_audit_event`'s own
-# header says so, and that header is the live list. An earlier draft of this
-# paragraph assigned it to WP7 while the same commit's `docs/adoption.md`
-# correctly called it unowned; two records of one fact disagreeing is the shape
-# this file exists to prevent.
+# WHAT OF WP7 IS STILL OUT: the CI carve-out. The `adoption` and
+# `secrets_disposition` audit rows are written since 2026-09-24
+# (`# BL-242-ADOPTION-EVENT`, `# BL-242-DISPOSITIONS-EVENT`); `adopt_audit_event`'s
+# own header is the live list of which events have an emitter.
 
 # adopt_stub_hooks — RETIRED 2026-09-23 by WP7/3.
 #

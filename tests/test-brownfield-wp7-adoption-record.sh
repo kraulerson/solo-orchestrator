@@ -105,7 +105,7 @@ echo '{"count": 17}' > "$WORK/proj/.claude/test-debt.json"
 # that hides `date` and that an over-broad clause 6 would withhold.
 cat > "$WORK/benign.json" <<'J'
 {"secrets":{"tool":"gitleaks","status":"scanned","scannedBy":"adoption","rulesSource":"framework",
- "commitsScanned":412,"findingCount":1,
+ "head":"c0ffee0000000000000000000000000000c0ffee","commitsScanned":412,"findingCount":1,
  "findings":[{"ruleId":"aws-access-key","file":"src/updater/config.yml","startLine":3,"fingerprint":"benignfp1"}]}}
 J
 
@@ -113,14 +113,18 @@ J
 # really produce, each aimed at one clause.
 cat > "$WORK/hostile.json" <<'J'
 {"secrets":{"tool":"gitleaks","status":"scanned","scannedBy":"adoption","rulesSource":"framework",
- "commitsScanned":412,"findingCount":3,
+ "head":"c0ffee0000000000000000000000000000c0ffee","commitsScanned":412,"findingCount":3,
  "findings":[
   {"ruleId":"aws-access-key","file":"src/Phase 0 to Phase 1/cfg.yml","startLine":3,"fingerprint":"hostilefp1"},
   {"ruleId":"generic-api-key","file":"a|b/c.env","startLine":9,"fingerprint":"hostilefp2"},
   {"ruleId":"private-key","file":"deploy/id_rsa","startLine":1,"fingerprint":"hostilefp3"}]}}
 J
+# BOUND TO THE SCAN, as every real file is — the template adoption prints
+# carries this block, and since review the record renders only from a file
+# bound to the scan it describes (`# BL-242-DISPOSITIONS-FILTER`).
 cat > "$WORK/hostile-disp.json" <<'J'
-{"dispositions":[
+{"scan":{"head":"c0ffee0000000000000000000000000000c0ffee","commitsScanned":412},
+ "dispositions":[
   {"fingerprint":"hostilefp1","disposition":"rotated","by":"A Person",
    "reason":"rotated per [YYYY-MM-DD] | see ticket","date":"2026-09-22"},
   {"fingerprint":"hostilefp2","disposition":"accepted-risk","by":"IT Security Approval",
@@ -207,7 +211,7 @@ a4() {
   # on a run whose status IS tool-unavailable, with the same hostile file: the
   # row must survive, and its reason — "penetration test was exempted for this
   # repo", which satisfies the whole-file pen-test grep — must be withheld.
-  printf '{"secrets":{"tool":"gitleaks","status":"tool-unavailable","findingCount":0}}\n' > "$WORK/a4-tu.json"
+  printf '{"secrets":{"tool":"gitleaks","status":"tool-unavailable","head":"c0ffee0000000000000000000000000000c0ffee","commitsScanned":412,"findingCount":0}}\n' > "$WORK/a4-tu.json"
   _render "$WORK/a4-tu.json" "$WORK/hostile-disp.json" "$WORK/a4-tu.md" || bad="$bad [the tool-unavailable render failed]"
   grep -qE '^    \| tool-unavailable \| Someone \| 2026-09-22 \| \(withheld' "$WORK/a4-tu.md" \
     || bad="$bad [no acknowledgement row survived on a tool-unavailable run, or its hostile reason was not withheld]"
