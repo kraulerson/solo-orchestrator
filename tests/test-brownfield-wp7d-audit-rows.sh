@@ -155,7 +155,12 @@ r5() {
 # ── N: personal, no scanner on PATH ─────────────────────────────────────────
 _nopath_run() {   # _nopath_run DIR TAG [args...]
   local p="$1" tag="$2"; shift 2
-  printf '1\n1\n1\n1\n1\n' > "$WORK/ans-$tag"
+  # TEN answers, not five: the intake's confirmations come from Scout's report,
+  # and how many there are depends on which tools the environment has. On the
+  # ubuntu runner a narrowed PATH hides more than on macOS, and a "Tooling
+  # Configuration" confirmation appears that five answers ran out before
+  # (PR #446, R6/R7 red on CI only). Unread answers are harmless.
+  printf '1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n' > "$WORK/ans-$tag"
   ( cd "$p" && PATH=/usr/bin:/bin bash "$REPO_ROOT/scripts/adopt-project.sh" "$@" < "$WORK/ans-$tag" ) \
     > "$WORK/$tag.out" 2> "$WORK/$tag.err"
   RUN_RC=$?
