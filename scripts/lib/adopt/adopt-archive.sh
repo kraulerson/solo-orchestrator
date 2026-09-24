@@ -786,7 +786,13 @@ adopt_archive_write() {
       # MUTATION ANCHOR — `tests/test-brownfield-wp9b-preflight-approval.sh`'s
       # W7-anchor requires it to occur exactly once, because a harness that
       # mutates "the line carrying this marker" must find exactly one line.
-      .git/hooks/pre-commit) dispo="replaced" ;;   # BL-242-ARCHIVE-DISPO-HOOK
+      # …EXCEPT WHEN IT WILL NOT BE. The install step refuses a READ-ONLY hook
+      # (`# BL-242-PRECOMMIT-GUARD`) and leaves it alone, so `replaced` there was
+      # a false audit record with a restore line pointing at a file nobody had
+      # touched. Writability is knowable here, before anything is written;
+      # symlinks never reach this loop (the inventory collects plain files).
+      .git/hooks/pre-commit)
+        if [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-HOOK
       APPROVAL_LOG.md)       dispo="replaced" ;;   # BL-242-ARCHIVE-DISPO
       # §7.2's row table gives these three `replaced`, and the comment above
       # states the rule they broke: `kept` means "the operator's original is

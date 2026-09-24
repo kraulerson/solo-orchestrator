@@ -1160,7 +1160,7 @@ as fully gated:
 |---|---|
 | **a symlink** — to one shared hook several repositories use, or dangling | Left alone. Writing through it would overwrite the file at the far end, and the archive cannot hold a copy of a link's target. |
 | **read-only** | Left alone, permissions included. |
-| **different from the archived copy** — you edited it after a refused adoption commit, before `--finish` | Left alone. Overwriting it would lose your edit, with only the older version to restore. |
+| **different from the archived copy** — you edited it after a refused adoption commit, before `--finish` | Left alone. Overwriting it would lose your edit, with only the older version to restore. **Do not run the archive's restore line for it** — that line was written before your edit and would put the older version back. The run says so. |
 | **without a restorable copy** — the archived file was removed, or the path is not a regular file | Left alone. Replacing it would leave nothing to put back. |
 
 A **hardlinked** hook is replaced safely: the framework's hook is written beside

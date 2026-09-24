@@ -1508,7 +1508,14 @@ adopt_install_hooks() {
       changed)
         adopt_note "  $hooks/pre-commit is not the file the adoption archive holds a copy of — it"
         adopt_note "  was changed after the archive was taken. Overwriting it would lose that change"
-        adopt_note "  with nothing to restore it from, so it was left exactly as it is." ;;
+        adopt_note "  with nothing to restore it from, so it was left exactly as it is."
+        # THE ARCHIVE'S RESTORE LINE NOW POINTS AT THE OLDER VERSION. The
+        # MANIFEST was written before the operator's edit and records
+        # `replaced`; running its restore line would put back the hook they had
+        # to fix, over the fix. Recorded on `## BL-242:` as a residual — the
+        # MANIFEST is already committed by the time this is known.
+        adopt_note "  Do NOT run the archive's restore line for this hook: it would put back the"
+        adopt_note "  OLDER version over the one you have now." ;;
       *)
         adopt_note "  $hooks/pre-commit exists but has no archived copy to restore it from, so it"
         adopt_note "  was left exactly as it is rather than overwritten." ;;
@@ -1520,7 +1527,7 @@ adopt_install_hooks() {
     # shared emitter, which ships into every adopted project; it was run in a
     # real adopted project with the hook moved aside and installed a hook under
     # which a compliant commit landed.
-    adopt_note "  To install them: move your hook aside, then run"
+    adopt_note "  To install them: move your hook aside, then run, from the project root,"
     adopt_note "    bash -c '. scripts/lib/hook-templates.sh && soif_write_precommit_hook .git/hooks/pre-commit'"
     adopt_note "  Or run them by hand on each commit:  bash scripts/pre-commit-gate.sh --terminal-mode"
   else
@@ -1534,6 +1541,12 @@ adopt_install_hooks() {
     # `$TMPDIR`: a failed `mktemp` there reported "could not be written" over a
     # hook that HAD been replaced, with no replacement disclosed.
     _pc_ref="$hooks/.pre-commit.soif-new.$$"
+    # CLEARED FIRST. A name that already exists — a symlink planted at it, or a
+    # leftover from an interrupted run, since nothing traps this path — would
+    # otherwise be written THROUGH by the emitter's `printf >`, which is the
+    # very behaviour this whole block exists to avoid. `rm -f` on a link removes
+    # the link, never its target.
+    rm -f "$_pc_ref" "$_pc_ref.t" 2>/dev/null
     soif_write_precommit_hook "$_pc_ref" 2>/dev/null   # BL-242-PRECOMMIT-INSTALL
     # SOIF_ADOPT_HOOK_FAULT=pctrunc — the same fault seam as the commit-msg
     # arm's: a render that exits 0 having written a truncated file is the state
@@ -1543,6 +1556,11 @@ adopt_install_hooks() {
     # left the completeness check below it untested.
     [ "${SOIF_ADOPT_HOOK_FAULT:-}" = "pctrunc" ] && [ -f "$_pc_ref" ] \
       && head -5 "$_pc_ref" > "$_pc_ref.t" 2>/dev/null && cat "$_pc_ref.t" > "$_pc_ref"   # BL-242-HOOKS-FAULT-SEAM
+    # `pcnoexec`: the render is complete but NOT executable — a hooks directory
+    # on a filesystem with no exec bit (SMB, exFAT), where `chmod +x` fails in
+    # silence. git ignores a non-executable hook, so it must not be reported
+    # installed; nothing else reaches the `-x` test below.
+    [ "${SOIF_ADOPT_HOOK_FAULT:-}" = "pcnoexec" ] && chmod -x "$_pc_ref" 2>/dev/null   # BL-242-HOOKS-FAULT-SEAM
     # COMPLETE: it ends with the region's closing marker, so a truncated render
     # cannot pass. Then the rename, then confirm what is at the path is exactly
     # the file that was verified.
@@ -1567,7 +1585,8 @@ adopt_install_hooks() {
       ADOPT_PC_STATE="failed"
       adopt_say "   NOT INSTALLED — the commit-time scanners (the fallback pre-commit hook)"
       adopt_note "  The framework's hook could not be written and verified at $hooks/pre-commit."
-      adopt_note "  Your hook, if you had one, is unchanged. To install the scanners by hand:"
+      adopt_note "  Your hook, if you had one, is unchanged. To install the scanners by hand,"
+      adopt_note "  from the project root:"
       adopt_note "    bash -c '. scripts/lib/hook-templates.sh && soif_write_precommit_hook .git/hooks/pre-commit'"
     fi
     rm -f "$_pc_ref" "$_pc_ref.t" 2>/dev/null

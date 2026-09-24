@@ -323,6 +323,11 @@ b11() {
   mode="$(ls -l "$p/.git/hooks/pre-commit" | cut -c1-10)"
   [ "$mode" = "-r--r--r--" ] || bad="$bad [mode is $mode, not -r--r--r-- — their hook was made executable]"
   grep -q 'Commit-time scanners installed' "$WORK/ro.out" && bad="$bad [the run claims scanners it did not install]"
+  # THE AUDIT RECORD SAYS WHAT HAPPENED. It read `replaced` — a restore line
+  # pointing at a file nobody touched.
+  [ "$(cd "$p" && jq -r '[.entries[]|select(.originalPath==".git/hooks/pre-commit")|.disposition]|first // ""' \
+        .claude/adoption-archive/*/MANIFEST.json 2>/dev/null)" = "kept" ] \
+    || bad="$bad [the MANIFEST row for a hook that was left alone does not say 'kept']"
   [ "$ADOPT_RC" -ne 0 ] || bad="$bad [rc 0 for a project whose scanners are not installed]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
@@ -348,6 +353,14 @@ b12() {
   # the sentences it wants cannot see the one it does not.
   grep -q 'did not begin' "$WORK/fin2.out" \
     && bad="$bad [the run says the finish 'did not begin' directly under a commit that landed]"
+  # …NOR A COUNT OF ZERO. The first fix removed "did not begin" and the next
+  # arm printed "0 file(s) were written and committed" over `85 files changed`
+  # — `--finish` keeps no ledger, so there is no count to give.
+  grep -q '0 file(s) were written and committed' "$WORK/fin2.out" \
+    && bad="$bad [the run says 0 files were committed directly under a commit that landed]"
+  # AND IT WARNS THAT THE ARCHIVE'S RESTORE LINE NOW POINTS AT THE OLD VERSION.
+  grep -q 'Do NOT run the archive' "$WORK/fin2.out" \
+    || bad="$bad [nothing warns that running the restore line would undo their fix]"
   [ "$frc" -ne 0 ] || bad="$bad [--finish returned 0 with the scanners not installed]"
   [ -n "$(cd "$p" && git log --oneline --grep='adopt' -1 2>/dev/null)" ] || bad="$bad [--finish did not land the adoption commit]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
@@ -482,11 +495,31 @@ b17() {
   grep -q 'Commit-time scanners installed' "$WORK/trunc.out" && bad="$bad [an incomplete hook was reported as installed]"
   grep -q 'could not be written and verified' "$WORK/trunc.out" || bad="$bad [the run never said the write failed]"
   [ "$ADOPT_RC" -ne 0 ] || bad="$bad [rc 0 with no scanners installed]"
-  ls "$p/.git/hooks/" | grep -q 'soif-new' && bad="$bad [the temporary render was left in the hooks directory]"
+  # `ls -A`: the temporary name starts with a dot, and plain `ls` hid it — the
+  # cleanup could be deleted outright and this line stayed quiet.
+  ls -A "$p/.git/hooks/" | grep -q 'soif-new' && bad="$bad [the temporary render was left in the hooks directory]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-b1; b2; b3; b4; b5; b6; b7; b8; b9; b10; b10b; b11; b12; b13; b14; b15; b16; b17
+b17b() {
+  local label="B17b a render that is complete but NOT executable is not reported as installed"
+  local p="$WORK/noexec" bad=""
+  _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
+  printf '2\n1\n1\n1\n1\n' > "$WORK/ans"
+  ( cd "$p" && SOIF_ADOPT_HOOK_FAULT=pcnoexec bash "$REPO_ROOT/scripts/adopt-project.sh" \
+      --scan-report "$WORK/scan/scout-report.json" < "$WORK/ans" ) > "$WORK/noexec.out" 2>&1
+  ADOPT_RC=$?
+  # THE `-x` TEST, which nothing reached: git ignores a non-executable hook, so
+  # a hooks directory with no exec bit (SMB, exFAT) would have been reported as
+  # gated while running nothing. Review deleted the test and the suite stayed
+  # 18/0.
+  grep -q 'Commit-time scanners installed' "$WORK/noexec.out" && bad="$bad [a hook git will not run was reported installed]"
+  [ "$ADOPT_RC" -ne 0 ] || bad="$bad [rc 0 with no runnable hook]"
+  [ -x "$p/.git/hooks/pre-commit" ] && bad="$bad [an executable pre-commit hook is at the path anyway]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b1; b2; b3; b4; b5; b6; b7; b8; b9; b10; b10b; b11; b12; b13; b14; b15; b16; b17; b17b
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

@@ -14959,8 +14959,25 @@ repository), the completeness check and the failed arm (B17, through a new `pctr
 existing `SOIF_ADOPT_HOOK_FAULT` seam), the real archive directory in the REPLACED line (B8), and the
 `.semgrep` installer's outcome on a dangling link (B13).
 
-**RESIDUALS from that review, recorded not fixed** — each is a design call rather than a defect in
+**THE THIRD ROUND RETURNED `minor_concerns`** — no path that destroys an operator's hook, all eight
+earlier fixes holding under real adoptions. Fixed from it: `--finish` still printed a false receipt
+("0 file(s) were written and committed" under `85 files changed` — the first fix moved which arm
+printed, not what it derived); the MANIFEST recorded `replaced` for a READ-ONLY hook the run then left
+alone (now `kept`, decided at archive time, where writability is already knowable); B17's cleanup
+check used plain `ls`, which hides the dot-named temp file, so the cleanup was untested; a planted or
+leftover file at the temp name was written through (now cleared first); and the `-x` check was reached
+by nothing (new `pcnoexec` fault value, B17b).
+
+**RESIDUALS from these reviews, recorded not fixed** — each is a design call rather than a defect in
 what shipped:
+- **After `--finish` refuses an EDITED hook, the committed MANIFEST still says `replaced`**, and its
+  restore line points at the pre-edit version — the one that blocked every commit. The MANIFEST is
+  committed before the edit can be known, so correcting it needs a second commit. The run and
+  `docs/adoption.md` both now say not to run that restore line.
+- **Three guard lines are still unkilled by the suite**: the archived-file sha comparison when the
+  file is ALTERED rather than removed (B15 only removes it; hand-run, an altered copy is refused), the
+  post-`mv` sha comparison, and the post-`mv` `! -L` test. The last two are reachable only through a
+  race or a planted link.
 - **Run as root, `-w` is true on a `chmod 444` file**, so a read-only hook is replaced rather than
   refused. It is archived and restorable, so nothing is lost, but it contradicts the docs' "left
   alone"; not executed, since it needs root.
