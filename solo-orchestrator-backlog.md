@@ -15008,6 +15008,75 @@ lint. (`secrets_disposition` is UNOWNED, not WP7's — `adopt_audit_event`'s hea
 
 ---
 
+### The secrets stop had no way through it (2026-09-24) — found while writing the install guide
+
+**An organizational adoption with a single credential finding could not be completed** by anyone who
+had not read the validator's source. The stop was correct: it named the findings and said "record
+one per finding … and pass the file with --dispositions". But `adopt_dispositions_satisfy` also
+requires each finding's gitleaks FINGERPRINT and the scan's own `head` and `commitsScanned`
+(`# BL-242-DISPOSITIONS-STALE`), no line of the run printed any of the three, and the scan report
+lived in `$ADOPT_WORK`, which the EXIT trap deletes. The two personal-tier acknowledgement arms
+(no scanner, shallow clone) had the same shape. It surfaced only because writing a step-by-step
+guide meant writing down what an operator types at that step, and there was nothing to write.
+
+**Fixed** by `_adopt_secrets_disposition_template` (`# BL-242-DISPOSITIONS-TEMPLATE`): each of the
+three stops PRINTS a ready-to-fill file — never writes one, because a refused run leaves the project
+as it found it — built by `jq` from the same report the validator reads, so the binding values
+match by construction. Fingerprints are `commit:file:rule:line`; the matched value never appears.
+Measured end to end on a real organizational adoption: the stop leaves 0 changes and 1 commit,
+prints a valid template bound to HEAD with one fingerprint, the UNFILLED template is still refused
+(otherwise printing it would be a one-step bypass), and the filled one completes at rc 0 with the
+decision in the Adoption Record.
+
+**Proof.** `tests/test-brownfield-dispositions-template.sh`, 7 cases, ~37s.
+
+**THE REVIEW OF THAT FIX RETURNED `major_concerns`, AND THE WORST OF IT WAS OLDER THAN THE FIX.** The
+organizational stop held against everything — a stale template, an acknowledgement-shaped file,
+out-of-vocabulary dispositions. But on the PERSONAL tier, the acceptance the new template collects
+was **recorded nowhere**: `_adopt_rec_dispositions` returned at `findingCount == 0` before it reached
+the acknowledgements, and the two stops that need an acknowledgement most — no scanner at all, and a
+shallow clone that found nothing — are exactly the zero-finding cases. Both completed at rc 0 under a
+stop that had just promised "a name, a reason and a date, which adoption stores and commits", and a
+design rule that the acknowledgement is "RECORDED, and refused if it cannot be recorded". The findings
+half and the acknowledgements half of the record are now independent; measured on a real
+no-scanner personal adoption, the record carries
+`| tool-unavailable | Karl | 2026-09-24 | personal repo, no scanner here |`.
+
+Also from that review, each fixed:
+- **`date` was required and never checked.** "x", "tomorrow" and "0000-00-00" all lifted an
+  organizational stop, and the value was recorded nowhere. The validator now requires a real calendar
+  day (a `jq` round trip through `fromdateiso8601 | todate`, so a lenient `strptime` cannot normalise
+  2026-02-30 into March), and the record carries it as a "Decided on" column.
+- **The two personal call sites were unpinned**, with a note that hiding gitleaks from PATH was
+  something the round-trip cases needed — false, since PATH is set per run. T6 and T7 now run both
+  stops in real adoptions (a `/usr/bin:/bin` PATH with a control that it really hides gitleaks; a
+  `file://` depth-1 clone) and require the acknowledgement in the record.
+- **A template listing only the FIRST finding passed**, because the fixture had one. It now has two,
+  in two commits, and T1 requires one blank row per finding.
+- The banner claimed a `NOT DONE` block for the CI carve-out; the run prints none. The guide's "if it
+  stops" section covered only the organizational stop; the prerequisites table had `jq`'s exit code
+  and the git-identity wording wrong.
+
+Mutations, each restored byte-identically: tool-unavailable call site removed → T6; scanned-partial
+call site removed → T7; wrong kind passed → T6; first finding only → T1 T3; a pre-filled disposition →
+T1; the date check reverted → T5; acknowledgements skipped at zero findings → T6 T7.
+
+**The verification round returned `minor_concerns`** (both major findings confirmed fixed by real
+runs) and found the record printing EVERY acknowledgement in the operator's file, including rows the
+validator never accepted: a stale `tool-unavailable` row appeared as "accepted in place of a complete
+scan" under `Outcome | scanned`, with a "Decided on" of `tomorrow`. The record now keeps only a row
+whose kind is THIS scan's status and which passes the validator's own completeness test. Pinned: T3
+supplies a stray acknowledgement to a fully scanned run and requires no Acknowledgements section; T4
+refuses an acknowledgement dated 2026-02-30 (the acknowledgement half of the date check had no case
+of its own); A4 now proves the acknowledgement table on a run it belongs to. Mutants: acknowledgement
+date check reverted → T4; kind filter removed → T3 A4; empty-heading rule removed → T3.
+
+**Residual, the honest floor**: `by = "n/a"` with `reason = "n/a"` still lifts an organizational stop.
+The validator checks that a person and a reason were GIVEN, not that they are good ones; judging that
+is not a shell predicate's job, and the record shows exactly what was written.
+
+---
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

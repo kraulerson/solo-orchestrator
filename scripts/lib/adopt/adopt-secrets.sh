@@ -129,6 +129,7 @@ adopt_secrets_decide() {
           adopt_note "  An organizational adoption does not proceed past an undispositioned finding."
           adopt_note "  Record one per finding — rotated, false alarm, or accepted risk, each with a"
           adopt_note "  name and a reason — and pass the file with --dispositions."
+          _adopt_secrets_disposition_template "$report" findings
           return 1 ;;
         *)                                         # BL-242-SECRETS-PERSONAL-FINDINGS
           _adopt_secrets_print_findings "$report"
@@ -181,6 +182,7 @@ adopt_secrets_decide() {
       adopt_note "  Adoption can continue on a personal project if you accept that on the"
       adopt_note "  record — a name, a reason and a date, which adoption stores and commits."
       adopt_note "  Install gitleaks and re-run, or supply that acceptance with --dispositions."
+      _adopt_secrets_disposition_template "$report" tool-unavailable
       return 1 ;;
 
     # ── SCANNED-PARTIAL — ruled 2026-09-16 (§6.1a) ──────────────────────────
@@ -206,6 +208,7 @@ adopt_secrets_decide() {
       adopt_note "  Adoption can continue on a personal project if you accept that on the"
       adopt_note "  record. Or unshallow and scan the whole history:"
       _adopt_secrets_unshallow_remedy
+      _adopt_secrets_disposition_template "$report" scanned-partial
       return 1 ;;
 
     # ── An unknown status is a STOP at both tiers ───────────────────────────
@@ -219,6 +222,52 @@ adopt_secrets_decide() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# _adopt_secrets_disposition_template REPORT KIND — print, never write, a
+# ready-to-fill --dispositions file for THIS scan.
+#
+# WITHOUT IT THE STOP HAD NO EXIT. Every arm that asks for a dispositions file
+# names its contents — "one per finding … each with a name and a reason" — but
+# `adopt_dispositions_satisfy` also requires each finding's gitleaks FINGERPRINT
+# and the scan's own `head` and `commitsScanned` (# BL-242-DISPOSITIONS-STALE),
+# and no line of the run printed any of the three. The scan report lives in
+# `$ADOPT_WORK`, which the EXIT trap deletes. So an organizational adoption with
+# a single finding could not be completed by anyone who had not read this
+# file's source: the stop was correct and the way through it did not exist.
+#
+# PRINTED, NOT WRITTEN, because a refused run must leave the project as it
+# found it (`## BL-225:`). Built by `jq` FROM THE SAME REPORT the validator
+# reads, so the binding values match by construction rather than by a second
+# spelling of them. A fingerprint is `commit:file:rule:line` — it names where a
+# match is, never the matched value, which is why the Adoption Record already
+# carries it.
+_adopt_secrets_disposition_template() {                # BL-242-DISPOSITIONS-TEMPLATE
+  local report="$1" kind="$2" tpl
+  if [ "$kind" = "findings" ]; then
+    tpl="$(jq '{scan: {head: .secrets.head, commitsScanned: .secrets.commitsScanned},
+                dispositions: [.secrets.findings[]? | {fingerprint, disposition: "", by: "", reason: "", date: ""}]}' \
+            "$report" 2>/dev/null)"
+  else
+    tpl="$(jq --arg k "$kind" '{scan: {head: .secrets.head, commitsScanned: .secrets.commitsScanned},
+                acknowledgements: [{kind: $k, by: "", reason: "", date: ""}]}' \
+            "$report" 2>/dev/null)"
+  fi
+  [ -n "$tpl" ] || return 0
+  adopt_blank
+  adopt_note "  A dispositions file for THIS scan, ready to fill in. Save it OUTSIDE the project"
+  adopt_note "  (for example ~/adoption-dispositions.json), fill every empty field, and re-run"
+  adopt_note "  with --dispositions ~/adoption-dispositions.json."
+  if [ "$kind" = "findings" ]; then
+    adopt_note "  Do not change the 'scan' block or the fingerprints: they bind the file to this"
+    adopt_note "  scan and no other. 'disposition' is one of: rotated | false-alarm | accepted-risk."
+  else
+    adopt_note "  Do not change the 'scan' block or the 'kind': they bind the file to this scan."
+  fi
+  adopt_note "  'date' is YYYY-MM-DD; 'by' is the person accountable for the decision."
+  adopt_blank
+  printf '%s\n' "$tpl" | sed 's/^/      /'
+  adopt_blank
+}
+
 # adopt_dispositions_satisfy REPORT FILE KIND — does FILE lift this stop?
 #
 # KIND is `findings` (every finding needs its own row) or one of the two
@@ -323,12 +372,19 @@ adopt_dispositions_satisfy() {
       # `disposition` of `banana-not-a-vocabulary-word`, or absent entirely —
       # which matters forward, because §6.3 says every `accepted-risk` writes
       # an audit row and the write stage would have had nothing to classify.
+      # A REAL CALENDAR DAY, NOT MERELY A NON-EMPTY STRING. `date` was required
+      # and never checked: "x", "tomorrow" and "0000-00-00" all lifted an
+      # organizational stop (measured by review), and the value was recorded
+      # nowhere, so the template's "'date' is YYYY-MM-DD" was decoration. The
+      # round trip through `fromdateiso8601 | todate` also refuses a 2026-02-30
+      # that a lenient strptime would silently normalise to March.
       fps_file="$(jq -r '
         def trimmed: (. // "") | gsub("^\\s+|\\s+$"; "");
+        def isoday: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") and ((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .);
         .dispositions[]?
         | select((.by | trimmed) != ""
              and (.reason | trimmed) != ""
-             and (.date | trimmed) != ""
+             and ((.date // "") | isoday)
              and ((.disposition // "") | IN("rotated", "false-alarm", "accepted-risk")))
         | .fingerprint // empty' "$file" 2>/dev/null | LC_ALL=C sort -u)"
       alien="$(printf '%s\n' "$fps_file" | grep -v '^$' | LC_ALL=C comm -23 - <(printf '%s\n' "$fps_scan" | grep -v '^$') 2>/dev/null)"
@@ -339,7 +395,8 @@ adopt_dispositions_satisfy() {
       fi
       missing="$(printf '%s\n' "$fps_scan" | grep -v '^$' | LC_ALL=C comm -23 - <(printf '%s\n' "$fps_file" | grep -v '^$') 2>/dev/null)"
       if [ -n "$missing" ]; then
-        adopt_note "  (finding(s) with no signed disposition — every row needs a name and a reason)"
+        adopt_note "  (finding(s) with no signed disposition — every row needs a name, a reason, a"
+        adopt_note "   'disposition' of rotated, false-alarm or accepted-risk, and a real 'date' as YYYY-MM-DD)"
         return 1
       fi
       return 0 ;;
@@ -352,15 +409,16 @@ adopt_dispositions_satisfy() {
       local ok
       ok="$(jq -r --arg k "$kind" '
         def trimmed: (. // "") | gsub("^\\s+|\\s+$"; "");
+        def isoday: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") and ((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .);
         [.acknowledgements[]?
          | select((.kind // "") == $k
               and (.by | trimmed) != ""
               and (.reason | trimmed) != ""
-              and (.date | trimmed) != "")] | length' "$file" 2>/dev/null)"
+              and ((.date // "") | isoday))] | length' "$file" 2>/dev/null)"
       case "$ok" in ''|*[!0-9]*) ok=0 ;; esac
       if [ "$ok" -lt 1 ]; then
         adopt_note "  (no signed acknowledgement of kind '$kind' in the dispositions file — it"
-        adopt_note "   needs a name, a reason and a date)"
+        adopt_note "   needs a name, a reason and a real 'date' as YYYY-MM-DD)"
         return 1
       fi
       return 0 ;;

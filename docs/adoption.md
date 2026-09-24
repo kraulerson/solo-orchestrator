@@ -2,39 +2,137 @@
 
 `init.sh` builds a project from an empty folder. **Adoption is the second way
 in**, for a codebase that already exists — with its own history, its own
-pipeline, and its own habits.
+pipeline, and its own habits. It puts that project under the framework at
+**phase 0**, archives anything of yours it has to replace, and commits exactly
+the files it wrote.
 
-```bash
-cd /path/to/their-project
-bash /path/to/solo-orchestrator/scripts/adopt-project.sh
-```
-
-> ## ⚠ Read this before you plan around adoption
->
-> **Adoption is half built.** The driver, the tier question, the reverse
-> intake's confirmation arm, the state writes, the adoption stamp, the
-> commit-time enabling arms, the test-debt ledger with its ratchet, and the
-> collision archive with its disclosure and recorded re-adds all ship and all
-> work. **The assessment — the requirements interview, the fitness verdict and
-> the plan — does not exist, and neither do the CI carve-out or the Adoption
-> Record.**
->
-> **This page describes the four-act v2 design.** Adoption is Act 2 of four:
-> Act 1 is Scout, and Acts 3 and 4 are a Claude Code session that has not been
-> built. What ships today ends by handing off to `bash scripts/resume.sh`.
->
-> The driver does not paper over that. It prints a labelled `NOT DONE` block for
-> every one of them, in the run, naming the work package that owns it. The full
-> list — with the exact text it prints — is in
-> [What is not built yet](#what-is-not-built-yet). Read that section before you
-> decide whether adoption gets you where you need to be today.
+> **What ships, and what does not.** Adoption itself works end to end: Scout's
+> survey, the tier question, the credential scan and its tier-scoped stop, the
+> reverse intake, the state writes and adoption stamp, the collision archive
+> with `--re-add`, the test-debt ledger, the **Adoption Record**, and the
+> **commit-time scanners**. Three things are designed and **not built**: the
+> *assessment* (the requirements interview, the fitness verdict and the plan —
+> Act 3, a Claude Code session), the *framework documents* an adopted project
+> should receive (a `CLAUDE.md` among them), and the *CI carve-out*. The run
+> prints a labelled `NOT DONE` block, naming its owner, for the assessment and
+> the documents — and for the provenance headers on reconstructed documents. It
+> prints **none** for the CI carve-out, because nothing in the run touches your
+> pipelines at all: adoption neither installs framework CI nor records a
+> decision about yours. See [What is not built yet](#what-is-not-built-yet).
 
 Everything on this page is output that was observed, pasted as it printed.
 
 ---
 
+## Quick start: install and use
+
+### What you need
+
+| Tool | Why | If it is missing |
+|---|---|---|
+| `git`, able to resolve a commit identity | Adoption ends in one commit on your current branch | Refused before anything is written. git can often derive an identity from the system when none is configured; the refusal fires only when it cannot |
+| `jq` | Every state file adoption writes is JSON | Stops at once with `adopt-project: jq is required.` and **exit code 2** — the "unusable target" code, not a refusal |
+| `shasum` or `sha256sum` | The adoption stamp hashes the survey it was made from | Refused during the pre-write rehearsal, before anything is written |
+| `gitleaks` | The credential scan of your history | **Organizational**: the adoption stops, with no override. **Personal**: it can continue if you accept that on the record |
+| `semgrep` | The commit-time static-analysis pass | Every commit prints `semgrep not found — pre-commit SAST skipped.`; nothing blocks |
+
+Your project must be a normal git repository with at least one commit. A linked
+worktree, a submodule, or a repository with `core.hooksPath` configured is
+refused before anything is written, because the gates would be installed where
+git never looks.
+
+### 1. Get the framework
+
+The framework is a clone that stays **outside** your project; adoption copies
+what your project needs into it.
+
+```bash
+git clone https://github.com/kraulerson/solo-orchestrator.git ~/solo-orchestrator
+```
+
+### 2. Look first — Scout writes nothing
+
+```bash
+cd /path/to/your-project
+bash ~/solo-orchestrator/scripts/scout.sh --out /tmp/scout --run-tests
+```
+
+`--out` writes `scout-report.json` and a readable `scout-report.md`. Leave out
+`--run-tests` if you do not want Scout to run your code — but it is the one way
+to learn **before adopting** whether your test suite passes today, and that
+matters: once adopted, a commit that touches source code runs your tests and is
+refused if they fail. See [Before you adopt: run Scout](#before-you-adopt-run-scout).
+
+### 3. Adopt
+
+```bash
+cd /path/to/your-project
+bash ~/solo-orchestrator/scripts/adopt-project.sh --scan-report /tmp/scout/scout-report.json
+```
+
+Without `--scan-report` it runs its own survey. It asks one question a scan
+cannot answer — **who the project is for** — and that answer sets its
+enforcement tier:
+
+```text
+Who is this project for?
+   1) Just me, or me and a few people I know
+   2) A company, a client, or people who are paying for it
+```
+
+Then it confirms what the survey found, writes the project's state at phase 0,
+and commits. **Your uncommitted work is never staged**; the commit contains only
+files adoption wrote. Exit codes: `0` adopted; `1` did not complete (a refusal,
+a stop, or a halt); `2` bad usage.
+
+### 4. If it stops
+
+- **Credential findings in your history** (organizational): the run lists them —
+  rule, file and line, never the value — and prints a dispositions file **already
+  bound to that scan**, with every fingerprint filled in. Save it *outside* the
+  project, fill in each `disposition` (`rotated`, `false-alarm` or
+  `accepted-risk`), `by`, `reason` and `date`, and run the same command again with
+  `--dispositions ~/adoption-dispositions.json`. The decisions go into the
+  Adoption Record. On a personal project the findings are recorded and adoption
+  continues.
+- **No scanner, or a shallow clone** (personal): without `gitleaks`, or on a
+  `git clone --depth` that only has part of the history, a personal adoption
+  stops and prints the same kind of file — this time with one
+  `acknowledgements` entry of kind `tool-unavailable` or `scanned-partial`. Fill
+  in `by`, `reason` and `date`, and re-run with `--dispositions`. The acceptance
+  goes into the Adoption Record. For a shallow clone the run also prints the two
+  commands that fetch the full history, which is the better answer if you can.
+  An organizational adoption with no scanner cannot be accepted this way:
+  install `gitleaks` and run again.
+- **Every `date` must be a real calendar day written `YYYY-MM-DD`.** "tomorrow",
+  "0000-00-00" and 2026-02-30 are refused.
+- **Your own pre-commit hook refused the adoption commit**: fix or bypass that
+  hook, then run `adopt-project.sh --finish`. It commits exactly the files the
+  first run wrote.
+- **Anything else** prints a `[REFUSED]` or `[BLOCKED]` line naming the cause, and
+  says whether anything was written.
+
+### 5. Afterwards
+
+```bash
+bash scripts/resume.sh
+```
+
+It prints the first message to paste into Claude Code; the ordinary Phase 0
+questions start there. From your next commit on, the message gates and the
+commit-time scanners run. Your replaced files are in
+`.claude/adoption-archive/<timestamp>/`, each with a restore line in its
+`MANIFEST.md` — and one command puts any of them back:
+
+```bash
+bash ~/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre-commit
+```
+
+---
+
 ## Contents
 
+- [Quick start: install and use](#quick-start-install-and-use)
 - [Before you adopt: run Scout](#before-you-adopt-run-scout)
 - [The one question](#the-one-question)
 - [Where it lands: phase 0, always](#where-it-lands-phase-0-always)
