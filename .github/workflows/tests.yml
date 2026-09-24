@@ -780,6 +780,11 @@ jobs:
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
             tests/test-lint-raw-read-prompt.sh         #  41s — real-repo arm
             tests/test-lint-doc-anchors.sh             #  16s — real-repo arm
+            # Three from `rest`, 2026-09-24: with `adopt` added, `rest` projected
+            # to 576s (80%) and every new suite lands there; this leg had 313s spare.
+            tests/test-delta-wp8-intake.sh             #  37s on PR #444
+            tests/test-delta-wp4-close-rubric.sh       #  36s on PR #444
+            tests/test-freshness-check.sh              #  35s on PR #444
             # ── Re-pinned 2026-08-15, the partner move to the lint-sweep note
             #    above. This was the `rest` leg's TOP pole at 108.5s measured
             #    CI time, 1.6x the next one, and it is the third brownfield
@@ -973,7 +978,7 @@ jobs:
             tests/test-brownfield-wp4-driver.sh               #  98s on PR #444 — moved from lint-sweep
             tests/test-brownfield-dispositions-template.sh    #  48s on PR #444 — rest's top pole
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
-            tests/test-brownfield-wp12b-framework-docs.sh     #  ~13s local, three real adoptions — from rest
+            tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
@@ -1040,7 +1045,7 @@ jobs:
             esac
           done
 
-          # COVERAGE ASSERTION — the five shards are a partition of the
+          # COVERAGE ASSERTION — the shards are a partition of the
           # canonical list: disjoint (guarded above) and complete (here).
           # Every shard job re-runs this, so a mis-pin fails the PR loudly
           # instead of silently dropping a test out of CI.
@@ -1103,7 +1108,7 @@ jobs:
   # branch-protection label — keep it stable.
   #
   # `needs.unit-shard.result` is the matrix's ROLLED-UP result: `success`
-  # only when all five legs succeeded. `always()` is required so this job
+  # only when every leg succeeded. `always()` is required so this job
   # still runs (and still fails) when a shard fails, times out, or is
   # cancelled — a cancelled shard yields `cancelled` here and turns `unit`
   # RED. Note what PR #278's 20m15s cancellation was and was not: it was
