@@ -179,7 +179,8 @@ and how to put a replaced file back are in
 It shows you what the scan found as *evidence that decides nothing*, asks the
 one question no amount of reading your code can answer — **who the project is
 for**, which sets its enforcement tier — and lands it at **phase 0**, writing
-state in a fail-safe order and committing exactly the files it wrote.
+state in a fail-safe order, laying down the framework's `CLAUDE.md` and
+documents, and committing exactly the files it wrote.
 
 **Every adopted project starts at phase 0.** Nothing is marked as already done
 and no gate is skipped: what the scan learned becomes a head start on the Phase 0
@@ -189,13 +190,13 @@ questions rather than a shortcut past them.
 > intake's confirmations, the state writes, the adoption stamp, the tier-scoped
 > credential stop, the test-debt ledger, the collision archive (with its
 > disclosure, recorded re-adds and pre-staging secret scan), the **Adoption
-> Record** and the **commit-time scanners** ship and work. **Three things do not
-> exist yet: the assessment (the requirements interview, the fitness verdict and
-> the plan), the framework documents an adopted project should receive — a
-> `CLAUDE.md` among them — and the CI carve-out.** The driver prints a labelled
-> `NOT DONE` block for the first two during the run rather than papering over
-> them; it prints none for the CI carve-out, because adoption does not touch
-> your pipelines at all.
+> Record**, the **commit-time scanners** and the **framework documents** — a
+> rendered `CLAUDE.md` among them, with any you already had archived and named,
+> not merged — ship and work. **Two things do not exist yet: the assessment
+> (the requirements interview, the fitness verdict and the plan) and the CI
+> carve-out.** The driver prints a labelled `NOT DONE` block for the assessment
+> during the run rather than papering over it; it prints none for the CI
+> carve-out, because adoption does not touch your pipelines at all.
 > [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
 
 **These three pages live in this repo and are not copied into generated
