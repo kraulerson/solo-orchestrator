@@ -500,6 +500,60 @@ _adopt_rec_render() {
   } > "$out"
 }
 
+# _adopt_dispositions_accepted REPORT FILE — the ONE filter, printing the join
+# table's JSON on stdout. `adopt_write_dispositions` writes it and the Adoption
+# Record renders from it, so the two committed records cannot disagree — they
+# did, in review: the record printed every row the operator supplied while the
+# table held only the accepted one, and an empty `by` shifted the record's
+# columns left under a tab IFS.
+#
+# A FILE BOUND TO ANOTHER SCAN CONTRIBUTES NOTHING. §6.3: a file whose
+# `scan.head` or `scan.commitsScanned` is not this scan's is stale. The
+# organizational validator already refuses one; on a personal run nothing did,
+# and its accepted risks were filed under THIS scan's block. A file with no
+# `scan` block is not bound to anything and is treated the same way.
+_adopt_dispositions_accepted() {                       # BL-242-DISPOSITIONS-FILTER
+  local report="$1" f="$2" rsha
+  rsha=""
+  command -v adopt_sha256 >/dev/null 2>&1 && rsha="$(adopt_sha256 "$report")"
+  if [ -n "$f" ] && [ -f "$f" ] && jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
+    jq -n --slurpfile r "$report" --slurpfile d "$f" --arg rsha "$rsha" "$(_adopt_dispositions_jq)"
+  else
+    jq -n --slurpfile r "$report" --argjson d '[{}]' --arg rsha "$rsha" "$(_adopt_dispositions_jq)"
+  fi
+}
+_adopt_dispositions_jq() {
+  cat <<'JQ'
+    def trimmed: (. // "") | tostring | gsub("^\\s+|\\s+$"; "");
+    def isoday: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+      and ((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .);
+    def complete: ((.by | trimmed) != "") and ((.reason | trimmed) != "") and ((.date // "") | isoday);
+    ($r[0].secrets // {}) as $s
+    | ([$s.findings[]?.fingerprint | select(. != null)]) as $fps
+    | (($d[0].scan // {}) as $b
+       | ($b.head // "") == ($s.head // "") and ($b.head // "") != ""
+         and (($b.commitsScanned // null) | tostring) == (($s.commitsScanned // null) | tostring)) as $bound
+    | { schemaVersion: 1,
+        scan: { head: ($s.head // null), commitsScanned: ($s.commitsScanned // null),
+                scope: ($s.scope // null), status: ($s.status // null), reportSha256: $rsha },
+        dispositions: (if $bound then [ ($d[0].dispositions // [])[]?
+          | select(type == "object")
+          | select((.fingerprint // "") as $fp | $fps | index($fp))
+          | select((.disposition // "") | IN("rotated", "false-alarm", "accepted-risk"))
+          | select(complete)
+          | { fingerprint: (.fingerprint | tostring), disposition, by: (.by | trimmed),
+              reason: (.reason | trimmed), date }
+            + (if .disposition == "rotated" and ((.rotatedOn // "") | isoday)
+               then {rotatedOn} else {} end) ] else [] end),
+        acknowledgements: (if $bound then [ ($d[0].acknowledgements // [])[]?
+          | select(type == "object")
+          | select((.kind // "") == ($s.status // "") and ((.kind // "") | IN("tool-unavailable", "scanned-partial")))
+          | select(complete)
+          | { kind, by: (.by | trimmed), reason: (.reason | trimmed), date,
+              scope: ($s.scope // null), commitsScanned: ($s.commitsScanned // null), head: ($s.head // null) } ] else [] end) }
+JQ
+}
+
 # _adopt_rec_dispositions REPORT — the findings and their recorded outcomes.
 #
 # FINGERPRINTS, NOT SECRETS. §6.2's redaction is a PROJECTION: the record
@@ -551,14 +605,24 @@ _adopt_rec_dispositions() {
       # validator now requires to be a real calendar day. It is labelled
       # "Decided on" because the record's prose may not contain the word this
       # column is about (clause 6).
+      # FROM THE FILTERED TABLE, the same one `adopt_write_dispositions`
+      # commits (`# BL-242-DISPOSITIONS-FILTER`) — never the raw file. Rendered
+      # from the file, the record printed an unsigned row and a row for a
+      # fingerprint this scan never produced while the table held neither.
       _ok=1
+      _adopt_dispositions_accepted "$report" "$f" > "$ADOPT_WORK/record-table.json" 2>/dev/null || _ok=0
       jq -r '.dispositions[]? | [(.fingerprint // "?"), (.disposition // "?"), (.by // "?"), (.date // "?"), (.reason // "?")] | map(tostring) | @tsv' \
-        "$f" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
+        "$ADOPT_WORK/record-table.json" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
       printf '%s\n\n' "### What was decided about them"
       if [ "$_ok" -eq 0 ]; then
         printf '%s\n' "The dispositions file could not be read as a list of decisions. Nothing is"
         printf '%s\n' "recorded here, and that is a failure to read the file rather than a finding that"
         printf '%s\n' "nothing was decided — the file is still where you left it."
+        printf '\n'
+      elif [ ! -s "$ADOPT_WORK/record-dispositions.tsv" ]; then
+        printf '%s\n' "The dispositions file supplied carries no complete decision about a finding of"
+        printf '%s\n' "THIS scan — it is bound to another scan, or no row has a name, a reason and a"
+        printf '%s\n' "real calendar day — so no outcome is recorded against any finding above."
         printf '\n'
       else
         printf '%s\n' "    | Fingerprint | Outcome | Decided by | Decided on | Reason |"
@@ -591,13 +655,14 @@ _adopt_rec_dispositions() {
   local st
   st="$(adopt_report_read "$report" '.secrets.status // ""')"
   _ok=1
+  _adopt_dispositions_accepted "$report" "$f" > "$ADOPT_WORK/record-table.json" 2>/dev/null || _ok=0
   jq -r --arg st "$st" '
       def trimmed: (. // "") | gsub("^\\s+|\\s+$"; "");
       def isoday: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") and ((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .);
       .acknowledgements[]?
       | select((.kind // "") == $st and (.by | trimmed) != "" and (.reason | trimmed) != "" and ((.date // "") | isoday))
       | [(.kind // "?"), (.by // "?"), (.date // "?"), (.reason // "?")] | map(tostring) | @tsv' \
-    "$f" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
+    "$ADOPT_WORK/record-table.json" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
   if [ "$_ok" -eq 0 ]; then
     printf '%s\n\n' "### Acknowledgements"
     printf '%s\n' "The acknowledgements in that file could not be read. Nothing is recorded here."
@@ -701,7 +766,7 @@ adopt_write_adoption_record() {                       # BL-242-RECORD-WRITE
               secretsScanStatus: $st, findingCount: $n, landedPhase: 0}' 2>/dev/null)"
   if [ -n "$_ev" ] && adopt_audit_event "$root" "adoption" "$_ev"; then   # BL-242-ADOPTION-EVENT
     if ! grep -qxF ".claude/bypass-audit.json" "${ADOPT_WRITTEN_LEDGER:-/dev/null}" 2>/dev/null; then
-      _adopt_record_if_stageable "$root" ".claude/bypass-audit.json"
+      _adopt_stage_ledger_once "$root"
     fi
   else
     adopt_say "   THE ADOPTION HAPPENED. ITS AUDIT ROW could not be recorded."

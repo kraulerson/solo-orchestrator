@@ -25,6 +25,10 @@
 #   R7  an acknowledgement that cannot be recorded BLOCKS the run: rc 1,
 #       nothing committed
 #   R8  the stage sits after `intake` and before `manifest`
+#   R10 a project that already carries a ledger is adopted: the ledger is
+#       appended to, never counted as an overwrite (review: every such project
+#       was blocked by the overwrite-inventory check)
+#   R11 a file bound to ANOTHER scan contributes nothing (§6.3's staleness)
 #   R9  on a PERSONAL run with findings — where the validator does not insist
 #       on dispositions, so nothing upstream filters the file — an incomplete
 #       disposition (no name) is not written down as a decision
@@ -160,7 +164,8 @@ _ack() {   # _ack DIR TAG — stop, fill the printed acknowledgement, re-run
   local p="$1" tag="$2"
   _nopath_run "$p" "$tag-stop"
   sed -n '/ready to fill in/,$p' "$WORK/$tag-stop.out" | grep '^      ' | sed 's/^      //' \
-    | jq '.acknowledgements[0] |= (.by="Karl" | .reason="personal repo, scanner later" | .date="2026-09-24")' > "$WORK/$tag-ack.json" 2>/dev/null
+    | jq '.acknowledgements[0] |= (.by="Karl" | .reason="personal repo, scanner later" | .date="2026-09-24")
+          | .acknowledgements += [(.acknowledgements[0] | .by="" | .reason="unsigned second" | .date="not-a-date")]' > "$WORK/$tag-ack.json" 2>/dev/null
   _nopath_run "$p" "$tag" --dispositions "$WORK/$tag-ack.json"
 }
 
@@ -169,7 +174,8 @@ r6() {
   command -v /usr/bin/jq >/dev/null 2>&1 || { skip "$label" "jq is not in /usr/bin, so PATH cannot be narrowed to hide the scanner"; return; }
   _base "$p"; _ack "$p" noscan
   [ "$RUN_RC" -eq 0 ] || { fail_ "$label" "rc $RUN_RC: $(grep -E 'BLOCKED|REFUSED' "$WORK/noscan.out" "$WORK/noscan.err" | head -2 | tr '\n' ' ')"; return; }
-  jq -e '.acknowledgements | length == 1 and .[0].kind == "tool-unavailable" and .[0].by == "Karl"' "$p/$JT" >/dev/null 2>&1 || bad="$bad [the acknowledgement is not in the table]"
+  jq -e '.acknowledgements | length == 1 and .[0].kind == "tool-unavailable" and .[0].by == "Karl"' "$p/$JT" >/dev/null 2>&1 || bad="$bad [the table does not hold exactly the one signed acknowledgement]"
+  grep -q 'unsigned second\|not-a-date' "$p/$JT" "$p/.claude/bypass-audit.json" "$p/APPROVAL_LOG.md" && bad="$bad [an unsigned acknowledgement was recorded]"
   _rows "$p" secrets_disposition | jq -e '.details.kind == "tool-unavailable" and .details.by == "Karl"' >/dev/null 2>&1 || bad="$bad [no row for the acknowledgement]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
@@ -202,7 +208,7 @@ r8() {
 }
 
 r9() {
-  local label="R9 personal, findings: an incomplete disposition is not recorded as a decision" bad="" p="$WORK/personal-findings"
+  local label="R9 personal, findings: an unsigned or out-of-scan disposition is recorded nowhere, the signed one everywhere" bad="" p="$WORK/personal-findings"
   _base "$p"
   printf 'aws_access_key_id = %s\n' "AKIA3XN7QW5Z""TBMR2VKD" > "$p/src/config.py"
   printf 'aws_access_key_id = %s\n' "AKIA7ZQ2WX4Y""KLMN3PQR" > "$p/src/deploy.py"
@@ -217,16 +223,61 @@ r9() {
   jq --arg a "${FP1/$oc/$pc}" '.dispositions |= map(if .fingerprint == $a
         then .disposition="accepted-risk" | .by="Jane Ops" | .reason="test key" | .date="2026-09-24"
         else .disposition="accepted-risk" | .by="" | .reason="nobody signed this" | .date="2026-09-24" end)
+      | .dispositions += [{fingerprint:"deadbeef:src/x.py:aws-access-token:1", disposition:"accepted-risk", by:"Mallory", reason:"alien row", date:"2026-09-24"}]
       | .acknowledgements = []' "$WORK/tpl-p.json" > "$WORK/half.json"
   _run "$p" personal-findings 1 --dispositions "$WORK/half.json"
   [ "$RUN_RC" -eq 0 ] || { fail_ "$label" "rc $RUN_RC: $(grep -E 'BLOCKED|REFUSED' "$WORK/personal-findings.out" "$WORK/personal-findings.err" | head -2 | tr '\n' ' ')"; return; }
   [ "$(jq '.dispositions | length' "$p/$JT")" = "1" ] || bad="$bad [$(jq '.dispositions | length' "$p/$JT") dispositions recorded, not 1]"
-  grep -q 'nobody signed this' "$p/$JT" "$p/.claude/bypass-audit.json" && bad="$bad [the unsigned disposition was recorded]"
+  grep -q 'nobody signed this' "$p/$JT" "$p/.claude/bypass-audit.json" "$p/APPROVAL_LOG.md" && bad="$bad [the unsigned disposition was recorded]"
+  # A COMPLETE row for a fingerprint THIS scan never produced. On a personal run
+  # no validator refuses it, so the filter is the only guard — and the record
+  # must agree with the table (review: the record once printed both rows).
+  grep -q 'Mallory\|deadbeef' "$p/$JT" "$p/.claude/bypass-audit.json" "$p/APPROVAL_LOG.md" && bad="$bad [a fingerprint from outside this scan was recorded]"
+  grep -q '| accepted-risk | Jane Ops |' "$p/APPROVAL_LOG.md" || bad="$bad [the accepted decision is not in the Adoption Record]"
   [ "$(_rows "$p" secrets_disposition | grep -c .)" -eq 1 ] || bad="$bad [$(_rows "$p" secrets_disposition | grep -c .) rows, not 1]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-r1; r2; r3; r4; r5; r6; r7; r8; r9
+r10() {
+  local label="R10 a project that already carries an audit ledger is adopted, and its rows survive" bad="" p="$WORK/ownledger"
+  _base "$p"
+  mkdir -p "$p/.claude"
+  printf '[{"type":"escalation","details":{"theirs":"PRIOR-ROW-MARKER"}}]\n' > "$p/.claude/bypass-audit.json"
+  ( cd "$p" && git add .claude/bypass-audit.json && git commit -q --no-verify -m "chore: their ledger" ) >/dev/null 2>&1
+  _run "$p" ownledger 1
+  [ "$RUN_RC" -eq 0 ] || { fail_ "$label" "rc $RUN_RC: $(grep -E 'BLOCKED|REFUSED' "$WORK/ownledger.out" "$WORK/ownledger.err" | head -2 | tr '\n' ' ')"; return; }
+  grep -q 'PRIOR-ROW-MARKER' "$p/.claude/bypass-audit.json" || bad="$bad [the operator's own row was lost]"
+  [ "$(_rows "$p" adoption | grep -c .)" -eq 1 ] || bad="$bad [no adoption row appended]"
+  ( cd "$p" && git diff --quiet HEAD -- .claude/bypass-audit.json ) || bad="$bad [the appended ledger is not committed]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+r11() {
+  local label="R11 a dispositions file bound to ANOTHER scan contributes nothing, on a personal run" bad="" p="$WORK/stale" pc
+  _base "$p"
+  printf 'aws_access_key_id = %s\n' "AKIA3XN7QW5Z""TBMR2VKD" > "$p/src/config.py"
+  ( cd "$p" && git add src/config.py && git commit -q --no-verify -m "chore: a leaked key" ) >/dev/null 2>&1
+  pc="$(cd "$p" && git rev-parse HEAD)"
+  # Every row is complete and names a real finding of THIS history — only the
+  # binding is wrong.
+  jq -n --arg fp "$pc:src/config.py:aws-access-token:1" \
+    '{scan: {head: "0000000000000000000000000000000000000000", commitsScanned: 99},
+      dispositions: [{fingerprint: $fp, disposition: "accepted-risk", by: "Stale Sam", reason: "from another scan", date: "2026-09-24"}],
+      acknowledgements: []}' > "$WORK/stale.json"
+  _run "$p" stale 1 --dispositions "$WORK/stale.json"
+  [ "$RUN_RC" -eq 0 ] || { fail_ "$label" "rc $RUN_RC"; return; }
+  # DISCRIMINATING ONLY IF THE FINGERPRINT IS REAL: were it not one of this
+  # scan's findings, the row would be dropped for that reason and this case
+  # would pass without testing the binding at all.
+  jq -e --arg fp "$pc:src/config.py:aws-access-token:1" '[.secrets.findings[]?.fingerprint] | index($fp)' \
+    "$p/.claude/adoption/scout-report.json" >/dev/null 2>&1 \
+    || { fail_ "$label" "fixture: the fingerprint is not one of this scan's — the case would not test the binding"; return; }
+  grep -q 'Stale Sam' "$p/$JT" "$p/.claude/bypass-audit.json" "$p/APPROVAL_LOG.md" && bad="$bad [a stale file's decision was recorded as this scan's]"
+  grep -q 'bound to another scan' "$p/APPROVAL_LOG.md" || bad="$bad [the record does not say why nothing is recorded]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+r1; r2; r3; r4; r5; r6; r7; r8; r9; r10; r11
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

@@ -948,7 +948,7 @@ STAGEABLE
     # ledgers before the append and routes them all into the failure arm below.
     # The guard lives in the appender because six files call it and two of them
     # already announce its rc; a guard here would have fixed one caller.
-    _adopt_record_if_stageable "$root" ".claude/bypass-audit.json"
+    _adopt_stage_ledger_once "$root"
   else
     adopt_blank
     adopt_say "   THE ARCHIVE HAPPENED. THE AUDIT ROW FOR IT could not be recorded."
@@ -960,6 +960,15 @@ STAGEABLE
     adopt_note "  jq . .claude/bypass-audit.json"
   fi
   return 0
+}
+
+# _adopt_stage_ledger_once ROOT — record the audit ledger for staging, at most
+# once per run. Three stages append to it; asked three times, an ignored ledger
+# printed "Your .gitignore excludes …" once per stage (review).
+_adopt_stage_ledger_once() {                            # BL-242-LEDGER-STAGE-ONCE
+  [ "${ADOPT_LEDGER_STAGED:-}" = "${ADOPT_WRITTEN_LEDGER:-}:$1" ] && return 0
+  ADOPT_LEDGER_STAGED="${ADOPT_WRITTEN_LEDGER:-}:$1"
+  _adopt_record_if_stageable "$1" ".claude/bypass-audit.json"
 }
 
 # _adopt_record_if_stageable ROOT REL — record REL for staging unless the

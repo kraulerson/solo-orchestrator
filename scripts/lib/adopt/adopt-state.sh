@@ -51,12 +51,12 @@
 _adopt_state_order() {
   printf '%s\n' approval_log   # BL-242-APPROVAL-LOG-FIRST
   # `dispositions` — §6.3's two records — AFTER `intake` and BEFORE `manifest`
-  # (BL-242-DISPOSITIONS-ORDER): inside the loop so the rehearsal covers them
+  # (the marker on the line below): inside the loop so the rehearsal covers them
   # (its audit rows land in the COPY's ledger and are discarded with it), and
   # before the stamp so an acceptance that cannot be recorded blocks the run
   # before the project reads as adopted. On the §8.4 line, not a line of its
   # own, because that line is a single-site mutation anchor.
-  printf '%s\n' phase_state intake dispositions manifest   # BF-ADOPT-STATE-ORDER
+  printf '%s\n' phase_state intake dispositions manifest   # BL-242-DISPOSITIONS-ORDER # BF-ADOPT-STATE-ORDER
   # AFTER `manifest` AND NOT BEFORE IT. The Adoption Record names the commit
   # this project was adopted at, and it takes that value from the stamp rather
   # than from a second `git rev-parse HEAD` — one fact, one source. The stamp
@@ -165,6 +165,14 @@ _adopt_overwrite_inventory_check() {
     # Only paths that EXISTED before this run can be overwritten; a path the
     # run creates has nothing to archive.
     [ -e "$root/$rel" ] || continue
+    # THE AUDIT LEDGER IS APPENDED TO, NEVER REPLACED. `bypass_audit_append`
+    # refuses anything but a single JSON array and writes `. + [$row]`, so every
+    # row the operator already had survives — there is nothing an archive copy
+    # would give back. Treating the append as an overwrite blocked EVERY
+    # adoption of a project that already carried a ledger, once the `adoption`
+    # row made the ledger a planned write on every run (review of WP7's audit
+    # rows, measured: `[]` in place, rc 1 "would be replaced with no copy kept").
+    case "$rel" in .claude/bypass-audit.json) continue ;; esac   # BL-242-I20-LEDGER-APPEND
     # `--` so a path beginning with a dash is a pattern, not an option: without
     # it grep exits 2 and prints usage to stderr. It fails CLOSED either way
     # (exit 2 reads as no-match, so the run blocks), but noisily and for the
