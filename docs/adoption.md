@@ -9,16 +9,16 @@ the files it wrote.
 > **What ships, and what does not.** Adoption itself works end to end: Scout's
 > survey, the tier question, the credential scan and its tier-scoped stop, the
 > reverse intake, the state writes and adoption stamp, the collision archive
-> with `--re-add`, the test-debt ledger, the **Adoption Record**, and the
-> **commit-time scanners**. Three things are designed and **not built**: the
+> with `--re-add`, the test-debt ledger, the **Adoption Record**, the
+> **commit-time scanners**, and the **framework documents** — a rendered
+> `CLAUDE.md` among them. Two things are designed and **not built**: the
 > *assessment* (the requirements interview, the fitness verdict and the plan —
-> Act 3, a Claude Code session), the *framework documents* an adopted project
-> should receive (a `CLAUDE.md` among them), and the *CI carve-out*. The run
-> prints a labelled `NOT DONE` block, naming its owner, for the assessment and
-> the documents — and for the provenance headers on reconstructed documents. It
-> prints **none** for the CI carve-out, because nothing in the run touches your
-> pipelines at all: adoption neither installs framework CI nor records a
-> decision about yours. See [What is not built yet](#what-is-not-built-yet).
+> Act 3, a Claude Code session), and the *CI carve-out*. The run prints a
+> labelled `NOT DONE` block, naming its owner, for the assessment — and for the
+> provenance headers on reconstructed documents. It prints **none** for the CI
+> carve-out, because nothing in the run touches your pipelines at all: adoption
+> neither installs framework CI nor records a decision about yours. See
+> [What is not built yet](#what-is-not-built-yet).
 
 Everything on this page is output that was observed, pasted as it printed.
 
@@ -119,7 +119,11 @@ bash scripts/resume.sh
 ```
 
 It prints the first message to paste into Claude Code; the ordinary Phase 0
-questions start there. From your next commit on, the message gates and the
+questions start there, and the agent reads the `CLAUDE.md` adoption wrote. If you
+already had a `CLAUDE.md`, `BUGS.md` or the like, the run named each one it
+replaced — the framework's version is in place and yours is in the archive,
+**not merged**: copy across what you want to keep
+([The framework documents](#the-framework-documents--ship-wp12b)). From your next commit on, the message gates and the
 commit-time scanners run. Your replaced files are in
 `.claude/adoption-archive/<timestamp>/`, each with a restore line in its
 `MANIFEST.md` — and one command puts any of them back:
@@ -426,9 +430,11 @@ coerced:
 
 ## What gets written, and in what order
 
-### The order is `APPROVAL_LOG.md` → `phase-state.json` → intake → `manifest.json` → the Adoption Record → the write set
+### The order is `APPROVAL_LOG.md` → `phase-state.json` → intake → `manifest.json` → the framework documents → the Adoption Record → the write set
 
-The last two are ordered by what they read, not by taste. The **Adoption
+The framework documents follow `manifest.json` so they are written under a
+stamped adoption, and precede the record so the record stays the last thing in
+the log. The last two are ordered by what they read, not by taste. The **Adoption
 Record** names the commit this project was adopted at and takes that value from
 the adoption *stamp*, which the `manifest.json` stage writes — one fact, one
 source, rather than a second `git rev-parse HEAD` that could disagree. The
@@ -1104,26 +1110,62 @@ hooks, which are the most important thing the archive holds.
 
 #### Still not built by this package
 
-```text
-NOT DONE — your project's framework documents
-   Owner: WP11 archives them, WP12b writes them (D3). This build does not do it, and does not pretend to.
-   CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the
-   state are here, so the gates work; the reading material an agent picks up at the start
-   of a session is not, and a CLAUDE.md you already have would be a collision, not a gap.
-   WP6's archive covers your AI-layer settings and your git hooks; documents are neither
-   YET — D3 makes them a fourth archive class, and WP11 is where that lands.
-```
-
-So an adopted project has working gates and **no `CLAUDE.md`** — the file an
-agent reads at the start of every session. Write one by hand, or copy
-`templates/generated/claude-md.tmpl` from the framework clone and fill it in.
-
-The other gap is the **replacement** half for framework-script collisions: a
+The framework documents, which this section used to list here, ship now — see
+[The framework documents](#the-framework-documents--ship-wp12b). The remaining gap is the **replacement** half for framework-script collisions: a
 file of yours sitting where a framework *script* would go is still left alone
 and still not replaced, so the framework's version of it is not installed. That
 class is deliberately outside the archive — swapping out a `scripts/validate.sh`
 your own build may call is a decision nobody has made yet — and the run names
 it with its own `NOT DONE` block.
+
+### The framework documents — SHIP (WP12b)
+
+Adoption writes the documents `init.sh` gives a new project at the same moment,
+from the same sources:
+
+| Written | From |
+|---|---|
+| `CLAUDE.md` | rendered by the renderer `init.sh` uses, with your project's name, the tier you chose (an organizational adoption gets the branch-protection section), the track the intake recorded (`full` today), `undecided` for platform and language, and a placeholder description — the assessment asks for both |
+| `FEATURES.md`, `BUGS.md`, `RELEASE_NOTES.md`, `docs/INDEX.md`, `docs/IDENTIFIERS.md`, `docs/archive/README.md` | the framework's templates, copied |
+| `docs/reference/*.md` — the eight guides | copied **only where absent**; a guide you already have there is left alone |
+
+Measured on a project that owned a `CLAUDE.md` and a `BUGS.md`, and had
+`FEATURES.md` as a symlink:
+
+```text
+══ The framework's documents
+   Wrote the framework's documents — CLAUDE.md, FEATURES.md, BUGS.md, RELEASE_NOTES.md,
+   docs/INDEX.md, docs/IDENTIFIERS.md, docs/archive/README.md and the guides in
+   docs/reference/ — except any listed below as left alone, and any guide you already had.
+   These replaced documents of yours:
+     CLAUDE.md
+     BUGS.md
+   Your originals are in .claude/adoption-archive/2026-09-24T16-22-37Z-37767, each with a restore line in its
+   MANIFEST.md. Nothing in them was merged into the new files — copy across anything you
+   want to keep, or leave it for the assessment conversation to fold in.
+   These were LEFT ALONE, so the framework's version of each is NOT in place:
+     FEATURES.md — a symlink; writing through it could overwrite a file elsewhere
+```
+
+**Nothing of yours is merged in.** Adapting your prose into the framework's
+documents is judgement, and judgement belongs to the assessment (Act 3), which
+is not built. What adoption does is archive every original, name each one it
+replaced, and tell you where it is. Until you copy content across, the agent
+reads the framework's `CLAUDE.md`, not your notes.
+
+**What it will not write over:**
+
+- **a symlink, or anything inside a symlinked folder** (`docs -> /somewhere/else`)
+  — writing through it could change files outside the project; the MANIFEST row
+  says `kept`;
+- **a read-only file** — left as it is, MANIFEST row `kept`;
+- **a hardlink** is replaced by writing beside the path and renaming, so the
+  other name keeps your content.
+
+Anything left alone is named in the run, under *LEFT ALONE*, so the framework's
+version is missing there by your file system's choice, not silently. Not
+written: `PROJECT_BIBLE.md` and `PRODUCT_MANIFESTO.md` (phase outputs — `init.sh`
+does not write them either) and the `.gitignore` lines `init.sh` adds.
 
 ### The CI carve-out and the provenance headers — WP7
 
@@ -1321,8 +1363,8 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Gates that were skipped actually run and recorded | ✅ By construction — nothing is skipped; the project starts below every gate |
 | Being asked what the project is for, and told whether the stack fits | ❌ The assessment (Act 3) — **not built** (WP12a) |
 | A fitness verdict, a plan, and the reasoning behind both | ❌ The assessment (Act 3) — **not built** (WP12a) |
-| The required secrets scanner resolved before anything reads the scan — installed where the host has a recipe, named for you where it does not — and the scan re-run after an install | ✅ Tool resolution — ships (WP10a). Adoption does **not** refuse when the scanner cannot be resolved; it carries on and the report says nobody looked. The refusal is D2's — WP10b, **not built** |
-| Adoption that can *fail* on a serious finding | ❌ The secrets stop — **not built** (WP10b); the `scanned-partial` arms Karl ruled on 2026-09-16 are WP10b's too |
+| The required secrets scanner resolved before anything reads the scan — installed where the host has a recipe, named for you where it does not — and the scan re-run after an install | ✅ Tool resolution — ships (WP10a). When the scanner still cannot be resolved, the tier-scoped stop below decides |
+| Adoption that can *fail* on a serious finding | ✅ The secrets stop — ships (WP10b): an organizational adoption stops on a finding, an unscanned tree or a partial scan; a personal one continues only on a recorded acknowledgement. [If it stops](#4-if-it-stops) |
 | A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works; the commit-time hook that would invoke the ratchet automatically now exists, and wiring the ratchet INTO it is still unbuilt |
 | Your colliding hooks/settings archived with a restore path | ✅ Collision archive — ships |
 | Plain disclosure of what was archived, path by path | ✅ Ships |
@@ -1333,7 +1375,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | A readable record of how this project entered the framework | ✅ [The Adoption Record](#the-adoption-record) — ships, at the end of `APPROVAL_LOG.md`, with its eight-clause contract checked before it is written |
 | Secret scanning, SAST and migration checks on every commit | ✅ [The commit-time scanners](#the-commit-time-scanners--ship-wp73) — ships; measured admitting a compliant commit and blocking a non-compliant one by exit code |
 | The framework's version of a colliding `scripts/*.sh` installed | ❌ Replacement half — **not built**, and unassigned |
-| A `CLAUDE.md` in the adopted project | ❌ **Not built** — WP11 archives yours, WP12b writes the framework's (D3) |
+| A `CLAUDE.md` in the adopted project | ✅ [The framework documents](#the-framework-documents--ship-wp12b) — ships; yours is archived and named, not merged in |
 | The manifest's tier keys, so enforcement cannot be downgraded | ✅ Ships — `## BL-221:` closed; the tier question is their only source |
 
 ---

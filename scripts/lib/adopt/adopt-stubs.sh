@@ -177,33 +177,18 @@ adopt_stub_framework_script_collisions() {
 # CALLED, and a reader following an older handoff should find out where the
 # behaviour went.
 
-# The adoptee's own framework DOCUMENTS — CLAUDE.md, the generated templates,
-# docs/reference/, the .gitignore additions. Every one of them is a path an
-# adoptee may already occupy (a CLAUDE.md especially), which makes writing them
-# §7's collision question and therefore WP6's, not this package's. Named here
-# because the absence is not cosmetic: CLAUDE.md is what a downstream agent
-# reads at kickoff, so an adopted project without it starts every session
-# without its orientation.
+# adopt_stub_project_docs — RETIRED 2026-09-24 by WP12b.
 #
-# OWNER CORRECTED AT WP6, for the same reason as the secrets stub above. WP6
-# built §7's collision ARCHIVE — the AI-layer surfaces and the git hooks. It
-# does not write the adoptee's framework DOCUMENTS, and §10-WP6's scope row
-# does not ask it to. Leaving "WP6" here after WP6 landed would announce a
-# delivered owner for undelivered work, which is the one thing an honest stub
-# must not do.
-adopt_stub_project_docs() {
-  adopt_stub_notice "your project's framework documents" "WP11 archives them, WP12b writes them (D3)" \
-    "CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the"
-  adopt_note "state are here, so the gates work; the reading material an agent picks up at the start"
-  adopt_note "of a session is not, and a CLAUDE.md you already have would be a collision, not a gap."
-  # NO BACKTICKS IN A DOUBLE-QUOTED ARGUMENT. `document` was command
-  # substitution, so this line ran `document`, printed
-  # `adopt-stubs.sh: line 190: document: command not found` to stderr on every
-  # adoption, and told the operator "WP11 shipped D3's  class".
-  adopt_note "Your framework documents ARE archived now — WP11 shipped D3's document class, so"
-  adopt_note "each one you already owned is in the adoption archive with a restore line. What is"
-  adopt_note "not built is the WRITING of the new ones (WP12b), which is what this notice is about."
-}
+# The framework documents are written now: `adopt_write_framework_docs`
+# (`# BL-242-DOCS-STAGE`, scripts/lib/adopt/adopt-docs.sh) renders CLAUDE.md
+# through the renderer `init.sh` uses, copies the six document templates, lays
+# down the reference guides where absent, and names every original it replaced
+# with an invitation to retrieve content from the archive — D3's informing
+# half. What is NOT built is D3's "adapt or merge" half, which is judgement and
+# belongs to the assessment (Act 3), and the `.gitignore` additions `init.sh`
+# makes.
+#
+# THE NAME IS LEFT AS A HEADSTONE, like the ones above it.
 
 # WP7 — §8.6's provenance headers on reconstructed documents.
 adopt_stub_provenance_headers() {

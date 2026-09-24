@@ -593,6 +593,7 @@ jobs:
             tests/test-brownfield-wp7-adoption-record.sh
             tests/test-brownfield-wp7b-commit-hook.sh
             tests/test-brownfield-dispositions-template.sh
+            tests/test-brownfield-wp12b-framework-docs.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

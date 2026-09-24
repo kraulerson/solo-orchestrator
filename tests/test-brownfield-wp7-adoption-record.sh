@@ -586,8 +586,10 @@ a10() {
     || bad="$bad [the adoption_record arm is missing, or no longer aborts the write phase on failure]"
   order="$( ( set +u; . "$st" >/dev/null 2>&1; _adopt_state_order ) 2>/dev/null | tr '\n' ' ')"
   case "$order" in
-    *"manifest adoption_record write_set"*) : ;;
-    *) bad="$bad [the stage order is '$order' — adoption_record must sit between manifest and write_set]" ;;
+    # WP12b's `framework_docs` sits between them (`# BL-242-DOCS-STAGE-ORDER`);
+    # the record still follows `manifest` and precedes `write_set`.
+    *"manifest framework_docs adoption_record write_set"*) : ;;
+    *) bad="$bad [the stage order is '$order' — adoption_record must sit after manifest (and WP12b's framework_docs) and before write_set]" ;;
   esac
   grep -q 'adopt-record' "$REPO_ROOT/scripts/adopt-project.sh" \
     || bad="$bad [adopt-record.sh is not sourced by the driver]"

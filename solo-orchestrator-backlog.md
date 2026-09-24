@@ -13705,7 +13705,7 @@ the operative one.
 | the Adoption Record, the audit rows and the CI carve-out | **WP7** | always |
 | the provenance headers on reconstructed documents | **WP7** | always |
 | the commit-time scanners (the fallback pre-commit hook) | **WP7** — see below | always |
-| your project's framework documents | ~~nobody~~ → **WP11 + WP12b** (D3; string corrected in WP9a) | always |
+| ~~your project's framework documents~~ | ~~nobody~~ → **WP11 + WP12b** (D3; string corrected in WP9a) — **SHIPPED, stub retired 2026-09-24** | ~~always~~ |
 | installing the framework's version of *N* colliding script(s) | **nobody** | only when N > 0 |
 | the secrets disposition | **nobody** | when the scan found something — **and unconditionally when it did not RUN** |
 
@@ -15076,6 +15076,68 @@ The validator checks that a person and a reason were GIVEN, not that they are go
 is not a shell predicate's job, and the record shows exactly what was written.
 
 ---
+
+### WP12b's build (2026-09-24) — an adopted project gets a CLAUDE.md, and the stub is retired
+
+**What was missing:** an adopted project had working gates and no `CLAUDE.md` — the file an agent
+reads at the start of every session — and `adopt_stub_project_docs` said so on every run.
+
+**What ships** (`scripts/lib/adopt/adopt-docs.sh`, the `framework_docs` stage — `# BL-242-DOCS-STAGE`,
+ordered by `# BL-242-DOCS-STAGE-ORDER` after `manifest` and before `adoption_record`, inside the
+write phase so the pre-write rehearsal replays it and I20 checks it against the archive):
+
+- `CLAUDE.md` rendered through `soif_render_claude_md`, the renderer `init.sh` uses
+  (`scripts/lib/render-project-docs.sh` is now in the driver's core loop). Name from the adoption;
+  the description is a placeholder (the intake stage writes it empty); platform/track/language whitelisted
+  (`_adopt_doc_value`) because the renderer puts them into a sed replacement unescaped, and the tier
+  passed through, so an organizational adoption gets the branch-protection section.
+- the six templates `init.sh` copies (`# BL-242-DOCS-SET`), and the eight reference guides only
+  where absent (`# BL-242-DOCS-REFERENCE`).
+- `_adopt_doc_put` (`# BL-242-DOCS-PUT`) — the hook guard's rule applied to documents: a symlink
+  or a read-only file is left alone and named; everything else is written beside the path and
+  renamed over it, so a hardlink's other name keeps the operator's content.
+- D3's informing half: every replaced document is NAMED with the archive's location and an explicit
+  "nothing was merged — copy across anything you want to keep".
+- the archive's MANIFEST says `replaced` for those documents, `kept` for a read-only or symlinked
+  one (`# BL-242-ARCHIVE-DISPO-DOCS`). Measured before the fix: a symlinked `FEATURES.md` read
+  `replaced` while it sat untouched — the inventory's `-f` follows the link and `-w` answers for
+  the target.
+
+**Pinned by** `tests/test-brownfield-wp12b-framework-docs.sh` (D1–D10, two real adoptions), ten
+mutants all killed. Re-aimed: wp4 `S1`/`W1`, wp7 `A10`, wp7b `B9` (called-stub set now **three**:
+assessment, framework_script_collisions, provenance_headers), wp9 `H1`, wp11 `E6` (its `kept`
+control moved from `CLAUDE.md` to `PROJECT_BIBLE.md`).
+
+**Review round (one, adversarial, 2026-09-24) — verdict `block`, fixed:**
+- **R-WP12b-1 (block): a symlinked FOLDER was written through.** `_adopt_doc_put` checked the file
+  with `-L` and never the folders above it, so with `docs -> /elsewhere/docs` (absolute) the stage
+  overwrote the shared folder's `INDEX.md` — during the pre-write REHEARSAL, whose `tar` copy keeps
+  an absolute link absolute — and the rehearsal's archive copy was deleted with its directory. The
+  run then refused ("check-ignore exited 128") saying "nothing was written". Reproduced here: rc 1,
+  the shared file's first line `# Documentation Index`. Fixed by `adopt_path_under_link`
+  (`# BL-242-PARENT-LINK`, adopt-core.sh) in the writer and the MANIFEST disposition; re-measured
+  rc 0 with the shared file intact. D11 pins it; three mutants killed.
+- R-WP12b-2 (minor): an in-repo `docs -> site/docs` link refused adoption outright. Same fix;
+  re-measured rc 0, `site/docs/INDEX.md` untouched.
+- R-WP12b-3 (minor, not reachable — the intake stage rewrites the fields first): a value carrying a
+  newline passed the whitelist, because `grep` matches if ANY line does, and the renderer's sed ran
+  the second line as a command (`w FILE` measured). Control characters now fall back; D12 pins it.
+  The case's first cut passed with the guard deleted — its hand-written JSON was invalid, so jq
+  read nothing and the fallback fired for the wrong reason.
+- R-WP12b-4 (docs): track renders the intake's `full`, not `undecided`; corrected.
+
+**Residuals, recorded not fixed:**
+- **Stack-level (from the review):** the pre-write rehearsal copies the project with `tar`, which
+  keeps absolute symlinks absolute, so ANY writer whose path crosses one writes to the real target
+  during the rehearsal. The documents stage is guarded now; the other writers are not audited for it.
+- D3's *adapt or merge* half is not built — adapting prose is judgement, and belongs to the
+  assessment (WP12a). The operator is told so.
+- the `.gitignore` lines `init.sh` adds are not written by adoption.
+- a SYMLINKED document is still archived (the inventory's `-f` follows it) and its MANIFEST restore
+  line `cp`s through the link. Adoption never touched the target, so the line restores what was
+  already there — unless the shared target changed since, when it would revert it.
+- `PROJECT_BIBLE.md` / `PRODUCT_MANIFESTO.md` are not written; they are phase outputs, as in
+  `init.sh`.
 
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 

@@ -428,6 +428,28 @@ adopt_ledger_init() {
 }
 
 # adopt_record_write RELPATH — one ledger row. Deduplicated at read time.
+# adopt_path_under_link ROOT REL — true when any FOLDER above REL (not REL
+# itself) is a symlink.                                 # BL-242-PARENT-LINK
+# A `-L` test on the file alone misses `docs -> /elsewhere/docs`: every write
+# to `docs/INDEX.md` then lands outside the project, and the pre-write
+# rehearsal's `tar` copy keeps an ABSOLUTE link absolute, so even the rehearsal
+# wrote into the operator's real folder — and the rehearsal's archive copy was
+# deleted with it. Measured on WP12b's first cut: a shared INDEX.md overwritten,
+# the run refused, and the refusal said "nothing was written".
+# Walked component by component, not via `pwd -P`, because the folders need
+# not exist yet and a dangling link is still a link.
+adopt_path_under_link() {
+  local root="$1" rest="$2" pre=""
+  rest="${rest%/*}"
+  [ "$rest" = "$2" ] && return 1        # no folder part
+  while [ -n "$rest" ]; do
+    pre="${pre:+$pre/}${rest%%/*}"
+    [ -L "$root/$pre" ] && return 0
+    case "$rest" in */*) rest="${rest#*/}" ;; *) rest="" ;; esac
+  done
+  return 1
+}
+
 adopt_record_write() {
   [ -n "$ADOPT_WRITTEN_LEDGER" ] || return 0
   printf '%s\n' "$1" >> "$ADOPT_WRITTEN_LEDGER"

@@ -900,6 +900,9 @@ run_child_suite "tests/test-brownfield-wp7b-commit-hook.sh" \
 run_child_suite "tests/test-brownfield-dispositions-template.sh" \
   "BL-242: the secrets stop prints a dispositions template an operator can fill" \
   "dispositions-template tests FAILED (run tests/test-brownfield-dispositions-template.sh for details)"
+run_child_suite "tests/test-brownfield-wp12b-framework-docs.sh" \
+  "WP12b: the framework documents an adopted project receives" \
+  "WP12b framework-docs tests FAILED (run tests/test-brownfield-wp12b-framework-docs.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

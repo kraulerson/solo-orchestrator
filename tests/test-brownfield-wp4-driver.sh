@@ -367,7 +367,9 @@ s1_first_sites=$(_sites "$L_STATE" 'BL-242-APPROVAL-LOG-FIRST')
 # (`## BL-291:`). WP7/1 then inserts `adoption_record` (`# BL-242-RECORD-STAGE`)
 # between `manifest` and `write_set` — AFTER `manifest` because the record takes
 # the commit it was adopted at from the STAMP that stage writes, rather than
-# from a second `git rev-parse HEAD`.
+# from a second `git rev-parse HEAD`. WP12b inserts `framework_docs`
+# (`# BL-242-DOCS-STAGE-ORDER`) between `manifest` and `adoption_record`, so
+# the record stays the last word in the log.
 #
 # THE HEAD IS STILL A4'S AND THE TAIL THROUGH `manifest` IS STILL §8.4'S, which
 # is the whole of what this case was written for: §8.4 is about which of two
@@ -376,11 +378,11 @@ s1_first_sites=$(_sites "$L_STATE" 'BL-242-APPROVAL-LOG-FIRST')
 # updated rather than loosened — a prefix match would stop discriminating the
 # next time a stage is added in the middle, which is the one place it would
 # matter.
-if [ "$s1_order" = "approval_log phase_state intake manifest adoption_record write_set " ] \
+if [ "$s1_order" = "approval_log phase_state intake manifest framework_docs adoption_record write_set " ] \
    && [ "$s1_sites" -eq 1 ] && [ "$s1_first_sites" -eq 1 ]; then
-  pass "S1: the order is A4's log first, then §8.4's, then WP7/1's adoption_record and WP9d's write_set last — approval_log, phase_state, intake, manifest, adoption_record, write_set"
+  pass "S1: the order is A4's log first, then §8.4's, then WP12b's framework_docs, WP7/1's adoption_record and WP9d's write_set last — approval_log, phase_state, intake, manifest, framework_docs, adoption_record, write_set"
 else
-  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake manifest adoption_record write_set ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
+  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake manifest framework_docs adoption_record write_set ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
 fi
 
 # _assert_safe_row LABEL DIR — §8.4's TOP row: phase-state present, manifest
@@ -1037,7 +1039,6 @@ else
   w1_record=1
   grep -q 'NOT DONE — the Adoption Record' "$RUN_OUT" && w1_record=0
   grep -q '^## Adoption Record$' "$W1D/p/APPROVAL_LOG.md" 2>/dev/null || w1_record=0
-  grep -q "NOT DONE — your project's framework documents" "$RUN_OUT" && w1_docs=1
   # WP5b RETIRED ITS STUB, so this row flipped: the test-debt notice must be
   # GONE and the thing it apologised for must be PRESENT. The absence alone
   # would also be satisfied by a driver that simply stopped printing it, so it
@@ -1055,17 +1056,19 @@ else
   # a field that is not there cannot be misread as a measurement.
   w1_empty_named=1
   w1_kinds=$(jq -r '[.adoption | keys[] | select(. == "certification" or . == "blockersAccepted")] | length' "$W1D/p/.claude/manifest.json" 2>/dev/null)
-  # The CLAUDE.md half is asserted as an ABSENCE, so it carries a structural
-  # discriminator: the file is not there AND the run said so. Either alone is
-  # satisfied by a driver that simply forgot.
-  w1_no_claude=1
-  [ -e "$W1D/p/CLAUDE.md" ] && w1_no_claude=0
+  # WP12b RETIRED THE DOCUMENTS STUB, so this row flipped the same way: the
+  # notice must be GONE and CLAUDE.md must be PRESENT. Its rendering, the
+  # link-and-permission rules and the archive rows belong to
+  # tests/test-brownfield-wp12b-framework-docs.sh.
+  w1_docs=1
+  grep -q "NOT DONE — your project's framework documents" "$RUN_OUT" && w1_docs=0
+  [ -s "$W1D/p/CLAUDE.md" ] || w1_docs=0
   if [ "$w1_rc" -eq 0 ] && [ "$w1_cert" -eq 1 ] && [ "$w1_record" -eq 1 ] && [ "$w1_debt" -eq 1 ] \
-     && [ "$w1_docs" -eq 1 ] && [ "$w1_no_claude" -eq 1 ] \
+     && [ "$w1_docs" -eq 1 ] \
      && [ "$w1_empty_named" -eq 1 ] && [ "$(_num "$w1_kinds")" -eq 0 ]; then
-    pass "W1: every STILL-unbuilt package announces itself — the ASSESSMENT (WP12a) and the project documents — the RETIRED certification pass is announced by nobody and its arrays are absent from the record rather than empty in it, and the two packages that HAVE shipped (WP5b's test-debt ledger, WP7/1's Adoption Record) no longer announce themselves as NOT DONE and each left its artefact behind"
+    pass "W1: every STILL-unbuilt package announces itself — the ASSESSMENT (WP12a) — the RETIRED certification pass is announced by nobody and its arrays are absent from the record rather than empty in it, and the three packages that HAVE shipped (WP5b's test-debt ledger, WP7/1's Adoption Record, WP12b's documents) no longer announce themselves as NOT DONE and each left its artefact behind"
   else
-    fail_ "W1" "rc=$w1_rc assessment_stub_replaced_certification=$w1_cert test_debt_retired_and_written=$w1_debt (want 1) adoption_record_stub=$w1_record project_docs_stub=$w1_docs claude_md_absent=$w1_no_claude retired_arrays_absent=$w1_empty_named certification_keys=$w1_kinds (want 0)"
+    fail_ "W1" "rc=$w1_rc assessment_stub_replaced_certification=$w1_cert test_debt_retired_and_written=$w1_debt (want 1) adoption_record_stub=$w1_record docs_retired_and_written=$w1_docs retired_arrays_absent=$w1_empty_named certification_keys=$w1_kinds (want 0)"
   fi
 fi
 
