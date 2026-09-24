@@ -15207,11 +15207,30 @@ the default read has no caller today); the vanished-finding report likewise.
   through.
 - the Adoption Record's **Your CI** section (`# BL-242-RECORD-CI`).
 
-**Pinned by** `tests/test-brownfield-wp7e-ci-carveout.sh` (C1–C8), ten mutants killed — the first
-cut of C2 could not see a commented-out rule firing (the report prints numbers, not text) and was
-re-aimed at the line number.
+**Review round (one, adversarial) — verdict `major_concerns`, fixed:**
+- **R-1 (major):** macOS awk under a UTF-8 locale aborted on a non-UTF-8 byte, `2>/dev/null` hid it,
+  and a workflow with a Latin-1 comment and a force-push read as CLEAN — committed into the Adoption
+  Record as "No CI file of yours matched". Reproduced (rc 2, no output). The detector now runs under
+  `LC_ALL=C`, its rc is read, and an unread file is reported and recorded as unread
+  (`# BL-242-CI-UNREADABLE`) — never clean. C10 pins both halves.
+- **R-2 (major):** three mutants survived — printing the line's text (C2's marker sat on a line no rule
+  reported), `|| true` on the question (C8 only saw rc), and a plain `cp` through a symlinked folder.
+  The marker moved onto a reported line; C8 names the question AND asserts the intake never started;
+  C9 adds the symlinked `.github/workflows`.
+- **R-3:** GitLab merges an included file into theirs; the templates set pipeline-wide `image`,
+  `variables`, `cache`, `stages` and jobs `test`/`lint`. The run and the guide now warn before the
+  include. **R-4:** Bitbucket CAN share configuration (Premium, an exported `*pipelines.yml`); the
+  wording said it could not, and is corrected. **R-5:** `gh pr merge --admin` is now its own rule,
+  and `--auto`'s description is accurate. Nits: file order is byte order (`LC_COLLATE=C`), the
+  record's loop no longer shadows a caller's local.
 
-**Residuals:** the detector is a net of known spellings, not a parser; `scripts/verify-install.sh`
+**Pinned by** `tests/test-brownfield-wp7e-ci-carveout.sh` (C1–C10), fifteen mutants killed.
+
+**Residuals:** the detector is a net of known spellings, not a parser — the deploy rule's trigger
+test is per FILE (a manual trigger anywhere clears it), `if: always()` also fires on legitimate
+fail-closed jobs, and `|| true`/`--mirror`/GitLab and Bitbucket deploys are not spelled; a file
+already named `solo-gates.yml` is not audited; keep-or-retire records no reason (v1 §7.4 said "with
+its reason"); the framework's GitLab template is not rewritten to merge safely; `scripts/verify-install.sh`
 still keys `CI pipeline exists` on the canonical path (v1 §7.4's false-pass note), so on an adopted
 GitLab/Bitbucket project it reports THEIR pipeline as the framework's; the release pipeline
 (`generate_release`) is not laid down by adoption.

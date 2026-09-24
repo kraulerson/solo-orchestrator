@@ -1292,12 +1292,16 @@ for four ways a pipeline can let code around the framework's checks:
 
 | Finding | What it looks for |
 |---|---|
-| auto-merge | `gh pr merge … --auto`, auto-merge actions |
+| auto-merge | `gh pr merge … --auto`, auto-merge actions — changes merge with nobody deciding |
+| admin merge | `gh pr merge … --admin` — merges past checks that have not passed |
 | force-push or history rewrite | `git push --force`, `filter-repo`, `filter-branch` |
-| a failing step is allowed to pass | `continue-on-error: true`, `allow_failure: true`, `if: always()` |
+| a failing step is allowed to pass, or a job runs regardless | `continue-on-error: true`, `allow_failure: true`, `if: always()` (which also fires on legitimate fail-closed jobs — read it, then decide) |
 | deploys on a branch push | a deploy in a workflow triggered by a branch push, with no tag, release or manual trigger |
 
 It is a search for known spellings, not a parser, and the run says so. It
+misses what it has no spelling for (`|| true`, a `--mirror` push, a deploy in a
+file that also has a manual trigger), and a file it **cannot read** is reported
+as unread and recorded that way — never as clean. It
 reports a **line number**, never the line — a workflow can carry a credential.
 For each file with a finding it asks once, **before anything is written**:
 *keep* it as it is, or *retire* it. Your answer goes into the Adoption Record;
@@ -1323,8 +1327,8 @@ take your deploy offline:
 | Host | Framework CI | Runs? |
 |---|---|---|
 | GitHub | `.github/workflows/solo-gates.yml` | Yes, from your next push — GitHub runs every workflow. It may fail on code that predates adoption; that is a finding, not a breakage. |
-| GitLab | `.gitlab-ci-solo.yml` | **Not until you add** `include: - local: '.gitlab-ci-solo.yml'` to your `.gitlab-ci.yml`. The run prints the lines. |
-| Bitbucket | `bitbucket-pipelines.solo.yml` | **No.** Bitbucket runs only `bitbucket-pipelines.yml` and cannot include a second file from the same repository; copy the steps you want into yours. |
+| GitLab | `.gitlab-ci-solo.yml` | **Not until you add** `include: - local: '.gitlab-ci-solo.yml'` to your `.gitlab-ci.yml`. The run prints the lines — and a warning: GitLab **merges** an included file into yours, and this one sets `image`, `variables`, `cache` and `stages` pipeline-wide and defines jobs named `test` and `lint`. Check those against your file first. |
+| Bitbucket | `bitbucket-pipelines.solo.yml` | **No.** Bitbucket runs only `bitbucket-pipelines.yml`. Sharing a configuration file needs Bitbucket Premium and an exported file whose name ends in `pipelines.yml`, which this is not; copy the steps you want into yours. |
 | none found | nothing | `init.sh` lays no CI down for host `other` either; supply your own. |
 
 A file already at the framework's name is yours: left alone, and the run says
