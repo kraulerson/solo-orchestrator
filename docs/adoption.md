@@ -1131,8 +1131,13 @@ Record:
   nothing: *we scanned, at this commit, and found nothing* is worth keeping.
   Fingerprints, rule ids and line numbers only — never a value. A row in your
   `--dispositions` file that this run did not accept (an acknowledgement for a
-  scan that was complete, a disposition with no name or no real date) is not
-  copied in.
+  scan that was complete, a disposition with no name or no real date, a
+  fingerprint this scan did not find) is not copied in — and neither is
+  anything from a file bound to a different scan (its `scan.head` or
+  `scan.commitsScanned` is not this one's). The Adoption Record's table of
+  decisions is rendered from the same filtered set, so the two agree.
+- **A ledger you already have is appended to, never replaced**; every row in it
+  survives.
 - **`.claude/bypass-audit.json`** gains `adoption_event` rows: one
   `adoption` row naming the tier, the commit it was adopted at and what the
   scan said, and one `secrets_disposition` row per **accepted risk** and per

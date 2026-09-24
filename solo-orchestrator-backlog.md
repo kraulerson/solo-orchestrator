@@ -15164,7 +15164,26 @@ writing either of §6.3's two records — the committed join table and the per-a
   rehearsing (`# BL-242-REHEARSAL-CAUSE-ONLY`). The remedy moved into the block message, since
   the rehearsal discards stdout.
 
-**Pinned by** `tests/test-brownfield-wp7d-audit-rows.sh` (R1–R9), ten mutants killed.
+**Review round (one, adversarial) — verdict `block`, fixed:**
+- **R-1 (major, regression):** a project that already carried `.claude/bypass-audit.json` could not
+  be adopted at all — the now-unconditional `adoption` row made the ledger a planned write, and I20
+  counted the append as an overwrite with no archive copy. Reproduced (`[]` in place → rc 1, "would
+  be replaced with no copy kept"). I20 now exempts the ledger (`# BL-242-I20-LEDGER-APPEND`): the
+  appender keeps every prior row. R10 pins it.
+- **R-2 (major):** the two records committed together disagreed — the Adoption Record rendered the
+  operator's raw file (an unsigned row, a fingerprint from outside the scan, columns shifted by an
+  empty `by`) while the join table held only the accepted row. One filter now serves both
+  (`# BL-242-DISPOSITIONS-FILTER`, adopt-record.sh), and the record renders from its output.
+- **R-3 (major):** the out-of-scan and unsigned-acknowledgement filters had no test that noticed
+  their removal. R9 and R6 now carry those rows and check all three records.
+- **R-4 (minor, §6.3):** a file bound to ANOTHER scan had its accepted risks filed under this one
+  on a personal run. The filter now drops every row of a file whose `scan.head` or
+  `scan.commitsScanned` is not this scan's; R11 pins it, with a guard that its fingerprint is real.
+- R-5: `--help` still said the file is not written; corrected. R-6: the ledger is recorded for
+  staging once per run (`# BL-242-LEDGER-STAGE-ONCE`); a named dispositions file unreadable at write
+  time now blocks instead of recording nothing; the order marker is a real marker.
+
+**Pinned by** `tests/test-brownfield-wp7d-audit-rows.sh` (R1–R11), sixteen mutants killed.
 
 **Residuals:** §6.3's interactive fallback and its default read of an existing
 `.claude/adoption/secrets-dispositions.json` are not built (a re-adoption is refused at step 0, so
