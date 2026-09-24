@@ -178,7 +178,7 @@ jobs:
       # PR author sees one failure and cannot tell what else is broken.
       fail-fast: false
       matrix:
-        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, rest]
+        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, commit-hooks, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -318,7 +318,7 @@ jobs:
           # it. Delete a name here and its `pin_*` array is ORPHANED — it
           # no longer enters `pinned`, so those paths fall back into `rest`
           # and STILL RUN. Fail-safe, not silently dropped.
-          shard_names="lint-sweep lint-scan sast slow-misc adopt rest"
+          shard_names="lint-sweep lint-scan sast slow-misc adopt commit-hooks rest"
 
           roster="|"
           shard_arms=0
@@ -774,7 +774,6 @@ jobs:
             #    it costs ~172s on CI (lint-scan 527s -> 699s), more than the
             #    local 74s suggested. This leg was the lightest on the same run
             #    (493s), and lands near 665s with it.
-            tests/test-brownfield-wp7b-commit-hook.sh  # ~172s on CI (PR #442: lint-scan 527s -> 699s) — real adoptions and real commits
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
@@ -914,7 +913,6 @@ jobs:
             tests/test-brownfield-wp9d-driver-edges.sh    #  32s local — Scout + full adoptions; `rest` was 9m36s of a 12m cap
             tests/test-brownfield-wp9d-window-rehearsal.sh #  22s local — same shape; pinned with its sibling
             tests/test-brownfield-wp11-archive-classes.sh  #  36.5s on PR #442 — moved WITH wp7b, the complement's second pole: wp7b alone would leave it at ~89% of the cap, and it takes a new suite nearly every work package
-            tests/test-pre-commit-gate-lints.sh        # 122s — runs 4 lint copies inside fixture projects
             tests/test-upgrade-sync-framework.sh       #  37s
             tests/test-plan-staging.sh                 #  34s
             # ── Re-pinned 2026-08-09, measured from runs 31332638444 (main @
@@ -945,7 +943,6 @@ jobs:
             #    host-reading probe and a mutant that did not mutate), so a
             #    timeout here does not merely delay the answer — it replaces a
             #    red with a cancellation and the failures go unread.
-            tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — see note above
             # ── Re-pinned 2026-08-10, the second time today. The complement is
             #    at 93% of the cap and the two brownfield suites are why.
             #    Derived from the shard history rather than a local stopwatch,
@@ -978,6 +975,17 @@ jobs:
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
             tests/test-brownfield-wp9-act-boundaries.sh       #  58s on PR #444 — from lint-sweep; first pinned to sast, which then ran 10m42s on PR #445 (its bl132 swings 77-213s)
           )
+          # ── `commit-hooks` — the suites that drive real commits through real
+          # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
+          # 11m43s (98% of the cap) on two consecutive runs of PR #445, a
+          # swing no re-pin inside five or six legs absorbs. These three are
+          # the largest suites of that shape, taken from the two legs they
+          # were heaviest in.
+          pin_commit_hooks=(
+            tests/test-pre-commit-gate-lints.sh        # 122s — from slow-misc; runs 4 lint copies inside fixture projects
+            tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — from slow-misc
+            tests/test-brownfield-wp7b-commit-hook.sh  # ~172s on CI (PR #442) — from lint-sweep; real adoptions and real commits
+          )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
           # pinned-set build and the dispatch go through this function, so
@@ -992,6 +1000,7 @@ jobs:
               sast)       printf '%s\n' "${pin_sast[@]}" ;;
               slow-misc)  printf '%s\n' "${pin_slow_misc[@]}" ;;
               adopt)      printf '%s\n' "${pin_adopt[@]}" ;;
+              commit-hooks) printf '%s\n' "${pin_commit_hooks[@]}" ;;
               rest)       : ;;
               *) echo "shard roster: '$1' is in the roster but has no arm in pins_for" >&2
                  return 1 ;;
