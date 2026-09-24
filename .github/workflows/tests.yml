@@ -595,6 +595,7 @@ jobs:
             tests/test-brownfield-dispositions-template.sh
             tests/test-brownfield-wp12b-framework-docs.sh
             tests/test-brownfield-wp7d-audit-rows.sh
+            tests/test-brownfield-wp7e-ci-carveout.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -624,6 +625,9 @@ jobs:
           #
           # Seconds are measured CI time from run 30297887329 (main @ 9d71824).
           pin_lint_sweep=(
+            # From `adopt`, 2026-09-24: that leg ran 10m54s (91%) on PR #446.
+            tests/test-brownfield-wp7d-audit-rows.sh       #  68s on PR #446
+            tests/test-brownfield-wp9-act-boundaries.sh    #  ~60s on PR #446
             tests/test-run-lints.sh                    # 318s at pin time; the lint-sweep leg now measures 131s TOTAL — BL-191's rewrite landed after this figure and it is stale. Re-measure before relying on it.
             # ── Re-pinned 2026-08-15. The `rest` leg was CANCELLED at the
             #    12-minute cap on PR #351 having printed "ran 156 unit test
@@ -974,8 +978,6 @@ jobs:
             tests/test-brownfield-dispositions-template.sh    #  48s on PR #444 — rest's top pole
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
-            tests/test-brownfield-wp7d-audit-rows.sh          #  36s local — five real adoptions, two with real gitleaks findings
-            tests/test-brownfield-wp9-act-boundaries.sh       #  58s on PR #444 — from lint-sweep; first pinned to sast, which then ran 10m42s on PR #445 (its bl132 swings 77-213s)
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
@@ -987,6 +989,7 @@ jobs:
             tests/test-pre-commit-gate-lints.sh        # 122s — from slow-misc; runs 4 lint copies inside fixture projects
             tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — from slow-misc
             tests/test-brownfield-wp7b-commit-hook.sh  # ~172s on CI (PR #442) — from lint-sweep; real adoptions and real commits
+            tests/test-brownfield-wp7e-ci-carveout.sh  # new — seven real adoptions, CI files read and one written
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the

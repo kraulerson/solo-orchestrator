@@ -150,7 +150,8 @@ adopt_stub_framework_script_collisions() {
 # `adopt_stub_*` functions that are actually CALLED, and a reader following an
 # older handoff to this file should find out where the behaviour went.
 #
-# WHAT OF WP7 IS STILL OUT: the CI carve-out. The `adoption` and
+# WHAT OF WP7 IS STILL OUT: the provenance-header lint. The CI carve-out ships
+# (`# BL-242-CI-AUDIT`, `# BL-242-CI-STAGE`) and the `adoption` and
 # `secrets_disposition` audit rows are written since 2026-09-24
 # (`# BL-242-ADOPTION-EVENT`, `# BL-242-DISPOSITIONS-EVENT`); `adopt_audit_event`'s
 # own header is the live list of which events have an emitter.

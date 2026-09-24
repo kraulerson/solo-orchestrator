@@ -470,6 +470,7 @@ _adopt_rec_render() {
     printf '\n'
     printf '%s\n' '    bash /path/to/solo-orchestrator/scripts/adopt-project.sh --re-add <your path>'
     printf '\n'
+    _adopt_rec_ci   # BL-242-RECORD-CI
     printf '%s\n\n' "### What else this run measured"
     printf '%s\n' "    | Field | Value |"
     printf '%s\n' "    |---|---|"
@@ -552,6 +553,37 @@ _adopt_dispositions_jq() {
           | { kind, by: (.by | trimmed), reason: (.reason | trimmed), date,
               scope: ($s.scope // null), commitsScanned: ($s.commitsScanned // null), head: ($s.head // null) } ] else [] end) }
 JQ
+}
+
+# _adopt_rec_ci — §7.4's record: the framework's CI file, and what the
+# operator decided about each CI file of theirs the audit flagged. Their
+# workflows were read and never changed; this says so.
+_adopt_rec_ci() {
+  local ci="${ADOPT_CI_INSTALLED:-}" f="${ADOPT_CI_DECISIONS:-}"
+  printf '%s\n\n' "### Your CI"
+  printf '%s\n' "Your CI files were read and not changed. The framework's own CI, where one was"
+  printf '%s\n' "installed, is a separate file beside them."
+  printf '\n'
+  printf '%s\n' "    | Field | Value |"
+  printf '%s\n' "    |---|---|"
+  _adopt_rec_row "Framework CI" "$(_adopt_rec_or "$ci" "not recorded")"
+  printf '\n'
+  if [ -n "$f" ] && [ -s "$f" ]; then
+    printf '%s\n' "These CI files of yours match a known way around the framework's checks. What"
+    printf '%s\n' "you decided about each is recorded here; \"retire\" is your intention, and"
+    printf '%s\n' "adoption did not carry it out."
+    printf '\n'
+    printf '%s\n' "    | Your file | What it matched | Your decision |"
+    printf '%s\n' "    |---|---|---|"
+    while IFS="$(printf '\t')" read -r rel rules dec; do
+      [ -n "$rel" ] && _adopt_rec_row "$rel" "$rules" "$dec"
+    done < "$f"
+    printf '\n'
+  else
+    printf '%s\n' "No CI file of yours matched a known way around the framework's checks. That is a"
+    printf '%s\n' "search for known spellings, not a proof."
+    printf '\n'
+  fi
 }
 
 # _adopt_rec_dispositions REPORT — the findings and their recorded outcomes.
