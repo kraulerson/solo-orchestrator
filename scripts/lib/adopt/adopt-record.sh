@@ -580,8 +580,23 @@ _adopt_rec_dispositions() {
   # Rendered only when there are rows: a heading over an empty table is the
   # "heading, header row, nothing else" shape that reads as a record of nothing.
   [ "$have_file" -eq 1 ] || return 0
+  # ONLY THE ACKNOWLEDGEMENT THIS RUN ACCEPTED. The file is the operator's, and
+  # it can carry rows the validator never looked at — a stale one reused from
+  # another run, or a `tool-unavailable` row supplied to a run that WAS fully
+  # scanned. Printing them all put "accepted in place of a complete scan" under
+  # `Outcome | scanned`, and a "Decided on" of `tomorrow` the validator would
+  # have refused. Measured by review. So a row is recorded only when its kind is
+  # THIS scan's status and it passes the same completeness test the validator
+  # applied; the rest were never part of this adoption's decision.
+  local st
+  st="$(adopt_report_read "$report" '.secrets.status // ""')"
   _ok=1
-  jq -r '.acknowledgements[]? | [(.kind // "?"), (.by // "?"), (.date // "?"), (.reason // "?")] | map(tostring) | @tsv' \
+  jq -r --arg st "$st" '
+      def trimmed: (. // "") | gsub("^\\s+|\\s+$"; "");
+      def isoday: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") and ((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .);
+      .acknowledgements[]?
+      | select((.kind // "") == $st and (.by | trimmed) != "" and (.reason | trimmed) != "" and ((.date // "") | isoday))
+      | [(.kind // "?"), (.by // "?"), (.date // "?"), (.reason // "?")] | map(tostring) | @tsv' \
     "$f" > "$ADOPT_WORK/record-dispositions.tsv" 2>/dev/null || _ok=0
   if [ "$_ok" -eq 0 ]; then
     printf '%s\n\n' "### Acknowledgements"

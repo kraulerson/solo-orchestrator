@@ -15061,6 +15061,16 @@ Mutations, each restored byte-identically: tool-unavailable call site removed �
 call site removed → T7; wrong kind passed → T6; first finding only → T1 T3; a pre-filled disposition →
 T1; the date check reverted → T5; acknowledgements skipped at zero findings → T6 T7.
 
+**The verification round returned `minor_concerns`** (both major findings confirmed fixed by real
+runs) and found the record printing EVERY acknowledgement in the operator's file, including rows the
+validator never accepted: a stale `tool-unavailable` row appeared as "accepted in place of a complete
+scan" under `Outcome | scanned`, with a "Decided on" of `tomorrow`. The record now keeps only a row
+whose kind is THIS scan's status and which passes the validator's own completeness test. Pinned: T3
+supplies a stray acknowledgement to a fully scanned run and requires no Acknowledgements section; T4
+refuses an acknowledgement dated 2026-02-30 (the acknowledgement half of the date check had no case
+of its own); A4 now proves the acknowledgement table on a run it belongs to. Mutants: acknowledgement
+date check reverted → T4; kind filter removed → T3 A4; empty-heading rule removed → T3.
+
 **Residual, the honest floor**: `by = "n/a"` with `reason = "n/a"` still lifts an organizational stop.
 The validator checks that a person and a reason were GIVEN, not that they are good ones; judging that
 is not a shell predicate's job, and the record shows exactly what was written.

@@ -201,7 +201,19 @@ a4() {
   # acknowledgement row vanishes — left the suite at 10 passed, 0 failed. The
   # §6.3 content the record exists to carry could disappear in silence.
   grep -q 'accepted-risk' "$hostile"    || bad="$bad [no disposition row survived — the 'what was decided' table is empty]"
-  grep -q 'tool-unavailable' "$hostile" || bad="$bad [no acknowledgement row survived — the acknowledgements table is empty]"
+  # THE ACKNOWLEDGEMENT HALF, ON A RUN IT BELONGS TO. `hostile` is a fully
+  # scanned run, and a `tool-unavailable` acknowledgement on one is a stale row
+  # the record now correctly leaves out. So the acknowledgement table is proven
+  # on a run whose status IS tool-unavailable, with the same hostile file: the
+  # row must survive, and its reason — "penetration test was exempted for this
+  # repo", which satisfies the whole-file pen-test grep — must be withheld.
+  printf '{"secrets":{"tool":"gitleaks","status":"tool-unavailable","findingCount":0}}\n' > "$WORK/a4-tu.json"
+  _render "$WORK/a4-tu.json" "$WORK/hostile-disp.json" "$WORK/a4-tu.md" || bad="$bad [the tool-unavailable render failed]"
+  grep -qE '^    \| tool-unavailable \| Someone \| 2026-09-22 \| \(withheld' "$WORK/a4-tu.md" \
+    || bad="$bad [no acknowledgement row survived on a tool-unavailable run, or its hostile reason was not withheld]"
+  grep -qiE 'penetration.*exempted' "$WORK/a4-tu.md" && bad="$bad [the pen-test exemption phrase reached the record]"
+  grep -q 'tool-unavailable | Someone' "$hostile" \
+    && bad="$bad [a fully scanned run's record carries a tool-unavailable acknowledgement it never accepted]"
   grep -q 'A Person' "$hostile"         || bad="$bad [a benign disposition signer was withheld or dropped]"
   # …and the BENIGN path, which contains `update` (hiding `date`), must NOT be
   # withheld. An over-broad rule would hide every finding in a source tree that

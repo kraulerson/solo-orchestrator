@@ -115,12 +115,19 @@ t2() {
 t3() {
   local label="T3 the template FILLED completes the adoption, and the Record carries the decision"
   local bad=""
-  jq '.dispositions |= map(.disposition="rotated" | .by="Jane Ops" | .reason="key revoked at the provider" | .date="2026-09-24")' \
+  # PLUS A STRAY ACKNOWLEDGEMENT, of a kind this fully scanned run never
+  # accepted. The record must not print it as "accepted in place of a complete
+  # scan" under `Outcome | scanned` — nor, with nothing to show, an empty
+  # Acknowledgements heading.
+  jq '.dispositions |= map(.disposition="rotated" | .by="Jane Ops" | .reason="key revoked at the provider" | .date="2026-09-24")
+      | .acknowledgements = [{kind:"tool-unavailable", by:"Stale", reason:"from another run", date:"2026-09-24"}]' \
     "$WORK/tpl.json" > "$WORK/filled.json"
   _run filled --dispositions "$WORK/filled.json"
   [ "$RUN_RC" -eq 0 ] || bad="$bad [rc $RUN_RC — a correctly filled template did not lift the stop: $(grep -E 'dispositions file|BLOCKED' "$WORK/filled.out" "$WORK/filled.err" | head -2 | tr '\n' ' ')]"
   grep -q 'Every finding carries a recorded disposition' "$WORK/filled.out" || bad="$bad [the run never said the dispositions were accepted]"
   grep -q '| rotated | Jane Ops |' "$P/APPROVAL_LOG.md" 2>/dev/null || bad="$bad [the Adoption Record does not carry the decision]"
+  grep -q '^### Acknowledgements' "$P/APPROVAL_LOG.md" 2>/dev/null \
+    && bad="$bad [a fully scanned run's record carries an Acknowledgements section — a stale row was printed as accepted, or an empty heading was rendered]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
@@ -160,6 +167,15 @@ t4() {
       . "$REPO_ROOT/scripts/lib/adopt/adopt-secrets.sh" >/dev/null 2>&1
       adopt_dispositions_satisfy "$r" "$WORK/ack-$k.json" "$k" >/dev/null 2>&1 ) \
       && bad="$bad [$k: the UNFILLED template is accepted — a one-step bypass]"
+    # THE DATE HALF FOR ACKNOWLEDGEMENTS. Reverting the acknowledgement date
+    # check left every suite green (review): T5 covers dispositions only.
+    jq '.acknowledgements[0] |= (.by="Karl" | .reason="accepted" | .date="2026-02-30")' \
+      "$WORK/ack-$k.json" > "$WORK/ack-$k-baddate.json"
+    ( set +u
+      . "$REPO_ROOT/scripts/lib/adopt/adopt-core.sh" >/dev/null 2>&1
+      . "$REPO_ROOT/scripts/lib/adopt/adopt-secrets.sh" >/dev/null 2>&1
+      adopt_dispositions_satisfy "$r" "$WORK/ack-$k-baddate.json" "$k" >/dev/null 2>&1 ) \
+      && bad="$bad [$k: an acknowledgement dated 2026-02-30 is accepted]"
   done
   [ -z "$bad" ] && pass "$label (tool-unavailable, scanned-partial)" || fail_ "$label" "$bad"
 }
