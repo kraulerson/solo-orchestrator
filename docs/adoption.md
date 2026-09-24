@@ -1125,7 +1125,7 @@ from the same sources:
 
 | Written | From |
 |---|---|
-| `CLAUDE.md` | rendered by the renderer `init.sh` uses, with your project's name, the tier you chose (an organizational adoption gets the branch-protection section), and `undecided` for platform, track and language until the assessment asks |
+| `CLAUDE.md` | rendered by the renderer `init.sh` uses, with your project's name, the tier you chose (an organizational adoption gets the branch-protection section), the track the intake recorded (`full` today), `undecided` for platform and language, and a placeholder description — the assessment asks for both |
 | `FEATURES.md`, `BUGS.md`, `RELEASE_NOTES.md`, `docs/INDEX.md`, `docs/IDENTIFIERS.md`, `docs/archive/README.md` | the framework's templates, copied |
 | `docs/reference/*.md` — the eight guides | copied **only where absent**; a guide you already have there is left alone |
 
@@ -1155,8 +1155,9 @@ reads the framework's `CLAUDE.md`, not your notes.
 
 **What it will not write over:**
 
-- **a symlink** — writing through it could change a file outside the project,
-  and the archive holds no copy to restore from; the MANIFEST row says `kept`;
+- **a symlink, or anything inside a symlinked folder** (`docs -> /somewhere/else`)
+  — writing through it could change files outside the project; the MANIFEST row
+  says `kept`;
 - **a read-only file** — left as it is, MANIFEST row `kept`;
 - **a hardlink** is replaced by writing beside the path and renaming, so the
   other name keeps your content.

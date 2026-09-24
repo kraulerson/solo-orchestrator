@@ -15087,8 +15087,8 @@ ordered by `# BL-242-DOCS-STAGE-ORDER` after `manifest` and before `adoption_rec
 write phase so the pre-write rehearsal replays it and I20 checks it against the archive):
 
 - `CLAUDE.md` rendered through `soif_render_claude_md`, the renderer `init.sh` uses
-  (`scripts/lib/render-project-docs.sh` is now in the driver's core loop). Name from the adoption,
-  description from the intake when recorded, platform/track/language whitelisted
+  (`scripts/lib/render-project-docs.sh` is now in the driver's core loop). Name from the adoption;
+  the description is a placeholder (the intake stage writes it empty); platform/track/language whitelisted
   (`_adopt_doc_value`) because the renderer puts them into a sed replacement unescaped, and the tier
   passed through, so an organizational adoption gets the branch-protection section.
 - the six templates `init.sh` copies (`# BL-242-DOCS-SET`), and the eight reference guides only
@@ -15108,7 +15108,28 @@ mutants all killed. Re-aimed: wp4 `S1`/`W1`, wp7 `A10`, wp7b `B9` (called-stub s
 assessment, framework_script_collisions, provenance_headers), wp9 `H1`, wp11 `E6` (its `kept`
 control moved from `CLAUDE.md` to `PROJECT_BIBLE.md`).
 
+**Review round (one, adversarial, 2026-09-24) — verdict `block`, fixed:**
+- **R-WP12b-1 (block): a symlinked FOLDER was written through.** `_adopt_doc_put` checked the file
+  with `-L` and never the folders above it, so with `docs -> /elsewhere/docs` (absolute) the stage
+  overwrote the shared folder's `INDEX.md` — during the pre-write REHEARSAL, whose `tar` copy keeps
+  an absolute link absolute — and the rehearsal's archive copy was deleted with its directory. The
+  run then refused ("check-ignore exited 128") saying "nothing was written". Reproduced here: rc 1,
+  the shared file's first line `# Documentation Index`. Fixed by `adopt_path_under_link`
+  (`# BL-242-PARENT-LINK`, adopt-core.sh) in the writer and the MANIFEST disposition; re-measured
+  rc 0 with the shared file intact. D11 pins it; three mutants killed.
+- R-WP12b-2 (minor): an in-repo `docs -> site/docs` link refused adoption outright. Same fix;
+  re-measured rc 0, `site/docs/INDEX.md` untouched.
+- R-WP12b-3 (minor, not reachable — the intake stage rewrites the fields first): a value carrying a
+  newline passed the whitelist, because `grep` matches if ANY line does, and the renderer's sed ran
+  the second line as a command (`w FILE` measured). Control characters now fall back; D12 pins it.
+  The case's first cut passed with the guard deleted — its hand-written JSON was invalid, so jq
+  read nothing and the fallback fired for the wrong reason.
+- R-WP12b-4 (docs): track renders the intake's `full`, not `undecided`; corrected.
+
 **Residuals, recorded not fixed:**
+- **Stack-level (from the review):** the pre-write rehearsal copies the project with `tar`, which
+  keeps absolute symlinks absolute, so ANY writer whose path crosses one writes to the real target
+  during the rehearsal. The documents stage is guarded now; the other writers are not audited for it.
 - D3's *adapt or merge* half is not built — adapting prose is judgement, and belongs to the
   assessment (WP12a). The operator is told so.
 - the `.gitignore` lines `init.sh` adds are not written by adoption.
