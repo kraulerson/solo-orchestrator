@@ -14932,8 +14932,38 @@ commit with no test is refused by the commit-msg TDD gate too — so it now requ
 FAILED`, the pre-commit arm's own sentence; and `B8` now requires the `REPLACED` line to be ABSENT on
 a project that had no hook.
 
+**THE VERIFICATION ROUND RETURNED `major_concerns`: the three blockers held, and the invariant
+still had holes.** All five were reproduced by the reviewer on real adoptions and are fixed:
+- **A HARDLINKED hook was written through.** `-L` is false for a hardlink, so the guard passed it and
+  a file sharing its inode outside the repository became 1707 lines of framework hook. Fixed by
+  construction rather than by another refusal: the hook is now rendered beside the path and RENAMED
+  over it (`mv`), which replaces the directory entry and leaves the shared inode alone.
+- **The guard trusted the MANIFEST row, not the archived file.** A copy withheld for a secret match is
+  disclosed with "Rotate it at the source; deleting the file does not un-leak it", which invites the
+  deletion; `--finish` then replaced the hook at rc 0 with "Your copy is in the archive" over an empty
+  `git-hooks/`. The guard now requires the archived FILE to exist with the row's sha256.
+- **`--finish` printed "did not begin. Nothing was committed and nothing was written"** under a commit
+  that had just landed 85 files, on every run of the path the guard exists for. `adopt_refuse` tested
+  that arm before `ADOPT_COMMITTED` (`# BL-242-REFUSE-AFTER-COMMIT`).
+- **The remedy led nowhere.** "Move your hook aside and run this again" — and a re-run refuses as
+  already adopted, `--finish` as not part-way through. The refusal now prints the shared emitter's
+  own command, which ships into every adoptee, and `B16` runs the command TAKEN FROM THE RUN'S OUTPUT
+  and then lands a compliant commit.
+- **A failed `mktemp` in `$TMPDIR` inverted the report** — "could not be written" over a hook that HAD
+  been replaced, undisclosed. The reference render now lives in the hooks directory, which step 0
+  already requires to be writable.
+
+Plus four surviving mutants, each now killed: the `-L` / `-e` order (B10b — a DANGLING link, which B10's
+existing target could not distinguish, and which under the mutant created a 1707-line file outside the
+repository), the completeness check and the failed arm (B17, through a new `pctrunc` value on the
+existing `SOIF_ADOPT_HOOK_FAULT` seam), the real archive directory in the REPLACED line (B8), and the
+`.semgrep` installer's outcome on a dangling link (B13).
+
 **RESIDUALS from that review, recorded not fixed** — each is a design call rather than a defect in
 what shipped:
+- **Run as root, `-w` is true on a `chmod 444` file**, so a read-only hook is replaced rather than
+  refused. It is archived and restorable, so nothing is lost, but it contradicts the docs' "left
+  alone"; not executed, since it needs root.
 - **The adoptee's test command has no time bound.** The hook runs it `sh -c … </dev/null` with no
   timeout; a hanging or watch-mode suite hangs every source commit. `docs/adoption.md` now tells the
   operator and names `.claude/test-command` as the override. A bound in the emitter is shared-code

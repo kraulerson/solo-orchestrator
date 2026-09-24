@@ -1351,7 +1351,7 @@ _adopt_install_semgrep_config() {                      # BL-242-SEMGREP-CONFIG
 # archived copy is a faithful copy of exactly what is about to be replaced.
 ADOPT_PC_WHY=""; ADOPT_PC_ARCHIVE=""
 _adopt_precommit_replace_ok() {                        # BL-242-PRECOMMIT-GUARD
-  local root="$1" h="$2/pre-commit" arc row live
+  local root="$1" h="$2/pre-commit" arc row live arch_rel
   ADOPT_PC_WHY=""; ADOPT_PC_ARCHIVE=""
   if [ -L "$h" ]; then ADOPT_PC_WHY="symlink"; return 1; fi
   [ -e "$h" ] || return 0
@@ -1371,6 +1371,18 @@ _adopt_precommit_replace_ok() {                        # BL-242-PRECOMMIT-GUARD
   row="$(jq -r '[.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .sha256] | first // ""' \
           "$root/$arc/MANIFEST.json" 2>/dev/null)"
   [ -n "$row" ] || { ADOPT_PC_WHY="unarchived"; return 1; }
+  # THE ARCHIVED BYTES, NOT ONLY THE ROW THAT DESCRIBES THEM. A row can outlive
+  # its file: a copy withheld from the commit for a secret match is plainly
+  # disclosed with "Rotate it at the source; deleting the file does not un-leak
+  # it", which invites exactly that deletion — and `--finish` then replaced the
+  # hook at rc 0 with "Your copy is in the archive", over an empty git-hooks/.
+  # Measured by review. What makes a replacement safe is a restorable copy.
+  arch_rel="$(jq -r '[.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .archivedPath] | first // ""' \
+          "$root/$arc/MANIFEST.json" 2>/dev/null)"
+  if [ -z "$arch_rel" ] || [ ! -f "$root/$arc/$arch_rel" ] \
+     || [ "$(adopt_sha256 "$root/$arc/$arch_rel")" != "$row" ]; then
+    ADOPT_PC_WHY="unarchived"; return 1
+  fi
   live="$(adopt_sha256 "$h")"
   [ -n "$live" ] && [ "$live" = "$row" ] || { ADOPT_PC_WHY="changed"; return 1; }
   ADOPT_PC_ARCHIVE="$arc"
@@ -1478,7 +1490,7 @@ adopt_install_hooks() {
   # operator told to "fix or bypass that hook first, then run --finish" edits
   # it, the edit is newer than the archive, and overwriting it would lose the
   # edit while the restore line put back the version that refused every commit.
-  local _pc_had=0 _pc_ref=""
+  local _pc_had=0 _pc_ref="" _pc_sha=""
   [ -e "$hooks/pre-commit" ] && _pc_had=1
   ADOPT_PC_STATE="absent"
   if ! _adopt_precommit_replace_ok "$root" "$hooks"; then   # BL-242-PRECOMMIT-GUARD
@@ -1501,19 +1513,47 @@ adopt_install_hooks() {
         adopt_note "  $hooks/pre-commit exists but has no archived copy to restore it from, so it"
         adopt_note "  was left exactly as it is rather than overwritten." ;;
     esac
-    adopt_note "  To install the scanners, move your hook aside and run this again, or run them"
-    adopt_note "  by hand on each commit:  bash scripts/pre-commit-gate.sh --terminal-mode"
+    # A REMEDY THAT LEADS SOMEWHERE. The first version said "move your hook
+    # aside and run this again" — and both routes then REFUSE: a re-run says
+    # "this project has already been adopted", and `--finish` says it is "not
+    # part-way through an adoption". Measured by review. This command is the
+    # shared emitter, which ships into every adopted project; it was run in a
+    # real adopted project with the hook moved aside and installed a hook under
+    # which a compliant commit landed.
+    adopt_note "  To install them: move your hook aside, then run"
+    adopt_note "    bash -c '. scripts/lib/hook-templates.sh && soif_write_precommit_hook .git/hooks/pre-commit'"
+    adopt_note "  Or run them by hand on each commit:  bash scripts/pre-commit-gate.sh --terminal-mode"
   else
     adopt_touched_disk   # BL-225-TOUCHED-DISK
-    soif_write_precommit_hook "$hooks/pre-commit" 2>/dev/null   # BL-242-PRECOMMIT-INSTALL
-    # THE WRITE IS VERIFIED BY CONTENT, NOT BY EXIT CODE. The emitter returns
-    # `chmod +x`'s status, so a hook it could not WRITE — a read-only file —
-    # still returned 0: measured, the operator's `chmod 444` hook stayed theirs,
-    # was made EXECUTABLE (switching on a hook git had never run), and the run
-    # printed "REPLACED" and "Commit-time scanners installed" over it.
-    _pc_ref="$(mktemp "${TMPDIR:-/tmp}/soif-precommit-ref.XXXXXX")"
-    if [ -n "$_pc_ref" ] && soif_write_precommit_hook "$_pc_ref" 2>/dev/null \
-       && cmp -s "$_pc_ref" "$hooks/pre-commit"; then
+    # RENDER BESIDE IT, VERIFY, THEN RENAME — never write into the existing
+    # file. A write INTO it follows whatever the path is: review measured a
+    # HARDLINKED hook (`ln`, no `-s`, so `-L` is false) sharing its inode with a
+    # file outside the repository, and that outside file became 1707 lines of
+    # framework hook at rc 0. A rename replaces the directory ENTRY, so the
+    # shared inode is untouched. It also takes the reference render out of
+    # `$TMPDIR`: a failed `mktemp` there reported "could not be written" over a
+    # hook that HAD been replaced, with no replacement disclosed.
+    _pc_ref="$hooks/.pre-commit.soif-new.$$"
+    soif_write_precommit_hook "$_pc_ref" 2>/dev/null   # BL-242-PRECOMMIT-INSTALL
+    # SOIF_ADOPT_HOOK_FAULT=pctrunc — the same fault seam as the commit-msg
+    # arm's: a render that exits 0 having written a truncated file is the state
+    # this verification exists for, and nothing natural produces it on demand.
+    # Truncated IN PLACE (`cat >`), so the mode survives: a `mv` of a fresh
+    # file dropped the executable bit and the `-x` test caught it first, which
+    # left the completeness check below it untested.
+    [ "${SOIF_ADOPT_HOOK_FAULT:-}" = "pctrunc" ] && [ -f "$_pc_ref" ] \
+      && head -5 "$_pc_ref" > "$_pc_ref.t" 2>/dev/null && cat "$_pc_ref.t" > "$_pc_ref"   # BL-242-HOOKS-FAULT-SEAM
+    # COMPLETE: it ends with the region's closing marker, so a truncated render
+    # cannot pass. Then the rename, then confirm what is at the path is exactly
+    # the file that was verified.
+    _pc_sha=""
+    if [ -f "$_pc_ref" ] && [ -x "$_pc_ref" ] \
+       && grep -qxF "$SOIF_PRECOMMIT_CLOSE" "$_pc_ref" 2>/dev/null; then
+      _pc_sha="$(adopt_sha256 "$_pc_ref")"
+      mv -f "$_pc_ref" "$hooks/pre-commit" 2>/dev/null || _pc_sha=""
+    fi
+    if [ -n "$_pc_sha" ] && [ ! -L "$hooks/pre-commit" ] \
+       && [ "$(adopt_sha256 "$hooks/pre-commit")" = "$_pc_sha" ]; then
       ADOPT_PC_STATE="installed"
       if [ "$_pc_had" -eq 1 ]; then
         adopt_note "Your own pre-commit hook was REPLACED by the framework's. Your copy is in the"
@@ -1526,11 +1566,11 @@ adopt_install_hooks() {
     else
       ADOPT_PC_STATE="failed"
       adopt_say "   NOT INSTALLED — the commit-time scanners (the fallback pre-commit hook)"
-      adopt_note "  The framework's hook could not be written to $hooks/pre-commit (is it"
-      adopt_note "  read-only?). Run them by hand until it is there:"
-      adopt_note "    bash scripts/pre-commit-gate.sh --terminal-mode"
+      adopt_note "  The framework's hook could not be written and verified at $hooks/pre-commit."
+      adopt_note "  Your hook, if you had one, is unchanged. To install the scanners by hand:"
+      adopt_note "    bash -c '. scripts/lib/hook-templates.sh && soif_write_precommit_hook .git/hooks/pre-commit'"
     fi
-    [ -n "$_pc_ref" ] && rm -f "$_pc_ref"
+    rm -f "$_pc_ref" "$_pc_ref.t" 2>/dev/null
   fi
   # SOIF_ADOPT_HOOK_FAULT — the seam the live derivation's OTHER TWO conjuncts
   # need. `_adopt_hooks_live` asserts three facts: the hook exists, it is

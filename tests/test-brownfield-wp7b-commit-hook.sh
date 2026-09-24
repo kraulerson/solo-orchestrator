@@ -235,6 +235,11 @@ b8() {
   local bad="" dispo
   grep -q 'REPLACED by the framework' "$WORK/ownhook.out" \
     || bad="$bad [the run never told them their hook was replaced]"
+  # AND IT NAMES THE REAL DIRECTORY. The line falls back to the words "the
+  # archive" when it does not know which one — review replaced the variable
+  # with that literal and this case stayed green.
+  grep -q 'see .claude/adoption-archive/[^ ]*/MANIFEST.md' "$WORK/ownhook.out" \
+    || bad="$bad [the REPLACED line does not name the archive directory it points at]"
   # AND ONLY THEN. A sentence printed on every run is not a disclosure.
   grep -q 'REPLACED by the framework' "$WORK/plain.out" \
     && bad="$bad [the run claims a hook was REPLACED on a project that had none]"
@@ -336,6 +341,13 @@ b12() {
   grep -q 'THEIR-V2' "$p/.git/hooks/pre-commit" \
     || bad="$bad [their edited hook was overwritten, and only the pre-edit version is archived — the edit is lost]"
   grep -q 'changed after the archive was taken' "$WORK/fin2.out" || bad="$bad [the run never said why]"
+  # A COMMIT JUST LANDED, SO NOTHING MAY SAY IT DID NOT BEGIN. `adopt_refuse`
+  # checked "did not begin" before it checked ADOPT_COMMITTED, and `--finish`
+  # keeps no ledger, so the receipt printed "Nothing was committed and nothing
+  # was written" on every run of this exact path. A case that only greps for
+  # the sentences it wants cannot see the one it does not.
+  grep -q 'did not begin' "$WORK/fin2.out" \
+    && bad="$bad [the run says the finish 'did not begin' directly under a commit that landed]"
   [ "$frc" -ne 0 ] || bad="$bad [--finish returned 0 with the scanners not installed]"
   [ -n "$(cd "$p" && git log --oneline --grep='adopt' -1 2>/dev/null)" ] || bad="$bad [--finish did not land the adoption commit]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
@@ -352,10 +364,129 @@ b13() {
   # file at the far end — during the rehearsal, before a refusal that said
   # nothing had been written.
   [ -e "$WORK/outside-planted.yml" ] && bad="$bad [a file was created OUTSIDE the project through the link]"
+  # …AND THE RUN SUCCEEDED AND SAID WHY. Absence alone is also what a run that
+  # refused outright would leave — review made the installer `return 1` on a
+  # dangling link and this case stayed green.
+  [ "$ADOPT_RC" -eq 0 ] || bad="$bad [the adoption failed (rc $ADOPT_RC) over a dangling link it should simply leave alone]"
+  grep -q 'You already have .semgrep/soif-dom-sinks.yml' "$WORK/dsem.out" \
+    || bad="$bad [the run never said it left their .semgrep path alone]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-b1; b2; b3; b4; b5; b6; b7; b8; b9; b10; b11; b12; b13
+b10b() {
+  local label="B10b a DANGLING hook symlink is not followed — nothing is created at its far end"
+  local p="$WORK/dsym" bad=""
+  _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
+  ln -s "$WORK/nowhere/pre-commit" "$p/.git/hooks/pre-commit"
+  mkdir -p "$WORK/nowhere"
+  _adopt "$p" dsym
+  # THE ORDER OF TWO LINES IS WHAT THIS PINS. `[ -e "$h" ] || return 0` is
+  # FALSE for a dangling link, so if it runs before the `-L` test the guard
+  # reports "nothing there" and the writer creates a 1707-line file at the far
+  # end, outside the repository. Review swapped the two lines; B10 (a link to a
+  # file that EXISTS) could not tell, and the suite stayed 13/0.
+  [ -e "$WORK/nowhere/pre-commit" ] && bad="$bad [a hook was created OUTSIDE the project through a dangling link]"
+  [ -L "$p/.git/hooks/pre-commit" ] || bad="$bad [the dangling link was replaced]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b14() {
+  local label="B14 a HARDLINKED hook's shared inode is not written through"
+  local p="$WORK/hl" bad=""
+  _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
+  mkdir -p "$WORK/hlshared"
+  printf '#!/bin/sh\n# HARDLINKED-SHARED-HOOK\nexit 0\n' > "$WORK/hlshared/pre-commit"
+  chmod +x "$WORK/hlshared/pre-commit"
+  ln "$WORK/hlshared/pre-commit" "$p/.git/hooks/pre-commit"
+  _adopt "$p" hl
+  # `-L` IS FALSE FOR A HARDLINK, so the symlink arm does not see it. What
+  # protects the other file is that the hook is now written beside the path and
+  # RENAMED over it, which replaces the directory entry and leaves the inode.
+  grep -q 'HARDLINKED-SHARED-HOOK' "$WORK/hlshared/pre-commit" \
+    || bad="$bad [the file sharing the hook's inode, OUTSIDE the repository, was overwritten]"
+  grep -q 'gitleaks' "$p/.git/hooks/pre-commit" || bad="$bad [the framework's hook is not at the path]"
+  grep -rq 'HARDLINKED-SHARED-HOOK' "$p/.claude/adoption-archive/" 2>/dev/null \
+    || bad="$bad [their hook was not archived]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b15() {
+  local label="B15 --finish does not replace a hook whose archived copy is gone"
+  local p="$WORK/gone" bad="" frc arc
+  _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
+  # A KEY-SHAPED STRING IN THE HOOK, AND IT IS THE WHOLE POINT. It makes the
+  # archive WITHHOLD its copy from the commit (a secret match), so the copy is
+  # not in the write set — and only then can it be removed without `--finish`'s
+  # "recorded paths no longer on disk" guard refusing first. A first cut of
+  # this case used a clean hook, tripped THAT guard, and so passed with the
+  # check it exists for deleted: it was proving a different line. Assembled at
+  # runtime (`## BL-289:`'s split-string idiom, as wp6's HOOK_PLANT does) so
+  # this source file carries no key.
+  printf '#!/bin/sh\n# THEIR-GATED-HOOK\n# aws_access_key_id = %s\n[ -n "${BLOCKIT:-}" ] && exit 1\nexit 0\n' \
+    "AKIA3XN7QW5Z""TBMR2VKD" > "$p/.git/hooks/pre-commit"
+  chmod +x "$p/.git/hooks/pre-commit"
+  # Refused on the first run by their own hook, so the adoption stops before the
+  # hooks are installed — the only window in which an archived copy can go.
+  printf '2\n1\n1\n1\n1\n' > "$WORK/ans"
+  ( cd "$p" && BLOCKIT=1 bash "$REPO_ROOT/scripts/adopt-project.sh" \
+      --scan-report "$WORK/scan/scout-report.json" < "$WORK/ans" ) > "$WORK/gone.out" 2>&1
+  arc="$( cd "$p" && ls -d .claude/adoption-archive/*/ 2>/dev/null | head -1 )"
+  [ -n "$arc" ] && [ -f "$p/$arc/git-hooks/pre-commit" ] \
+    || { fail_ "$label" "setup: no archived copy to remove — the fixture is not exercising this path"; return; }
+  # The ROW survives; the FILE it describes does not.
+  # PRECONDITION: the copy was withheld from the commit, so the write set does
+  # not name it. Without this the case cannot tell which guard stopped it.
+  grep -q 'git-hooks/pre-commit' "$p/.claude/adoption/write-set.txt" 2>/dev/null \
+    && { fail_ "$label" "setup: the archived copy IS in the write set, so removing it trips a different guard"; return; }
+  mv "$p/$arc/git-hooks/pre-commit" "$WORK/gone-archived-copy"
+  ( cd "$p" && bash "$REPO_ROOT/scripts/adopt-project.sh" --finish ) > "$WORK/gone2.out" 2>&1; frc=$?
+  grep -q 'THEIR-GATED-HOOK' "$p/.git/hooks/pre-commit" \
+    || bad="$bad [their hook was replaced with NO restorable copy anywhere — permanent loss]"
+  grep -q 'Your copy is in the' "$WORK/gone2.out" && bad="$bad [the run claims a copy that is not there]"
+  [ "$frc" -ne 0 ] || bad="$bad [--finish returned 0 with the scanners not installed]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b16() {
+  local label="B16 the remedy the refusal prints actually installs the scanners"
+  local p="$WORK/sym" cmd bad=""
+  # REUSES B10's project: the symlink refusal, the commonest of the three.
+  [ -f "$WORK/sym.out" ] || { fail_ "$label" "B10 did not run"; return; }
+  # TAKEN FROM THE RUN'S OWN OUTPUT, not retyped here — the first remedy sent
+  # operators to two commands that both refuse on an adopted project.
+  cmd="$(grep -o "bash -c '. scripts/lib/hook-templates.sh && soif_write_precommit_hook .git/hooks/pre-commit'" "$WORK/sym.out" | head -1)"
+  [ -n "$cmd" ] || { fail_ "$label" "the refusal prints no install command"; return; }
+  rm -f "$p/.git/hooks/pre-commit"             # the link only; its target is elsewhere
+  ( cd "$p" && eval "$cmd" ) >/dev/null 2>&1 || bad="$bad [the printed command failed]"
+  grep -qxF '# <<< SOIF pre-commit fallback' "$p/.git/hooks/pre-commit" 2>/dev/null \
+    || bad="$bad [no complete framework hook afterwards]"
+  printf '# after\n' > "$p/docs/after.md"
+  [ "$(_commit "$p" "docs: after the remedy" docs/after.md)" = "0" ] \
+    || bad="$bad [a compliant commit is refused afterwards]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b17() {
+  local label="B17 a render that is incomplete is NOT reported as installed, and replaces nothing"
+  local p="$WORK/trunc" bad=""
+  _adoptee "$p" own || { fail_ "$label" "could not build the adoptee"; return; }
+  printf '2\n1\n1\n1\n1\n' > "$WORK/ans"
+  ( cd "$p" && SOIF_ADOPT_HOOK_FAULT=pctrunc bash "$REPO_ROOT/scripts/adopt-project.sh" \
+      --scan-report "$WORK/scan/scout-report.json" < "$WORK/ans" ) > "$WORK/trunc.out" 2>&1
+  ADOPT_RC=$?
+  # THE VERIFICATION AND THE FAILED ARM, which nothing reached before: review
+  # deleted the completeness check, and separately made the failed arm record
+  # "installed", and the suite stayed 13/0 both times.
+  grep -q 'THEIR-OWN-PRE-COMMIT-MARKER' "$p/.git/hooks/pre-commit" \
+    || bad="$bad [their hook was replaced by an incomplete render]"
+  grep -q 'Commit-time scanners installed' "$WORK/trunc.out" && bad="$bad [an incomplete hook was reported as installed]"
+  grep -q 'could not be written and verified' "$WORK/trunc.out" || bad="$bad [the run never said the write failed]"
+  [ "$ADOPT_RC" -ne 0 ] || bad="$bad [rc 0 with no scanners installed]"
+  ls "$p/.git/hooks/" | grep -q 'soif-new' && bad="$bad [the temporary render was left in the hooks directory]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+b1; b2; b3; b4; b5; b6; b7; b8; b9; b10; b10b; b11; b12; b13; b14; b15; b16; b17
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

@@ -1150,7 +1150,7 @@ yours.
 
 #### When the scanners are NOT installed — and the run says so
 
-Adoption never overwrites bytes its archive cannot give back. In three cases
+Adoption never overwrites bytes its archive cannot give back. In four cases
 that means your hook stays exactly where it is, the scanners are **not**
 installed, and the run ends with **exit code 1** — the adoption itself landed,
 this step did not, and a script reading the exit code must not take the project
@@ -1158,12 +1158,24 @@ as fully gated:
 
 | Your `.git/hooks/pre-commit` is… | What happens |
 |---|---|
-| **a symlink** — e.g. to one shared hook several repositories use | Left alone. Writing through it would overwrite the file at the far end, and the archive cannot hold a copy of a link's target. |
+| **a symlink** — to one shared hook several repositories use, or dangling | Left alone. Writing through it would overwrite the file at the far end, and the archive cannot hold a copy of a link's target. |
 | **read-only** | Left alone, permissions included. |
 | **different from the archived copy** — you edited it after a refused adoption commit, before `--finish` | Left alone. Overwriting it would lose your edit, with only the older version to restore. |
+| **without a restorable copy** — the archived file was removed, or the path is not a regular file | Left alone. Replacing it would leave nothing to put back. |
 
-Each prints the reason and the remedy: move your hook aside and run the command
-again, or run the scanners by hand on each commit —
+A **hardlinked** hook is replaced safely: the framework's hook is written beside
+yours and renamed over the path, so the file it shares an inode with elsewhere
+is untouched.
+
+Each refusal prints the reason and a command that works. Move your hook aside,
+then run, from the project root:
+
+```bash
+bash -c '. scripts/lib/hook-templates.sh && soif_write_precommit_hook .git/hooks/pre-commit'
+```
+
+Re-running the adoption, or `--finish`, will **not** do it — both refuse on a
+project that is already adopted. Or run the scanners by hand on each commit:
 `bash scripts/pre-commit-gate.sh --terminal-mode`.
 
 #### Three things to know before you rely on it
@@ -1181,8 +1193,9 @@ again, or run the scanners by hand on each commit —
   The Python `pre-commit` framework and lefthook both work that way, so their
   lint and format checks stop running on commit. Your hook is in the archive
   and `--re-add` puts it back, but then the framework's scanners are not
-  installed. (husky uses `core.hooksPath`, which adoption refuses before writing
-  anything.)
+  installed. (husky 5 and later use `core.hooksPath`, which adoption refuses
+  before writing anything; husky 4 and earlier install into `.git/hooks` and are
+  replaced like the others.)
 
 **The test-debt ratchet is still run by hand.** The commit-time hook now exists,
 but nothing wires the ratchet into it, for a structural reason:
