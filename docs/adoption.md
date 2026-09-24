@@ -12,12 +12,12 @@ the files it wrote.
 > with `--re-add`, the test-debt ledger, the **Adoption Record** and the audit
 > rows, the **commit-time scanners**, the **framework documents** — a rendered
 > `CLAUDE.md` among them — and the **CI carve-out** (the framework's CI at its
-> own filename; yours read for risky patterns, never changed). What is designed
-> and **not built** is the *assessment* (the requirements interview, the fitness
-> verdict and the plan — Act 3, a Claude Code session) and the provenance
-> headers on reconstructed documents; the run prints a labelled `NOT DONE`
-> block, naming its owner, for each. See
-> [What is not built yet](#what-is-not-built-yet).
+> own filename; yours read for risky patterns, never changed) — and the
+> **assessment** (the requirements interview, the fitness verdict and the plan:
+> a Claude Code conversation that `scripts/resume.sh` starts, and a finisher that
+> records it). What is designed and **not built** is the provenance headers on
+> reconstructed documents; the run prints a labelled `NOT DONE` block for it.
+> See [What is not built yet](#what-is-not-built-yet).
 
 Everything on this page is output that was observed, pasted as it printed.
 
@@ -117,12 +117,16 @@ a stop, or a halt); `2` bad usage.
 bash scripts/resume.sh
 ```
 
-It prints the first message to paste into Claude Code; the ordinary Phase 0
-questions start there, and the agent reads the `CLAUDE.md` adoption wrote. If you
+It prints the **assessment prompt** — paste it into Claude Code. That session
+asks you what the project is for, gives a verdict with its reasoning, and runs
+the finisher that records it ([The assessment](#the-assessment--act-3-and-act-4--ships-wp12a)).
+Run `resume.sh` again afterwards and it opens Phase 0; the agent reads the
+`CLAUDE.md` adoption wrote. If you
 already had a `CLAUDE.md`, `BUGS.md` or the like, the run named each one it
 replaced — the framework's version is in place and yours is in the archive,
-**not merged**: copy across what you want to keep
-([The framework documents](#the-framework-documents--ship-wp12b)). From your next commit on, the message gates and the
+**not merged** until the assessment conversation folds in what is worth keeping
+(or you copy it across yourself —
+[The framework documents](#the-framework-documents--ship-wp12b)). From your next commit on, the message gates and the
 commit-time scanners run. Your replaced files are in
 `.claude/adoption-archive/<timestamp>/`, each with a restore line in its
 `MANIFEST.md` — and one command puts any of them back:
@@ -955,29 +959,54 @@ This is the honest half of the page. Everything below is **designed and not
 built**. The driver prints a labelled block for each one during the run, naming
 the work package that owns it — the text below is what it actually printed.
 
-### The assessment — Act 3 — WP12a
+### The assessment — Act 3 and Act 4 — SHIPS (WP12a)
 
-```text
-NOT DONE — the assessment (Act 3) — the requirements interview, the fitness verdict and the plan
-   Owner: WP12a. This build does not do it, and does not pretend to.
-   Adoption has surveyed, installed and recorded. What it has NOT done is ask you what this
-   project is for, judge whether the technology fits those answers, or write you a plan.
-   Until that ships, PROJECT_INTAKE.md carries the cells the scan could fill and leaves
-   the rest blank, and the Phase 0 questions are asked the ordinary way instead.
-```
+The assessment is where you are asked what this project is for, and where the
+framework says, **with its reasoning shown**, whether the technology fits those
+answers. It is split in two, because half of it is judgement and half is fact:
 
-This is the largest gap. The assessment is where a person is actually asked what
-this project is for — how many people use it, whether it needs high availability,
-whether it is internet-facing, what scale it needs, how sensitive its data is —
-and where the framework says, **with its reasoning shown**, whether the
-technology fits those answers or whether this ought to be rebuilt. The plan comes
-out of the same conversation.
+1. **Act 3 — a Claude Code conversation.** When adoption finishes it prints
+   *Next: the assessment (Act 3)*. Run `bash scripts/resume.sh`: on an adopted
+   project that has not been assessed it prints the **assessment prompt**
+   (adoption wrote it to `.claude/adoption/assessment-prompt.md`). Paste it into
+   Claude Code. The session reads the survey, the intake and your archived
+   documents, then **asks you** — it does not infer — how many people use the
+   project, whether it needs high availability, whether it is internet-facing,
+   what growth it must handle, how sensitive its data is (one of `public`,
+   `internal`, `confidential`, `pii`, `financial`, `health`, `regulated`), and
+   whether it is in production today. It judges fitness **only against those
+   answers** — every finding names the answer it is relative to — and writes a
+   verdict (`keep` or `rebuild`), a plan, the record
+   `.claude/adoption/assessment-record.json`, and folds what is worth keeping
+   from your archived documents into the framework's.
+2. **Act 4 — the finisher, a shell command** the session runs for you:
 
-**Today, none of that runs.** What you get from adoption is a project correctly
-under the framework at phase 0, with a survey on disk and an intake half filled.
-The Phase 0 questions still get asked — by the ordinary flow, starting from
-`bash scripts/resume.sh` — so nothing is skipped; what is missing is the
-judgement layer on top.
+   ```bash
+   bash "$(jq -r .source_dir .claude/orchestrator-source.json)/scripts/adopt-project.sh" --act4 --root .
+   ```
+
+   It **checks the record before it writes anything**, and refuses — naming
+   each reason — when a finding names no requirement, the commit is not the one
+   this project was adopted at, *in production* is not a plain true/false, the
+   data classification is not one of the seven, or the verdict lacks its
+   `## Plain English` half with a `Recommendation:` and a `Reason:`. Measured:
+
+   ```text
+   [REFUSED] the assessment record was not accepted, and nothing was written
+             - fitness finding F1 names no interview axis in requirementRef — a finding is relative to a stated requirement (§5.3)
+             Fix .claude/adoption/assessment-record.json (or the verdict), then run this again.
+   ```
+
+   When the record passes, it records the data classification where the phase
+   gate reads it, writes the interview answers into the intake under the intake
+   wizard's own keys, and merges the assessment into `.claude/manifest.json` —
+   **once**; a second run is refused. It never moves the phase and never writes
+   `PRODUCT_MANIFESTO.md`, and it does not commit: it prints what to commit.
+
+**Either verdict continues from phase 0.** After the assessment, `resume.sh`
+opens Phase 0 — measured on a real adoption, the committed assessment passes the
+project's own commit checks and the next `resume.sh` prints the project's
+Phase 0 prompt.
 
 ### The certification pass — RETIRED, not deferred
 
@@ -1462,8 +1491,8 @@ not among them. Read them here, in the framework clone you run the driver from.
 | An adoption stamp, and loud detection when it is lost | ✅ Ships and works |
 | Test-first ordering enforced from adoption day forward | ✅ Ships and works |
 | Gates that were skipped actually run and recorded | ✅ By construction — nothing is skipped; the project starts below every gate |
-| Being asked what the project is for, and told whether the stack fits | ❌ The assessment (Act 3) — **not built** (WP12a) |
-| A fitness verdict, a plan, and the reasoning behind both | ❌ The assessment (Act 3) — **not built** (WP12a) |
+| Being asked what the project is for, and told whether the stack fits | ✅ [The assessment](#the-assessment--act-3-and-act-4--ships-wp12a) — a Claude Code conversation, then the finisher |
+| A fitness verdict, a plan, and the reasoning behind both | ✅ Written by the assessment conversation; checked (two halves, a reason) and recorded by the finisher |
 | The required secrets scanner resolved before anything reads the scan — installed where the host has a recipe, named for you where it does not — and the scan re-run after an install | ✅ Tool resolution — ships (WP10a). When the scanner still cannot be resolved, the tier-scoped stop below decides |
 | Adoption that can *fail* on a serious finding | ✅ The secrets stop — ships (WP10b): an organizational adoption stops on a finding, an unscanned tree or a partial scan; a personal one continues only on a recorded acknowledgement. [If it stops](#4-if-it-stops) |
 | A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works; the commit-time hook that would invoke the ratchet automatically now exists, and wiring the ratchet INTO it is still unbuilt |
