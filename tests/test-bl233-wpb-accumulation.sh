@@ -287,7 +287,14 @@ source_commit() {
 # an unnamed bare produces a dangling HEAD symref there and the divergence is
 # silent (## BL-234:).
 add_origin() {
-  local d="$1" bare="$TOPTMP/$(basename "$d").origin.git"
+  # TWO STATEMENTS, NOT ONE `local`. As one, `bare` was built from the OUTER
+  # `d` — every right-hand side in a single `local` is expanded before any of
+  # them is assigned (`## BL-307:`, measured identical on bash 3.2.57 through
+  # 5.3.20) — so `$(basename "$d")` ran on an empty string and SEVEN of this
+  # suite's eleven fixtures shared one bare at `$TOPTMP/.origin.git`. The suite
+  # was green throughout; what was lost was its hermeticity.
+  local d="$1"
+  local bare="$TOPTMP/$(basename "$d").origin.git"
   git init -q --bare -b main "$bare" >/dev/null 2>&1 || {
     git init -q --bare "$bare" >/dev/null 2>&1
     git --git-dir="$bare" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1

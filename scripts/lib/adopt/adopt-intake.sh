@@ -196,18 +196,91 @@ INTAKE_ROWS
   return 0
 }
 
+# ── PROVENANCE HEADERS (v1 §8.6, carried by v2; WP7) ────────────────────────
+# A document adoption writes that DESCRIBES WHAT ALREADY EXISTED carries this
+# header as its first content; a forward-looking document carries none. In v2
+# that is PROJECT_INTAKE.md — reconstructed from the survey and the operator's
+# confirmations. The framework's templates (CLAUDE.md and the rest) describe
+# what is coming and are left unmarked, because marking them would dilute the
+# marker where it matters.
+#
+# A NEAR-MISS IS WORSE THAN NONE, which is why the checker is exact: the fence
+# lines, the four keys in this order, a real date, a commit, and the status
+# sentence verbatim. It runs where the header is written and again in the Act 4
+# finisher, because the assessment conversation edits PROJECT_INTAKE.md.
+ADOPT_PROVENANCE_STATUS="describes work completed BEFORE adoption; not a pre-build specification"
+
+# adopt_provenance_header COMMIT — the header, on stdout.  # BL-242-PROVENANCE-HEADER
+adopt_provenance_header() {
+  # `SOIF_ADOPT_PROVENANCE_FAULT=noend` drops the closing line — a TEST SEAM, so
+  # the write-time check can be shown to refuse what it exists to refuse.
+  printf '%s\n' '<!-- SOIF-PROVENANCE-BEGIN'
+  printf 'reconstructed-at: %s\n' "$(date -u +%Y-%m-%d)"
+  printf '%s\n' 'reconstructed-by: scripts/adopt-project.sh'
+  printf 'source: existing codebase at %s + adoption survey\n' "$1"
+  printf 'status: %s\n' "$ADOPT_PROVENANCE_STATUS"
+  [ "${SOIF_ADOPT_PROVENANCE_FAULT:-}" = "noend" ] || printf '%s\n' 'SOIF-PROVENANCE-END -->'
+}
+
+# adopt_provenance_errors FILE [COMMIT] — one line per defect; nothing when the
+# file opens with a well-formed header. With COMMIT, the header's commit must
+# be a prefix of it.                                  # BL-242-PROVENANCE-CHECK
+#
+# An editor's re-save is tolerated, not refused: a UTF-8 byte-order mark and
+# CRLF line endings are stripped before comparing, and so is trailing space —
+# each used to be reported as a DIFFERENT defect ("not the opening line", "more
+# than four fields"), which sent the operator to fix the wrong thing (review).
+adopt_provenance_errors() {
+  local f="$1" want="${2:-}" out day sha
+  [ -s "$f" ] || { printf '%s\n' "$f is missing or empty"; return 0; }
+  out="$(LC_ALL=C awk -v status="$ADOPT_PROVENANCE_STATUS" '
+    function bad(m) { print m; errs++ }
+    NR == 1 && substr($0, 1, 3) == "\357\273\277" { $0 = substr($0, 4) }
+    { sub(/\r$/, ""); sub(/[ \t]+$/, "") }
+    /^[[:space:]]*$/ && !started { next }
+    !started { started = 1
+               if ($0 != "<!-- SOIF-PROVENANCE-BEGIN") { bad("the first content is not the provenance header'"'"'s opening line"); exit }
+               n = 0; next }
+    $0 == "SOIF-PROVENANCE-END -->" { closed = 1; exit }
+    { n++
+      if (n == 1 && $0 !~ /^reconstructed-at: [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) bad("line 1 of the header is not reconstructed-at: YYYY-MM-DD")
+      if (n == 2 && $0 != "reconstructed-by: scripts/adopt-project.sh") bad("line 2 of the header is not reconstructed-by: scripts/adopt-project.sh")
+      if (n == 3 && $0 !~ /^source: existing codebase at [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+ \+ adoption survey$/) bad("line 3 of the header does not name the commit it was reconstructed from")
+      if (n == 4 && $0 != "status: " status) bad("line 4 of the header is not the status sentence")
+      if (n > 4) { bad("the header has more than four fields"); exit } }
+    END { if (!started) bad("the file has no content"); else if (!closed && !errs) bad("the header is never closed"); else if (closed && n < 4) bad("the header has fewer than four fields") }
+  ' "$f")"
+  if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+  # The SHAPE passed; now the MEANING. A calendar day, not 2026-02-30, and —
+  # when the caller knows it — the commit this project was adopted at.
+  day="$(LC_ALL=C awk '{sub(/\r$/,"")} /^reconstructed-at: /{print $2; exit}' "$f")"
+  # The same `isoday` the dispositions validator uses.
+  if ! printf '%s' "$day" | jq -Re '((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .)' >/dev/null 2>&1; then
+    printf '%s\n' "reconstructed-at ($day) is not a real calendar day"
+  fi
+  if [ -n "$want" ]; then
+    sha="$(LC_ALL=C awk '{sub(/\r$/,"")} /^source: existing codebase at /{print $5; exit}' "$f")"
+    case "$want" in
+      "$sha"*) : ;;
+      *) printf 'the header names commit %s, but this project was adopted at %.12s\n' "$sha" "$want" ;;
+    esac
+  fi
+}
+
 # ── Rendering the intake artifacts ──────────────────────────────────────────
 # adopt_render_intake_doc — PROJECT_INTAKE.md from the answers ledger.
 #
-# §8.6's provenance header is WP7's deliverable and is NOT emitted here. A
-# half-shaped header would be worse than none: WP7 ships a lint for the real
-# one, and a near-miss is what a lint cannot tell from the genuine article.
-# adopt_stub_provenance_headers says so out loud at run time.
+# It OPENS WITH §8.6's provenance header (`adopt_provenance_header`): this is
+# the one document adoption writes that describes what already existed. The
+# header is checked the moment the file is written, so a near-miss never lands.
 adopt_render_intake_doc() {
   local root="$1"
-  local field title kind value prov last_title=""
+  local field title kind value prov last_title="" commit errs
+  commit="$(git -C "$root" rev-parse --short=12 HEAD 2>/dev/null)"
+  [ -n "$commit" ] || { adopt_refuse "the provenance header needs this project's commit, and git could not say"; return 1; }
   {
-    printf '# Project Intake\n\n'
+    adopt_provenance_header "$commit"   # BL-242-PROVENANCE-WRITE
+    printf '\n# Project Intake\n\n'
     printf 'Recorded during adoption on %s.\n\n' "$(date -u +%Y-%m-%d)"
     printf 'This project starts at phase 0, like every adopted project. Cells marked as\n'
     printf 'asked in the assessment are deliberately blank: they are questions only a\n'
@@ -235,7 +308,12 @@ adopt_render_intake_doc() {
     done < "$ADOPT_ANSWERS"
     adopt_render_section_13 "$root"
     printf '\n'
-  } | adopt_write_file "$root" "PROJECT_INTAKE.md"
+  } | adopt_write_file "$root" "PROJECT_INTAKE.md" || return 1
+  errs="$(adopt_provenance_errors "$root/PROJECT_INTAKE.md" "$(git -C "$root" rev-parse HEAD 2>/dev/null)")"
+  if [ -n "$errs" ]; then                              # BL-242-PROVENANCE-WRITE-CHECK
+    adopt_refuse "PROJECT_INTAKE.md's provenance header is malformed: $(printf '%s' "$errs" | head -1)"
+    return 1
+  fi
 }
 
 # adopt_render_section_13 — the §13 kickoff prompt, AND IT IS RENDERED WITH THE
@@ -305,10 +383,12 @@ S13B
 
   cat <<'S13C'
 
-WHAT YOU DO NOT HAVE: the Solo Orchestrator Builder's Guide and the Platform
-Modules. A scaffolded project receives them in docs/reference/; an adopted one
-does not yet. Do not act as though a process reference is attached. Ask for it,
-or work from this framework's own scripts and their headers.
+WHAT YOU DO NOT HAVE: a Platform Module. A scaffolded project gets the one for
+its platform in docs/platform-modules/; an adopted project's platform is decided
+in the assessment, so none is here yet. Do not act as though a process reference
+is attached beyond what is on disk: the framework's guides are in
+docs/reference/ (the Builder's Guide among them) wherever you had no file of
+your own at those paths.
 
 START HERE, IN THIS ORDER:
 1. Fill in every blank cell in this intake by ASKING me. Do not infer them from

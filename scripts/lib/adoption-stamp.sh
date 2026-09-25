@@ -245,6 +245,32 @@ soif_adoption_stamp() {
     "$manifest" > "$manifest.tmp" && mv "$manifest.tmp" "$manifest"   # BF-ADOPT-STAMP-MERGE
 }
 
+# ── 2b. THE ASSESSMENT MERGE (ADOPT-002-ARCH v2 §8.3) ───────────────────────
+# soif_adoption_assess <manifest> <assessment_json>
+#
+# A SEPARATE ADDITIVE MERGE, NOT A RE-STAMP: `.adoption.assessment` is set once,
+# beside the stamp, and nothing else in `.adoption` moves. It REFUSES (rc 1)
+# when the project was never adopted and when an assessment block already
+# exists — the same silent-move reason the stamp refuses a second stamp: a
+# re-run would otherwise overwrite the verdict a later reader relies on. It
+# does NOT touch `current_phase`: under D10 there is no rung to advance to.
+#
+# rc 0 merged; rc 1 refused or failed. Exactly one call site, in the adoption
+# module's Act 4 finisher (`# BL-242-ACT4-MERGE-LAST`).
+soif_adoption_assess() {                              # BL-242-ASSESS-MERGE
+  local manifest="${1:-.claude/manifest.json}" block="${2:-}"
+  command -v jq >/dev/null 2>&1 || return 1
+  [ -f "$manifest" ] || return 1
+  [ -n "$block" ] || return 1
+  jq -e '.adoption.adopted == true' "$manifest" >/dev/null 2>&1 || return 1
+  if jq -e '.adoption.assessment != null' "$manifest" >/dev/null 2>&1; then
+    return 1   # BL-242-ASSESS-ONCE
+  fi
+  printf '%s' "$block" | jq -e 'type == "object"' >/dev/null 2>&1 || return 1
+  jq --argjson a "$block" '.adoption.assessment = $a' "$manifest" > "$manifest.tmp" \
+    && mv "$manifest.tmp" "$manifest"
+}
+
 # ── 3. THE BOUND ────────────────────────────────────────────────────────────
 # soif_adoption_pre_adoption_commit [manifest] — returns 0 iff the commit about
 # to be authored belongs to PRE-ADOPTION history, i.e. sits at or before the

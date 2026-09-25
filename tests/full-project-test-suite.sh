@@ -888,6 +888,39 @@ run_child_suite "tests/test-bl289-gitleaks-version-floor.sh" \
 run_child_suite "tests/test-brownfield-wp10b-decision-table.sh" \
   "WP10b/2: §6.1's ten-cell tier table and the dispositions that lift a stop" \
   "WP10b decision-table tests FAILED (run tests/test-brownfield-wp10b-decision-table.sh for details)"
+run_child_suite "tests/test-bl296-hook-roster-unconditional.sh" \
+  "BL-296: Solo's own session-hook roster registers without the CDF clone" \
+  "BL-296 roster tests FAILED (run tests/test-bl296-hook-roster-unconditional.sh for details)"
+run_child_suite "tests/test-brownfield-wp7-adoption-record.sh" \
+  "WP7/1: the Adoption Record and its eight-clause structural contract" \
+  "WP7 Adoption Record tests FAILED (run tests/test-brownfield-wp7-adoption-record.sh for details)"
+run_child_suite "tests/test-brownfield-wp7b-commit-hook.sh" \
+  "WP7/3: the commit-time scanners on the adoption path" \
+  "WP7/3 commit-hook tests FAILED (run tests/test-brownfield-wp7b-commit-hook.sh for details)"
+run_child_suite "tests/test-brownfield-dispositions-template.sh" \
+  "BL-242: the secrets stop prints a dispositions template an operator can fill" \
+  "dispositions-template tests FAILED (run tests/test-brownfield-dispositions-template.sh for details)"
+run_child_suite "tests/test-brownfield-wp12b-framework-docs.sh" \
+  "WP12b: the framework documents an adopted project receives" \
+  "WP12b framework-docs tests FAILED (run tests/test-brownfield-wp12b-framework-docs.sh for details)"
+run_child_suite "tests/test-brownfield-wp7d-audit-rows.sh" \
+  "WP7: the audit rows and the secrets-dispositions join table" \
+  "WP7 audit-row tests FAILED (run tests/test-brownfield-wp7d-audit-rows.sh for details)"
+run_child_suite "tests/test-brownfield-wp7e-ci-carveout.sh" \
+  "WP7: the CI carve-out — their pipelines read, never changed; the framework's CI at its own name" \
+  "WP7 CI carve-out tests FAILED (run tests/test-brownfield-wp7e-ci-carveout.sh for details)"
+run_child_suite "tests/test-brownfield-wp12a-assessment.sh" \
+  "WP12a: the assessment prompt and the Act 4 finisher" \
+  "WP12a assessment tests FAILED (run tests/test-brownfield-wp12a-assessment.sh for details)"
+run_child_suite "tests/test-brownfield-wp7f-provenance.sh" \
+  "WP7: the provenance header on the reconstructed intake, and its exact check" \
+  "WP7 provenance tests FAILED (run tests/test-brownfield-wp7f-provenance.sh for details)"
+run_child_suite "tests/test-brownfield-wp12c-production-exemption.sh" \
+  "WP12c: the adopted-in-production exemption for hotfix work below phase 4" \
+  "WP12c exemption tests FAILED (run tests/test-brownfield-wp12c-production-exemption.sh for details)"
+run_child_suite "tests/test-brownfield-wp9c-session-layer.sh" \
+  "WP9c: the Claude Code session layer an adopted project receives" \
+  "WP9c session-layer tests FAILED (run tests/test-brownfield-wp9c-session-layer.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

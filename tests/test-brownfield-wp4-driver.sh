@@ -111,7 +111,15 @@ mk_adoptee() {
       && git init -q . \
       && git config user.email "wp4@test.invalid" \
       && git config user.name  "WP4 Test" ) >/dev/null 2>&1 || return 1
-  printf '{"name":"acme-api","scripts":{"test":"npm test"}}\n' > "$p/package.json"
+  # `exit 0`, NOT `npm test`, AND THE OLD VALUE WAS A FORK BOMB. `"test":"npm
+  # test"` calls ITSELF: measured, 71 nested `npm` processes eight seconds after
+  # a single `npm test`. Nothing ran it while adoption installed no pre-commit
+  # hook. WP7/3 installs one, whose BL-125 arm runs the project's tests whenever
+  # a source file is staged — and H1 stages one — so this suite went from about
+  # two minutes to 1028 SECONDS, serially, and would have blown the CI shard.
+  # The test script's CONTENT is asserted by nothing here; its presence is what
+  # Scout reads.
+  printf '{"name":"acme-api","scripts":{"test":"exit 0"}}\n' > "$p/package.json"
   printf '# acme-api\n' > "$p/README.md"
   printf '# What this is for\n\nInvoice reconciliation for small firms.\n' > "$p/docs/product.md"
   printf '# Architecture\n\nA node service and a postgres database.\n' > "$p/docs/architecture.md"
@@ -353,17 +361,30 @@ echo "=== S — the fail-safe state-creation order (§8.4, §5.5) ==="
 s1_order="$( . "$L_STATE" >/dev/null 2>&1; _adopt_state_order | tr '\n' ' ' )"
 s1_sites=$(_sites "$L_STATE" 'BF-ADOPT-STATE-ORDER')
 s1_first_sites=$(_sites "$L_STATE" 'BL-242-APPROVAL-LOG-FIRST')
-# WP9d (ADOPT-002-ARCH v2.2 §10-WP9d item 4) appends a FIFTH stage, `write_set`,
-# and it must be LAST: it persists what every stage before it wrote, which is
-# what makes `--finish` able to re-stage an adoption whose commit was refused
-# (`## BL-291:`). The head is still A4's and the tail through `manifest` is
-# still §8.4's — both halves this case was written for are unchanged; the list
-# grew at the end, which is the one place a new stage cannot disturb them.
-if [ "$s1_order" = "approval_log phase_state intake manifest write_set " ] \
+# WP9d (ADOPT-002-ARCH v2.2 §10-WP9d item 4) appends `write_set`, and it must be
+# LAST: it persists what every stage before it wrote, which is what makes
+# `--finish` able to re-stage an adoption whose commit was refused
+# (`## BL-291:`). WP7/1 then inserts `adoption_record` (`# BL-242-RECORD-STAGE`)
+# between `manifest` and `write_set` — AFTER `manifest` because the record takes
+# the commit it was adopted at from the STAMP that stage writes, rather than
+# from a second `git rev-parse HEAD`. WP12b inserts `framework_docs`
+# (`# BL-242-DOCS-STAGE-ORDER`) between `manifest` and `adoption_record`, so
+# the record stays the last word in the log. WP7/4 then puts `dispositions`
+# (§6.3's join table and audit rows) between `intake` and `manifest`, ON the
+# `# BF-ADOPT-STATE-ORDER` line — so that line is still one site.
+#
+# THE HEAD IS STILL A4'S AND THE TAIL THROUGH `manifest` IS STILL §8.4'S, which
+# is the whole of what this case was written for: §8.4 is about which of two
+# unsafe rows an interruption can rest in, and both stages added since sit
+# BEYOND `manifest`, where a new stage cannot disturb them. The literal is
+# updated rather than loosened — a prefix match would stop discriminating the
+# next time a stage is added in the middle, which is the one place it would
+# matter.
+if [ "$s1_order" = "approval_log phase_state intake dispositions manifest framework_docs ci session_layer assessment_prompt adoption_record write_set " ] \
    && [ "$s1_sites" -eq 1 ] && [ "$s1_first_sites" -eq 1 ]; then
-  pass "S1: the order is A4's log first, then §8.4's, then WP9d's write_set last — approval_log, phase_state, intake, manifest, write_set"
+  pass "S1: the order is A4's log first, then §8.4's, then WP12b's framework_docs, WP7/1's adoption_record and WP9d's write_set last — approval_log, phase_state, intake, dispositions, manifest, framework_docs, ci, session_layer, assessment_prompt, adoption_record, write_set"
 else
-  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake manifest write_set ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
+  fail_ "S1" "order=[$s1_order] (want 'approval_log phase_state intake dispositions manifest framework_docs ci session_layer assessment_prompt adoption_record write_set ') order-sites=$s1_sites (want 1) first-sites=$s1_first_sites (want 1)"
 fi
 
 # _assert_safe_row LABEL DIR — §8.4's TOP row: phase-state present, manifest
@@ -701,10 +722,17 @@ echo "=== H — the gates are actually ON afterwards (§4.5: no forward exemptio
 # The run's closing line names two gates as live from the next commit onward.
 # H1 makes git ITSELF prove that claim: in the adopted project, through its own
 # installed hook, a test-less feature commit is refused. The pair matters — a
-# hook that refused EVERYTHING would satisfy the blocking half on its own, and
-# that is not a hypothetical: installing the framework's FALLBACK PRE-COMMIT
-# hook here did exactly that, refusing an ordinary `docs:` commit, which is why
-# the driver does not install it and says so instead.
+# hook that refused EVERYTHING would satisfy the blocking half on its own.
+#
+# THIS CASE ONCE JUSTIFIED NOT INSTALLING THE FALLBACK PRE-COMMIT HOOK, saying it
+# "did exactly that, refusing an ordinary `docs:` commit". WP7/3 re-measured it
+# once the Adoption Record existed and it no longer does — the hook is installed
+# now. And re-running THIS case against it exposed a fixture defect the old
+# world hid: the refused `feat:` commit leaves `src/add.js` STAGED, so the
+# "ordinary" `docs:` commit below was never ordinary — it carried a source file
+# too. With no pre-commit hook that rode along unseen; with one, BL-125 sees a
+# staged source file and correctly runs the project's tests. The file is now
+# unstaged between the two commits, so the second one is what its name says.
 H1D="$(newtmp)"
 if ! mk_adoptee "$H1D/p"; then
   fail_ "H1" "fixture setup failed"
@@ -720,6 +748,9 @@ else
   ( cd "$H1D/p" && git add src/add.js ) >/dev/null 2>&1
   h1_feat=0
   ( cd "$H1D/p" && git commit -q -m "feat: add without a test" ) >/dev/null 2>&1 || h1_feat=$?
+  # A REFUSED COMMIT LEAVES ITS INDEX IN PLACE. Unstage, or the next commit
+  # silently includes it.
+  ( cd "$H1D/p" && git reset -q HEAD src/add.js ) >/dev/null 2>&1
   printf 'a note\n' > "$H1D/p/NOTES.md"
   ( cd "$H1D/p" && git add NOTES.md ) >/dev/null 2>&1
   h1_chore=0
@@ -731,8 +762,17 @@ else
   fi
 fi
 
-# H2 — an adoptee's own pre-commit hook is a §7 collision, not something to
-# overwrite. The whole-file writer would destroy it, so it is not run.
+# H2 — an adoptee's own pre-commit hook is a §7 collision: archive, then replace.
+#
+# RE-AIMED A SECOND TIME, AT WP7/3, AND THE PROPERTY FLIPPED. This case used to
+# assert the hook was byte-for-byte UNTOUCHED, because the driver did not run
+# the whole-file writer. WP7/3 runs it: §7.1's archive-and-replace population
+# includes every non-`.sample` file in `.git/hooks/`, and leaving theirs alone
+# is what left an adopted project with no commit-time scanners at all. What
+# survives from both earlier versions is the part that was always load-bearing:
+# THEIR BYTES ARE RECOVERABLE. So this now asserts the replacement happened, the
+# run said so, the archive holds exactly their bytes with a restore line, and
+# the MANIFEST row says `replaced` — the word an auditor reads.
 H2D="$(newtmp)"
 if ! mk_adoptee "$H2D/p"; then
   fail_ "H2" "fixture setup failed"
@@ -746,7 +786,7 @@ else
   run_adopt "$H2D/p" "$H2D/answers" "$H2D/report.json"; h2_rc=$RUN_RC
   h2_after=$(shasum -a 256 "$H2D/p/.git/hooks/pre-commit" 2>/dev/null | awk '{print $1}')
   h2_said=0
-  grep -q 'LEFT ALONE' "$RUN_OUT" && h2_said=1
+  grep -q 'REPLACED by the framework' "$RUN_OUT" && h2_said=1
   # RE-AIMED WHEN WP6 LANDED. This case used to require the WP6 STUB to fire
   # ("NOT DONE — the collision archive"), which was the right assertion while
   # the archive did not exist and is the wrong one now: an honest stub for
@@ -761,15 +801,21 @@ else
   h2_restore=0
   [ -n "$h2_arch" ] && jq -e '[.entries[] | select(.originalPath == ".git/hooks/pre-commit") | select((.restore // "") != "")] | length == 1' \
     "$H2D/p/$h2_arch/MANIFEST.json" >/dev/null 2>&1 && h2_restore=1
-  if [ "$h2_rc" -eq 0 ] && [ -n "$h2_before" ] && [ "$h2_before" = "$h2_after" ] && [ "$h2_said" -eq 1 ] \
-     && [ -n "$h2_copy" ] && [ "$h2_copy" = "$h2_before" ] && [ "$h2_restore" -eq 1 ]; then
-    pass "H2: an adoptee's existing pre-commit hook is byte-for-byte untouched, said out loud, AND archived byte-identically with a restore line (WP6) rather than overwritten"
+  h2_dispo=""
+  [ -n "$h2_arch" ] && h2_dispo=$(jq -r '[.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .disposition] | first // ""' \
+    "$H2D/p/$h2_arch/MANIFEST.json" 2>/dev/null)
+  # `h2_before != h2_after` IS NOW THE ASSERTION, not a failure: the path holds
+  # the framework's hook. The recoverability half is `h2_copy == h2_before` —
+  # the ARCHIVE holds their original bytes — which is unchanged from WP6.
+  if [ "$h2_rc" -eq 0 ] && [ -n "$h2_before" ] && [ "$h2_before" != "$h2_after" ] && [ "$h2_said" -eq 1 ] \
+     && [ -n "$h2_copy" ] && [ "$h2_copy" = "$h2_before" ] && [ "$h2_restore" -eq 1 ] && [ "$h2_dispo" = "replaced" ]; then
+    pass "H2: an adoptee's existing pre-commit hook is REPLACED (§7.1), said out loud, archived byte-identically with a restore line, and recorded as 'replaced'"
   else
-    fail_ "H2" "rc=$h2_rc sha_before=$h2_before sha_after=$h2_after said_left_alone=$h2_said archive=$h2_arch archived_copy_sha=$h2_copy restore_line_present=$h2_restore"
+    fail_ "H2" "rc=$h2_rc sha_before=$h2_before sha_after=$h2_after (want DIFFERENT) said_replaced=$h2_said archive=$h2_arch archived_copy_sha=$h2_copy (want == before) restore_line_present=$h2_restore disposition=$h2_dispo (want replaced)"
   fi
 fi
 
-# H3 — the omission is DISCLOSED, not silent. An adopted project without the
+# H3 — the run's claim matches what it installed (was: the omission is DISCLOSED). An adopted project without the
 # commit-time scanners is a defensible state; one whose operator does not know
 # it is not. The run must name what is not running and what to do instead.
 H3D="$(newtmp)"
@@ -779,16 +825,22 @@ else
   report_with_phase 2 "$H3D/report.json"
   _ans > "$H3D/answers"
   run_adopt "$H3D/p" "$H3D/answers" "$H3D/report.json"; h3_rc=$RUN_RC
-  h3_named=0; h3_remedy=0; h3_nooverclaim=0; h3_precommit=0
-  grep -q 'NOT DONE — the commit-time scanners' "$RUN_OUT" && h3_named=1
-  grep -q 'scripts/pre-commit-gate.sh --terminal-mode' "$RUN_OUT" && h3_remedy=1
+  # RE-AIMED AT WP7/3. This case pinned an HONEST OMISSION: the scanners were
+  # not installed, and the run had to say so and give the by-hand command. They
+  # are installed now, so the honest statement changed and the case follows it.
+  # The discipline it enforced is unchanged — the run claims exactly what it
+  # installed — and it now reads in the other direction: the scanners are
+  # claimed, the hook is there, and the old NOT DONE notice is gone.
+  h3_stale=0; h3_claimed=0; h3_nooverclaim=0; h3_precommit=0
+  grep -q 'NOT DONE — the commit-time scanners' "$RUN_OUT" && h3_stale=1
+  grep -q 'Commit-time scanners installed' "$RUN_OUT" && h3_claimed=1
   grep -q "the framework's two message gates are live" "$RUN_OUT" && h3_nooverclaim=1
-  [ -e "$H3D/p/.git/hooks/pre-commit" ] && h3_precommit=1
-  if [ "$h3_rc" -eq 0 ] && [ "$h3_named" -eq 1 ] && [ "$h3_remedy" -eq 1 ] \
-     && [ "$h3_nooverclaim" -eq 1 ] && [ "$h3_precommit" -eq 0 ]; then
-    pass "H3: the run claims only the gates it installed — it names the commit-time scanners as NOT running and gives the command to run them by hand"
+  [ -x "$H3D/p/.git/hooks/pre-commit" ] && h3_precommit=1
+  if [ "$h3_rc" -eq 0 ] && [ "$h3_stale" -eq 0 ] && [ "$h3_claimed" -eq 1 ] \
+     && [ "$h3_nooverclaim" -eq 1 ] && [ "$h3_precommit" -eq 1 ]; then
+    pass "H3: the run claims exactly the gates it installed — the commit-time scanners, now that they ship — and no longer announces them as NOT DONE"
   else
-    fail_ "H3" "rc=$h3_rc scanners_named_absent=$h3_named remedy_given=$h3_remedy claim_is_narrow=$h3_nooverclaim pre_commit_hook_written=$h3_precommit (want 0)"
+    fail_ "H3" "rc=$h3_rc stale_not_done_notice=$h3_stale (want 0) scanners_claimed=$h3_claimed (want 1) message_gates_claimed=$h3_nooverclaim pre_commit_hook_executable=$h3_precommit (want 1)"
   fi
 fi
 
@@ -975,10 +1027,23 @@ else
   # printing stubs altogether.
   w1_cert=1
   grep -q 'the certification pass' "$RUN_OUT" && w1_cert=0
-  grep -q 'NOT DONE — the assessment (Act 3)' "$RUN_OUT" || w1_cert=0
+  # WP12a built the assessment: the run names it as the next step, and does
+  # not announce it as NOT DONE.
+  grep -q 'Next: the assessment (Act 3)' "$RUN_OUT" || w1_cert=0
+  grep -q 'NOT DONE — the assessment' "$RUN_OUT" && w1_cert=0
   w1_record=0; w1_empty_named=0; w1_docs=0; w1_debt=0
-  grep -q 'NOT DONE — the Adoption Record' "$RUN_OUT" && w1_record=1
-  grep -q "NOT DONE — your project's framework documents" "$RUN_OUT" && w1_docs=1
+  # WP7/1 RETIRED ITS STUB, so this row flipped the same way WP5b's did below:
+  # the `NOT DONE` notice must be GONE and the thing it apologised for must be
+  # PRESENT. The absence alone would also be satisfied by a driver that simply
+  # stopped printing it, so it is asserted together with the artefact — the
+  # record has to be in the adopted project's APPROVAL_LOG.md, under its own
+  # heading. Its eight-clause contract and both mutation directions belong to
+  # tests/test-brownfield-wp7-adoption-record.sh; what W1 owns is the honesty
+  # accounting, and a package that has shipped must not still announce itself
+  # as NOT DONE.
+  w1_record=1
+  grep -q 'NOT DONE — the Adoption Record' "$RUN_OUT" && w1_record=0
+  grep -q '^## Adoption Record$' "$W1D/p/APPROVAL_LOG.md" 2>/dev/null || w1_record=0
   # WP5b RETIRED ITS STUB, so this row flipped: the test-debt notice must be
   # GONE and the thing it apologised for must be PRESENT. The absence alone
   # would also be satisfied by a driver that simply stopped printing it, so it
@@ -996,17 +1061,19 @@ else
   # a field that is not there cannot be misread as a measurement.
   w1_empty_named=1
   w1_kinds=$(jq -r '[.adoption | keys[] | select(. == "certification" or . == "blockersAccepted")] | length' "$W1D/p/.claude/manifest.json" 2>/dev/null)
-  # The CLAUDE.md half is asserted as an ABSENCE, so it carries a structural
-  # discriminator: the file is not there AND the run said so. Either alone is
-  # satisfied by a driver that simply forgot.
-  w1_no_claude=1
-  [ -e "$W1D/p/CLAUDE.md" ] && w1_no_claude=0
+  # WP12b RETIRED THE DOCUMENTS STUB, so this row flipped the same way: the
+  # notice must be GONE and CLAUDE.md must be PRESENT. Its rendering, the
+  # link-and-permission rules and the archive rows belong to
+  # tests/test-brownfield-wp12b-framework-docs.sh.
+  w1_docs=1
+  grep -q "NOT DONE — your project's framework documents" "$RUN_OUT" && w1_docs=0
+  [ -s "$W1D/p/CLAUDE.md" ] || w1_docs=0
   if [ "$w1_rc" -eq 0 ] && [ "$w1_cert" -eq 1 ] && [ "$w1_record" -eq 1 ] && [ "$w1_debt" -eq 1 ] \
-     && [ "$w1_docs" -eq 1 ] && [ "$w1_no_claude" -eq 1 ] \
+     && [ "$w1_docs" -eq 1 ] \
      && [ "$w1_empty_named" -eq 1 ] && [ "$(_num "$w1_kinds")" -eq 0 ]; then
-    pass "W1: every STILL-unbuilt package announces itself — the ASSESSMENT (WP12a), the Adoption Record and the project documents — the RETIRED certification pass is announced by nobody and its arrays are absent from the record rather than empty in it, and the one package that HAS shipped (WP5b's test-debt ledger) no longer announces itself as NOT DONE and left its artefact behind"
+    pass "W1: the ASSESSMENT is named as the next step and not as NOT DONE — the RETIRED certification pass is announced by nobody and its arrays are absent from the record rather than empty in it, and the three packages that HAVE shipped (WP5b's test-debt ledger, WP7/1's Adoption Record, WP12b's documents) no longer announce themselves as NOT DONE and each left its artefact behind"
   else
-    fail_ "W1" "rc=$w1_rc assessment_stub_replaced_certification=$w1_cert test_debt_retired_and_written=$w1_debt (want 1) adoption_record_stub=$w1_record project_docs_stub=$w1_docs claude_md_absent=$w1_no_claude retired_arrays_absent=$w1_empty_named certification_keys=$w1_kinds (want 0)"
+    fail_ "W1" "rc=$w1_rc assessment_stub_replaced_certification=$w1_cert test_debt_retired_and_written=$w1_debt (want 1) adoption_record_stub=$w1_record docs_retired_and_written=$w1_docs retired_arrays_absent=$w1_empty_named certification_keys=$w1_kinds (want 0)"
   fi
 fi
 

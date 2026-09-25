@@ -38,7 +38,11 @@
 #   4. scripts/check-maintenance.sh   the cadence policy read (WP6)
 #   5. scripts/resume.sh              the §10.5 fourth branch (WP8) — the
 #                                     `# DELTA-RESUME-BEGIN`/`-END` fence,
-#                                     another core->core seam delegation
+#                                     another core->core seam delegation —
+#                                     and, since WP12c, a SECOND fence of the
+#                                     same name: the adopted-in-production
+#                                     entry, which must run before the BL-202
+#                                     branches and so cannot share the first
 #   6. init.sh                        the WP8 copy list — the
 #                                     `# DELTA-INSTALL-BEGIN`/`-END` fences
 #                                     (TWO of them: the scripts block and the

@@ -434,13 +434,14 @@ e5() {
 #      read `.disposition` to notice.
 # ═══════════════════════════════════════════════════════════════════════════
 e6() {
-  local label="E6 the three replaced paths are recorded as 'replaced', not 'kept'"
+  local label="E6 the replaced paths are recorded as 'replaced', and an untouched one as 'kept'"
   local T=""; T=$(newtmp)
   mk_adoptee "$T/p" || { fail_ "$label" "fixture failed"; return; }
   printf '# their intake\n'      > "$T/p/PROJECT_INTAKE.md"
   printf '{"theirs":true}\n'     > "$T/p/.claude/intake-progress.json"
   printf '{"source":"theirs"}\n' > "$T/p/.claude/orchestrator-source.json"
   printf '# theirs\n'            > "$T/p/CLAUDE.md"
+  printf '# their bible\n'       > "$T/p/PROJECT_BIBLE.md"
   commit_all "$T/p" || { fail_ "$label" "commit failed"; return; }
   mk_report "$T/scan" "$T/p" || { fail_ "$label" "Scout could not survey the fixture"; return; }
 
@@ -455,11 +456,17 @@ e6() {
     got="$(jq -r --arg p "$p" '[.entries[] | select(.originalPath == $p)][0].disposition // ""' "$mj" 2>/dev/null)"
     [ "$got" = "replaced" ] || bad="$bad [$p: disposition='$got', want 'replaced']"
   done
-  # THE CONTROL, and it is what stops "replaced" becoming the blanket answer:
-  # a document Act 2 does NOT write keeps its original at the path and is
-  # correctly recorded `kept`.
+  # CLAUDE.md WAS THIS CASE'S `kept` CONTROL until WP12b began writing it
+  # (`# BL-242-DOCS-STAGE`); it is replaced now, and recorded so.
   got="$(jq -r '[.entries[] | select(.originalPath == "CLAUDE.md")][0].disposition // ""' "$mj" 2>/dev/null)"
-  [ "$got" = "kept" ] || bad="$bad [CLAUDE.md: disposition='$got', want 'kept' — it is not replaced]"
+  [ "$got" = "replaced" ] || bad="$bad [CLAUDE.md: disposition='$got', want 'replaced' — WP12b writes it]"
+  # THE CONTROL, and it is what stops "replaced" becoming the blanket answer:
+  # a document adoption does NOT write keeps its original at the path and is
+  # correctly recorded `kept`. PROJECT_BIBLE.md is a phase output; init.sh does
+  # not write it either.
+  got="$(jq -r '[.entries[] | select(.originalPath == "PROJECT_BIBLE.md")][0].disposition // ""' "$mj" 2>/dev/null)"
+  [ "$got" = "kept" ] || bad="$bad [PROJECT_BIBLE.md: disposition='$got', want 'kept' — it is not replaced]"
+  [ "$(cat "$T/p/PROJECT_BIBLE.md" 2>/dev/null)" = "# their bible" ] || bad="$bad [PROJECT_BIBLE.md was touched]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
