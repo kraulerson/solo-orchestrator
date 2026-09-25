@@ -66,6 +66,7 @@ fi
 # below renders. With nothing open it does nothing — the post-release greeting
 # never fires below phase 4, and the project goes to its Phase 0 entry.
 # State only, through the one declared seam, like the delta block itself.
+# SYNC SIBLINGS: scripts/delta.sh _delta_adopted_in_production, scripts/resume.sh DELTA-RESUME-EXEMPTION, scripts/validate.sh DELTA-ERA-EXEMPTION-INFO — change all three together.
 pmv_exempt_open=""
 if [ "$PHASE" != "4" ] && [ -f ".claude/manifest.json" ] && command -v jq >/dev/null 2>&1 \
    && jq -e '.adoption.adopted == true and .adoption.assessment.inProduction == true' .claude/manifest.json >/dev/null 2>&1 \

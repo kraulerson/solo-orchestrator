@@ -375,6 +375,7 @@ _postmvp_era_assertion() {
   # assessment records it is in production may open a delta below phase 4. When
   # the open delta says it was opened that way, and the state still says the
   # project qualifies, the two records agree — report it, do not warn.
+  # SYNC SIBLINGS: scripts/delta.sh _delta_adopted_in_production, scripts/resume.sh DELTA-RESUME-EXEMPTION, scripts/validate.sh DELTA-ERA-EXEMPTION-INFO — change all three together.
   if [ "$(printf '%s\n' "$doc" | jq -r '.active_delta.exemption // ""' 2>/dev/null)" = "adopted-in-production" ] \
      && [ -f ".claude/manifest.json" ] \
      && jq -e '.adoption.adopted == true and .adoption.assessment.inProduction == true' .claude/manifest.json >/dev/null 2>&1; then

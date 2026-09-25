@@ -63,6 +63,7 @@ _state() { ( cd "$1" && bash "$S/process-checklist.sh" --delta-state-read </dev/
 ADOPTED_PROD='{"host":"github","adoption":{"adopted":true,"adoptedAtCommit":"abc","assessment":{"verdict":"keep","inProduction":true}}}'
 ADOPTED_NOTPROD='{"host":"github","adoption":{"adopted":true,"adoptedAtCommit":"abc","assessment":{"verdict":"keep","inProduction":false}}}'
 ADOPTED_NOKEY='{"host":"github","adoption":{"adopted":true,"adoptedAtCommit":"abc","assessment":{"verdict":"keep"}}}'
+LOOSE_TYPES='{"host":"github","adoption":{"adopted":"true","adoptedAtCommit":"abc","assessment":{"verdict":"keep","inProduction":1}}}'
 NOT_ADOPTED_PROD='{"host":"github","adoption":{"assessment":{"inProduction":true}}}'
 PLAIN='{"host":"github"}'
 
@@ -86,8 +87,10 @@ e1() {
 }
 
 e2() {
-  local label="E2 not in production, never asked, or not adopted: refused with exit 3" bad="" d m rc
-  for d in f2:"$ADOPTED_NOTPROD" f2b:"$ADOPTED_NOKEY" f3:"$NOT_ADOPTED_PROD"; do
+  local label="E2 not in production, never asked, not adopted, or not booleans: refused with exit 3" bad="" d m rc
+  # f5: truthy but NOT boolean values — "== true and nothing looser" (review:
+  # a mutant reading them as truthy passed every case before this row).
+  for d in f2:"$ADOPTED_NOTPROD" f2b:"$ADOPTED_NOKEY" f3:"$NOT_ADOPTED_PROD" f5:"$LOOSE_TYPES"; do
     m="${d#*:}"; d="$WORK/${d%%:*}"
     _proj "$d" 0 "$m"
     rc="$(_open "$d")"

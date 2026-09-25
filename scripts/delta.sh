@@ -384,6 +384,7 @@ _seam() {
 # adoption AND whose recorded assessment says it is in production — read as
 # STATE from .claude/manifest.json, `== true` and nothing looser: an absent key
 # means "never asked" (an assessment older than the question), never "yes".
+# SYNC SIBLINGS: scripts/delta.sh _delta_adopted_in_production, scripts/resume.sh DELTA-RESUME-EXEMPTION, scripts/validate.sh DELTA-ERA-EXEMPTION-INFO — change all three together.
 _delta_adopted_in_production() {                                     # DELTA-OPEN-ERA-EXEMPTION
   [ -f ".claude/manifest.json" ] || return 1
   jq -e '.adoption.adopted == true and .adoption.assessment.inProduction == true' \
@@ -1314,8 +1315,11 @@ cmd_open() {
     obj="$(printf '%s' "$obj" | jq -c --arg e "$exempt" '. + {exemption: $e}')"   # DELTA-OPEN-EXEMPTION-RECORD
   fi
 
-  # THE ONLY WRITE IN THIS FILE, AND IT IS NOT A WRITE — it is a request to the
-  # single writer (§7.1/D7). delta.sh never opens the state file.
+  # THE ONLY WRITE TO THE DELTA RECORD IN THIS FILE, AND IT IS NOT A WRITE — it
+  # is a request to the single writer (§7.1/D7). delta.sh never opens the delta
+  # state file. (It does write .claude/process-state.json once, below, for the
+  # adopted-in-production exemption's second record — a different file, a
+  # separate step, and loud if it fails.)
   #
   # ONE filter, therefore ONE atomic rename: the delta and its obligation land
   # together or not at all. Splitting them would leave a crash window in which a
