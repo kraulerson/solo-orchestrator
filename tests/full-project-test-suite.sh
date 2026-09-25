@@ -993,6 +993,12 @@ run_child_suite "tests/test-bl278-sentinel-root.sh" \
 run_child_suite "tests/test-bl280-bug-gate-unmeasured-source.sh" \
   "BL-280: the Phase 2→3 bug gate must not read an unmeasured source as zero bugs" \
   "BL-280 bug-gate tests FAILED (run tests/test-bl280-bug-gate-unmeasured-source.sh for details)"
+# BL-277: the bypass detector attributes only Stop-event matches to claude and
+# raises the sentinel for those alone; tool output is recorded under its own
+# actor and blocks nothing, and a false positive can be closed as one.
+run_child_suite "tests/test-bl277-detector-authorship.sh" \
+  "BL-277: the bypass detector raises the sentinel on authored text only" \
+  "BL-277 detector-authorship tests FAILED (run tests/test-bl277-detector-authorship.sh for details)"
 
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS

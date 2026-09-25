@@ -170,11 +170,12 @@ cmd_offer() {
 # --- Subcommand: --resolve ---
 
 cmd_resolve() {
-  local project_root decision=""
-  # Parse optional --decision <accept|decline>.
+  local project_root decision="" reason=""
+  # Parse optional --decision <accept|decline|false-positive> [--reason TEXT].
   while [ $# -gt 0 ]; do
     case "$1" in
       --decision) decision="${2:-}"; shift 2 ;;
+      --reason)   reason="${2:-}"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -191,10 +192,20 @@ cmd_resolve() {
   if [ -n "$decision" ]; then
     case "$decision" in
       accept|decline) ;;
+      # BL-277-FP-REASON — refused here, BEFORE the sentinel is touched, for the
+      # same reason the typo check above is: a close that fails after the
+      # sentinel is gone leaves PENDING rows stranded.
+      false-positive)
+        if [ -z "${reason//[[:space:]]/}" ]; then
+          print_fail "--resolve: --decision false-positive requires --reason \"<why this was not a proposal>\". Sentinel left in place."
+          return 1
+        fi
+        ;;
       *)
-        print_fail "--resolve: unknown decision '$decision' (expected: accept | decline). Sentinel left in place."
+        print_fail "--resolve: unknown decision '$decision' (expected: accept | decline | false-positive). Sentinel left in place."
         echo "  Re-run: scripts/pending-approval.sh --resolve --decision accept" >&2
         echo "      or: scripts/pending-approval.sh --resolve --decision decline" >&2
+        echo "      or: scripts/pending-approval.sh --resolve --decision false-positive --reason \"<why>\"" >&2
         return 1
         ;;
     esac
@@ -223,8 +234,12 @@ cmd_resolve() {
     if [ -f "$lib" ]; then
       # shellcheck disable=SC1090
       source "$lib"
-      if bypass_audit_close_pending "$project_root" "$decision" 2>&1; then
-        print_ok "Audit log closed: pending bypass rows marked $decision."
+      # BL-277-FP-PASS — the reason travels to the library; the label printed
+      # is the row's own spelling.
+      local closed_as="$decision"
+      case "$decision" in accept) closed_as="accepted" ;; decline) closed_as="declined" ;; false-positive) closed_as="false_positive" ;; esac
+      if bypass_audit_close_pending "$project_root" "$decision" "$reason" 2>&1; then
+        print_ok "Audit log closed: pending bypass rows marked $closed_as."
       else
         print_fail "Audit log close failed (decision='$decision')."
         echo "  Re-run 'pending-approval --resolve --decision $decision' to retry the audit close." >&2
@@ -352,6 +367,10 @@ Commands:
                                   Optional: --decision accept|decline closes
                                   any PENDING claude_bypass_proposal rows in
                                   .claude/bypass-audit.json to match (BL-029.1).
+                                  --decision false-positive --reason "WHY"
+                                  closes them as false_positive instead: nothing
+                                  was proposed, and WHY is recorded on each row
+                                  (BL-277). An empty reason is refused.
   --clear                         Delete the sentinel (agent abort, semantic alias).
   --status                        Print the current pending question, if any.
   --validate [PATH]               Lint a sentinel file. Default: .claude/pending-approval.json.

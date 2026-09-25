@@ -9,6 +9,12 @@
 # bypass-audit.json on match. Stop passes with .stop_hook_active == true
 # are skipped to avoid re-entrant double-scanning.
 #
+# BL-277: the two surfaces differ in AUTHORSHIP. A Stop match is text the
+# model wrote: actor "claude", user_response PENDING, and the pending-approval
+# sentinel is raised. A PostToolUse match is text a program printed or a file
+# contains: recorded under actor "tool_output", user_response n/a, and no
+# sentinel — reading a rule is not proposing to break it.
+#
 # No-op conditions:
 #   - .claude/ doesn't exist
 #   - jq isn't installed
@@ -116,6 +122,17 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 LEVEL=$(jq -r '.enforcement_level // "strict"' "$PROJECT_ROOT/.claude/manifest.json" 2>/dev/null)
 FIRST_PATTERN=""
 
+# BL-277-AUTHORSHIP — who wrote the scanned text. Only the Stop arm reads text
+# the model authored (.last_assistant_message). PostToolUse text is whatever a
+# program printed or a file contains, so its rows are recorded under their own
+# actor and await no decision: nobody proposed anything.
+ACTOR="tool_output"
+USER_RESPONSE="n/a"
+if [ "$EVENT" = "Stop" ]; then
+  ACTOR="claude"
+  USER_RESPONSE="PENDING"
+fi
+
 while IFS= read -r PATTERN; do
   [ -z "$PATTERN" ] && continue
   [ -z "$FIRST_PATTERN" ] && FIRST_PATTERN="$PATTERN"
@@ -142,14 +159,16 @@ while IFS= read -r PATTERN; do
     --arg evt "$EVENT" \
     --arg ex "$EXCERPT" \
     --arg sev "$SEVERITY" \
+    --arg actor "$ACTOR" \
+    --arg ur "$USER_RESPONSE" \
     '{
       timestamp: $ts,
       session_id: $sid,
       type: "claude_bypass_proposal",
-      actor: "claude",
+      actor: $actor,
       enforcement_level_at_event: $lvl,
       details: {pattern: $pat, event: $evt, excerpt: $ex, severity: $sev},
-      user_response: "PENDING",
+      user_response: $ur,
       final_outcome: "recorded_only"
     }')
 
@@ -166,11 +185,14 @@ done <<< "$PATTERNS"
 # copy-paste the phrase out of compliance — defeating the defense. The
 # phrase remains in options[0] (structurally required for matching), and
 # the question instructs the user to read options[0] verbatim.
+#
+# BL-277-SENTINEL-AUTHORED — the sentinel is a question put to the operator
+# about something the model proposed, so it is raised for authored text only.
 SENTINEL="$PROJECT_ROOT/.claude/pending-approval.json"
-if [ ! -f "$SENTINEL" ]; then
+if [ "$ACTOR" = "claude" ] && [ ! -f "$SENTINEL" ]; then
   CONFIRM_PHRASE="I have read the proposal at .claude/bypass-audit.json and accept the bypass"
   jq -nc \
-    --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. To accept, type option A1 verbatim. To decline, say 'decline' or describe what you want instead." \
+    --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. To accept, type option A1 verbatim. To decline, say 'decline' or describe what you want instead. If the matched text was not a proposal (a rule quoted, a document described), tell the operator so; the operator can close it as a false positive with a stated reason (scripts/pending-approval.sh --help, decision false-positive)." \
     --arg phrase "$CONFIRM_PHRASE" \
     --arg ts "$TS" \
     '{

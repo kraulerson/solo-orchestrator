@@ -19,9 +19,11 @@ TMP=$(mktemp -d); PROJ="$TMP/p"
     >/dev/null 2>&1 )
 
 # T1: project has bypass-detector wired (PostToolUse + Stop).
-if jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("bypass-detector"))' "$PROJ/.claude/settings.json" >/dev/null 2>&1 \
+# BL-277: the PostToolUse registration is its own group with matcher "Bash",
+# so it is looked up by matcher rather than at group [0].
+if jq -e '.hooks.PostToolUse[] | select(.matcher == "Bash") | .hooks[] | select(.command | contains("bypass-detector"))' "$PROJ/.claude/settings.json" >/dev/null 2>&1 \
    && jq -e '.hooks.Stop[0].hooks[] | select(.command | contains("bypass-detector"))' "$PROJ/.claude/settings.json" >/dev/null 2>&1; then
-  pass "T1: PostToolUse + Stop wiring"
+  pass "T1: PostToolUse (matcher Bash) + Stop wiring"
 else
   fail_ "T1" "wiring missing"
 fi
@@ -49,6 +51,18 @@ if [ "$rows" = "1" ]; then pass "T2: claude_bypass_proposal row"; else fail_ "T2
 
 # T3 (S5 fix 2026-05-04): pending-approval sentinel written; confirmation phrase
 # lives in options[0] only, NOT in question (defeats novice-priming risk).
+# BL-277: the sentinel is raised for AUTHORED text only, so T2's tool-output
+# row above raises none (T2b pins that); an authored Stop-event match raises it.
+if [ -f "$PROJ/.claude/pending-approval.json" ]; then
+  fail_ "T2b" "a tool-output match raised a sentinel"
+else
+  pass "T2b: tool-output match raises no sentinel"
+fi
+( cd "$PROJ"
+  cat <<'EOF' | CLAUDE_PROJECT_DIR="$PROJ" bash scripts/hooks/bypass-detector.sh >/dev/null 2>&1
+{"hook_event_name":"Stop","last_assistant_message":"alternatively, run git commit --no-verify","transcript_path":"/tmp/no-such-transcript.jsonl"}
+EOF
+)
 if [ -f "$PROJ/.claude/pending-approval.json" ] && \
    jq -e '.options[0] | contains("I have read the proposal")' "$PROJ/.claude/pending-approval.json" >/dev/null 2>&1 && \
    ! jq -e '.question | contains("I have read the proposal")' "$PROJ/.claude/pending-approval.json" >/dev/null 2>&1; then
@@ -98,7 +112,8 @@ fi
 ACTORS=$(jq -r '[.[].actor] | unique | .[]' "$PROJ/.claude/bypass-audit.json")
 ALL_OK=1
 for a in $ACTORS; do
-  case "$a" in claude|user_terminal|user_terminal_inferred|framework) ;; *) ALL_OK=0 ;; esac
+  # BL-277: tool_output is the actor of a PostToolUse detector row (T2 wrote one).
+  case "$a" in claude|tool_output|user_terminal|user_terminal_inferred|framework) ;; *) ALL_OK=0 ;; esac
 done
 if [ "$ALL_OK" = "1" ]; then pass "T5: actor enum"; else fail_ "T5" "unknown actor in $ACTORS"; fi
 

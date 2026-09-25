@@ -38,10 +38,17 @@
 #                                  REAL events; a clean pass writes a non-tracked
 #                                  .claude/last-gate-pass.txt receipt instead. Old
 #                                  ledgers keep any historical passed rows.)
-#     "actor":                     "claude" | "user_terminal" | "user_terminal_inferred" | "framework",
+#     "actor":                     "claude" | "tool_output" | "user_terminal" | "user_terminal_inferred" | "framework",
+#                                  (BL-277: "tool_output" is a claude_bypass_proposal
+#                                  row whose text came back through a tool — a file
+#                                  read, a program's output — so authorship is NOT
+#                                  established; only "claude" rows raise a sentinel.)
 #     "enforcement_level_at_event":"no" | "light" | "strict" | "n/a",
 #     "details":                   { type-specific },
-#     "user_response":             "PENDING" | "accepted" | "declined" | "n/a",
+#     "user_response":             "PENDING" | "accepted" | "declined" | "false_positive" | "n/a",
+#                                  (BL-277: "false_positive" closes a PENDING proposal
+#                                  that was never one; details.false_positive_reason
+#                                  carries the operator's stated reason.)
 #     "final_outcome":             "committed" | "bypassed" | "escalated" | "abandoned" | "recorded_only" | "n/a"
 #   }
 
@@ -217,10 +224,12 @@ bypass_audit_count_pending() {
   jq '[.[] | select(.user_response == "PENDING")] | length' "$file" 2>/dev/null || echo 0
 }
 
-# bypass_audit_close_pending <project_root> <decision>
-# Updates every PENDING row to the given decision. decision ∈ {accept, decline}.
-#   accept  → user_response=accepted,  final_outcome=bypassed
-#   decline → user_response=declined,  final_outcome=abandoned
+# bypass_audit_close_pending <project_root> <decision> [<reason>]
+# Updates every PENDING row to the given decision. decision ∈ {accept, decline, false-positive}.
+#   accept         → user_response=accepted,       final_outcome=bypassed
+#   decline        → user_response=declined,       final_outcome=abandoned
+#   false-positive → user_response=false_positive, final_outcome=recorded_only,
+#                    details.false_positive_reason=<reason>; a blank reason is refused (BL-277)
 # Idempotent — leaves already-resolved rows untouched. Holds the same lock
 # bypass_audit_append uses to avoid races. Returns 0 on success, 1 on
 # unknown decision or write failure.
@@ -232,14 +241,24 @@ bypass_audit_count_pending() {
 bypass_audit_close_pending() {
   local project_root="${1:-.}"
   local decision="${2:-}"
+  local reason="${3:-}"
   local file="$project_root/.claude/bypass-audit.json"
 
   local user_resp final_out
   case "$decision" in
     accept)  user_resp="accepted"; final_out="bypassed" ;;
     decline) user_resp="declined"; final_out="abandoned" ;;
+    # BL-277-FALSE-POSITIVE — nothing was proposed, so nothing was accepted or
+    # abandoned. The reason is the record; without one this is a silent dismissal.
+    false-positive)
+      user_resp="false_positive"; final_out="recorded_only"
+      if [ -z "${reason//[[:space:]]/}" ]; then
+        echo "[FAIL] bypass_audit_close_pending: decision 'false-positive' requires a non-empty reason" >&2
+        return 1
+      fi
+      ;;
     *)
-      echo "[FAIL] bypass_audit_close_pending: unknown decision '$decision' (expected: accept | decline)" >&2
+      echo "[FAIL] bypass_audit_close_pending: unknown decision '$decision' (expected: accept | decline | false-positive)" >&2
       return 1
       ;;
   esac
@@ -279,8 +298,9 @@ bypass_audit_close_pending() {
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
     trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
-    if jq --arg ur "$user_resp" --arg fo "$final_out" \
-         '[.[] | if .type == "claude_bypass_proposal" and .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo else . end]' \
+    # BL-277-FP-RECORD — the reason lands on every row the close touches.
+    if jq --arg ur "$user_resp" --arg fo "$final_out" --arg why "$reason" \
+         '[.[] | if .type == "claude_bypass_proposal" and .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo | (if $ur == "false_positive" then .details.false_positive_reason = $why else . end) else . end]' \
          "$file" > "$tmp" 2>/dev/null; then
       _bypass_audit_preserve_mode "$file" "$tmp"
       mv "$tmp" "$file" || exit 1
