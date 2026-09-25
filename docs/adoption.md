@@ -972,9 +972,15 @@ packages remain**, and neither prints a block during the run:
   hotfix delta below phase 4 (`scripts/delta.sh`) is not built, so a production
   adoptee at phase 0 cannot use the delta track yet.
 
-One smaller gap is unassigned: a file of yours sitting where a framework
-*script* goes is left alone, so the framework's version of that script is not
-installed; the run names it.
+Two further gaps have no owning package yet:
+
+- **The Development Guardrails for Claude Code are not installed.** `init.sh`
+  clones and runs that companion framework (`~/.claude-dev-framework`) for a new
+  project, which is where its Claude Code rules and hooks come from; adoption
+  never runs it. Ruled in on 2026-09-18 (`## BL-296:`, row 33) and not yet
+  designed.
+- **A file of yours sitting where a framework *script* goes is left alone**, so
+  the framework's version of that script is not installed; the run names it.
 
 ### The assessment — Act 3 and Act 4 — SHIPS (WP12a)
 

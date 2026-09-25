@@ -15306,8 +15306,19 @@ no NOT-DONE block at all unless a framework script collides (the one stub still 
 As with the Adoption Record, the "lint" is a suite, not a `scripts/lint-*.sh`: a core lint may not
 source the module.
 
-**Pinned by** `tests/test-brownfield-wp7f-provenance.sh` (V1–V5), nine mutants killed (the
-not-first-content arm is pinned by its REASON, since removing it still rejects, as "never closed").
+**Review round (one, adversarial) — verdict `block`, fixed:** the check verified SHAPE only —
+2026-02-30, 9999-99-99 and a made-up SHA all passed while the guide said "a real date" and "a
+commit"; it now checks the calendar day (the dispositions validator's `isoday`) and, where the
+caller knows it, that the header's commit prefixes the real one. The finisher's refusal told the
+operator to fix the RECORD for a defect in the intake, and gave no way back; it now names the file
+and prints `git show <adoption commit>:PROJECT_INTAKE.md | sed -n 1,6p`. An editor's re-save (CRLF,
+a byte-order mark, trailing space) was reported as a different defect; it is now tolerated. The
+write-time check was unpinned; the `SOIF_ADOPT_PROVENANCE_FAULT=noend` seam and V6 pin it. The guide
+now also names BL-296 row 33 (the Development Guardrails install) as unowned.
+
+**Pinned by** `tests/test-brownfield-wp7f-provenance.sh` (V1–V6), fifteen mutants killed (the
+not-first-content arm is pinned by its REASON: without it the file is still rejected, but as "line 1
+… is not reconstructed-at" and "more than four fields", which sends the operator elsewhere).
 
 **Still designed and unbuilt after this:** WP9c (session settings, hooks, MCP declaration, skills)
 and WP12c (the in-production delta exemption).

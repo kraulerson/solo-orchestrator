@@ -200,7 +200,8 @@ questions rather than a shortcut past them.
 > reconstructed intake ship and work. **Designed and not yet built:** composing
 > the framework's Claude Code session settings, hooks, MCP declaration and
 > skills into an adopted project (WP9c), and the *in production* exemption for
-> hotfix deltas below phase 4 (WP12c).
+> hotfix deltas below phase 4 (WP12c). The Development Guardrails install that
+> `init.sh` performs is not run by adoption and has no owning package yet.
 > [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
 
 **These three pages live in this repo and are not copied into generated
