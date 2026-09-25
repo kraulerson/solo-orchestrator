@@ -596,6 +596,7 @@ jobs:
             tests/test-brownfield-wp12b-framework-docs.sh
             tests/test-brownfield-wp7d-audit-rows.sh
             tests/test-brownfield-wp7e-ci-carveout.sh
+            tests/test-brownfield-wp12a-assessment.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -978,6 +979,7 @@ jobs:
             tests/test-brownfield-dispositions-template.sh    #  48s on PR #444 — rest's top pole
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
+            tests/test-brownfield-wp12a-assessment.sh         #  new — one real adoption, then the Act 4 finisher run a dozen times
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then

@@ -15235,6 +15235,64 @@ still keys `CI pipeline exists` on the canonical path (v1 §7.4's false-pass not
 GitLab/Bitbucket project it reports THEIR pipeline as the framework's; the release pipeline
 (`generate_release`) is not laid down by adoption.
 
+### WP12a's build (2026-09-24) — the assessment: a Claude Code conversation, then a shell finisher
+
+**What ships:**
+- **Act 2 writes the prompt** (`# BL-242-ASSESSMENT-PROMPT`, stage `assessment_prompt`):
+  `.claude/adoption/assessment-prompt.md` — the five axes, *in production*, the operations block,
+  fitness judged only against stated requirements, the verdict's two halves, the record's schema with
+  this project's `adoptedAtCommit` filled in, the wizard keys, and the finisher command.
+- **`resume.sh`'s adoption branch** (`# BL-242-RESUME-ASSESSMENT`), checked before the BL-202
+  branches: adopted and no `.adoption.assessment` → print that file. **DEVIATION FROM v2.2 A6,
+  recorded here:** the design had resume.sh render the prompt itself and dropped the Act-2-written
+  brief. resume.sh is CORE, the prompt must name the finisher (`adopt-project.sh`), and
+  `lint-module-dependencies.sh` forbids a core file to name it with an allowlist whose cardinality
+  must be 0 (§3.1). So the module writes the words and the core reads a state file.
+- **The finisher** `adopt-project.sh --act4 --root .` (`adopt_act4_finish`, `# BL-242-ACT4-FINISH`,
+  in `scripts/lib/adopt/adopt-act4.sh` — NOT the design's `adopt-finish.sh`, because `--finish`
+  already exists and two finishers one name apart invite the wrong one), order as data
+  (`# BL-242-ACT4-ORDER`): `validate_record` (§8.3's refusals + D8's two halves, all before any
+  write) → `classification` (THROUGH `adopt_persist_phase1_artifacts` — A7's hand-off, at last
+  called) → `prefill_intake` (wizard keys into `.claude/intake-progress.json`; refuses with no
+  classification on record) → `verdict` → `documents` → `merge` (LAST; `soif_adoption_assess`,
+  `# BL-242-ASSESS-MERGE`, a new one-call-site core writer that records once and never moves the
+  phase) and an `assessment` adoption_event row.
+- `adopt_stub_assessment` is retired; Act 2 ends with `adopt_act3_next` (`# BL-242-ACT3-NEXT`).
+- **Measured end to end:** a real adoption, a hand-written record, the finisher (a bad
+  `requirementRef` refused with nothing written; the fixed record accepted), the suggested commit
+  landing through the adoptee's own hooks at rc 0, and the next `resume.sh` printing the project's
+  Phase 0 prompt.
+
+**Review round (one, adversarial) — verdict `block`, fixed:**
+- **R-1 (block):** `(.interview.inProduction // null) | type` read `false` as missing — jq's `//`
+  replaces false too — so NO project not in production could finish. Types are read directly; K10.
+- **R-2 (block):** `--act4` kept no ledger, so a refusal after the classification write printed "did
+  not begin … nothing was written" over a modified process-state.json. The finisher now opens a
+  ledger, and the preconditions a later stage needed (the intake file is one JSON object) moved into
+  `validate_record`, before any write. K10 pins the honest message.
+- **R-3 (major):** an EMPTY record passed (jq exits 0 on no input), a classification ARRAY passed
+  (`index` does subarray search), a non-list `findings` skipped the requirementRef check, and answer
+  keys the gates read (`project_name`, `repo_visibility`) could be rewritten. Now: exactly one JSON
+  object; typed checks throughout; requirementRef by exact membership; an answer-key ALLOWLIST
+  (`ADOPT_ACT4_ANSWER_KEYS`, `# BL-242-ACT4-ANSWER-KEYS`) that the prompt lists verbatim.
+- **R-4 (major):** eight mutants survived K3; K3 now carries each refusal. **R-6:** the prompt asked
+  about ZDR only for pii/financial/health/regulated while the Phase 1→2 gate requires it for all but
+  `public` — the suite's own record would have failed that gate. The finisher now refuses what the
+  gate would (`# BL-242-ACT4-REFUSE-ZDR`) and the prompt asks for it. **R-5:** the resume branch now
+  fires at phase 0 only — an adoptee that moved on unassessed kept being told "before starting
+  Phase 0" even at phase 4; K11. **R-7:** the verdict grammar is spelled out in the prompt.
+
+**Pinned by** `tests/test-brownfield-wp12a-assessment.sh` (K1–K11), twenty-nine mutants killed; wp9 R1
+flipped as §10-WP12a said (R1 now reads an assessed copy; R1b pins the assessment prompt), wp9 H1,
+wp4 W1/S1, wp7 A10, wp12b D8 and wp7b B9 (called stubs now **two**) re-aimed.
+
+**Residuals:** the `accessibility` → `accessibility_target` rename in `_scout_prefill_table` (M14) is
+not done — the prompt steers the model to `accessibility_target`, and the Act 2 A7 row keeps its
+old key; the model's judgement is not suite-provable (§12 item 8) — only the record is; the
+finisher does not commit, by design; `evaluators` is checked to be a list and nothing more;
+`soif_adoption_assess` writes through a fixed `$manifest.tmp` with no lock, as the stamp writer does
+(one session runs it).
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

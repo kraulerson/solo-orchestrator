@@ -23,6 +23,36 @@ if [ -f ".claude/phase-state.json" ]; then
   [ -z "$PHASE" ] && PHASE="unknown"
 fi
 
+# --- BL-242: the adoption branch, checked FIRST ------------------------------
+# An ADOPTED project whose assessment is not yet recorded is offered the
+# assessment (Act 3), before the intake branches below: Act 2 leaves a phase-0
+# project with an intake, which those branches would otherwise route into
+# Phase 0 before anyone has asked what the project is for (adoption design v2
+# §8.5). The predicate reads STATE only — `.adoption.adopted` and the absence of
+# `.adoption.assessment` — and the prompt is a file adoption wrote: this core
+# script names no adoption code, which the module-dependency lint requires.
+# AT PHASE 0 ONLY. Nothing makes the assessment a precondition for the gates,
+# so an adoptee can move on without one — and at phase 4 this branch would
+# replace the shipped-product greeting with "before starting Phase 0" for good
+# (review). Past phase 0 the ordinary branches below decide.
+if [ "$PHASE" = "0" ] && [ -f ".claude/manifest.json" ] && command -v jq >/dev/null 2>&1 \
+   && jq -e '.adoption.adopted == true and .adoption.assessment == null' .claude/manifest.json >/dev/null 2>&1; then   # BL-242-RESUME-ASSESSMENT
+  echo -e "${CYAN}--- Copy everything below this line into Claude Code ---${NC}"
+  echo ""
+  if [ -s ".claude/adoption/assessment-prompt.md" ]; then
+    cat ".claude/adoption/assessment-prompt.md"
+  else
+    # Adopted before the assessment existed: no prompt was written. Say so.
+    echo "This project was adopted into the Solo Orchestrator framework and has not been"
+    echo "assessed, but the assessment prompt adoption writes (.claude/adoption/assessment-prompt.md)"
+    echo "is not here. Read CLAUDE.md and PROJECT_INTAKE.md, then ask me what this project is for"
+    echo "before starting Phase 0."
+  fi
+  echo ""
+  echo -e "${CYAN}--- End (a blank Claude Code screen means it is ready and waiting, not stuck) ---${NC}"
+  exit 0
+fi
+
 # --- BL-202: state-aware first-message branches ---------------------------
 # This script is the SINGLE generator of "what do I paste into Claude Code";
 # every wizard/init print points here. Three states, checked in order:

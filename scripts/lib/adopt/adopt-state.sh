@@ -69,6 +69,8 @@ _adopt_state_order() {
   printf '%s\n' framework_docs   # BL-242-DOCS-STAGE-ORDER
   # The framework's CI, at its own name (§7.4), before the record that names it.
   printf '%s\n' ci   # BL-242-CI-STAGE-ORDER
+  # The prompt resume.sh prints for the assessment; it needs the stamp's commit.
+  printf '%s\n' assessment_prompt   # BL-242-ASSESSMENT-PROMPT-ORDER
   printf '%s\n' adoption_record   # BL-242-RECORD-STAGE
   printf '%s\n' write_set   # BL-242-WRITE-SET — LAST: it records what every stage before it wrote
 }
@@ -1777,6 +1779,7 @@ _adopt_write_phase() {
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;
       framework_docs) adopt_write_framework_docs "$root" || return 1 ;;   # BL-242-DOCS-STAGE
       ci)          adopt_write_ci "$root" "$report" || return 1 ;;   # BL-242-CI-STAGE
+      assessment_prompt) adopt_write_assessment_prompt "$root" || return 1 ;;
       adoption_record) adopt_write_adoption_record "$root" "$report" || return 1 ;;   # BL-242-RECORD-STAGE
       write_set)   adopt_write_write_set "$root" || return 1 ;;   # BL-242-WRITE-SET
       *)           adopt_refuse "unknown state stage '$stage'"; return 1 ;;
@@ -2245,10 +2248,10 @@ adopt_main() {
     adopt_note "  NOT run on commit. The reason is printed above, under 'Turning the gates on'."
     adopt_note "  The adoption itself landed; this step did not."
     adopt_blank
-    adopt_stub_assessment
+    adopt_act3_next
     return 1
   fi
-  adopt_stub_assessment
+  adopt_act3_next
   return $rc
 }
 

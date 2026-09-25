@@ -137,7 +137,7 @@ done
 # THE GUARD, BEFORE ARGUMENT PARSING — see the header. Sibling posture, kept.
 guard_not_in_framework || exit 1
 
-for _part in adopt-core adopt-evidence adopt-intake adopt-tools adopt-secrets adopt-state adopt-record adopt-docs adopt-ci adopt-archive adopt-stubs adopt-test-debt; do
+for _part in adopt-core adopt-evidence adopt-intake adopt-tools adopt-secrets adopt-state adopt-record adopt-docs adopt-ci adopt-act4 adopt-archive adopt-stubs adopt-test-debt; do
   if [ ! -f "$ADOPT_LIB_DIR/$_part.sh" ]; then
     echo "adopt-project: missing $ADOPT_LIB_DIR/$_part.sh — the driver needs its own lib directory." >&2
     exit 2
@@ -198,6 +198,7 @@ ADOPT_ROOT="."
 ADOPT_REPORT=""
 ADOPT_READD=""
 ADOPT_FINISH=""
+ADOPT_ACT4=""
 # `--dispositions` is EMPTY BY DEFAULT and that is not a placeholder: §6.1's
 # secrets check only reads it when a stop is on the table, and an adoption
 # whose scan came back clean never needs one. Declared here, under `set -u`,
@@ -217,6 +218,7 @@ while [ "$#" -gt 0 ]; do
                      ADOPT_DISPOSITIONS_FILE="$2"; shift 2 ;;
     --dispositions=*) ADOPT_DISPOSITIONS_FILE="${1#--dispositions=}"; shift ;;
     --finish)        ADOPT_FINISH=1; shift ;;
+    --act4)          ADOPT_ACT4=1; shift ;;
     --version)       adopt_module_version; exit 0 ;;
     -h|--help)       usage; exit 0 ;;
     *)               echo "adopt-project: unrecognised option '$1'" >&2; echo "" >&2; usage >&2; exit 2 ;;
@@ -245,6 +247,16 @@ fi
 # completes an adoption whose state was written and whose commit did not land.
 # Dispatched here for the same reason --re-add is — it is a different operation,
 # not a mode of the run, and it must not re-write anything.
+# --act4 is Act 4's assessment half (WP12a): the shell finisher the assessment
+# conversation runs once it has written .claude/adoption/assessment-record.json.
+# A different operation again — it never re-runs the adoption.
+if [ -n "$ADOPT_ACT4" ]; then
+  ADOPT_WORK="$(mktemp -d)" || { echo "adopt-project: could not create a working directory" >&2; exit 1; }
+  trap 'rm -rf "$ADOPT_WORK"' EXIT
+  adopt_act4_finish "$ADOPT_ROOT_ABS"
+  exit $?
+fi
+
 if [ -n "$ADOPT_FINISH" ]; then
   adopt_finish_main "$ADOPT_ROOT_ABS"
   exit $?

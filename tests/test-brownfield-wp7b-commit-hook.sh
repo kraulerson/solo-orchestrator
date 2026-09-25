@@ -275,8 +275,8 @@ b9() {
     [ -n "$f" ] && sed -e 's/^[[:space:]]*#.*$//' -e 's/[[:space:]]#.*$//' "$f" >> "$WORK/stubstrip"
   done < "$WORK/stubsrc"
   called="$(grep -ohE '\badopt_stub_[a-z_]+' "$WORK/stubstrip" | LC_ALL=C sort -u | grep -c .)"
-  [ "$called" -eq 3 ] || bad="$bad [the called-stub set is $called, not 3 — re-derive it and update this case deliberately]"
-  [ -z "$bad" ] && pass "$label (3 stubs still called)" || fail_ "$label" "$bad"
+  [ "$called" -eq 2 ] || bad="$bad [the called-stub set is $called, not 2 — re-derive it and update this case deliberately]"
+  [ -z "$bad" ] && pass "$label (2 stubs still called)" || fail_ "$label" "$bad"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
