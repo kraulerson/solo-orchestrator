@@ -212,21 +212,31 @@ ADOPT_PROVENANCE_STATUS="describes work completed BEFORE adoption; not a pre-bui
 
 # adopt_provenance_header COMMIT — the header, on stdout.  # BL-242-PROVENANCE-HEADER
 adopt_provenance_header() {
+  # `SOIF_ADOPT_PROVENANCE_FAULT=noend` drops the closing line — a TEST SEAM, so
+  # the write-time check can be shown to refuse what it exists to refuse.
   printf '%s\n' '<!-- SOIF-PROVENANCE-BEGIN'
   printf 'reconstructed-at: %s\n' "$(date -u +%Y-%m-%d)"
   printf '%s\n' 'reconstructed-by: scripts/adopt-project.sh'
   printf 'source: existing codebase at %s + adoption survey\n' "$1"
   printf 'status: %s\n' "$ADOPT_PROVENANCE_STATUS"
-  printf '%s\n' 'SOIF-PROVENANCE-END -->'
+  [ "${SOIF_ADOPT_PROVENANCE_FAULT:-}" = "noend" ] || printf '%s\n' 'SOIF-PROVENANCE-END -->'
 }
 
-# adopt_provenance_errors FILE — one line per defect; nothing when the file
-# opens with a well-formed header.                    # BL-242-PROVENANCE-CHECK
+# adopt_provenance_errors FILE [COMMIT] — one line per defect; nothing when the
+# file opens with a well-formed header. With COMMIT, the header's commit must
+# be a prefix of it.                                  # BL-242-PROVENANCE-CHECK
+#
+# An editor's re-save is tolerated, not refused: a UTF-8 byte-order mark and
+# CRLF line endings are stripped before comparing, and so is trailing space —
+# each used to be reported as a DIFFERENT defect ("not the opening line", "more
+# than four fields"), which sent the operator to fix the wrong thing (review).
 adopt_provenance_errors() {
-  local f="$1"
+  local f="$1" want="${2:-}" out day sha
   [ -s "$f" ] || { printf '%s\n' "$f is missing or empty"; return 0; }
-  LC_ALL=C awk -v status="$ADOPT_PROVENANCE_STATUS" '
+  out="$(LC_ALL=C awk -v status="$ADOPT_PROVENANCE_STATUS" '
     function bad(m) { print m; errs++ }
+    NR == 1 && substr($0, 1, 3) == "\357\273\277" { $0 = substr($0, 4) }
+    { sub(/\r$/, ""); sub(/[ \t]+$/, "") }
     /^[[:space:]]*$/ && !started { next }
     !started { started = 1
                if ($0 != "<!-- SOIF-PROVENANCE-BEGIN") { bad("the first content is not the provenance header'"'"'s opening line"); exit }
@@ -239,7 +249,22 @@ adopt_provenance_errors() {
       if (n == 4 && $0 != "status: " status) bad("line 4 of the header is not the status sentence")
       if (n > 4) { bad("the header has more than four fields"); exit } }
     END { if (!started) bad("the file has no content"); else if (!closed && !errs) bad("the header is never closed"); else if (closed && n < 4) bad("the header has fewer than four fields") }
-  ' "$f"
+  ' "$f")"
+  if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+  # The SHAPE passed; now the MEANING. A calendar day, not 2026-02-30, and —
+  # when the caller knows it — the commit this project was adopted at.
+  day="$(LC_ALL=C awk '{sub(/\r$/,"")} /^reconstructed-at: /{print $2; exit}' "$f")"
+  # The same `isoday` the dispositions validator uses.
+  if ! printf '%s' "$day" | jq -Re '((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .)' >/dev/null 2>&1; then
+    printf '%s\n' "reconstructed-at ($day) is not a real calendar day"
+  fi
+  if [ -n "$want" ]; then
+    sha="$(LC_ALL=C awk '{sub(/\r$/,"")} /^source: existing codebase at /{print $5; exit}' "$f")"
+    case "$want" in
+      "$sha"*) : ;;
+      *) printf 'the header names commit %s, but this project was adopted at %.12s\n' "$sha" "$want" ;;
+    esac
+  fi
 }
 
 # ── Rendering the intake artifacts ──────────────────────────────────────────
@@ -284,7 +309,7 @@ adopt_render_intake_doc() {
     adopt_render_section_13 "$root"
     printf '\n'
   } | adopt_write_file "$root" "PROJECT_INTAKE.md" || return 1
-  errs="$(adopt_provenance_errors "$root/PROJECT_INTAKE.md")"
+  errs="$(adopt_provenance_errors "$root/PROJECT_INTAKE.md" "$(git -C "$root" rev-parse HEAD 2>/dev/null)")"
   if [ -n "$errs" ]; then                              # BL-242-PROVENANCE-WRITE-CHECK
     adopt_refuse "PROJECT_INTAKE.md's provenance header is malformed: $(printf '%s' "$errs" | head -1)"
     return 1

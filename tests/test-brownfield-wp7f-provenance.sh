@@ -20,6 +20,7 @@
 #   V4  the Act 4 finisher refuses a PROJECT_INTAKE.md whose header the
 #       conversation broke, and writes nothing
 #   V5  the stub is retired
+#   V6  a malformed header refuses the write itself
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,8 +36,8 @@ done
 WORK="$(mktemp -d)" || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
-_check() {   # _check FILE — the shipped checker's output
-  ( set +u; . "$REPO_ROOT/scripts/lib/adopt/adopt-intake.sh" >/dev/null 2>&1; adopt_provenance_errors "$1" )
+_check() {   # _check FILE [COMMIT] — the shipped checker's output
+  ( set +u; . "$REPO_ROOT/scripts/lib/adopt/adopt-intake.sh" >/dev/null 2>&1; adopt_provenance_errors "$1" "${2:-}" )
 }
 
 P="$WORK/p"
@@ -89,9 +90,23 @@ NEAR
   awk '{print} /^status:/{print "extra: field"}' "$good" > "$WORK/extra.md"
   [ -n "$(_check "$WORK/extra.md")" ] || bad="$bad [a fifth field accepted]"
   { printf '# Title first\n\n'; cat "$good"; } > "$WORK/late.md"
-  # And for the RIGHT reason: rejected as "never closed" it would still be
-  # rejected, but the operator would be sent to fix the wrong thing.
+  # And for the RIGHT reason: without that arm the file is still rejected, but
+  # as "line 1 of the header is not reconstructed-at …" and "more than four
+  # fields" — which sends the operator to fix the wrong thing.
   _check "$WORK/late.md" | grep -q 'first content' || bad="$bad [a header that is not the first content is not rejected as such]"
+  # MEANING, not only shape: a date that is not a day, and a commit that is not
+  # this project's (review: both passed a shape-only check).
+  sed 's/^reconstructed-at: .*/reconstructed-at: 2026-02-30/' "$good" > "$WORK/feb30.md"
+  [ -n "$(_check "$WORK/feb30.md")" ] || bad="$bad [2026-02-30 accepted]"
+  [ -n "$(_check "$good" "0000000000000000000000000000000000000000")" ] || bad="$bad [a header naming another commit accepted]"
+  [ -z "$(_check "$good" "$(cd "$P" && git rev-parse HEAD~1)")" ] || bad="$bad [the header naming THIS project's commit rejected]"
+  # AN EDITOR'S RE-SAVE IS TOLERATED: CRLF, a byte-order mark, trailing space.
+  sed 's/$/\r/' "$good" > "$WORK/crlf.md"
+  [ -z "$(_check "$WORK/crlf.md")" ] || bad="$bad [CRLF line endings rejected: $(_check "$WORK/crlf.md" | head -1)]"
+  { printf '\357\273\277'; cat "$good"; } > "$WORK/bom.md"
+  [ -z "$(_check "$WORK/bom.md")" ] || bad="$bad [a byte-order mark rejected]"
+  sed 's/^SOIF-PROVENANCE-END -->$/& /' "$good" > "$WORK/trail.md"
+  [ -z "$(_check "$WORK/trail.md")" ] || bad="$bad [trailing space rejected]"
   sed '1,/^SOIF-PROVENANCE-END -->$/d' "$good" > "$WORK/none.md"
   [ -n "$(_check "$WORK/none.md")" ] || bad="$bad [a file with no header accepted]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
@@ -111,7 +126,9 @@ v4() {
   before="$(cat "$P/.claude/manifest.json" "$P/.claude/process-state.json" | shasum -a 256)"
   ( cd "$P" && bash "$REPO_ROOT/scripts/adopt-project.sh" --act4 --root . ) > "$WORK/v4.out" 2>&1
   [ "$?" -ne 0 ] || bad="$bad [rc 0 with a broken header]"
-  grep -q 'PROJECT_INTAKE.md: ' "$WORK/v4.out" || bad="$bad [the refusal does not name the header]"
+  grep -q 'PROJECT_INTAKE.md: the header' "$WORK/v4.out" || bad="$bad [the refusal does not name the header's defect]"
+  grep -qE 'git show [0-9a-f]+:PROJECT_INTAKE.md \| sed -n 1,6p' "$WORK/v4.out" || bad="$bad [the refusal gives no way to restore the header]"
+  grep -q 'Fix .claude/adoption/assessment-record.json' "$WORK/v4.out" && bad="$bad [the refusal sends the operator to the record, not the intake]"
   [ "$(cat "$P/.claude/manifest.json" "$P/.claude/process-state.json" | shasum -a 256)" = "$before" ] || bad="$bad [something was written]"
   cp "$WORK/intake.bak" "$P/PROJECT_INTAKE.md"
   ( cd "$P" && bash "$REPO_ROOT/scripts/adopt-project.sh" --act4 --root . ) > "$WORK/v4b.out" 2>&1
@@ -126,7 +143,20 @@ v5() {
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-v1; v2; v3; v4; v5
+v6() {
+  local label="V6 a malformed header refuses the WRITE — the adoption does not land with it" bad="" q="$WORK/fault"
+  mkdir -p "$q"
+  ( cd "$q" && git init -q . && git config user.email wp7f@test.invalid && git config user.name "WP7f Test" ) >/dev/null 2>&1
+  printf '{"name":"acme","scripts":{"test":"exit 0"}}\n' > "$q/package.json"
+  ( cd "$q" && git add package.json && git commit -q --no-verify -m "chore: their history" ) >/dev/null 2>&1
+  ( cd "$q" && printf '1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n' | SOIF_ADOPT_PROVENANCE_FAULT=noend bash "$REPO_ROOT/scripts/adopt-project.sh" ) > "$WORK/v6.out" 2>&1
+  [ "$?" -ne 0 ] || bad="$bad [rc 0 with a malformed header]"
+  grep -q "provenance header is malformed" "$WORK/v6.out" || bad="$bad [the refusal does not name the header]"
+  [ "$(cd "$q" && git log --oneline | grep -c .)" -eq 1 ] || bad="$bad [an adoption commit landed]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+v1; v2; v3; v4; v5; v6
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
 [ "$FAILED" -eq 0 ]

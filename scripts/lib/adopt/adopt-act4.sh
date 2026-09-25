@@ -155,11 +155,21 @@ _adopt_act4_validate() {
   # PROJECT_INTAKE.md's provenance header too: the assessment conversation
   # edits that file, and a header it broke must not be recorded as assessed.
   errs="$(_adopt_act4_record_errors "$root"; _adopt_act4_verdict_errors "$root"
-          adopt_provenance_errors "$root/PROJECT_INTAKE.md" | sed 's/^/PROJECT_INTAKE.md: /')"   # BL-242-PROVENANCE-ACT4-CHECK
+          adopt_provenance_errors "$root/PROJECT_INTAKE.md" "$(jq -r '.adoption.adoptedAtCommit // ""' "$root/.claude/manifest.json" 2>/dev/null)" \
+            | sed 's/^/PROJECT_INTAKE.md: /')"   # BL-242-PROVENANCE-ACT4-CHECK
   [ -z "$errs" ] && { adopt_note "The assessment record and the verdict are complete."; return 0; }
   adopt_refuse "the assessment record was not accepted, and nothing was written"
   printf '%s\n' "$errs" | while IFS= read -r l; do [ -n "$l" ] && printf '          - %s\n' "$l" >&2; done
-  printf '          Fix %s (or the verdict), then run this again.\n' "$ADOPT_ASSESSMENT_RECORD_REL" >&2
+  # THE HEADER'S OWN REMEDY. Without it the refusal told the operator to fix
+  # the record, for a defect in a different file (review).
+  if printf '%s\n' "$errs" | grep -q '^PROJECT_INTAKE.md: '; then
+    local added
+    added="$(git -C "$root" log --diff-filter=A -n1 --format=%h -- PROJECT_INTAKE.md 2>/dev/null)"
+    printf '          PROJECT_INTAKE.md must open with the provenance header adoption wrote. Its six\n' >&2
+    printf '          lines are in the adoption commit; compare, and put them back first in the file:\n' >&2
+    printf '            git show %s:PROJECT_INTAKE.md | sed -n 1,6p\n' "${added:-HEAD}" >&2
+  fi
+  printf '          Fix what is named above, then run this again.\n' >&2
   return 1
 }
 
