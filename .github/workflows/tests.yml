@@ -575,6 +575,8 @@ jobs:
             tests/test-bl263-bl264-uat-template-dom.sh
             tests/test-bl284-verify-install-context.sh
             tests/test-bl281-resume-after-115.sh
+            tests/test-bl282-set-answer.sh
+            tests/test-bl301-adoption-recorded-keys.sh
             tests/test-bl286-integration-branch.sh
             tests/test-bl209-hooksdir-resolution.sh
             tests/test-bl275-selfapproval-remedy.sh

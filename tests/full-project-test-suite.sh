@@ -958,6 +958,18 @@ run_child_suite "tests/test-bl268-mode-vocabulary.sh" \
 run_child_suite "tests/test-bl281-resume-after-115.sh" \
   "BL-281: --resume after a clean Section 11.5 must run Sections 12 and 13" \
   "BL-281 resume-after-115 tests FAILED (run tests/test-bl281-resume-after-115.sh for details)"
+# BL-282: once a section was complete no flag could correct a recorded
+# answer; --set-answer writes through save_answer, records the amendment,
+# refuses unknown keys, and re-renders PROJECT_INTAKE.md.
+run_child_suite "tests/test-bl282-set-answer.sh" \
+  "BL-282: --set-answer corrects a recorded answer, records the amendment, refuses unknown keys" \
+  "BL-282 set-answer tests FAILED (run tests/test-bl282-set-answer.sh for details)"
+# BL-301 (#418): adoption records intake rows under keys the wizard never
+# asks; --set-answer accepts a key already in answers/, notes it as
+# adoption-recorded, and still refuses a key that exists nowhere.
+run_child_suite "tests/test-bl301-adoption-recorded-keys.sh" \
+  "BL-301: --set-answer accepts adoption-recorded keys, notes them, still refuses unknown keys" \
+  "BL-301 adoption-recorded-keys tests FAILED (run tests/test-bl301-adoption-recorded-keys.sh for details)"
 # BL-286: the TDD gate's branch axis resolves its base from the project's
 # recorded integration branch, so it stops exempting every commit on a
 # non-`main` trunk — and an absent key still behaves byte-identically.

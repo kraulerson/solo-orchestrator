@@ -18334,6 +18334,81 @@ maintainer will own — a flag on the wizard, an arm in `reconfigure-project.sh`
 that a JSON file is hand-editable — and a surface, once documented, is the hard-to-reverse kind. The
 contribution is the measurement and the options; the choice is his.
 
+**Built since that ruling was written, superseding its "Not built yet" clause:** the wizard half is on
+branch `fix/bl282-set-answer` (Asborien fork) — the setter, a 30-case suite and four located mutants —
+PR pending adversarial review. The widening to adoption-recorded keys that the ruling adds is a stacked
+follow-up on top of this branch, not part of it: here a key that the wizard does not itself record is
+still refused.
+
+**Fix:** `scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]` (option 2;
+`# BL-282-SET-ANSWER-BEGIN` … `# BL-282-SET-ANSWER-END`, dispatched at `# BL-282-SET-ANSWER-ARM`).
+KEY must be one of the wizard's own `save_answer` call sites, read from the script at runtime —
+literal keys exactly (H1), loop-generated families (`input_${i}_name`) by shape with the index
+bounded to digits (H8), and the `competency_` families bounded by the wizard's OWN nine-domain
+array rather than by the generic widening, read from that same array and transformed the same way
+so the two cannot drift (N1, N2, N3, N4, MP5; `# BL-282-COMPETENCY-DOMAINS`) — and an unknown key
+is refused at exit 1 (K1, MP1;
+`# BL-282-KEY-REFUSE`) with the three nearest recorded keys named (K3, MP3;
+`# BL-282-HINT-COUNT`). It refuses at exit 1 when `.claude/intake-progress.json`
+is absent, creating nothing (P1); `--set-answer` without a VALUE is refused the same way (K2). The
+write goes through `save_answer` **and its status is checked**, so a write that fails — an absent
+`answers` object, a non-object one, an unwritable file — refuses at exit 1, records nothing and
+leaves the file byte-identical (S1, S2, S3, MP4; `# BL-282-WRITE-STATUS`); the change is appended
+to an `amendments` array
+(`{key, old, new, reason, at}`, `at` ISO-8601 UTC) (H3), a second correction appends rather than
+replaces (H7), the other recorded answers are untouched (H2), and `render_intake_file` re-runs at
+once (`# BL-282-RERENDER`), so the rendered row reads `VALUE (amended YYYY-MM-DD)` (H4, MP2;
+`# BL-282-AMENDED-MARK`) while an unamended row stays unmarked (H5). Non-interactive; prints
+`[OK] KEY: "old" -> "new" (amended, recorded)` (H6), or `(unset)` where there was no prior answer
+(H9); `--help` lists the flag (H0). The three tier-crosscheck-6 setters are untouched (C1). The
+second-home keys (`## BL-203:`) are written here and the other home is NAMED in a `[WARN]`, not
+written (W1). The narrower fifth change (bare-number
+selection in `prompt_with_suggestions`) is not in this fix. Suite: `tests/test-bl282-set-answer.sh`
+— RED on `579b0b0` at 7 passed / 34 failed: C1, C2 and N5 are green there on their own merits (N5
+scans the script and the untouched base has no helper to collide with T5b). The other four passes
+are VACUOUS — the flag falls through to the non-TTY refusal, so nothing is written, and H2's
+untouched answer plus S2's, S3's and the competency refusals all hold for the wrong reason.
+GREEN at 41/41 under bash 3.2.57, under bash 5.3.15, and under bash 5.2.21 in
+`ubuntu:24.04` as a non-root user; the six mirror mutants (neutered refusal, deleted re-render,
+hint narrowed to one key, write status discarded, competency family widened, dispatch arm returned
+to a condition) are killed by K1, H4, K3, S1, N3 and A1, each asserting it landed on its own
+marker line.
+
+The write-status arm was added after the first cut: at `91b5066` a progress file with no `answers`
+object made `save_answer` raise, its status was discarded because `run_set_answer` is called from
+an `if`, and the operator read `[OK] … (amended, recorded)` at exit 0 with no answer written and an
+amendment row appended anyway. S1 is that case; the other shapes already refused, because the
+old-value read defaults `answers` to `{}` only when the key is missing. The competency bound was
+added in the same pass, from the adversarial review of the stacked follow-up: at `e1e027f`
+`--set-answer competency_zzz minted` exited 0 and MINTED a key the wizard records nowhere, which is
+the one thing the refusal exists to prevent. The helper's first cut then carried the literal
+`local domains=(` inside its own grep pattern, 868 lines above the real array, and
+`tests/test-intake-wizard-fixes.sh` T5b takes the FIRST line matching that shape and counts the
+quoted strings on it — so T5b read 1 domain instead of 9 and the PR-blocking unit lane went red at
+`e151dc0` and on everything stacked on it. The pattern no longer contains the literal, and N5 runs
+T5b's own awk verbatim so this cannot recur. The value cell also neutralises a carriage return, not
+only a newline (N6): cmark-gfm ends a table row on a lone CR exactly as on an LF, reachable from a
+progress file edited outside the wizard.
+
+The dispatch arm also FAILED OPEN and now fails closed (A1, MP6; `# BL-282-ARM-FAILCLOSED`). It was
+`if run_set_answer "$@"; then exit 0; fi`, and putting the call in a condition disarms `errexit` for
+the whole function body, so an abort inside any command substitution there was survivable:
+execution walked on to `return 0` and the wizard reported success with the answer written. Calling
+it plainly keeps `errexit` armed, so an internal abort exits non-zero having written nothing, while
+an ordinary `return 1` still exits 1. **This was reported as a bash 3.2 fault that bash 5 did not
+have. It is not: measured with a forced abort, both `/bin/bash` 3.2.57 and bash 5.3.15 gave rc 0
+with the answer written and the amendment appended, and both give rc 1 after the fix.** The
+exposure was latent rather than live — every path in the function is guarded today — but the arm
+was one unguarded line away from silently reporting success.
+
+**Residual, measured and NOT fixed — concurrent amendments lose updates.** `save_answer` takes no
+lock, and neither does the amendment append: each is a read-modify-write of the whole file. Eight
+`--set-answer` runs launched at once against one project kept 6 of the 8 amendment rows, and the
+final answer was the value from one arbitrary winner. The file stays valid JSON throughout — the
+loss is silent, not corrupting. A lock is not offered here because the fix belongs to `save_answer`,
+which every section of the wizard shares, and that is the maintainer's call rather than a change to
+smuggle in under this flag.
+
 **Logged:** 2026-09-14, from a downstream adoption's `intake-progress.json`, where `monthly_budget`
 is the literal string `"3"`. The operator typed `?` at the budget prompt, was shown a numbered list,
 and typed the number of the one they meant. Nothing turned it back into a budget, and nothing since
@@ -18459,6 +18534,368 @@ by a finished section with a wrong answer in it; the citation resolves once `fix
 (`load_progress` and what a hand-edited progress file can do to it — option 4 walks straight into
 that defect). BL-281 and BL-283, filed in this batch, are named without `## …:` citations because
 each lands on its own branch.
+
+---
+
+## BL-301: adoption records intake rows under keys the wizard never asks, so `--set-answer` refuses the very rows adoption wrote — ten of Scout's fifteen prefill fields, including a `test_command` carrying a transcription slip
+
+**Status:** Open — fix + suite on branch `fix/bl301-adoption-recorded-keys` (Asborien fork), stacked
+on `fix/bl282-set-answer` because the route it widens is `## BL-282:`'s. Issue #418. This is the
+WIZARD half of the maintainer's decision only; the adoption-driver half is his, in ADOPT-002-ARCH
+v2.2, and nothing here builds, stubs or tests it.
+
+**The decision, quoted from #418 (maintainer, 2026-09-17):** *"Decided: option 3. For projects
+already adopted, the wizard's amend route accepts any key already present in the progress file's
+`answers` (with the amendment noting the key is adoption-recorded) and keeps its refusal for keys
+that exist nowhere; for new adoptions, the driver records A7 rows under the wizard's own keys
+wherever one exists (`accessibility` → `accessibility_target`, and so on) and keeps its own key only
+where none does, with the key map held as data and drift-checked against `intake-wizard.sh`'s
+`save_answer` set. That second half is being designed into the brownfield architecture now
+(ADOPT-002-ARCH v2.2, in progress) and will be built with it; the first half is `## BL-282:`'s
+route, so a PR for the wizard side — the generic setter accepting adoption-recorded keys, plus the
+suite — is welcome. Adversarial review before merge."* His merged design records the same ruling
+as `## BL-282:`'s option 2 widened — `docs/designs/2026-08-23-brownfield-adoption-v2.md` §12 item
+28: *"a generic setter on the wizard — widened to accept any key already present in the progress
+file's `answers`, adoption-recorded keys included (#418's option 3), so projects adopted before the
+rename can be amended"* — and designs the driver half in its §5.2 (M14): the key map as data in
+`_scout_prefill_table`, `accessibility` → `accessibility_target` the one rename, a two-way drift
+check against the `save_answer` set, all WP12a's. That is the half this entry does not touch.
+
+**The case, measured 2026-09-17 on `91b5066` (the `## BL-282:` tip; on `main` at `579b0b0` the flag
+does not exist at all).** `scripts/lib/scout/scout-prefill.sh`'s `_scout_prefill_table` names
+fifteen fields and `adopt_render_intake_progress` writes every one of them into
+`.claude/intake-progress.json`'s `answers`. A fixture in that shape, one `--set-answer KEY NEW` per
+field that is not a literal `save_answer` key, stdin closed:
+
+    project_name            rc=1  [FAIL] 'project_name' is not a key this wizard records — nothing written.
+    repo_remote_configured  rc=1  [FAIL] … not a key this wizard records — nothing written.
+    timeline                rc=1  [FAIL] …
+    mvp_features            rc=1  [FAIL] …
+    competency_matrix       rc=0  [OK] competency_matrix: "" -> "NEW" (amended, recorded)
+    revenue_model           rc=1  [FAIL] …
+    governance              rc=1  [FAIL] …
+    accessibility           rc=1  [FAIL] …
+    test_command            rc=1  [FAIL] …
+    tooling                 rc=1  [FAIL] …
+    agent_init_prompt       rc=1  [FAIL] …
+
+Ten refused, one accepted. Two corrections to #418's own text follow from that table, and both are
+ours to own since we filed it:
+
+1. **#418 said seven keys; it is ten.** It listed the six A7 placeholders and `test_command`.
+   `project_name`, `repo_remote_configured`, `tooling` and `agent_init_prompt` are adoption-recorded
+   and refused in exactly the same way. (`problem_statement`, `data_classification`, `uptime` and
+   `known_risks` are the four of the fifteen the wizard does own.)
+2. **#418 said `--set-answer` "refuses each" of its seven; `competency_matrix` was never refused.**
+   It has no literal `save_answer` call site (the `grep -c` of 0 in the issue is true), but it
+   shape-matches the wizard's `competency_$key` family, so `## BL-282:`'s route already accepted it.
+   That is why this suite carries G1: a literal-key `grep` is not proof that a key is outside the
+   wizard's set, and an acceptance case built on `competency_matrix` would have been green at the
+   parent and proved nothing.
+
+**Fix:** in `run_set_answer`, a key that `_bl282_key_allowed` refuses is looked up in the progress
+file's `answers` by `_bl301_key_recorded` (`# BL-301-ADOPTION-RECORDED-BEGIN` …
+`# BL-301-ADOPTION-RECORDED-END`; called at `# BL-301-RECORDED-CHECK`) — exact membership, in
+python, with the key passed as `argv` and never interpolated into a program. Present: the key is
+accepted and written exactly as a wizard key is (A1), the other answers are untouched (A2), and the
+amendment carries `## BL-282:`'s five fields plus `"note": "adoption-recorded key"` (A3;
+`# BL-301-NOTE`); the operator's line ends `(amended, recorded; adoption-recorded key)` (A4). A blank
+A7 placeholder is amended the same way and its old value is recorded as the `""` it was, not as
+`null` (A5). A second correction appends and is noted too (A6). `--help` names the second class of
+key (A7). Absent everywhere: refused at exit 1 with nothing written, as before (N1) — and "present"
+means present IN `answers`, so a top-level key of the progress file such as adoption's own `source`
+is refused (N2). Membership is EXACT: eight near-misses of recorded keys — a prefix, a substring,
+two case variants, the key padded with a space on either side, a recorded VALUE (`pnpm`) and the
+recorded test command itself offered as keys — are each refused at exit 1 with the progress file
+byte-identical (N3; `# BL-301-ANSWERS-READ`, `# BL-301-IN-ANSWERS`). N3 exists because the
+adversarial review of the first cut (`711e8a1`) landed four single-line mutants that minted a key
+with the suite green; N1's one typo had been the only thing standing behind the word "exact".
+
+**A wizard-owned key is untouched by this.** Its amendment has exactly the five `## BL-282:` fields
+and no `note`, and its `[OK]` line is byte-for-byte `## BL-282:`'s (R1; `# BL-301-NOTE-DEFAULT`). A
+wizard-owned key that was never answered is still accepted with `old: null` — the H9 behaviour —
+and carries no note (R2). `tests/test-bl282-set-answer.sh` is not modified by this fix.
+
+**What the render does, stated because the brief asked.** `## BL-282:`'s route re-runs
+`render_intake_file`, which walks `.answers | to_entries` — EVERY key in `answers`, not the
+wizard's set — so an accepted adoption-recorded key is always rendered: its Answers row reads
+`VALUE (amended YYYY-MM-DD)` (D1). There is no key this route accepts and does not render.
+That claim was too wide in the first cut, and the review said so: the renderer escaped the VALUE
+cell and not the KEY cell, and this route is what makes an awkward key reachable (I2). The key cell
+is now escaped by a `keycell` function in the same jq program — a pipe is backslash-escaped so it
+does not open a column (D3; `# BL-301-KEY-ESCAPE-PIPE`), a line ending becomes a space so it does
+not split the row — a NEWLINE (D4) and a lone CARRIAGE RETURN (D6), which cmark-gfm also treats as
+a line ending and which the second review found still splitting the row (`# BL-301-KEY-ESCAPE-NEWLINE`)
+— and a key containing backticks gets a code-span delimiter one backtick longer than its longest
+run, space-padded, so it does not close the span (D5; `# BL-301-KEY-ESCAPE-TICK`). The third
+review found two halves of that sentence with no case behind them, and both have one now: the
+LONGEST run — a key with runs of two and one gets a three-backtick delimiter, where clearing the
+shortest would let the inner run close the span early (D7, MA17) — and a CRLF PAIR folding to one
+space, not two (D8, MA18). Each case asserts the exact row and that the table region still has exactly one line per answer plus its
+two header lines, counted the way a renderer reads it: carriage returns turned into line feeds
+first, and EVERY non-blank line counted, since the second half of a split row does not start with a
+pipe. An ordinary key renders byte-for-byte as before (D1, and `## BL-282:`'s H4 and H5). The VALUE
+cell's line-ending escape is `## BL-282:`'s and has the same carriage-return gap; that is fixed there.
+Everything in `PROJECT_INTAKE.md` ABOVE the appendix is preserved byte for byte (D2) — see the first
+residual.
+
+**Fail closed.** With no usable `answers` object — absent (F1), an ARRAY that names the key (F2), a
+STRING equal to the key (F3), `null` (F4) — the route refuses at exit 1, leaves the progress file
+byte-identical, prints exactly ONE refusal line — it stops at its own diagnosis and never goes on to
+attempt the write — and says `… has no usable answers object — nothing written`
+(`# BL-301-ANSWERS-IS-OBJECT`, `# BL-301-UNUSABLE-REFUSE`). A progress file that is not JSON is
+refused the same way, one refusal line, with `could not read …` (F5; `# BL-301-UNREADABLE-REFUSE`);
+a file that parses but whose TOP level is not an object (`[]`) is refused as having no usable
+answers object, not as an unknown key (F6, MA19; the `isinstance(data, dict)` half of
+`# BL-301-ANSWERS-READ`, which the third review found had no case behind it).
+In BOTH arms the verdict is held twice — `## BL-282:`'s old-value read and its checked write refuse
+the same shapes downstream — so what these two arms own is the diagnosis and the early stop, and
+the mutants on them (MA7, MA12) are text-only kills, recorded as such below. F2 and F3 are the shapes that matter: python's
+`in` is true for a list containing the key and for a string containing it.
+
+**Injection.** Nine hostile keys that are not recorded — command substitution in both spellings,
+quote breaks in both quote styles, a jq program fragment, a python expression fragment, an absolute-
+path payload, `-n`, and a literal `$key` — are each refused at exit 1 with the progress file
+byte-identical and no payload file created (I1). A RECORDED key carrying `.`, `"`, `$` and `[…]` is
+amended under exactly that key: the answer count is unchanged, no sibling moves, a `$(…)` in the
+VALUE stays literal (I2).
+
+**Suite:** `tests/test-bl301-adoption-recorded-keys.sh` — 66 cases driving the real wizard from an
+adopted-shape fixture, stdin closed, the wizard run under the same interpreter as the suite
+(`$BASH`). Registered in `tests/full-project-test-suite.sh` and the `tests.yml` unit lane, beside
+`## BL-282:`'s.
+
+| Run | BL-301 suite | BL-282 suite |
+|---|---|---|
+| parent (the wizard at `6a4205f`, `## BL-282:`'s final tip), `/bin/bash` 3.2.57 | **11 passed / 55 failed** | 41 / 0 |
+| parent, Homebrew bash 5.3.15 | **11 passed / 55 failed** | 41 / 0 |
+| head, `/bin/bash` 3.2.57 (`PATH=/bin:$PATH`, inner wizard 3.2.57) | 66 / 0 | 41 / 0 |
+| head, Homebrew bash 5.3.15 | 66 / 0 | 41 / 0 |
+| head, `ubuntu:24.04` native `aarch64`, non-root user, bash 5.2.21, python 3.12.3, jq 1.7 | 66 / 0 | 41 / 0 |
+
+The container row is the NATIVE image. The third review ran the same suite under the `linux/amd64`
+image emulated on Apple Silicon and got three different results in three runs (58 / 2, 59 / 1,
+60 / 0), each red a python read of a file the wizard had just written returning non-zero, and two
+native runs clean; the maintainer's own `CLAUDE.md` says the container is a bash/git version
+emulator and not a CI emulator. An emulated tally is not reported here as either pass or fail.
+
+(The first cut of this fix, `711e8a1`, carried a 38-case suite and was measured against `91b5066`
+before `## BL-282:`'s write-status arm existed: 8 / 30 at the parent and 38 / 0 at head, beside a
+25-case BL-282 suite. The first adversarial review reproduced those figures and returned
+`major_concerns` on the SUITE, not the code; N3, D3–D5, MA8–MA15 and the setup/kill distinction are
+its findings applied. The second review, of `b8e4725`, returned `block` — on `## BL-282:`'s
+`e151dc0`, whose competency helper matched its own grep pattern and reddened the unit-shard suite
+`tests/test-intake-wizard-fixes.sh` (T5, 25 / 1), fixed on that branch — and, on this fix, the
+carriage-return gap (D6, MA16), the control amends inside every mutant fixture, and two wording
+corrections. The table above is the re-measurement of the 60-case suite with all of that merged in.)
+
+The eleven green at the parent are green BY DESIGN and none is counted as evidence for the fix: C1,
+R1, R2 (wizard-owned keys — the no-regression pins), G1 ×3 (the guard below), N1, N2, N3, N4 and
+I1 (refusals that must survive; N3's teeth are shown by MA8–MA11, not by the parent, and N4 is
+`## BL-282:`'s bound holding). A2 and D2 assert "unchanged" and would have passed at the parent on a
+refusal that wrote nothing, so both are conditioned on exit 0 and are red there.
+
+**What the 55 reds at the parent are — not all of them are evidence, and only some are
+behavioural.** SEVENTEEN are behavioural reds, a verdict or a written state that differs: A1–A8, D1,
+D2, I2 (the adoption-recorded key is refused at exit 1 where the fix accepts it) and D3–D8 (the same
+refusal; at head they then turn on the key-cell escape). SIX are TEXT-ONLY reds: F1–F6 are refused
+at the parent too, at the same exit code and with the file just as untouched, and are red only
+because the refusal does not yet say `no usable answers object` / `could not read`. THIRTY-TWO
+are SETUP reds that say nothing about behaviour at all: thirteen M0 rows (a marker that does not
+exist yet) and nineteen mutants that cannot be applied for the same reason. The suite prints those
+nineteen under their own label and count — `[FAIL] MAn SETUP — NOT A BEHAVIOURAL KILL`, and a
+closing NOTE with the number — because the review found that a mutant on the `# BL-301-IN-ANSWERS`
+line turned this suite red only by making MA6's own `sed` stop matching, which is a kill by
+brittleness and must never be read as the suite catching something.
+
+**The vacuous-pass guard (G1).** A wizard-owned key is accepted even when it was never answered
+(R2), so a key that is REFUSED once it is deleted from `answers` is provably outside the wizard's
+set. G1 runs that for `test_command`, `timeline` and `competency_matrix`, the keys the A-cases use;
+if any were ever to become wizard-owned — which is precisely what ADOPT-002-ARCH v2.2's key map may
+do, and what `competency_matrix` WAS until `## BL-282:`'s bound — G1 fails and says the A-cases
+have gone vacuous, instead of letting them pass through the other route.
+
+**Mutants — nineteen, on a mirror, each located by distance from `# BL-301-ADOPTION-RECORDED-BEGIN`.**
+`mutate` refuses to score a mutant unless the marker ends exactly one line, that line sits exactly
+the stated number of lines from the anchor (negative for the three in `render_intake_file`, which
+is above it), the diff's only hunk is that line, the mutated text is on it, and the result parses.
+M0 pins each of the thirteen markers to exactly one line. The distances were re-measured after
+each merge: `e1e027f` and `main` moved nothing; `## BL-282:`'s competency bound (`e151dc0`) added
+eighteen lines between the renderer and the anchor, so the three renderer markers moved from
+−112/−111/−110 to −130/−129/−128, and the constants were updated deliberately — which is the
+proof doing its job, and the reason it exists.
+
+| Mutant | Anchor + | What it does | Killed by | Kill |
+|---|---|---|---|---|
+| MA1 | 51 (`# BL-301-RECORDED-CHECK`) | check forced to "absent" — the OLD VERDICT reinstated | A1 | exit code 1 for 0, value unwritten; a wizard key still works inside the mutant |
+| MA2 | 51 (same line) | check forced to "present" | N1 | exit code 0 for 1, an unknown key minted |
+| MA3 | 17 (`# BL-301-ANSWERS-IS-OBJECT`) | object check removed | F2 | **diagnosis only** — see below |
+| MA4 | 53 (`# BL-301-NOTE`) | note dropped | A3, A4 | the write lands, `note` absent, `[OK]` line silent |
+| MA5 | 49 (`# BL-301-NOTE-DEFAULT`) | note defaulted on | R1 | a wizard key's amendment gains a sixth field |
+| MA6 | 18 (`# BL-301-IN-ANSWERS`) | membership tested against the whole file | N2 | exit code 0 for 1, `source` minted into `answers` |
+| MA7 | 63 (`# BL-301-UNUSABLE-REFUSE`) | the fail-closed `return 1` removed | F1 | **text only** — see below |
+| MA8 | 18 (`# BL-301-IN-ANSWERS`) | the argument is stripped before the test | N3 | exit code 0 for 1, `test_command ` (trailing space) minted |
+| MA9 | 16 (`# BL-301-ANSWERS-READ`) | every recorded key's prefix counts as recorded | N3 | exit code 0 for 1, `test_comman` minted |
+| MA10 | 16 (same line) | every recorded key's upper-case form counts | N3 | exit code 0 for 1, `TEST_COMMAND` minted |
+| MA11 | 16 (same line) | every recorded string VALUE counts as a key | N3 | exit code 0 for 1, `pnpm` minted |
+| MA12 | 67 (`# BL-301-UNREADABLE-REFUSE`) | the unreadable-file `return 1` removed | F5 | **text only** — as MA7 |
+| MA13 | −130 (`# BL-301-KEY-ESCAPE-PIPE`) | pipe escape removed from the key cell | D3 | the amend lands; the exact row is gone |
+| MA14 | −129 (`# BL-301-KEY-ESCAPE-NEWLINE`) | newline escape removed | D4 | the same |
+| MA15 | −128 (`# BL-301-KEY-ESCAPE-TICK`) | backtick delimiter forced to one | D5 | the same |
+| MA16 | −129 (same line as MA14) | line-ending escape narrowed to LF only — what the first cut shipped | D6 | the same, for a carriage return |
+| MA17 | −128 (same line as MA15) | the LONGEST backtick run becomes the shortest (`max` → `min`) | D7 | the same, for a two-run key |
+| MA18 | −129 (same line as MA14) | the `+` quantifier dropped from the line-ending escape | D8 | the same, for a CRLF pair |
+| MA19 | 16 (same line as MA9–MA11) | the top-level object check removed (`isinstance(data, dict)` → `True`) | F6 | **diagnosis only** — a top-level array is refused as an unknown key, not as an unusable file |
+
+MA17–MA19 are the third review's three survivors, landed with the landed line asserted. Each had
+survived because the sentence it attacks had a case for only half of itself: D5's key had one
+backtick run, D4 and D6 had one line-ending character each, and no F-case had a progress file
+whose TOP level was not an object. MA19 had survived OUTRIGHT — no red at all — and is the reason
+the entry now says which half of each claim each case pins.
+
+**A mutant that applied is not yet a mutant that can be scored (second review, R-301-4).** The
+review deleted a neighbouring line of this fix and watched proofs that expect "accepted" fail in the
+grammar of a SURVIVED mutant ("changed nothing D3 can see") — a false statement about the suite,
+since the wizard was simply broken. So `mutate` now runs two CONTROL amends inside every mutant
+fixture before any proof: a wizard-owned key (`uptime`, `## BL-282:`'s route) and an
+adoption-recorded key (`timeline`, this route), each required to exit 0, write the value, append
+its amendment row AND print its `[OK]` line; either failing is a SETUP failure. MA1 and MA6 run
+the wizard-owned control only, because refusing every recorded key is what those two mutants DO.
+The amendment-row and `[OK]` requirements are not decoration: under bash 3.2.57 a function that
+dies on an unbound variable inside `if fn; then exit 0; fi` leaves the script at exit 0 with the
+answer written and no amendment (measured with `# BL-301-NOTE-DEFAULT`'s line deleted; bash 5
+exits 1), so an exit-code control alone would have passed a broken wizard. Measured on the final
+tree, both shells: with the ANSWERS-READ line deleted, with the NOTE-DEFAULT line deleted, and
+with the NOTE-DEFAULT line rewritten in place so no distance moves, every one of the sixteen
+mutants reports as SETUP (fifteen by the control amend and one by location in the in-place case)
+and none in the survived grammar.
+
+MA8–MA11 are the review's four survivors, landed here with the landed line asserted. Beyond the
+in-suite proof that each mints its near-miss key, the WHOLE suite was run against each mutant
+wizard, and against two more from the review's set (substring of the joined keys; case-folded
+membership): in all six the one behavioural red is N3, and every other red is a labelled SETUP red
+from a proof whose `sed` no longer matches the mutated line.
+
+**MA3 is a weaker kill and is recorded as one.** With the object check gone, an `answers` array
+naming the key is ACCEPTED by this route — and then stopped anyway, because `## BL-282:`'s read of
+the old value (`data.get("answers", {}).get(key)`) raises on every non-object shape. The run still
+ends exit 1 with nothing written; only the message moves, from `no usable answers object` to
+`could not read`. So the object check is not what holds the verdict for F2–F4 today: it holds it
+TWICE, and buys the diagnosis. MA3 asserts that exact outcome rather than a loose "something
+changed", so if the downstream read is ever relaxed MA3 fails loudly and F2's exit-code assertion
+becomes the live one.
+
+**MA7 is weaker still, and it got that way by a fix elsewhere.** In the first cut, removing the
+fail-closed `return 1` let an absent `answers` object fall through to the write, which failed
+unnoticed: exit 0, an amendment appended, no answer written — and F1's exit code killed the mutant.
+`# BL-282-WRITE-STATUS` has since closed that hole on `## BL-282:`'s own branch, so the fall-through
+is now refused downstream with `could not write`. ON EXIT CODE AND FILE STATE MA7 IS TODAY AN
+EQUIVALENT MUTANT, and it is argued as one rather than dressed up: every shape that reaches this arm
+(absent, array, string, `null`, number) is refused again by the old-value read or by the checked
+write. The single observable difference is that the route no longer stops at its own diagnosis — two
+refusal lines instead of one — and F1's one-refusal-line assertion is what sees it. MA12 is the
+same mutant on the unreadable-file arm, and the same argument: a file that does not parse is refused
+again by the old-value read, so F5's one-refusal-line assertion is the only thing that sees it.
+
+The score, stated plainly: MA1, MA2, MA4, MA5, MA6 and MA8–MA11 are killed on exit code or written
+state; MA13–MA18 on the exact rendered row; MA3 and MA19 on the diagnosis alone; MA7 and MA12 on
+the count of refusal lines alone, being equivalent on verdict and state. The four weak proofs assert
+their exact outcome, so each fails loudly the day the second line of defence is relaxed.
+
+**Lints and shellcheck at head.** `bash scripts/run-lints.sh`: 16 lints, 16 passed (before this
+entry existed it was 15/16 — `lint-bl-markers.sh` correctly refusing the `# BL-301-*` markers, eight at the time,
+with no entry to cite). `shellcheck -S error` (0.11.0) on `scripts/intake-wizard.sh`,
+`tests/test-bl301-adoption-recorded-keys.sh` and `tests/full-project-test-suite.sh`: exit 0.
+
+**Numbering:** first cut as BL-294 against `origin/main` at `579b0b0`, swept clean that morning.
+The same day `main` moved to `363e48d` and the maintainer's `a441c1f` filed his own BL-290 to
+BL-296 — BL-294 there is the rehearsal-copy entry, which this branch's merge leaves byte-identical
+(its `## BL-290:`-to-end block hashes equal to `origin/main`'s). Every token of this fix was
+renumbered to BL-301: entry, markers, the helper's name, the suite's file name and both
+registrations. Re-swept after `git fetch origin` with `origin/main` at `363e48d`:
+`git grep -q -w 'BL-301' origin/main` no hit; positive control BL-296 hit. The number is the
+maintainer's scheme, not ours: on #419 (2026-09-17) he gave BL-297 as the next free number, and the
+mapping posted back to him there puts the six entries in flight at BL-297 to BL-302, with #418 —
+this one — at BL-301. The first commit on this branch, `711e8a1`, keeps BL-294 in its subject and
+diff because commits here are never amended; BL-301 is the final number.
+
+**Residuals — disclosed, not fixed here.**
+
+1. **Adoption's own line for the key is not rewritten, so an adopted `PROJECT_INTAKE.md` shows both
+   values after an amend.** `adopt_render_intake_doc` writes `- **test_command** (scan-derived): …`
+   into the document body; the wizard's render owns only the fenced appendix below it. D2 pins that
+   the body is byte-identical — which is the safe half (the amend route does not rewrite prose it did
+   not write) and also the stale half (the body still says `pnmp`). The appendix row is the amended
+   record. Reconciling the two belongs with whichever of ADOPT-002-ARCH v2.2's two documents ends up
+   owning the rendered intake, and is not attempted from the wizard side.
+2. **`competency_matrix` — history now, kept because the first cut and its review said otherwise.**
+   At `91b5066` and `711e8a1` it was amended WITHOUT the note, because `## BL-282:`'s
+   `competency_$key` family matched it first; and that family was wider than one key — ANY
+   `competency_*` was accepted and MINTED, recorded or not (`--set-answer competency_zzz minted`
+   exited 0 and wrote the key), because the pattern admitted `[a-z0-9_]+` where the wizard itself
+   writes nine domains. That was `## BL-282:`'s refusal being too narrow, it was raised there, and
+   it is FIXED on that branch at `e151dc0` (`# BL-282-COMPETENCY-DOMAINS`: the family is bounded by
+   the wizard's own domain array). Merged here, the consequence is the one the maintainer's
+   decision implies: `competency_matrix` reaches THIS route as an adoption-recorded key and is
+   amended with the note (A8), and `competency_zzz` is refused with nothing written (N4). The note
+   still means "outside the wizard's set and already recorded", not "written by adoption"; the
+   wizard cannot tell who wrote a key, and `source: "adopt-project.sh"` at the top of the file is
+   deliberately not used to guess.
+3. **`project_name` has a second home** — the progress file's own top-level `project_name`, which
+   `load_progress` reads. Amending `answers.project_name` does not reach it, and unlike the
+   `## BL-203:` keys no `[WARN]` names it. Not added here: the decision was the setter and the suite.
+4. **The refusal's "Did you mean" hint still draws only on the wizard's keys**, so a typo of an
+   adoption-recorded key (`test_commandd`) is refused correctly (N1) and offered three irrelevant
+   wizard keys. Cosmetic; left alone to keep `## BL-282:`'s K3 and MP3 meaning what they say.
+5. **A `## BL-282:` defect found while measuring F1 — since closed on that branch, not here.** For a
+   WIZARD-OWNED key with `answers` absent, `91b5066` exited 0: `save_answer` raised
+   `KeyError: 'answers'`, its status was discarded (`run_set_answer` is called under `if`, so
+   `set -e` is off), the amendment was appended, and the operator read
+   `[OK] monthly_budget: (unset) -> "NEW" (amended, recorded)` with no answer written. It was
+   reported rather than folded in silently, and `e1e027f` closed it at `# BL-282-WRITE-STATUS`
+   (that entry's S1–S3, MP4). This branch merges that commit; its one effect here is on MA7, above.
+   The first cut of this entry said "this route does not have the hole", and the review showed that
+   was too wide: an adoption-recorded key that rides `## BL-282:`'s arm reached it. With `answers`
+   deleted, `--set-answer competency_matrix X` at `711e8a1` exited 0 with an amendment appended and
+   `[OK]` printed; at this head it is refused at exit 1, one refusal line, no amendment — and since
+   `## BL-282:`'s competency bound the line is THIS fix's own, `has no usable answers object —
+   nothing written`, because `competency_matrix` now reaches the F1 arm (measured; the second review
+   caught the earlier wording, which named `could not write`). The accurate claim is the narrow one:
+   the arm THIS fix adds never had it (F1).
+6. **Two behaviours the review noted as identical at the parent, not measured by this author and
+   not changed here:** on a read-only progress file the route prints "answer written but …" when
+   nothing was written, and two concurrent amendments can lose one update (read-modify-write with no
+   lock). Both belong to `## BL-282:`'s write path. A third, from the second review: a recorded key
+   now reaches `print_ok`, whose `echo -e` interprets backslash escapes, so a key containing `\c`
+   truncates the `[OK]` line (a key `a\nb\c` printed `[OK] a`, a newline, `b`, and nothing more);
+   the file state is correct. That is `helpers-core`'s print helper, used by every script, and is
+   being filed as its own entry rather than patched under this flag.
+7. **Not run for this entry:** `tests/full-project-test-suite.sh` and `tests/host-drivers/run-all.sh`
+   as wholes. The change touches no fixture, hook, installer or `init.sh`. The fourteen
+   neighbouring suites that name `intake-wizard.sh` were run on the final tree on macOS: fourteen
+   green. Two things on the way there are worth recording. At `b8e4725`
+   `tests/test-intake-wizard-fixes.sh` was 25 / 1 (T5, "expected 9 competency domains, found 1"),
+   because `## BL-282:`'s `e151dc0` helper carried the literal `local domains=(` in its own grep
+   pattern and the suite's awk found that line first; the entry that said "thirteen green every
+   time" at that point had not re-run the fourteen after that merge, which the second review
+   caught, and `6a4205f` fixes it (26 / 0 here). And `tests/test-brownfield-wp9-act-boundaries.sh` failed its case `R1b` (the adoption archive
+   item's conditionality — the collision-free control adoptee came out with an archive) in 5 of
+   10 runs across the day, including runs at `91b5066` and on `main` at `579b0b0`, neither of which
+   carries this change, and passed the other five at 29 / 0. That was NOT flakiness and NOT the
+   framework: the host's global git `init.templateDir` carried a file named `README` in its
+   `hooks/` folder between 15:45 and 18:51 BST that day, so every fixture repository was born with
+   a hooks file, which adoption's collision scan reads as a colliding hook and archives. The lead
+   who made that host change measured it, renamed the file to `README.sample` at 18:51, and the
+   suite has passed since on unchanged upstream code; this author's five failures and five passes
+   fall either side of that time, and the reviewer's independent run with `GIT_TEMPLATE_DIR`
+   pointed at an empty directory, during the window, was 29 / 0. `tests/edge-case-test-suite.sh`,
+   `tests/edge-cases-*.sh` and `tests/known-bugs-test-suite.sh` also name the wizard and were not
+   run.
+
+**Related:** `## BL-282:` (the route this widens; its suite is the regression pin), `## BL-203:`
+(answers with two homes — residual 3 is one more), ADOPT-002-ARCH v2.2 (the driver half of #418's
+decision: key map as data, drift-checked against the `save_answer` set — G1 is written to fail
+usefully on the day that lands).
 
 ---
 

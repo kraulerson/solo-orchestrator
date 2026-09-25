@@ -8,6 +8,7 @@ set -euo pipefail
 #   scripts/intake-wizard.sh                  # Start or choose mode
 #   scripts/intake-wizard.sh --resume         # Resume from last save point
 #   scripts/intake-wizard.sh --upgrade-to-production  # Upgrade POC to production
+#   scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]  # Correct one recorded answer
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
@@ -469,11 +470,27 @@ render_intake_file() {
     if [ "${count:-0}" -gt 0 ]; then
       printf '| Key | Value |\n|---|---|\n'
       jq -r '
-        (.answers // {})
+        # `## BL-301:` — the value cell was escaped and the key cell was not.
+        # --set-answer now accepts any key already in answers/, so a key with
+        # a pipe, a line ending or a backtick is reachable, and raw it opens a
+        # column, splits the row or closes the code span. A lone carriage
+        # return is a line ending to a CommonMark renderer. A key with backticks
+        # gets a delimiter one longer than its longest run, space-padded.
+        def keycell:
+          gsub("\\|"; "\\|")  # BL-301-KEY-ESCAPE-PIPE
+          | gsub("[\r\n]+"; " ")  # BL-301-KEY-ESCAPE-NEWLINE
+          | ([match("`+"; "g").length] | max // 0) as $n  # BL-301-KEY-ESCAPE-TICK
+          | ("`" * ($n + 1)) as $d
+          | if $n > 0 then $d + " " + . + " " + $d else $d + . + $d end;
+        # BL-282-AMENDED-MARK: the latest amendment date per key, so a reader
+        # can see the answer was corrected after its section closed.
+        ((.amendments // []) | map({key: .key, value: (.at | tostring | .[0:10])}) | from_entries) as $amended
+        | (.answers // {})
         | to_entries
         | sort_by(.key)
         | .[]
-        | "| `" + .key + "` | " + ((.value // "") | tostring | gsub("\\|"; "\\|") | gsub("\n"; " ")) + " |"
+        | "| " + (.key | keycell) + " | " + ((.value // "") | tostring | gsub("\\|"; "\\|") | gsub("[\r\n]+"; " "))  # a lone CR ends a row in cmark-gfm too
+          + (if $amended[.key] then " (amended " + $amended[.key] + ")" else "" end) + " |"
       ' "$PROGRESS_FILE"
     else
       printf '_No answers recorded yet._\n'
@@ -523,6 +540,183 @@ with open(path, 'w') as f:
 " "$key" "$value" "$PROGRESS_FILE"
   fi
 }
+
+# BL-282-SET-ANSWER-BEGIN
+# `## BL-282:` — once a section is complete nothing re-asks its questions, so
+# a wrong answer had no route back except editing the JSON by hand. This is
+# the generic setter the three tier-crosscheck-6 flags were the precedent
+# for. The allowed keys are this file's OWN save_answer call sites, read at
+# runtime, so a typo cannot mint a key; loop-generated families
+# (`input_${i}_name`) are matched by shape with `$i`/`$j` bounded to digits.
+_bl282_key_templates() {
+  grep -o 'save_answer "[^"]*"' "${BASH_SOURCE[0]}" | sed 's/^save_answer "//; s/"$//' | sort -u
+}
+
+# The nine competency domains, read from the SAME array the prompts iterate
+# and transformed the same way, so this can never drift from what the wizard
+# actually records. A second hand-written list here would be the drift.
+_bl282_competency_keys() {
+  grep -m1 -E '^[[:space:]]*local domains=[(]' "${BASH_SOURCE[0]}" \
+    | grep -o '"[^"]*"' | sed 's/^"//; s/"$//' \
+    | tr '/ ' '_' | tr '[:upper:]' '[:lower:]'
+}
+
+_bl282_key_allowed() {
+  local key="$1" tpl pat base
+  printf '%s' "$key" | grep -q -E '^[a-z0-9_]+$' || return 1
+  # `competency_$key` would widen to `competency_[a-z0-9_]+` in the generic
+  # loop below and MINT a key the wizard records nowhere. Bound it to the
+  # domain list instead.
+  case "$key" in
+    competency_*)  # BL-282-COMPETENCY-DOMAINS
+      base="${key#competency_}"; base="${base%_tooling}"
+      _bl282_competency_keys | grep -q -x -- "$base" && return 0
+      return 1 ;;
+  esac
+  while IFS= read -r tpl; do
+    case "$tpl" in
+      '$'*)
+        # A bare-variable call site (this function's own write) is not a
+        # family: with no literal prefix it would admit any key at all.
+        continue ;;
+      *'$'*)
+        pat="$(printf '%s' "$tpl" | sed -e 's/\${[ij]}/[0-9]+/g; s/\$[ij]$/[0-9]+/; s/\${key}/[a-z0-9_]+/g; s/\$key$/[a-z0-9_]+/')"
+        case "$pat" in *'$'*) continue ;; esac
+        printf '%s' "$key" | grep -q -E "^${pat}\$" && return 0 ;;
+      *)
+        printf '%s' "$tpl" | grep -q -E '^[a-z0-9_]+$' || continue
+        [ "$key" = "$tpl" ] && return 0 ;;
+    esac
+  done < <(_bl282_key_templates)
+  return 1  # BL-282-KEY-REFUSE
+}
+
+_bl282_nearest_keys() {
+  _bl282_key_templates | grep -E '^[a-z0-9_]+$' | awk -v q="$1" '
+    function min3(a, b, c) { if (b < a) a = b; if (c < a) a = c; return a }
+    function lev(s, t,    i, j, n, m, d, c) {
+      n = length(s); m = length(t)
+      for (i = 0; i <= n; i++) d[i, 0] = i
+      for (j = 0; j <= m; j++) d[0, j] = j
+      for (i = 1; i <= n; i++) for (j = 1; j <= m; j++) {
+        c = (substr(s, i, 1) == substr(t, j, 1)) ? 0 : 1
+        d[i, j] = min3(d[i - 1, j] + 1, d[i, j - 1] + 1, d[i - 1, j - 1] + c)
+      }
+      return d[n, m]
+    }
+    { print lev(q, $0) "\t" $0 }' | sort -n | head -3 | cut -f2  # BL-282-HINT-COUNT
+}
+
+# BL-301-ADOPTION-RECORDED-BEGIN
+# `## BL-301:` (#418) — brownfield adoption records intake rows under keys this
+# wizard never asks (`test_command`, `timeline`, …): they are in answers/ and
+# outside the save_answer set above, so the amend route refused the very rows
+# adoption wrote. A key ALREADY PRESENT in the progress file's `answers` object
+# is amendable; a key that exists nowhere is still refused. Exact membership,
+# with the key passed as argv — nothing is interpolated into a program.
+# Exit 0 present, 1 absent, 2 no usable answers object, 3 file unreadable.
+_bl301_key_recorded() {
+  python3 -c '
+import json, sys
+try:
+    with open(sys.argv[2]) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(3)
+answers = data.get("answers") if isinstance(data, dict) else None  # BL-301-ANSWERS-READ
+if not isinstance(answers, dict): sys.exit(2)  # BL-301-ANSWERS-IS-OBJECT
+sys.exit(0 if sys.argv[1] in answers else 1)  # BL-301-IN-ANSWERS
+' "$1" "$PROGRESS_FILE" 2>/dev/null
+}
+# BL-301-ADOPTION-RECORDED-END
+
+run_set_answer() {
+  local usage='Usage: scripts/intake-wizard.sh --set-answer KEY VALUE [--reason "<text>"]'
+  if [ $# -lt 2 ]; then
+    print_fail "--set-answer needs a KEY and a VALUE."
+    echo "  $usage" >&2
+    return 1
+  fi
+  local key="$1" value="$2" reason=""
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reason)
+        if [ $# -lt 2 ]; then print_fail "--reason needs a value."; echo "  $usage" >&2; return 1; fi
+        reason="$2"; shift 2 ;;
+      --reason=*) reason="${1#--reason=}"; shift ;;
+      *) print_fail "--set-answer: unexpected argument '$1'."; echo "  $usage" >&2; return 1 ;;
+    esac
+  done
+  if [ ! -f "$PROGRESS_FILE" ]; then
+    print_fail "No $PROGRESS_FILE to correct — run the wizard first, then --set-answer."
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_fail "--set-answer needs python3 (save_answer writes through it)."
+    return 1
+  fi
+  local adoption_note="" rec_rc=0  # BL-301-NOTE-DEFAULT
+  if ! _bl282_key_allowed "$key"; then
+    _bl301_key_recorded "$key" || rec_rc=$?  # BL-301-RECORDED-CHECK
+    case "$rec_rc" in
+      0) adoption_note="adoption-recorded key"  # BL-301-NOTE
+        ;;
+      1)
+        print_fail "'$key' is not a key this wizard records, nor one already recorded in $PROGRESS_FILE — nothing written."
+        local hint
+        hint="$(_bl282_nearest_keys "$key" | tr '\n' ' ' || true)"
+        [ -n "$hint" ] && echo "  Did you mean: ${hint% }" >&2
+        return 1 ;;
+      2)
+        print_fail "$PROGRESS_FILE has no usable answers object — nothing written."
+        return 1  # BL-301-UNUSABLE-REFUSE
+        ;;
+      *)
+        print_fail "could not read $PROGRESS_FILE — nothing written."
+        return 1  # BL-301-UNREADABLE-REFUSE
+        ;;
+    esac
+  fi
+  local old
+  old="$(python3 -c '
+import json, sys
+with open(sys.argv[2]) as f:
+    data = json.load(f)
+print(json.dumps(data.get("answers", {}).get(sys.argv[1])))
+' "$key" "$PROGRESS_FILE")" || { print_fail "could not read $PROGRESS_FILE."; return 1; }
+  save_answer "$key" "$value" || { print_fail "could not write '$key' to $PROGRESS_FILE — nothing recorded."; return 1; }  # BL-282-WRITE-STATUS
+  python3 -c '
+import json, sys
+from datetime import datetime, timezone
+key, old, new, reason, path, note = sys.argv[1:7]
+with open(path) as f:
+    data = json.load(f)
+entry = {
+    "key": key, "old": json.loads(old), "new": new, "reason": reason,
+    "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+if note:
+    entry["note"] = note
+data.setdefault("amendments", []).append(entry)
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+' "$key" "$old" "$value" "$reason" "$PROGRESS_FILE" "$adoption_note" || { print_fail "answer written but the amendment could not be recorded in $PROGRESS_FILE."; return 1; }
+  # `## BL-203:` — some answers have a second home the wizard's write does
+  # not reach. Name it rather than write it: each has its own setter.
+  case "$key" in
+    data_classification|zdr_attested|zdr_attestation_reason)
+      print_warn "$key also lives in .claude/process-state.json (the Phase 1 gate reads that copy) — update it with --data-classification / --zdr-attested / --zdr-attestation-reason." ;;
+    testing_interval)
+      print_warn "testing_interval's enforced copy is .claude/build-progress.json::test_interval — update it with scripts/reconfigure-project.sh --field test_interval." ;;
+  esac
+  command -v jq >/dev/null 2>&1 || print_warn "jq not found — PROJECT_INTAKE.md was not re-rendered; it refreshes on the next section save."
+  render_intake_file || { print_fail "answer recorded but PROJECT_INTAKE.md could not be re-rendered."; return 1; }  # BL-282-RERENDER
+  local shown_old='(unset)'
+  [ "$old" != "null" ] && shown_old="$old"
+  print_ok "$key: $shown_old -> \"$value\" (amended, recorded${adoption_note:+; $adoption_note})"
+  return 0
+}
+# BL-282-SET-ANSWER-END
 
 # ================================================================
 # PROGRESS: Load progress and project context
@@ -2210,7 +2404,22 @@ main() {
       echo "  --zdr-attested                     Mark zdr_attested=true"
       echo "  --zdr-attestation-reason \"<text>\"  Record a documented exception"
       echo ""
+      echo "Correct one recorded answer after its section is complete (BL-282):"
+      echo "  --set-answer KEY VALUE [--reason \"<text>\"]"
+      echo "                                     KEY must be one the wizard records, or one already"
+      echo "                                     in intake-progress.json's answers (a key recorded"
+      echo "                                     by adoption, noted as such — BL-301). The change"
+      echo "                                     is appended to intake-progress.json's amendments"
+      echo "                                     and PROJECT_INTAKE.md is re-rendered."
+      echo ""
       echo "  --help                  Show this help"
+      exit 0
+      ;;
+    --set-answer)
+      # BL-282-SET-ANSWER-ARM: needs only PROGRESS_FILE, never reaches a
+      # prompt, so it runs before the tier-crosscheck-6 scan and the TTY check.
+      shift
+      run_set_answer "$@"  # BL-282-ARM-FAILCLOSED: never `if run_set_answer` — a condition disarms errexit inside it
       exit 0
       ;;
     --data-classification|--zdr-attested|--zdr-attestation-reason|--data-classification=*|--zdr-attestation-reason=*)
