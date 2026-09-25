@@ -18273,13 +18273,13 @@ the real scripts over stdin, the roster sourced into a temp tree, `init.sh` neve
 sourceable, so R6 pins the matcher in the PR-blocking lane (review finding R-277-1: a matcher widened to
 `Bash|Read|Edit|Write` had survived every unit-lane suite), and it replaced R4's static read of the
 probe and the full-lane R1–R3 and M7, which were then removed (R-277-2). Until then,
-`tests/test-bl277-matcher-registration.sh` ran `init.sh --non-interactive` twice (R1–R3 and M7) and is
+`tests/test-bl277-matcher-registration.sh` ran `init.sh --non-interactive` twice (R1–R3 and M7) and was
 in `tests/full-project-test-suite.sh` ONLY: `init.sh` installs the Claude Dev Framework into `$HOME`,
 cloning it from GitHub when absent and pulling the developer's real clone when present (review
 reproduced a 1.3 MB clone plus `~/.claude`, `~/.claude.json`, `~/.npm` and `~/.semgrep` appearing under
 an empty `HOME`), which is not hermetic and is the membership rule CLAUDE.md states. The first cut had
 those cases in the unit suite and the unit lane; the review's block finding R-385-1 is what split them.
-Every fixture in both is assembled from split literals (see the correction above); a scan of each file
+Every fixture in the suite is assembled from split literals (see the correction above); a scan of the file
 with the six regexes finds zero matches. Controls: A5 (T1's exact envelope still writes exactly one
 row), A6 (clean output writes nothing), G1, G3, D3, X1 (non-JSON, an unknown event, a string
 `tool_response` and empty stdin all exit 0, leave the ledger byte-identical, and raise nothing), R5.
