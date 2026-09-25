@@ -188,10 +188,7 @@ adopt_stub_framework_script_collisions() {
 #
 # THE NAME IS LEFT AS A HEADSTONE, like the ones above it.
 
-# WP7 — §8.6's provenance headers on reconstructed documents.
-adopt_stub_provenance_headers() {
-  adopt_stub_notice "the provenance headers on reconstructed documents" "WP7" \
-    "PROJECT_INTAKE.md records where each answer came from, but it carries no machine-readable"
-  adopt_note "provenance header. A near-miss header is worse than none: WP7 ships a lint for the"
-  adopt_note "real one, and a lint cannot tell a near-miss from the genuine article."
-}
+# adopt_stub_provenance_headers — RETIRED 2026-09-25 by WP7. PROJECT_INTAKE.md
+# opens with §8.6's header (`# BL-242-PROVENANCE-HEADER`), checked where it is
+# written (`# BL-242-PROVENANCE-WRITE-CHECK`) and again by the Act 4 finisher
+# (`# BL-242-PROVENANCE-ACT4-CHECK`). A headstone, like the others here.

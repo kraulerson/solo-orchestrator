@@ -1110,7 +1110,6 @@ adopt_write_intake() {
   # the stamp's scannerReportSha256 is the hash of exactly this file, so the
   # record and its evidence cannot drift apart.
   cat "$report" | adopt_write_file "$root" ".claude/adoption/scout-report.json" || return 1
-  adopt_stub_provenance_headers
   return 0
 }
 
