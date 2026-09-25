@@ -15344,6 +15344,16 @@ and WP12c (the in-production delta exemption).
 including greeting-below-phase-4, which needed a fixture where the BL-202 branches FALL THROUGH (a
 manifesto exists) to be reachable at all. Both boundary lints green.
 
+**Review round (one, adversarial; a first reviewer stalled past an hour and was stopped, a narrower
+one reported) — `major_concerns`, fixed:** a mutant reading the predicate as truthy
+(`.adopted and .inProduction`) survived, so E2 gained a fixture with `"true"` and `1`; the predicate's
+three copies now carry a SYNC SIBLINGS line (the `# BL-084-TIER-KEY` convention); delta.sh's "the only
+write" comment was corrected for the new process-state write.
+**Residuals:** after an exempt delta CLOSES below phase 4, `resume.sh` no longer shows the hotfix
+write-up still owed (its flag needs an open delta) — `delta.sh --status` and `cut-release.sh` still
+do; a hand-edited manifest with a duplicate key or two JSON documents can satisfy the predicate
+(`jq -e` judges the last); the process-state row is a separate write from the delta record.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.
