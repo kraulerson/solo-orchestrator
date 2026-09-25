@@ -15293,6 +15293,25 @@ finisher does not commit, by design; `evaluators` is checked to be a list and no
 `soif_adoption_assess` writes through a fixed `$manifest.tmp` with no lock, as the stamp writer does
 (one session runs it).
 
+### WP7's provenance header (2026-09-25) — the reconstructed intake says what it is
+
+**What ships:** `PROJECT_INTAKE.md` opens with v1 §8.6's fenced header
+(`adopt_provenance_header`, `# BL-242-PROVENANCE-HEADER`, written at `# BL-242-PROVENANCE-WRITE`)
+naming the date, the driver, the pre-adoption commit and the status sentence. The exact checker
+(`adopt_provenance_errors`, `# BL-242-PROVENANCE-CHECK`) runs where the file is written
+(`# BL-242-PROVENANCE-WRITE-CHECK`) and again in the Act 4 finisher
+(`# BL-242-PROVENANCE-ACT4-CHECK`), because the assessment conversation edits the file; the prompt
+tells the model to keep the header. `adopt_stub_provenance_headers` is retired — the run now prints
+no NOT-DONE block at all unless a framework script collides (the one stub still called).
+As with the Adoption Record, the "lint" is a suite, not a `scripts/lint-*.sh`: a core lint may not
+source the module.
+
+**Pinned by** `tests/test-brownfield-wp7f-provenance.sh` (V1–V5), nine mutants killed (the
+not-first-content arm is pinned by its REASON, since removing it still rejects, as "never closed").
+
+**Still designed and unbuilt after this:** WP9c (session settings, hooks, MCP declaration, skills)
+and WP12c (the in-production delta exemption).
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

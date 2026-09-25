@@ -15,9 +15,12 @@ the files it wrote.
 > own filename; yours read for risky patterns, never changed) — and the
 > **assessment** (the requirements interview, the fitness verdict and the plan:
 > a Claude Code conversation that `scripts/resume.sh` starts, and a finisher that
-> records it). What is designed and **not built** is the provenance headers on
-> reconstructed documents; the run prints a labelled `NOT DONE` block for it.
-> See [What is not built yet](#what-is-not-built-yet).
+> records it), and the **provenance header** on the reconstructed intake. What
+> is designed and **not built**: composing the framework's Claude Code session
+> settings, hooks, MCP declaration and skills into an adopted project (WP9c),
+> and the *in production* exemption that lets an adopted production project
+> open a hotfix delta below phase 4 (WP12c). See
+> [What is not built yet](#what-is-not-built-yet).
 
 Everything on this page is output that was observed, pasted as it printed.
 
@@ -955,9 +958,23 @@ the ledger are real; the *automatic* part is not.
 
 ## What is not built yet
 
-This is the honest half of the page. Everything below is **designed and not
-built**. The driver prints a labelled block for each one during the run, naming
-the work package that owns it — the text below is what it actually printed.
+This section started as the list of what was designed and not built; most of
+it now ships, and each subsection says so in its heading. **Two designed
+packages remain**, and neither prints a block during the run:
+
+- **WP9c — the Claude Code session layer.** An adopted project gets the
+  framework's scripts, gates and documents, but not the `.claude/settings.json`
+  permissions and hook registrations, the Qdrant MCP declaration, or the four
+  vendored skills `init.sh` gives a new project. Until it lands, a Claude Code
+  session in an adopted project runs without the framework's session hooks.
+- **WP12c — the *in production* exemption.** The assessment records whether the
+  project is in production; the exemption that lets such a project open a
+  hotfix delta below phase 4 (`scripts/delta.sh`) is not built, so a production
+  adoptee at phase 0 cannot use the delta track yet.
+
+One smaller gap is unassigned: a file of yours sitting where a framework
+*script* goes is left alone, so the framework's version of that script is not
+installed; the run names it.
 
 ### The assessment — Act 3 and Act 4 — SHIPS (WP12a)
 
@@ -1256,15 +1273,28 @@ version is missing there by your file system's choice, not silently. Not
 written: `PROJECT_BIBLE.md` and `PRODUCT_MANIFESTO.md` (phase outputs — `init.sh`
 does not write them either) and the `.gitignore` lines `init.sh` adds.
 
-### The CI carve-out and the provenance headers — WP7
+### The Adoption Record, the audit rows and the provenance header — WP7
+
+**The provenance header ships.** `PROJECT_INTAKE.md` — the one document adoption
+reconstructs from what already existed — opens with a fenced comment that says
+so, invisible when rendered and exact when checked:
 
 ```text
-NOT DONE — the provenance headers on reconstructed documents
-   Owner: WP7. This build does not do it, and does not pretend to.
-   PROJECT_INTAKE.md records where each answer came from, but it carries no machine-readable
-   provenance header. A near-miss header is worse than none: WP7 ships a lint for the
-   real one, and a lint cannot tell a near-miss from the genuine article.
+<!-- SOIF-PROVENANCE-BEGIN
+reconstructed-at: 2026-09-25
+reconstructed-by: scripts/adopt-project.sh
+source: existing codebase at 0f7afd202f02 + adoption survey
+status: describes work completed BEFORE adoption; not a pre-build specification
+SOIF-PROVENANCE-END -->
 ```
+
+The documents adoption writes that describe what is **coming** — `CLAUDE.md`,
+`FEATURES.md` and the rest — carry none. A near-miss header is worse than none,
+so the check is exact: the fence lines, four fields in this order, a real date,
+a commit, the status sentence word for word, and first in the file. It runs when
+the file is written and again in the assessment finisher, because the
+assessment conversation edits `PROJECT_INTAKE.md`; a header it broke stops the
+finisher before anything is recorded.
 
 **The Adoption Record used to be on this list and is not any more.** The driver
 no longer prints a `NOT DONE` block for it: it appends the record to the end of
