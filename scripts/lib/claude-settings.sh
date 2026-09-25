@@ -7,9 +7,12 @@
 # render-project-docs.sh precedent of extracting a writer init.sh had inline).
 #
 # MOVED, NOT REWRITTEN: every rule, every hook command and every idempotent jq
-# idiom below is init.sh's own, lifted verbatim; the only edits are the file
-# path becoming a parameter and the one adoption-only guard
-# (`# BL-242-SETTINGS-BL277`).
+# idiom below is init.sh's own, lifted verbatim. The edits: the file path
+# became a parameter; the language became an argument; the permissions writer
+# was split in two and prints to stdout (init.sh redirects it); and the one
+# adoption-only guard (`# BL-242-SETTINGS-BL277`). Review measured the result
+# byte-identical to main's inline code across 12 languages and 8 roster
+# starting states, idempotent re-runs included.
 #
 # bash-3.2 safe. Needs jq for the roster (the caller checks, as init.sh did).
 
@@ -128,7 +131,7 @@ LANGEOF
 # soif_claude_settings_json LANGUAGE — .claude/settings.json's content for a
 # new project: the permissions block, on stdout.
 soif_claude_settings_json() {
-  local lang_rules
+  local lang_rules=""
   lang_rules="$(soif_claude_lang_rules "$1")"
   cat << PERMEOF
 {

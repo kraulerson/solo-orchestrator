@@ -1690,7 +1690,8 @@ create_project() {
   # Install vendored skills (project-level, .claude/skills/<name>/).
   # Skills are markdown SKILL.md files with NOTICE-attribution preserved.
   # Adding a new skill: drop it under templates/generated/skills/<name>/
-  # and append a line to the loop below.
+  # and add its name to soif_vendored_skills (scripts/lib/claude-settings.sh),
+  # which the adoption driver reads too.
   mkdir -p .claude/skills
   for skill in $(soif_vendored_skills); do
     if [ -d "$SCRIPT_DIR/templates/generated/skills/$skill" ]; then

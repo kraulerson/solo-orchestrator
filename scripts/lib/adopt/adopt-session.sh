@@ -38,6 +38,7 @@ _adopt_session_qdrant() {
 adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
   local root="$1" report="$2" fw="$ADOPT_FRAMEWORK_ROOT" lang rel="$ADOPT_SESSION_SETTINGS_REL"
   local base s out
+  ADOPT_SESSION_SKIPPED=""
   command -v jq >/dev/null 2>&1 || { adopt_refuse "jq is required to compose the session settings"; return 1; }
   adopt_head "The Claude Code session layer"
   lang="$(_adopt_session_language "$report")"
@@ -50,10 +51,16 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
   elif [ ! -e "$root/$rel" ]; then
     printf '%s\n' "$base" | adopt_write_file "$root" "$rel" || return 1
     adopt_note "Wrote $rel with the framework's permissions."
-  elif ! jq -e 'type == "object"' "$root/$rel" >/dev/null 2>&1; then
-    adopt_note "$rel is not a JSON object, so it could not be composed; it was left alone and"
-    adopt_note "the framework's session hooks are NOT in place. Your original is in the archive."
-    return 0
+  elif ! jq -e 'type == "object" and ((.permissions == null) or ((.permissions | type) == "object")) and ((.hooks == null) or ((.hooks | type) == "object"))' "$root/$rel" >/dev/null 2>&1; then   # BL-242-SESSION-COMPOSABLE
+    # Not a shape the framework can compose into — not JSON, or `permissions`
+    # / `hooks` that are not objects. Left alone and SAID, never forced: the
+    # first cut refused the whole adoption over a string `permissions`, and
+    # with an array `hooks` it composed the rules, failed the roster silently,
+    # and printed that the hooks were registered.
+    adopt_note "$rel is not in a shape the framework can compose into (it must be a JSON object"
+    adopt_note "whose permissions and hooks, where present, are objects). It was left alone, so the"
+    adopt_note "framework's permissions and session hooks are NOT in place. Your original is in the archive."
+    ADOPT_SESSION_SKIPPED=1
   else
     # UNION, theirs first, nothing of theirs removed or reordered.
     adopt_jq_edit "$root" "$rel" '
@@ -63,14 +70,21 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
       --argjson b "$base" || return 1   # BL-242-SESSION-COMPOSE
     adopt_note "Composed the framework's permission rules into your $rel; nothing of yours was removed."
   fi
-  if [ -f "$root/$rel" ] && [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel"; then
+  if [ -z "${ADOPT_SESSION_SKIPPED:-}" ] && [ -f "$root/$rel" ] && [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel"; then
     adopt_touched_disk   # BL-225-TOUCHED-DISK
     soif_register_hook_roster "$root/$rel" adoption   # BL-242-SESSION-ROSTER
     jq -e 'type == "object"' "$root/$rel" >/dev/null 2>&1 \
       || { adopt_refuse "registering the session hooks left $rel unreadable"; return 1; }
     adopt_record_write "$rel"
-    adopt_note "Registered the framework's session hooks. The bypass detector's per-tool arm is"
-    adopt_note "not registered on adopted projects until BL-277 closes; its end-of-session arm is."
+    # THE RECEIPT, not the call: the roster's jq edits fail quietly by design
+    # (`&& mv`), so "registered" is said only when a hook is actually there.
+    if jq -e '[.hooks.SessionStart[]?.hooks[]?.command] | any(test("session-version-check.sh"))' "$root/$rel" >/dev/null 2>&1; then   # BL-242-SESSION-ROSTER-RECEIPT
+      adopt_note "Registered the framework's session hooks. The bypass detector's per-tool arm is"
+      adopt_note "not registered on adopted projects until BL-277 closes; its end-of-session arm is."
+    else
+      adopt_note "The framework's session hooks could NOT be registered in $rel — its hooks section"
+      adopt_note "did not take them. The permissions are in place; add the hooks from a scaffolded project."
+    fi
   fi
 
   # ── the vendored skills: framework-wins, theirs archived ──────────────────

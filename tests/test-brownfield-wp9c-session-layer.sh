@@ -19,6 +19,8 @@
 #       neither when it is not
 #   L6  a symlinked settings.json is never written through
 #   L7  the intake's §13 prompt no longer says the guides are missing
+#   L8  a settings.json the framework cannot compose into (not JSON; a string
+#       `permissions`; an array `hooks`) is left alone and said — never forced
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -146,7 +148,23 @@ l7() {
   else pass "$label"; fi
 }
 
-l1; l2; l3; l4; l5; l6; l7
+l8() {
+  local label="L8 a settings.json the framework cannot compose into is left alone and said, never forced" bad="" c n=0 p
+  for c in 'not json {' '{"permissions":"str"}' '{"hooks":[1,2]}'; do
+    n=$((n + 1)); p="$WORK/odd$n"
+    _base "$p"; printf '%s\n' "$c" > "$p/.claude/settings.json"
+    _commit "$p" package.json src/index.ts .claude/settings.json
+    _adopt "$p" "odd$n" SOIF_ADOPT_QDRANT=no
+    [ "$RUN_RC" -eq 0 ] || { bad="$bad [$c: adoption refused (rc $RUN_RC)]"; continue; }
+    [ "$(cat "$p/.claude/settings.json")" = "$c" ] || bad="$bad [$c: the file was changed]"
+    grep -q 'not in a shape the framework can compose into' "$WORK/odd$n.out" || bad="$bad [$c: the run did not say so]"
+    grep -q 'Registered the framework.s session hooks' "$WORK/odd$n.out" && bad="$bad [$c: the run claims hooks it did not register]"
+    [ "$(_dispo "$p" .claude/settings.json)" = "kept" ] || bad="$bad [$c: archive row reads '$(_dispo "$p" .claude/settings.json)']"
+  done
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+l1; l2; l3; l4; l5; l6; l7; l8
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
 [ "$FAILED" -eq 0 ]

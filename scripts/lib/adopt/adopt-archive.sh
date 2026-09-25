@@ -816,7 +816,7 @@ adopt_archive_write() {
       # unwritable file is left alone by that stage, so it stays `kept`.
       .claude/settings.json)
         if [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel" && [ -w "$root/$rel" ] \
-           && jq -e 'type == "object"' "$root/$rel" >/dev/null 2>&1; then dispo="composed"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-SESSION
+           && jq -e 'type == "object" and ((.permissions == null) or ((.permissions | type) == "object")) and ((.hooks == null) or ((.hooks | type) == "object"))' "$root/$rel" >/dev/null 2>&1; then dispo="composed"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-SESSION
       .claude/skills/session-handoff/SKILL.md|.claude/skills/sweep-triage/SKILL.md|.claude/skills/zoom-out/SKILL.md|.claude/skills/grill-with-docs/SKILL.md)
         if [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel" && [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;
       CLAUDE.md|FEATURES.md|BUGS.md|RELEASE_NOTES.md|docs/INDEX.md|docs/IDENTIFIERS.md|docs/archive/README.md)
