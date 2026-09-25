@@ -152,7 +152,10 @@ ORDER
 
 _adopt_act4_validate() {
   local root="$1" errs
-  errs="$(_adopt_act4_record_errors "$root"; _adopt_act4_verdict_errors "$root")"
+  # PROJECT_INTAKE.md's provenance header too: the assessment conversation
+  # edits that file, and a header it broke must not be recorded as assessed.
+  errs="$(_adopt_act4_record_errors "$root"; _adopt_act4_verdict_errors "$root"
+          adopt_provenance_errors "$root/PROJECT_INTAKE.md" | sed 's/^/PROJECT_INTAKE.md: /')"   # BL-242-PROVENANCE-ACT4-CHECK
   [ -z "$errs" ] && { adopt_note "The assessment record and the verdict are complete."; return 0; }
   adopt_refuse "the assessment record was not accepted, and nothing was written"
   printf '%s\n' "$errs" | while IFS= read -r l; do [ -n "$l" ] && printf '          - %s\n' "$l" >&2; done
@@ -272,6 +275,8 @@ Then, WITH ME — ask, do not infer:
 7. Write the plan to docs/phase-0/adoption-plan.md.
 8. Fold what is worth keeping from the archived documents into CLAUDE.md, FEATURES.md, BUGS.md and
    RELEASE_NOTES.md, and tell me what you moved.
+   PROJECT_INTAKE.md opens with a SOIF-PROVENANCE comment block: keep it exactly as it is, first in
+   the file — the finisher refuses a file whose header is missing or altered.
 9. Write .claude/adoption/assessment-record.json in exactly this shape:
 
    { "schemaVersion": 1,
