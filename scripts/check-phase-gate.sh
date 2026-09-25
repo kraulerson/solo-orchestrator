@@ -1428,11 +1428,175 @@ _cpg_warn_no_gate_section() {
   issues=$((issues + 1))
 }
 
+# ── BL-274: single-authority attestation ────────────────────────────
+# An organizational deployment with ONE technical authority cannot clear the
+# self-approval control below: the Approver and the author of the Approver row
+# are the same person at every gate, and no sequence of correct actions changes
+# that. The framework's answer to "this control cannot apply in this
+# environment" is an attestation — a block that is ATTESTED, not silenced
+# (`## BL-032:` lineage, nine `SOLO_*_ATTESTED` siblings).
+#
+# WHAT THIS IS NOT. It does not assert the control was satisfied, and it does
+# not make the project compliant. `docs/governance-framework.md` §XIV item 5
+# ("Second technologist with repository and hosting access") is a BLOCKING
+# pre-condition for an organizational deployment, and a single-authority
+# project does not meet it. The attestation records that a named human accepted
+# a named, still-unmet condition. Every line it prints says so, because an
+# escape that reads like a passed check is `## BL-256:`'s unearned receipt
+# moved from tooling into governance.
+#
+# _cpg_record_single_authority_attestation <gate_key> <reason>
+#   0 — recorded (or idempotent no-op: same reason AND same head)
+#   2 — could not write (no jq, unwritable or read-only state file, lock
+#       timeout, jq error). Every failure path returns 2; the caller treats
+#       any non-zero as "refuse".
+_cpg_record_single_authority_attestation() {
+  local _sa_gate="$1" _sa_reason="$2"
+  local file=".claude/process-state.json"
+  local _sa_head _sa_cur_reason _sa_cur_head today actor lock_dir attempts rc
+
+  command -v jq >/dev/null 2>&1 || return 2
+  # A read-only state file is refused up front. Without this, `mv` of the
+  # temp file over it would succeed on any writable directory and the
+  # refusal text below ("make the state file writable") would describe a
+  # case that in fact accepted — measured by the pre-merge review (RV4).
+  if [ -e "$file" ]; then
+    [ -w "$file" ] || return 2
+  fi
+
+  # The commit this attestation EXCUSES, recorded so the audit trail says
+  # which tree the human accepted the unmet condition for. The pin is an
+  # AUDIT FIELD and the idempotence key; nothing reads it back to decide the
+  # gate's outcome. The attestation must be supplied on every invocation, and
+  # a run without it refuses exactly as before. That is deliberately narrower
+  # than `_cpg_record_accum_attestation`, which reads its own pin back: this
+  # is a governance exception, and re-supplying it each time is the point.
+  # Computed BEFORE the idempotence check, which reads it.
+  _sa_head=$(git rev-parse HEAD 2>/dev/null || printf '')
+
+  if [ -f "$file" ]; then
+    _sa_cur_reason=$(jq -r --arg g "$_sa_gate" '.attestations.single_authority[$g].reason // ""' "$file" 2>/dev/null || printf '')
+    _sa_cur_head=$(jq -r --arg g "$_sa_gate" '.attestations.single_authority[$g].head // ""' "$file" 2>/dev/null || printf '')
+    # IDEMPOTENCE IS HEAD-SENSITIVE, and the sibling recorder documents why:
+    # with `head` in the record but only the reason in this test, re-attesting
+    # after new commits is a silent no-op, the pin goes stale, and the only way
+    # out is to invent a NEW reason string — an incentive to write junk
+    # reasons, which is the shape `## BL-149:` deletes.
+    if [ "$_sa_cur_reason" = "$_sa_reason" ] && [ "$_sa_cur_head" = "$_sa_head" ]; then
+      return 0
+    fi
+  fi
+
+  today=$(date +%Y-%m-%d)
+  actor=$(_cpg_gate_actor)
+  lock_dir="$file.lockdir"
+
+  attempts=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      return 2
+    fi
+    sleep 0.1
+  done
+
+  # Created INSIDE the lock, as the sibling recorder's comment requires: a
+  # concurrent writer must never observe a half-built file.
+  if [ ! -f "$file" ]; then
+    printf '{}\n' > "$file" 2>/dev/null || { rmdir "$lock_dir" 2>/dev/null; return 2; }
+  fi
+
+  rc=0
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --arg g "$_sa_gate" --arg reason "$_sa_reason" --arg head "$_sa_head" \
+          --arg date "$today" --arg by "$actor" \
+          '.attestations = ((.attestations // {}) | .single_authority = ((.single_authority // {}) + {($g): {reason: $reason, head: $head, gate: $g, date: $date, by: $by}}))' \
+          "$file" > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$file" || exit 1   # BL-274-ATTEST-WRITE: atomic attestation finalize
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
+  rmdir "$lock_dir" 2>/dev/null || true
+  if [ "$rc" -ne 0 ]; then
+    return 2
+  fi
+  return 0
+}
+
+# _cpg_single_authority_gate <gate_key> <gate_label>
+#   0 — attested and recorded; the caller lifts the block
+#   1 — attestation REFUSED (no reason, no key, or unrecordable); caller counts it
+#   2 — no attestation offered; caller proceeds to its normal refusal
+_cpg_single_authority_gate() {
+  local _sa_gate="$1" _sa_label="$2" _sa_reason
+
+  [ "${SOLO_SINGLE_AUTHORITY_ATTESTED:-}" = "1" ] || return 2   # BL-274-SINGLE-AUTHORITY
+
+  # Sanitise at INGEST as well as at display. accum_oneline's own comment is
+  # the authority: the two are COMPLEMENTS, not substitutes — `echo -e`
+  # manufactures a real newline from the two characters `\` `n`, which a
+  # control-strip alone leaves untouched, and an earlier round that swapped one
+  # defence for the other reopened the hole.
+  if command -v accum_oneline >/dev/null 2>&1; then
+    _sa_reason=$(accum_oneline "${SOLO_SINGLE_AUTHORITY_ATTESTED_REASON:-}")
+  else
+    _sa_reason=$(printf '%s' "${SOLO_SINGLE_AUTHORITY_ATTESTED_REASON:-}" | LC_ALL=C tr -d '\000-\037\\')
+  fi
+  # Trim AFTER stripping so a whitespace-only reason is rejected (BL-070's
+  # tightener, mirrored from the accumulation gate).
+  _sa_reason=$(printf '%s' "$_sa_reason" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  if [ -z "$_sa_reason" ]; then
+    echo -e "${RED}[BLOCKED]${NC} $_sa_label: SOLO_SINGLE_AUTHORITY_ATTESTED=1 was set with no reason."
+    echo "        An attestation without a justification is the gate switched off with extra steps."
+    echo "        Set SOLO_SINGLE_AUTHORITY_ATTESTED_REASON=\"<why this organisation has a single technical authority>\" and re-run."
+    return 1
+  fi
+
+  if [ -z "$_sa_gate" ]; then
+    echo -e "${RED}[BLOCKED]${NC} $_sa_label: a single-authority attestation was offered, but this gate has no canonical key to record it against — refusing rather than accepting an escape nothing can be pinned to."
+    return 1
+  fi
+
+  if _cpg_record_single_authority_attestation "$_sa_gate" "$_sa_reason"; then
+    # printf %s for the REASON, never echo -e: the value is operator-supplied,
+    # and an interpreted escape could forge additional verdict lines into a
+    # transcript a human or a CI log skims.
+    # The word "verified" is deliberately absent from this whole block, in any
+    # form. A reader skimming a gate transcript sees the shape of a line before
+    # they read it, and "NOT verified" and "verified" share that shape. An
+    # accepted attestation must not be mistakable for a completed check.
+    printf '%b[ATTESTED]%b %s: single-authority attestation ACCEPTED — the independence control was NOT applied, because one person holds the only technical authority here. Reason: ' "${YELLOW}" "${NC}" "$_sa_label"
+    printf '%s' "$_sa_reason"
+    printf '\n'
+    echo "        This RECORDS an accepted exception. No check was performed and no independent approval exists."
+    echo "        docs/governance-framework.md §XIV item 5 — a second technologist with repository and hosting access — is a BLOCKING pre-condition and REMAINS UNMET. This attestation does not clear it."
+    echo "        Recorded to .claude/process-state.json::attestations.single_authority, pinned to this commit, not silenced. See ## BL-274:."
+    return 0
+  fi
+
+  echo -e "${RED}[FAIL]${NC} $_sa_label: a single-authority attestation was supplied but COULD NOT BE RECORDED to .claude/process-state.json — refusing it."
+  echo "        An escape that leaves no trace is not an escape, it is the gate being off. Make the state file writable (and install jq), then re-run."
+  return 1
+}
+
 # --- Approval Entry Field Validation (P0-004) ---
 # Verify approval entries have populated fields, not just template defaults
 validate_approval_fields() {
   local gate_name="$1"  # e.g., "Phase 0.*Phase 1"
   local gate_label="$2" # e.g., "Phase 0→1"
+  # BL-274: the canonical gate key, for pinning a single-authority attestation.
+  # Optional and defaulted: absent means no attestation can be recorded for this
+  # gate, and _cpg_single_authority_gate refuses rather than accepting an
+  # unpinnable escape.
+  local sa_gate_key="${3:-}"
 
   # Find the gate section and check for populated approver/date fields.
   # BL-138 (Dogfood-3 F-DF3-001): the old `grep -A 20 "$gate_name"` window
@@ -1620,7 +1784,7 @@ validate_approval_fields() {
     fi
     # BL-143-PASTCAP-RECOVERY-END
     if [ -n "$approver_name" ] && [ "$approver_name" != "[Name]" ] && [ "$approver_name" != "" ]; then
-      local approver_norm git_user git_user_norm commit_author commit_author_norm approver_line
+      local approver_norm git_user git_user_norm commit_author commit_author_norm approver_line _sa_rc
       approver_norm=$(printf '%s' "$approver_name" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       git_user=$(git config user.name 2>/dev/null || echo "")
       git_user_norm=$(printf '%s' "$git_user" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
@@ -1717,6 +1881,20 @@ validate_approval_fields() {
       commit_author_norm=$(printf '%s' "$commit_author" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
       if [ -n "$commit_author_norm" ] && [ "$commit_author_norm" = "$approver_norm" ]; then
+        # BL-274: the attested escape is consulted FIRST and is always
+        # recorded. It is checked here, inside the arm that would refuse, so it
+        # can never fire on a project that had nothing to excuse.
+        # `|| _sa_rc=$?` and NOT a bare call: this script runs under `set -e`
+        # from line 2, so a bare invocation returning 2 (no attestation offered
+        # — the ordinary case) aborts the entire gate run and prints nothing at
+        # all. Caught by this suite's A1 control, which is why it exists.
+        _sa_rc=0
+        _cpg_single_authority_gate "$sa_gate_key" "$gate_label" || _sa_rc=$?
+        if [ "$_sa_rc" -eq 0 ]; then
+          : # attested and recorded; the block is lifted, loudly and on the record
+        elif [ "$_sa_rc" -eq 1 ]; then
+          issues=$((issues + 1))   # BL-274-ATTEST-REFUSE
+        else
         echo -e "${RED}[FAIL]${NC} $gate_label: Approver '$approver_name' matches APPROVAL_LOG.md commit author '$commit_author' — self-approval detected for organizational deployment"
         # BL-275-REMEDY: this advice was wrong in both halves and sent the
         # operator in a circle. "Have the approver commit the entry themselves"
@@ -1739,6 +1917,7 @@ validate_approval_fields() {
         echo "  docs/governance-framework.md §XIV item 5 (a second technologist with repository and"
         echo "  hosting access), and this gate is the symptom rather than the cause. See ## BL-275:."
         issues=$((issues + 1))
+        fi
       elif [ -n "$git_user_norm" ] && [ "$git_user_norm" = "$approver_norm" ] \
            && [ -n "$commit_author_norm" ] && [ "$commit_author_norm" != "$approver_norm" ]; then
         echo -e "${YELLOW}[WARN]${NC} $gate_label: ambient git user '$git_user' matches approver '$approver_name' but APPROVAL_LOG.md commit author is '$commit_author' — verify the commit author wasn't rewritten"
@@ -1899,7 +2078,7 @@ fi
 
 # Approval field validation: Phase 0→1 (P0-004, P0-005)
 if [ "$current_phase" -ge 1 ]; then
-  validate_approval_fields "Phase 0.*Phase 1" "Phase 0→1"
+  validate_approval_fields "Phase 0.*Phase 1" "Phase 0→1" "phase_0_to_1"
 fi
 
 # Artifact existence + content check: Phase 0→1
@@ -2278,7 +2457,7 @@ fi
 
 # Approval field validation: Phase 1→2 (P0-004)
 if [ "$current_phase" -ge 2 ]; then
-  validate_approval_fields "Phase 1.*Phase 2" "Phase 1→2"
+  validate_approval_fields "Phase 1.*Phase 2" "Phase 1→2" "phase_1_to_2"
 fi
 
 # Artifact existence + completeness check: Phase 1→2 (P1-008, P1-011)

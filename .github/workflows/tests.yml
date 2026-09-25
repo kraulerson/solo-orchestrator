@@ -578,6 +578,7 @@ jobs:
             tests/test-bl286-integration-branch.sh
             tests/test-bl209-hooksdir-resolution.sh
             tests/test-bl275-selfapproval-remedy.sh
+            tests/test-bl274-single-authority-attestation.sh
             tests/test-bl287-reconfigure-ci-host.sh
             tests/test-bl288-scout-shallow-history-claim.sh
             tests/test-bl278-sentinel-root.sh
