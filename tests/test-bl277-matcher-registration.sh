@@ -7,14 +7,15 @@
 # Claude Dev Framework from `~/.claude-dev-framework`, cloning it from GitHub
 # when it is absent and pulling it when it is present. That is not hermetic, so
 # per CLAUDE.md's membership rule it stays out of the tests.yml unit lane; the
-# thirty hermetic cases for this entry live in
+# hermetic cases for this entry live in
 # tests/test-bl277-detector-authorship.sh, which also pins the registration's
 # idempotence probe statically (R4) so the unit lane covers the jq filter
 # without running the scaffolder.
 #
 # Cases: R1 the detector's PostToolUse registration sits under matcher Bash and
 # nowhere else; R2 the Stop registration is present once; R3 the tool tracker
-# and the commit recorder stay unscoped. M0 the marker is present once; M7 a
+# and the commit recorder stay unscoped. M0 the marker is present once in the
+# hook roster, scripts/lib/claude-settings.sh, which init.sh sources; M7 a
 # mutant that writes the group without its matcher, proven by distance from the
 # marker and by the literal text that landed, killed by R1.
 set -o pipefail
@@ -22,6 +23,7 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INIT="$REPO_ROOT/init.sh"
+ROSTER="$REPO_ROOT/scripts/lib/claude-settings.sh"
 
 PASSED=0
 FAILED=0
@@ -32,7 +34,9 @@ TOPTMP="$(mktemp -d)"
 trap 'rm -rf "$TOPTMP"' EXIT INT TERM
 newtmp() { mktemp -d "$TOPTMP/fixXXXXXX"; }
 
-[ -f "$INIT" ] || { echo "  [FAIL] setup — $INIT not found"; echo ""; echo "Results: 0 passed, 1 failed"; exit 1; }
+for need in "$INIT" "$ROSTER"; do
+  [ -f "$need" ] || { echo "  [FAIL] setup — $need not found"; echo ""; echo "Results: 0 passed, 1 failed"; exit 1; }
+done
 command -v jq >/dev/null 2>&1 || { echo "  [FAIL] setup — jq is required"; echo ""; echo "Results: 0 passed, 1 failed"; exit 1; }
 
 # init_project <init.sh> <dest>; init.sh refuses to run from inside the
@@ -95,9 +99,9 @@ else
 fi
 
 echo "=== M — marker and mutant ==="
-n="$(count_lit "$INIT" "# BL-277-MATCHER")"
-if [ "$n" = "1" ]; then pass "M0 — '# BL-277-MATCHER' occurs once in init.sh"
-else fail_ "M0" "'# BL-277-MATCHER' occurs $n times in init.sh, want 1"; fi
+n="$(count_lit "$ROSTER" "# BL-277-MATCHER")"
+if [ "$n" = "1" ]; then pass "M0 — '# BL-277-MATCHER' occurs once in claude-settings.sh"
+else fail_ "M0" "'# BL-277-MATCHER' occurs $n times in claude-settings.sh, want 1"; fi
 
 # M7 — the registration appended without its matcher. Killed by R1. Needs a
 # mirror init.sh can run from: everything but .git, tests and Reports.
@@ -107,8 +111,8 @@ for e in "$REPO_ROOT"/* "$REPO_ROOT"/.[!.]*; do
   case "$b" in .git|tests|Reports|.semgrep) continue ;; esac
   cp -Rp "$e" "$MI/" 2>/dev/null
 done
-if [ ! -f "$MI/init.sh" ]; then fail_ "M7 setup" "could not mirror the framework"
-elif why="$(mutate "$MI/init.sh" "# BL-277-MATCHER" \
+if [ ! -f "$MI/init.sh" ] || [ ! -f "$MI/scripts/lib/claude-settings.sh" ]; then fail_ "M7 setup" "could not mirror the framework"
+elif why="$(mutate "$MI/scripts/lib/claude-settings.sh" "# BL-277-MATCHER" \
        '.hooks.PostToolUse += [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' \
        '.hooks.PostToolUse += [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' 5)"; then
   MPROJ="$TOPTMP/mutant-fresh"

@@ -1057,7 +1057,18 @@ and need no change.
 
 ### §10.1 — The invariant
 
-**`active_delta != null ⇒ current_phase == 4`.**
+**`active_delta != null ⇒ current_phase == 4`** — **or** the project is adopted and its recorded
+assessment says it is in production.
+
+> **Amended 2026-09-25 by reference (R2 — Karl, 2026-09-17; ADOPT-002-ARCH v2.2 §3.6, §10-WP12c).**
+> The invariant gains ONE exemption clause: `.adoption.adopted == true` and
+> `.adoption.assessment.inProduction == true` in `.claude/manifest.json`, read as state
+> (`# DELTA-OPEN-ERA-EXEMPTION`). A delta opened under it carries `exemption:
+> "adopted-in-production"` in its record, and `.claude/process-state.json` gains an
+> `.adoption_exemptions[]` row; the hotfix retro is booked exactly as at phase 4. The validator
+> reports such a delta as an INFO, not as the mismatch below; `resume.sh` renders it before the
+> Phase 0 entries and never greets below phase 4. No phase gate reads the exemption. Nothing else in
+> this section changes, and every other project below phase 4 is refused with exit 3 as before.
 
 Enforced at two points (author-proposed placement, the invariant itself is D7):
 

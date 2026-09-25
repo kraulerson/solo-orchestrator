@@ -13705,7 +13705,7 @@ the operative one.
 | the Adoption Record, the audit rows and the CI carve-out | **WP7** | always |
 | the provenance headers on reconstructed documents | **WP7** | always |
 | the commit-time scanners (the fallback pre-commit hook) | **WP7** — see below | always |
-| your project's framework documents | ~~nobody~~ → **WP11 + WP12b** (D3; string corrected in WP9a) | always |
+| ~~your project's framework documents~~ | ~~nobody~~ → **WP11 + WP12b** (D3; string corrected in WP9a) — **SHIPPED, stub retired 2026-09-24** | ~~always~~ |
 | installing the framework's version of *N* colliding script(s) | **nobody** | only when N > 0 |
 | the secrets disposition | **nobody** | when the scan found something — **and unconditionally when it did not RUN** |
 
@@ -14708,6 +14708,691 @@ beyond `replaced`/`kept`. WP12b is the consumer; recorded before it starts.
 (5) **Pre-existing, unrelated to WP11 but emitted on every adoption run:**
 `adopt-state.sh: line …: adopt_record_written: command not found` — a typo for `adopt_record_write`,
 present on `main`, meaning `ADOPT_WRITE_SET_REL` never enters the staging ledger.
+
+### WP7/1's build (2026-09-22) — the Adoption Record exists, and the scrollback buffer stops being the record
+
+**The sentence this closes.** `adopt_stub_adoption_record` printed, on every successful run:
+*"Until WP7 lands, the adoption itself is recorded in the manifest and nowhere else."* The
+personal-tier secrets arm printed, a few lines earlier, *"the Adoption Record that will list them
+permanently is not built yet, so keep this transcript."* Real credential findings in an operator's
+history had no home but a scrollback buffer.
+
+**What landed.** `scripts/lib/adopt/adopt-record.sh` — `adopt_write_adoption_record`, wired as the
+`adoption_record` stage of the write phase (`# BL-242-RECORD-STAGE`), **between `manifest` and
+`write_set`**. After `manifest` because the record names the commit the project was adopted at and
+takes it from the STAMP rather than a second `git rev-parse HEAD` — one fact, one source. Inside the
+write phase because the phase is what the pre-write rehearsal replays, so a record written outside it
+would be the one write of the run nobody rehearsed, which is `## BL-292:`'s class exactly.
+
+It records: the adoption day, the tier, the proof-of-concept flag, the commit adopted at and what
+that anchor bounds; the scanner, who ran it, under whose rules, the outcome, the commits read and
+the finding count; every finding by rule, location and fingerprint (never the matched value —
+§6.2's redaction is a projection); the dispositions and acknowledgements when a file was supplied,
+and the true sentence when none was; the archive path and the `--re-add` line; the test-debt count,
+the hooks directory git will use, and the rehearsal's measured seconds and megabytes (kept in
+`ADOPT_REHEARSAL_SECONDS` / `ADOPT_REHEARSAL_MB`, `# BL-242-RECORD-REHEARSAL`, because a number that
+exists only in a scrollback buffer is not a record). And it names the three §8.6 rows it CANNOT
+carry — the assessment and verdict, the interview answers, the in-production declaration — rather
+than omitting them, because an absent field reads as a measurement that came back empty.
+
+**The eight clauses are ENFORCED AT WRITE TIME, not asserted in a comment, and that is the package's
+one real idea.** v1 §8.8's contract exists because `APPROVAL_LOG.md` is parsed by four programs to
+decide whether a gate was crossed. The record's content is partly OPERATOR TEXT — a path in their
+repository, the `by` and `reason` they wrote on a disposition — so the contract cannot be held by
+careful prose alone. `adopt_record_clauses` checks all eight on the rendered fragment BEFORE a byte
+reaches the file and `adopt_refuse`s naming the failing clause; `adopt_record_placed_last` and
+`adopt_record_window_clean` then derive the two positional clauses over the ASSEMBLED log.
+
+**MEASURED, AND THE FIRST CUT WAS WRONG IN BOTH DIRECTIONS.** A hostile fixture — a finding in
+`src/Phase 0 to Phase 1/cfg.yml`, a disposition `by: "IT Security Approval"`, an acknowledgement
+reason of *"penetration test was exempted for this repo"* — broke clauses 1, 2 and 4 on the first
+render. The pen-test one is the dangerous member: that reader takes **no window and no date**, it
+greps the whole file, so one operator sentence would have told this framework a penetration test was
+exempted. Such a cell is now WITHHELD with a stand-in that says why — not rewritten, because
+lowercasing someone's `Phase` or clipping their `exempted` puts words in their mouth in the one
+document that exists to be trusted later, and not refused, because an adoption must not fail over a
+directory name.
+
+Then the correction in the other direction: clause 6 was first made ABSOLUTE (no `date` substring
+anywhere), which withheld every finding whose path contained `update` — a large usability cost for
+no safety, since the reader it defeats needs PROXIMITY to a gate header, which
+`adopt_record_window_clean` forecloses by derivation. Clause 6 is now scoped to the record's own
+PROSE; the indented operator rows are exempt.
+
+**Proof.** `tests/test-brownfield-wp7-adoption-record.sh`, 11 cases, unit lane. A9 is the one the
+other ten support: it assembles a real `APPROVAL_LOG.md` from **both** shipped templates plus a real
+rendered record and runs **transcriptions** of the framework's four gate-evidence readers over it —
+`_cpg_gate_has_evidence` × four gates, `check_gate`'s `grep -A 10 … | grep -i date` × four, the
+whole-file pen-test grep, and the `Pre-Phase 0` thirty-line counter — requiring every one to report
+nothing, with a planted positive control per reader.
+
+**TRANSCRIPTIONS, NOT THE READERS THEMSELVES, and the first version of this paragraph said
+otherwise.** They are hand-copied because the sources are a 2300-line gate and a whole validator
+with their own preconditions; what is under test is the PREDICATE. The cost is drift, and drift in
+the direction that matters — a reader getting LOOSER upstream — is invisible by construction.
+Measured: deleting the `^` anchor from the REAL `_cpg_gate_has_evidence` left the suite at 10/0. Each
+transcription is now pinned against its source by that source's own literal text, so the copy and the
+original cannot part company in silence.
+
+Mutation proofs: un-indenting every table cell the renderer emits (the "well-meaning editor fix"
+§8.8 names) → **7 passed / 3 failed**; commenting out clause 5 → **8 passed / 2 failed**.
+
+*(**THE CELL COUNT HAS NOW BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND THE SECOND TIME WAS IN THE
+SENTENCE SAYING NOT TO QUOTE THE FIRST.** The commit message said "23 table cells"; the correction
+said 33 source lines / 24 indented rows / 16 data rows, derived against the tree BEFORE the same
+commit's own `Scanner version` row. Both are superseded. Derive it — two numbers, both from a
+RENDERED record rather than from source, because two people counting source lines got two different
+answers:*
+
+```
+zero-findings record: indented rows=25  data rows=17
+```
+
+*A record WITH one finding and a dispositions file has more; the original "23" is what that shape
+gives. The lesson is the one this block already carried and did not apply to itself: a count is a
+measurement of a tree, and a commit that adds a row invalidates every count taken before it.)*
+
+**AND A5 WAS VACUOUS UNTIL A MUTATION SAID SO.** Clause 5 and a stronger "clause 5b" shipped as two
+`if`s; deleting clause 5 outright left the suite at **10/0**, because every Date row the clause-5
+case plants is also a column-0 row 5b catches. A check no mutation can kill is not a check. They are
+one predicate now, with two messages.
+
+**A real bug found on the way, filed as `## BL-307:`**: `local root="$1" log="$root/APPROVAL_LOG.md"`
+never sees `root` — bash expands every right-hand side in one `local` before assigning any of them.
+Measured identical on 3.2.57, 4.0.44, 4.4.23, 5.0.18, 5.2.37 and 5.3.20, so unlike the two version
+splits CLAUDE.md records, a local run DOES reproduce it; what hides it is dynamic scoping, and two
+shipped sites are correct today only because their caller happens to hold a local of the same name.
+
+**What of WP7 is still out**, and `adopt_audit_event`'s own header is the live list: the CI
+carve-out, the `adoption` and `secrets_disposition` audit rows, the provenance-header lint, and the
+fallback pre-commit hook. `adopt_stub_adoption_record` is a headstone; the derived called-stub set is
+now **five** (`adopt_stub_assessment`, `_framework_script_collisions`, `_hooks`, `_project_docs`,
+`_provenance_headers`) — re-derive it with the recipe above rather than quoting this number.
+
+---
+
+### WP7/3's build (2026-09-23) — the commit-time scanners, and the measurement that un-deferred them
+
+**The stub's own sentence is what retired it.** `adopt_stub_hooks` printed, on every run: the
+scanners "are NOT [on] — installing that hook today refuses every commit, because it expects
+artifacts an adoption does not yet produce." That was a MEASUREMENT, not a preference, which is
+exactly why it was worth re-taking once WP7/1 landed the Adoption Record it named. Re-measured on a
+real hermetic adoption at `f790e09`, hook installed, gitleaks 8.30.1 and semgrep 1.175.0 present:
+
+```
+docs: commit, nothing else staged          rc 0   lands
+a source file whose tests fail (BL-125)    rc 1   [BLOCKED] project tests FAILED
+a staged RSA private key                   rc 1   [BLOCKED] gitleaks detected secrets
+```
+
+That is §10-WP7's stated proof obligation — admits a compliant commit, blocks a non-compliant one
+BY EXIT CODE — so the hook ships. Karl's decision was always that it is WP7's, "last, once the
+artifacts it reads exist".
+
+**Two writers, and the second is what makes the first worth having.**
+`# BL-242-PRECOMMIT-INSTALL` writes the hook through the SHARED emitter
+(`soif_write_precommit_hook`), byte-identical to what `init.sh` and `upgrade-project.sh
+--sync-framework` emit — `B3` asserts that with `cmp`, because a third spelling is how this repo's
+own hook became a silent stale version (`# BL-243-HOOK-TEMPLATE`).
+`# BL-242-SEMGREP-CONFIG` installs `.semgrep/soif-dom-sinks.yml`, **without which the hook's
+static-analysis arm is inert on every adopted project.** The hook passes that path unconditionally;
+`init.sh`'s own comment at the line that installs it for scaffolded projects states the
+consequence, and it is what a real adoption printed on EVERY commit before this shipped:
+
+```
+[WARN] semgrep could not complete (exit 7) — the tool itself failed.
+  SAST NOT ENFORCED for this commit — the scanner did not run.
+  [ERROR] unable to find a config; path `.semgrep/soif-dom-sinks.yml` does not exist
+```
+
+Loud and honest, and an unprotected project. Installed **only when absent** — an adoptee with a file
+at that path has its own rules there and the hook reads the path either way. That narrowing is
+deliberate: replacing it would be a new archive-and-replace class (§7.1's population is the AI-layer
+surfaces and the git hooks, and this is neither), and "write only what is not there" also keeps this
+writer out of I20's overwrite inventory by construction rather than by a row somebody has to
+remember.
+
+**THE OPERATOR'S OWN PRE-COMMIT HOOK IS NOW REPLACED, AND THE ARCHIVE ROW SAID `kept`.** §7.1 puts
+every non-`.sample` file in `.git/hooks/` in the archive-and-replace bucket, and WP6 already takes
+the copy before any writer runs — so replacing is the designed behaviour and the restore line makes
+it reversible. But `_adopt_archive_dispo`'s `case` had no arm for it, so a real adoption wrote
+`.git/hooks/pre-commit  kept` into the MANIFEST beside a hook it had just overwritten. `kept` means
+"the operator's original is still at the path". That is `## BL-292:`'s class in the field an auditor
+reads, found by executing the new path rather than by reading the diff, and fixed in the same commit
+(`# BL-242-ARCHIVE-DISPO-HOOK` — its own marker, because `# BL-242-ARCHIVE-DISPO` is a mutation
+anchor `wp9b`'s W7-anchor requires to be unique; an earlier draft of this sentence cited the wrong
+one).
+
+**Proof.** `tests/test-brownfield-wp7b-commit-hook.sh`, 9 cases, unit lane, 27.7s — it runs TWO REAL
+ADOPTIONS and then makes real commits, because every cheap way of asking the question answers a
+different one, and that is precisely how the deferral survived a whole work package unexamined.
+Three mutation proofs, each restored byte-identically:
+
+| mutation | result |
+|---|---|
+| the semgrep ruleset is never installed | **6/3** — B1, B2 and B7 |
+| the hook is never written | **6/3** — B3, B8, and **B6: a private key reaches a commit** |
+| the archive row says `kept` again | **8/1** — B8 |
+
+`B9` re-derives `## BL-242:`'s own called-stub set and pins it at **four**
+(`adopt_stub_assessment`, `_framework_script_collisions`, `_project_docs`, `_provenance_headers`) —
+down from seven before WP10b/2, six before WP7/1 and five before this. Re-derive it with the recipe
+above rather than quoting the number.
+
+**AND THE HOOK SET OFF A FORK BOMB NINE SUITES HAD BEEN CARRYING.** Nine adoption fixtures write
+`package.json` with `"test":"npm test"` — a script that calls ITSELF. Measured: 71 nested `npm`
+processes eight seconds after one `npm test`. Nothing ever ran it, because adoption installed no
+pre-commit hook. The hook's BL-125 arm runs the project's tests whenever a SOURCE file is staged, and
+`tests/test-brownfield-wp4-driver.sh`'s H1 stages one after adoption — so that suite went from about
+two minutes to **1028 seconds, serially**, and would have blown its CI shard. Fixed there
+(`"test":"exit 0"`, 83–95s across three measured runs, 24/0 — H1's feature commit is still refused, now by the commit-msg TDD gate
+as designed rather than by a runaway process that eventually failed).
+
+**RESIDUAL — the other eight still carry it**, and they are fast today only because none of them
+commits a source file after adoption. The first one that does will hang its shard. Derive the set
+rather than trusting this list: `grep -rln '"test":"npm test"' tests/`. Left in place because each
+may assert on what Scout reads out of that script, which was not checked file by file; the fix, where
+safe, is the same one token.
+
+**Three older suites needed their assertions re-aimed, not loosened**, because they described a
+world where the operator's hook was left alone: `wp4-driver` H2 (their hook is now REPLACED —
+`sha_before != sha_after` is the assertion, and the archive must still hold their original bytes),
+H3 (the run now claims the scanners rather than disclosing their absence), and `wp6-collision-archive`
+A5 and S0 (the restore is now checked against the ARCHIVED copy, which holds in both worlds and is
+strictly stronger). `wp10a`'s X1b and M1 matched `secret.detection` case-insensitively, which the new
+install message also satisfies — tightened to the resolver's own line prefix `Secret detection:`
+rather than rewording product text to dodge a test. And the new MANIFEST arm takes its own marker
+(`# BL-242-ARCHIVE-DISPO-HOOK`), because `# BL-242-ARCHIVE-DISPO` is a mutation anchor that
+`wp9b`'s W7-anchor requires to be unique.
+
+**ADVERSARIAL REVIEW RETURNED `block`, AND IT WAS RIGHT: THE FIRST CUT DESTROYED AN OPERATOR'S
+HOOK FOR GOOD.** `soif_write_precommit_hook` writes with `printf >`, which FOLLOWS A SYMLINK, and the
+archive collects plain files only. Reproduced before fixing: a `.git/hooks/pre-commit` linked to a
+shared hook OUTSIDE the repository — one file serving many repos — adopted at rc 0, the shared file
+became 1707 lines of framework hook, no archive was taken, and the run printed *"Your copy is in the
+archive with a restore line"*. Permanent loss, reported as safe. Two siblings came with it: a
+`chmod 444` hook was left in place but MADE EXECUTABLE (the emitter ends in `chmod +x` and returns
+its status, so a failed write still returned 0), with "Commit-time scanners installed" printed over
+it; and on the documented `--finish` recovery path an operator's EDITED hook was overwritten while
+the archive held only the pre-edit version — the one that had refused every commit.
+
+The fix is one invariant, not three patches: **never overwrite bytes the archive cannot give back.**
+`_adopt_precommit_replace_ok` (`# BL-242-PRECOMMIT-GUARD`) refuses a symlink, a read-only file (BEFORE
+the emitter runs, so its `chmod +x` never fires), and any plain file whose sha256 differs from the
+MANIFEST row's. What is written is then verified BY CONTENT against a fresh emitter render, not by
+exit code. And the run's exit code carries the outcome (`# BL-242-PRECOMMIT-RECEIPT`, on both the
+full run and `--finish`): rc 1 with "the adoption itself landed; this step did not", the same shape
+as the commit-msg gate's receipt, because a caller reading rc 0 would take the project as fully
+gated. The `.semgrep` installer had the same class in miniature — `-e` is false for a dangling link,
+so `cp -p` followed it out of the project during the rehearsal — and now tests `-L` too.
+
+Pinned as `B10`–`B13` in `tests/test-brownfield-wp7b-commit-hook.sh`, each mutation-proved. The review
+also found `B5` vacuous — with NO pre-commit hook installed it still passed, because a `feat:`
+commit with no test is refused by the commit-msg TDD gate too — so it now requires `project tests
+FAILED`, the pre-commit arm's own sentence; and `B8` now requires the `REPLACED` line to be ABSENT on
+a project that had no hook.
+
+**THE VERIFICATION ROUND RETURNED `major_concerns`: the three blockers held, and the invariant
+still had holes.** All five were reproduced by the reviewer on real adoptions and are fixed:
+- **A HARDLINKED hook was written through.** `-L` is false for a hardlink, so the guard passed it and
+  a file sharing its inode outside the repository became 1707 lines of framework hook. Fixed by
+  construction rather than by another refusal: the hook is now rendered beside the path and RENAMED
+  over it (`mv`), which replaces the directory entry and leaves the shared inode alone.
+- **The guard trusted the MANIFEST row, not the archived file.** A copy withheld for a secret match is
+  disclosed with "Rotate it at the source; deleting the file does not un-leak it", which invites the
+  deletion; `--finish` then replaced the hook at rc 0 with "Your copy is in the archive" over an empty
+  `git-hooks/`. The guard now requires the archived FILE to exist with the row's sha256.
+- **`--finish` printed "did not begin. Nothing was committed and nothing was written"** under a commit
+  that had just landed 85 files, on every run of the path the guard exists for. `adopt_refuse` tested
+  that arm before `ADOPT_COMMITTED` (`# BL-242-REFUSE-AFTER-COMMIT`).
+- **The remedy led nowhere.** "Move your hook aside and run this again" — and a re-run refuses as
+  already adopted, `--finish` as not part-way through. The refusal now prints the shared emitter's
+  own command, which ships into every adoptee, and `B16` runs the command TAKEN FROM THE RUN'S OUTPUT
+  and then lands a compliant commit.
+- **A failed `mktemp` in `$TMPDIR` inverted the report** — "could not be written" over a hook that HAD
+  been replaced, undisclosed. The reference render now lives in the hooks directory, which step 0
+  already requires to be writable.
+
+Plus four surviving mutants, each now killed: the `-L` / `-e` order (B10b — a DANGLING link, which B10's
+existing target could not distinguish, and which under the mutant created a 1707-line file outside the
+repository), the completeness check and the failed arm (B17, through a new `pctrunc` value on the
+existing `SOIF_ADOPT_HOOK_FAULT` seam), the real archive directory in the REPLACED line (B8), and the
+`.semgrep` installer's outcome on a dangling link (B13).
+
+**THE THIRD ROUND RETURNED `minor_concerns`** — no path that destroys an operator's hook, all eight
+earlier fixes holding under real adoptions. Fixed from it: `--finish` still printed a false receipt
+("0 file(s) were written and committed" under `85 files changed` — the first fix moved which arm
+printed, not what it derived); the MANIFEST recorded `replaced` for a READ-ONLY hook the run then left
+alone (now `kept`, decided at archive time, where writability is already knowable); B17's cleanup
+check used plain `ls`, which hides the dot-named temp file, so the cleanup was untested; a planted or
+leftover file at the temp name was written through (now cleared first); and the `-x` check was reached
+by nothing (new `pcnoexec` fault value, B17b).
+
+**RESIDUALS from these reviews, recorded not fixed** — each is a design call rather than a defect in
+what shipped:
+- **After `--finish` refuses an EDITED hook, the committed MANIFEST still says `replaced`**, and its
+  restore line points at the pre-edit version — the one that blocked every commit. The MANIFEST is
+  committed before the edit can be known, so correcting it needs a second commit. The run and
+  `docs/adoption.md` both now say not to run that restore line.
+- **Three guard lines are still unkilled by the suite**: the archived-file sha comparison when the
+  file is ALTERED rather than removed (B15 only removes it; hand-run, an altered copy is refused), the
+  post-`mv` sha comparison, and the post-`mv` `! -L` test. The last two are reachable only through a
+  race or a planted link.
+- **Run as root, `-w` is true on a `chmod 444` file**, so a read-only hook is replaced rather than
+  refused. It is archived and restorable, so nothing is lost, but it contradicts the docs' "left
+  alone"; not executed, since it needs root.
+- **The adoptee's test command has no time bound.** The hook runs it `sh -c … </dev/null` with no
+  timeout; a hanging or watch-mode suite hangs every source commit. `docs/adoption.md` now tells the
+  operator and names `.claude/test-command` as the override. A bound in the emitter is shared-code
+  work for `init.sh` projects too, and wants its own entry.
+- **A suite that is already red blocks every source commit from day one**, and adoption neither
+  runs nor mentions it. Documented; detecting it would mean adoption running the adoptee's tests,
+  which is a decision, not a fix.
+- **Hook managers that install into `.git/hooks/pre-commit` (the Python `pre-commit` framework,
+  lefthook) are replaced, not chained**, so their checks stop. This is §7.1's ruling as written, and
+  it is the commonest real-world case; chaining the archived hook first would keep them. Karl's call.
+- **`soif_write_precommit_hook` returns `chmod`'s status**, so every caller — `init.sh` and
+  `upgrade-project.sh --sync-framework` included — reads a failed write as success. Adoption now
+  verifies by content; the emitter itself is unchanged because it is shared code with two other
+  callers and their own suites.
+- **Order against the design**: §10 says the hook comes "last" in WP7. It ships ahead of the CI
+  carve-out, the audit row and the provenance lint; the review found no artifact the hook reads from
+  any of those, so this is a recorded deviation, not a dependency broken.
+
+**Corrections to the commit message of `f80877a`**, which is already in history: it says "FOUR OLDER
+SUITES" and the diff touched three (`wp4`, `wp6`, `wp10a`); and the wp4 timing is 83–95s across
+three runs, not a single 87s.
+
+**What of WP7 is still out:** the CI carve-out, the `adoption` audit row, and the provenance-header
+lint. (`secrets_disposition` is UNOWNED, not WP7's — `adopt_audit_event`'s header is the live list.)
+
+---
+
+### The secrets stop had no way through it (2026-09-24) — found while writing the install guide
+
+**An organizational adoption with a single credential finding could not be completed** by anyone who
+had not read the validator's source. The stop was correct: it named the findings and said "record
+one per finding … and pass the file with --dispositions". But `adopt_dispositions_satisfy` also
+requires each finding's gitleaks FINGERPRINT and the scan's own `head` and `commitsScanned`
+(`# BL-242-DISPOSITIONS-STALE`), no line of the run printed any of the three, and the scan report
+lived in `$ADOPT_WORK`, which the EXIT trap deletes. The two personal-tier acknowledgement arms
+(no scanner, shallow clone) had the same shape. It surfaced only because writing a step-by-step
+guide meant writing down what an operator types at that step, and there was nothing to write.
+
+**Fixed** by `_adopt_secrets_disposition_template` (`# BL-242-DISPOSITIONS-TEMPLATE`): each of the
+three stops PRINTS a ready-to-fill file — never writes one, because a refused run leaves the project
+as it found it — built by `jq` from the same report the validator reads, so the binding values
+match by construction. Fingerprints are `commit:file:rule:line`; the matched value never appears.
+Measured end to end on a real organizational adoption: the stop leaves 0 changes and 1 commit,
+prints a valid template bound to HEAD with one fingerprint, the UNFILLED template is still refused
+(otherwise printing it would be a one-step bypass), and the filled one completes at rc 0 with the
+decision in the Adoption Record.
+
+**Proof.** `tests/test-brownfield-dispositions-template.sh`, 7 cases, ~37s.
+
+**THE REVIEW OF THAT FIX RETURNED `major_concerns`, AND THE WORST OF IT WAS OLDER THAN THE FIX.** The
+organizational stop held against everything — a stale template, an acknowledgement-shaped file,
+out-of-vocabulary dispositions. But on the PERSONAL tier, the acceptance the new template collects
+was **recorded nowhere**: `_adopt_rec_dispositions` returned at `findingCount == 0` before it reached
+the acknowledgements, and the two stops that need an acknowledgement most — no scanner at all, and a
+shallow clone that found nothing — are exactly the zero-finding cases. Both completed at rc 0 under a
+stop that had just promised "a name, a reason and a date, which adoption stores and commits", and a
+design rule that the acknowledgement is "RECORDED, and refused if it cannot be recorded". The findings
+half and the acknowledgements half of the record are now independent; measured on a real
+no-scanner personal adoption, the record carries
+`| tool-unavailable | Karl | 2026-09-24 | personal repo, no scanner here |`.
+
+Also from that review, each fixed:
+- **`date` was required and never checked.** "x", "tomorrow" and "0000-00-00" all lifted an
+  organizational stop, and the value was recorded nowhere. The validator now requires a real calendar
+  day (a `jq` round trip through `fromdateiso8601 | todate`, so a lenient `strptime` cannot normalise
+  2026-02-30 into March), and the record carries it as a "Decided on" column.
+- **The two personal call sites were unpinned**, with a note that hiding gitleaks from PATH was
+  something the round-trip cases needed — false, since PATH is set per run. T6 and T7 now run both
+  stops in real adoptions (a `/usr/bin:/bin` PATH with a control that it really hides gitleaks; a
+  `file://` depth-1 clone) and require the acknowledgement in the record.
+- **A template listing only the FIRST finding passed**, because the fixture had one. It now has two,
+  in two commits, and T1 requires one blank row per finding.
+- The banner claimed a `NOT DONE` block for the CI carve-out; the run prints none. The guide's "if it
+  stops" section covered only the organizational stop; the prerequisites table had `jq`'s exit code
+  and the git-identity wording wrong.
+
+Mutations, each restored byte-identically: tool-unavailable call site removed → T6; scanned-partial
+call site removed → T7; wrong kind passed → T6; first finding only → T1 T3; a pre-filled disposition →
+T1; the date check reverted → T5; acknowledgements skipped at zero findings → T6 T7.
+
+**The verification round returned `minor_concerns`** (both major findings confirmed fixed by real
+runs) and found the record printing EVERY acknowledgement in the operator's file, including rows the
+validator never accepted: a stale `tool-unavailable` row appeared as "accepted in place of a complete
+scan" under `Outcome | scanned`, with a "Decided on" of `tomorrow`. The record now keeps only a row
+whose kind is THIS scan's status and which passes the validator's own completeness test. Pinned: T3
+supplies a stray acknowledgement to a fully scanned run and requires no Acknowledgements section; T4
+refuses an acknowledgement dated 2026-02-30 (the acknowledgement half of the date check had no case
+of its own); A4 now proves the acknowledgement table on a run it belongs to. Mutants: acknowledgement
+date check reverted → T4; kind filter removed → T3 A4; empty-heading rule removed → T3.
+
+**Residual, the honest floor**: `by = "n/a"` with `reason = "n/a"` still lifts an organizational stop.
+The validator checks that a person and a reason were GIVEN, not that they are good ones; judging that
+is not a shell predicate's job, and the record shows exactly what was written.
+
+---
+
+### WP12b's build (2026-09-24) — an adopted project gets a CLAUDE.md, and the stub is retired
+
+**What was missing:** an adopted project had working gates and no `CLAUDE.md` — the file an agent
+reads at the start of every session — and `adopt_stub_project_docs` said so on every run.
+
+**What ships** (`scripts/lib/adopt/adopt-docs.sh`, the `framework_docs` stage — `# BL-242-DOCS-STAGE`,
+ordered by `# BL-242-DOCS-STAGE-ORDER` after `manifest` and before `adoption_record`, inside the
+write phase so the pre-write rehearsal replays it and I20 checks it against the archive):
+
+- `CLAUDE.md` rendered through `soif_render_claude_md`, the renderer `init.sh` uses
+  (`scripts/lib/render-project-docs.sh` is now in the driver's core loop). Name from the adoption;
+  the description is a placeholder (the intake stage writes it empty); platform/track/language whitelisted
+  (`_adopt_doc_value`) because the renderer puts them into a sed replacement unescaped, and the tier
+  passed through, so an organizational adoption gets the branch-protection section.
+- the six templates `init.sh` copies (`# BL-242-DOCS-SET`), and the eight reference guides only
+  where absent (`# BL-242-DOCS-REFERENCE`).
+- `_adopt_doc_put` (`# BL-242-DOCS-PUT`) — the hook guard's rule applied to documents: a symlink
+  or a read-only file is left alone and named; everything else is written beside the path and
+  renamed over it, so a hardlink's other name keeps the operator's content.
+- D3's informing half: every replaced document is NAMED with the archive's location and an explicit
+  "nothing was merged — copy across anything you want to keep".
+- the archive's MANIFEST says `replaced` for those documents, `kept` for a read-only or symlinked
+  one (`# BL-242-ARCHIVE-DISPO-DOCS`). Measured before the fix: a symlinked `FEATURES.md` read
+  `replaced` while it sat untouched — the inventory's `-f` follows the link and `-w` answers for
+  the target.
+
+**Pinned by** `tests/test-brownfield-wp12b-framework-docs.sh` (D1–D10, two real adoptions), ten
+mutants all killed. Re-aimed: wp4 `S1`/`W1`, wp7 `A10`, wp7b `B9` (called-stub set now **three**:
+assessment, framework_script_collisions, provenance_headers), wp9 `H1`, wp11 `E6` (its `kept`
+control moved from `CLAUDE.md` to `PROJECT_BIBLE.md`).
+
+**Review round (one, adversarial, 2026-09-24) — verdict `block`, fixed:**
+- **R-WP12b-1 (block): a symlinked FOLDER was written through.** `_adopt_doc_put` checked the file
+  with `-L` and never the folders above it, so with `docs -> /elsewhere/docs` (absolute) the stage
+  overwrote the shared folder's `INDEX.md` — during the pre-write REHEARSAL, whose `tar` copy keeps
+  an absolute link absolute — and the rehearsal's archive copy was deleted with its directory. The
+  run then refused ("check-ignore exited 128") saying "nothing was written". Reproduced here: rc 1,
+  the shared file's first line `# Documentation Index`. Fixed by `adopt_path_under_link`
+  (`# BL-242-PARENT-LINK`, adopt-core.sh) in the writer and the MANIFEST disposition; re-measured
+  rc 0 with the shared file intact. D11 pins it; three mutants killed.
+- R-WP12b-2 (minor): an in-repo `docs -> site/docs` link refused adoption outright. Same fix;
+  re-measured rc 0, `site/docs/INDEX.md` untouched.
+- R-WP12b-3 (minor, not reachable — the intake stage rewrites the fields first): a value carrying a
+  newline passed the whitelist, because `grep` matches if ANY line does, and the renderer's sed ran
+  the second line as a command (`w FILE` measured). Control characters now fall back; D12 pins it.
+  The case's first cut passed with the guard deleted — its hand-written JSON was invalid, so jq
+  read nothing and the fallback fired for the wrong reason.
+- R-WP12b-4 (docs): track renders the intake's `full`, not `undecided`; corrected.
+
+**Residuals, recorded not fixed:**
+- **Stack-level (from the review):** the pre-write rehearsal copies the project with `tar`, which
+  keeps absolute symlinks absolute, so ANY writer whose path crosses one writes to the real target
+  during the rehearsal. The documents stage is guarded now; the other writers are not audited for it.
+- D3's *adapt or merge* half is not built — adapting prose is judgement, and belongs to the
+  assessment (WP12a). The operator is told so.
+- the `.gitignore` lines `init.sh` adds are not written by adoption.
+- a SYMLINKED document is still archived (the inventory's `-f` follows it) and its MANIFEST restore
+  line `cp`s through the link. Adoption never touched the target, so the line restores what was
+  already there — unless the shared target changed since, when it would revert it.
+- `PROJECT_BIBLE.md` / `PRODUCT_MANIFESTO.md` are not written; they are phase outputs, as in
+  `init.sh`.
+
+### WP7's audit rows and §6.3's join table (2026-09-24) — what adoption writes down about itself
+
+**What was missing:** §8.9 names five `adoption_event` events; two had emitters
+(`collision_archive`, `collision_re_add`). `adoption` was WP7's and unbuilt;
+`secrets_disposition` was unowned, and WP10b validated dispositions and acknowledgements without
+writing either of §6.3's two records — the committed join table and the per-acceptance audit row.
+
+**What ships:**
+- a `dispositions` stage (`# BL-242-DISPOSITIONS-STAGE`, `adopt_write_dispositions` in
+  adopt-secrets.sh), on the `# BF-ADOPT-STATE-ORDER` line between `intake` and `manifest`, which
+  writes `.claude/adoption/secrets-dispositions.json` — the scan block (head, commits read, scope,
+  status, sha256 of the committed `scout-report.json`) plus the dispositions and acknowledgements
+  THIS RUN ACCEPTED, even at zero findings — and one `secrets_disposition` row per accepted risk and
+  per acknowledgement (`# BL-242-DISPOSITIONS-EVENT`). A row the ledger refuses BLOCKS the run; the
+  rehearsal meets it first, so nothing is written.
+- the `adoption` row (`# BL-242-ADOPTION-EVENT`, end of the record stage): tier, adoptedAtCommit,
+  archive dir, scan status, finding count, landed phase. It degrades loudly rather than refusing,
+  for the collision row's reason — the record and stamp are the primary records.
+- `blocker_acceptance` is declared never-to-be-emitted (WP5 retired) in `adopt_audit_event`'s header.
+- **Found while measuring, fixed:** a block raised INSIDE the rehearsal printed the COPY's
+  write-state — "80 file(s) were already written into this project" — directly beneath the real
+  run's "nothing was written to your project". `adopt_refuse` now prints the cause only while
+  rehearsing (`# BL-242-REHEARSAL-CAUSE-ONLY`). The remedy moved into the block message, since
+  the rehearsal discards stdout.
+
+**Review round (one, adversarial) — verdict `block`, fixed:**
+- **R-1 (major, regression):** a project that already carried `.claude/bypass-audit.json` could not
+  be adopted at all — the now-unconditional `adoption` row made the ledger a planned write, and I20
+  counted the append as an overwrite with no archive copy. Reproduced (`[]` in place → rc 1, "would
+  be replaced with no copy kept"). I20 now exempts the ledger (`# BL-242-I20-LEDGER-APPEND`): the
+  appender keeps every prior row. R10 pins it.
+- **R-2 (major):** the two records committed together disagreed — the Adoption Record rendered the
+  operator's raw file (an unsigned row, a fingerprint from outside the scan, columns shifted by an
+  empty `by`) while the join table held only the accepted row. One filter now serves both
+  (`# BL-242-DISPOSITIONS-FILTER`, adopt-record.sh), and the record renders from its output.
+- **R-3 (major):** the out-of-scan and unsigned-acknowledgement filters had no test that noticed
+  their removal. R9 and R6 now carry those rows and check all three records.
+- **R-4 (minor, §6.3):** a file bound to ANOTHER scan had its accepted risks filed under this one
+  on a personal run. The filter now drops every row of a file whose `scan.head` or
+  `scan.commitsScanned` is not this scan's; R11 pins it, with a guard that its fingerprint is real.
+- R-5: `--help` still said the file is not written; corrected. R-6: the ledger is recorded for
+  staging once per run (`# BL-242-LEDGER-STAGE-ONCE`); a named dispositions file unreadable at write
+  time now blocks instead of recording nothing; the order marker is a real marker.
+
+**Pinned by** `tests/test-brownfield-wp7d-audit-rows.sh` (R1–R11), sixteen mutants killed.
+
+**Residuals:** §6.3's interactive fallback and its default read of an existing
+`.claude/adoption/secrets-dispositions.json` are not built (a re-adoption is refused at step 0, so
+the default read has no caller today); the vanished-finding report likewise.
+
+### WP7's CI carve-out (2026-09-24) — their pipelines read, never changed; the framework's CI at its own name
+
+**What ships** (`scripts/lib/adopt/adopt-ci.sh`, v1 §7.4 carried unchanged by v2 §7.4):
+- `adopt_ci_audit` (`# BL-242-CI-AUDIT`, called at `# BL-242-CI-AUDIT-CALL` after the secrets
+  decision and BEFORE the intake, so its questions sit at a fixed position — the intake's count
+  varies with the environment, which PR #446 measured on the runner) reads every CI file for four
+  shapes (`# BL-242-CI-RULES`: auto-merge, force-push/history rewrite, check-skipping,
+  deploy-on-push), reports a line NUMBER and never the line's text, and asks keep-or-retire once per
+  flagged file. An unanswered question refuses before any write.
+- the `ci` write stage (`# BL-242-CI-STAGE`, after `framework_docs`, before `adoption_record`)
+  installs `init.sh`'s language template at a framework-owned name (`# BL-242-CI-DEST`): GitHub
+  `.github/workflows/solo-gates.yml` (runs), GitLab `.gitlab-ci-solo.yml` (runs once the operator
+  adds the printed `include`), Bitbucket `bitbucket-pipelines.solo.yml` (cannot run — the operator
+  copies steps). Host `other` gets none, as in `init.sh`. A file already at the framework's name is
+  left alone and named; writes go through `_adopt_doc_put`, so a symlinked folder is not written
+  through.
+- the Adoption Record's **Your CI** section (`# BL-242-RECORD-CI`).
+
+**Review round (one, adversarial) — verdict `major_concerns`, fixed:**
+- **R-1 (major):** macOS awk under a UTF-8 locale aborted on a non-UTF-8 byte, `2>/dev/null` hid it,
+  and a workflow with a Latin-1 comment and a force-push read as CLEAN — committed into the Adoption
+  Record as "No CI file of yours matched". Reproduced (rc 2, no output). The detector now runs under
+  `LC_ALL=C`, its rc is read, and an unread file is reported and recorded as unread
+  (`# BL-242-CI-UNREADABLE`) — never clean. C10 pins both halves.
+- **R-2 (major):** three mutants survived — printing the line's text (C2's marker sat on a line no rule
+  reported), `|| true` on the question (C8 only saw rc), and a plain `cp` through a symlinked folder.
+  The marker moved onto a reported line; C8 names the question AND asserts the intake never started;
+  C9 adds the symlinked `.github/workflows`.
+- **R-3:** GitLab merges an included file into theirs; the templates set pipeline-wide `image`,
+  `variables`, `cache`, `stages` and jobs `test`/`lint`. The run and the guide now warn before the
+  include. **R-4:** Bitbucket CAN share configuration (Premium, an exported `*pipelines.yml`); the
+  wording said it could not, and is corrected. **R-5:** `gh pr merge --admin` is now its own rule,
+  and `--auto`'s description is accurate. Nits: file order is byte order (`LC_COLLATE=C`), the
+  record's loop no longer shadows a caller's local.
+
+**Pinned by** `tests/test-brownfield-wp7e-ci-carveout.sh` (C1–C10), fifteen mutants killed.
+
+**Residuals:** the detector is a net of known spellings, not a parser — the deploy rule's trigger
+test is per FILE (a manual trigger anywhere clears it), `if: always()` also fires on legitimate
+fail-closed jobs, and `|| true`/`--mirror`/GitLab and Bitbucket deploys are not spelled; a file
+already named `solo-gates.yml` is not audited; keep-or-retire records no reason (v1 §7.4 said "with
+its reason"); the framework's GitLab template is not rewritten to merge safely; `scripts/verify-install.sh`
+still keys `CI pipeline exists` on the canonical path (v1 §7.4's false-pass note), so on an adopted
+GitLab/Bitbucket project it reports THEIR pipeline as the framework's; the release pipeline
+(`generate_release`) is not laid down by adoption.
+
+### WP12a's build (2026-09-24) — the assessment: a Claude Code conversation, then a shell finisher
+
+**What ships:**
+- **Act 2 writes the prompt** (`# BL-242-ASSESSMENT-PROMPT`, stage `assessment_prompt`):
+  `.claude/adoption/assessment-prompt.md` — the five axes, *in production*, the operations block,
+  fitness judged only against stated requirements, the verdict's two halves, the record's schema with
+  this project's `adoptedAtCommit` filled in, the wizard keys, and the finisher command.
+- **`resume.sh`'s adoption branch** (`# BL-242-RESUME-ASSESSMENT`), checked before the BL-202
+  branches: adopted and no `.adoption.assessment` → print that file. **DEVIATION FROM v2.2 A6,
+  recorded here:** the design had resume.sh render the prompt itself and dropped the Act-2-written
+  brief. resume.sh is CORE, the prompt must name the finisher (`adopt-project.sh`), and
+  `lint-module-dependencies.sh` forbids a core file to name it with an allowlist whose cardinality
+  must be 0 (§3.1). So the module writes the words and the core reads a state file.
+- **The finisher** `adopt-project.sh --act4 --root .` (`adopt_act4_finish`, `# BL-242-ACT4-FINISH`,
+  in `scripts/lib/adopt/adopt-act4.sh` — NOT the design's `adopt-finish.sh`, because `--finish`
+  already exists and two finishers one name apart invite the wrong one), order as data
+  (`# BL-242-ACT4-ORDER`): `validate_record` (§8.3's refusals + D8's two halves, all before any
+  write) → `classification` (THROUGH `adopt_persist_phase1_artifacts` — A7's hand-off, at last
+  called) → `prefill_intake` (wizard keys into `.claude/intake-progress.json`; refuses with no
+  classification on record) → `verdict` → `documents` → `merge` (LAST; `soif_adoption_assess`,
+  `# BL-242-ASSESS-MERGE`, a new one-call-site core writer that records once and never moves the
+  phase) and an `assessment` adoption_event row.
+- `adopt_stub_assessment` is retired; Act 2 ends with `adopt_act3_next` (`# BL-242-ACT3-NEXT`).
+- **Measured end to end:** a real adoption, a hand-written record, the finisher (a bad
+  `requirementRef` refused with nothing written; the fixed record accepted), the suggested commit
+  landing through the adoptee's own hooks at rc 0, and the next `resume.sh` printing the project's
+  Phase 0 prompt.
+
+**Review round (one, adversarial) — verdict `block`, fixed:**
+- **R-1 (block):** `(.interview.inProduction // null) | type` read `false` as missing — jq's `//`
+  replaces false too — so NO project not in production could finish. Types are read directly; K10.
+- **R-2 (block):** `--act4` kept no ledger, so a refusal after the classification write printed "did
+  not begin … nothing was written" over a modified process-state.json. The finisher now opens a
+  ledger, and the preconditions a later stage needed (the intake file is one JSON object) moved into
+  `validate_record`, before any write. K10 pins the honest message.
+- **R-3 (major):** an EMPTY record passed (jq exits 0 on no input), a classification ARRAY passed
+  (`index` does subarray search), a non-list `findings` skipped the requirementRef check, and answer
+  keys the gates read (`project_name`, `repo_visibility`) could be rewritten. Now: exactly one JSON
+  object; typed checks throughout; requirementRef by exact membership; an answer-key ALLOWLIST
+  (`ADOPT_ACT4_ANSWER_KEYS`, `# BL-242-ACT4-ANSWER-KEYS`) that the prompt lists verbatim.
+- **R-4 (major):** eight mutants survived K3; K3 now carries each refusal. **R-6:** the prompt asked
+  about ZDR only for pii/financial/health/regulated while the Phase 1→2 gate requires it for all but
+  `public` — the suite's own record would have failed that gate. The finisher now refuses what the
+  gate would (`# BL-242-ACT4-REFUSE-ZDR`) and the prompt asks for it. **R-5:** the resume branch now
+  fires at phase 0 only — an adoptee that moved on unassessed kept being told "before starting
+  Phase 0" even at phase 4; K11. **R-7:** the verdict grammar is spelled out in the prompt.
+
+**Pinned by** `tests/test-brownfield-wp12a-assessment.sh` (K1–K11), twenty-nine mutants killed; wp9 R1
+flipped as §10-WP12a said (R1 now reads an assessed copy; R1b pins the assessment prompt), wp9 H1,
+wp4 W1/S1, wp7 A10, wp12b D8 and wp7b B9 (called stubs now **two**) re-aimed.
+
+**Residuals:** the `accessibility` → `accessibility_target` rename in `_scout_prefill_table` (M14) is
+not done — the prompt steers the model to `accessibility_target`, and the Act 2 A7 row keeps its
+old key; the model's judgement is not suite-provable (§12 item 8) — only the record is; the
+finisher does not commit, by design; `evaluators` is checked to be a list and nothing more;
+`soif_adoption_assess` writes through a fixed `$manifest.tmp` with no lock, as the stamp writer does
+(one session runs it).
+
+### WP7's provenance header (2026-09-25) — the reconstructed intake says what it is
+
+**What ships:** `PROJECT_INTAKE.md` opens with v1 §8.6's fenced header
+(`adopt_provenance_header`, `# BL-242-PROVENANCE-HEADER`, written at `# BL-242-PROVENANCE-WRITE`)
+naming the date, the driver, the pre-adoption commit and the status sentence. The exact checker
+(`adopt_provenance_errors`, `# BL-242-PROVENANCE-CHECK`) runs where the file is written
+(`# BL-242-PROVENANCE-WRITE-CHECK`) and again in the Act 4 finisher
+(`# BL-242-PROVENANCE-ACT4-CHECK`), because the assessment conversation edits the file; the prompt
+tells the model to keep the header. `adopt_stub_provenance_headers` is retired — the run now prints
+no NOT-DONE block at all unless a framework script collides (the one stub still called).
+As with the Adoption Record, the "lint" is a suite, not a `scripts/lint-*.sh`: a core lint may not
+source the module.
+
+**Review round (one, adversarial) — verdict `block`, fixed:** the check verified SHAPE only —
+2026-02-30, 9999-99-99 and a made-up SHA all passed while the guide said "a real date" and "a
+commit"; it now checks the calendar day (the dispositions validator's `isoday`) and, where the
+caller knows it, that the header's commit prefixes the real one. The finisher's refusal told the
+operator to fix the RECORD for a defect in the intake, and gave no way back; it now names the file
+and prints `git show <adoption commit>:PROJECT_INTAKE.md | sed -n 1,6p`. An editor's re-save (CRLF,
+a byte-order mark, trailing space) was reported as a different defect; it is now tolerated. The
+write-time check was unpinned; the `SOIF_ADOPT_PROVENANCE_FAULT=noend` seam and V6 pin it. The guide
+now also names BL-296 row 33 (the Development Guardrails install) as unowned.
+
+**Pinned by** `tests/test-brownfield-wp7f-provenance.sh` (V1–V6), fifteen mutants killed (the
+not-first-content arm is pinned by its REASON: without it the file is still rejected, but as "line 1
+… is not reconstructed-at" and "more than four fields", which sends the operator elsewhere).
+
+**Still designed and unbuilt after this:** WP9c (session settings, hooks, MCP declaration, skills)
+and WP12c (the in-production delta exemption).
+
+### WP12c's build (2026-09-25) — the adopted-in-production exemption (R2)
+
+**What ships**, in exactly the three readers §10-WP12c names and no phase gate:
+- `scripts/delta.sh`: `_delta_adopted_in_production` (`# DELTA-OPEN-ERA-EXEMPTION`) —
+  `.adoption.adopted == true and .adoption.assessment.inProduction == true`, `== true` and nothing
+  looser (absent means never asked) — lets `--open` pass `# DELTA-OPEN-ERA-GUARD` below phase 4.
+  The delta record gets `exemption: "adopted-in-production"` (`# DELTA-OPEN-EXEMPTION-RECORD`),
+  `.claude/process-state.json` gets an `.adoption_exemptions[]` row (`# DELTA-OPEN-EXEMPTION-STATE`),
+  the run says which exemption opened it, and the hotfix retro is booked as at phase 4.
+- `scripts/resume.sh`: `# DELTA-RESUME-EXEMPTION`, before the BL-202 branches — with an OPEN
+  exempt delta, the resume-that-work prompt outranks the Phase 0 entry; with none, nothing, and the
+  post-release greeting never fires below phase 4.
+- `scripts/validate.sh`: an INFO (`# DELTA-ERA-EXEMPTION-INFO`) instead of "one of the two records is
+  wrong" when the open delta carries the exemption and the state still qualifies.
+- The delta design's §10.1 is amended by reference; the Adoption Record names where the in-production
+  answer and any exemption live (it is written before either exists).
+
+**Pinned by** `tests/test-brownfield-wp12c-production-exemption.sh` (E1–E7), ten mutants killed —
+including greeting-below-phase-4, which needed a fixture where the BL-202 branches FALL THROUGH (a
+manifesto exists) to be reachable at all. Both boundary lints green.
+
+**Review round (one, adversarial; a first reviewer stalled past an hour and was stopped, a narrower
+one reported) — `major_concerns`, fixed:** a mutant reading the predicate as truthy
+(`.adopted and .inProduction`) survived, so E2 gained a fixture with `"true"` and `1`; the predicate's
+three copies now carry a SYNC SIBLINGS line (the `# BL-084-TIER-KEY` convention); delta.sh's "the only
+write" comment was corrected for the new process-state write.
+**Residuals:** after an exempt delta CLOSES below phase 4, `resume.sh` no longer shows the hotfix
+write-up still owed (its flag needs an open delta) — `delta.sh --status` and `cut-release.sh` still
+do; a hand-edited manifest with a duplicate key or two JSON documents can satisfy the predicate
+(`jq -e` judges the last); the process-state row is a separate write from the delta record.
+
+### WP9c's build (2026-09-25) — the Claude Code session layer, from the code init.sh uses
+
+**What ships:**
+- **The extraction.** `init.sh`'s language rules, permissions heredoc and hook-roster block move
+  VERBATIM into a new core lib, `scripts/lib/claude-settings.sh` (`soif_claude_lang_rules`,
+  `soif_claude_settings_json`, `soif_register_hook_roster`, `soif_vendored_skills`); `init.sh` calls
+  them, the `# BL-296-ROSTER-UNCONDITIONAL` call still outside `framework_valid`. Measured
+  byte-identical before the change was kept: the old inline code and the lib produced the same
+  `settings.json`, roster included, for all eleven language arms.
+- **The adoption stage** `session_layer` (`adopt_write_session_layer`, `# BL-242-SESSION-STAGE`,
+  scripts/lib/adopt/adopt-session.sh): `settings.json` written when absent, COMPOSED when present
+  (`# BL-242-SESSION-COMPOSE` — theirs kept, the framework's `allow`/`deny` unioned in, hooks added
+  where absent; archive disposition `composed`, `# BL-242-ARCHIVE-DISPO-SESSION`); the roster
+  registered in `adoption` mode, which leaves the bypass detector's PostToolUse arm OFF while
+  `## BL-277:` is open (`# BL-242-SETTINGS-BL277`); the four vendored skills, framework-wins; the
+  Qdrant MCP declaration under init.sh's predicate (`SOIF_ADOPT_QDRANT` test seam) — found while
+  measuring: `settings.local.json` is in Claude Code's global git excludes, so recording it for
+  staging made the preflight refuse the whole adoption; it is written machine-local, as init.sh does,
+  and the requirement goes into the committed manifest.
+- The intake's §13 "WHAT YOU DO NOT HAVE" names the Platform Module (chosen in the assessment) instead
+  of the guides adoption now writes.
+
+**Review:** two reviewers stalled past their bounds and were stopped; a tightly scoped third
+confirmed greenfield unchanged (old inline vs lib byte-identical across 12 languages and 8 roster
+starting states, idempotent re-runs included) — `minor_concerns`, three nits fixed. The session's own
+probes found two defects, fixed: a `settings.json` with a string `permissions` refused the WHOLE
+adoption, and one with an array `hooks` composed the rules, failed the roster silently and printed
+that the hooks were registered. A shape the framework cannot compose into is now left alone and said
+(`# BL-242-SESSION-COMPOSABLE`), and "registered" is printed only on a receipt
+(`# BL-242-SESSION-ROSTER-RECEIPT`); L8 pins it.
+
+**Pinned by** `tests/test-brownfield-wp9c-session-layer.sh` (L1–L8), nine mutants killed; L2 is the
+parity-by-derivation pin — the adoptee's (event, script) set equals init.sh's function's, minus
+exactly the one BL-277 pair. Re-aimed: bl296 R2/R3 and bl233 H3 read the lib; the stage-order
+literals in wp4/wp7/wp12b.
+
+**Residuals:** the `docs/reference/*` list is still spelled in adopt-docs.sh rather than derived from
+init.sh's `cp` lines (§10-WP9c(1)'s shared parser); the four skill paths are spelled again in the
+archive's disposition arm; BL-296 row 33 (the Development Guardrails install) remains unowned.
 
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
@@ -17559,7 +18244,10 @@ each marked:
   empty shapes: non-zero, sentinel kept, row still PENDING), D4 (the library's own refusal, reached
   directly because the script's guard would otherwise shield it from every test), D3 (decline still
   records declined/abandoned).
-- `# BL-277-MATCHER` in `init.sh`: the detector's PostToolUse registration is its own hook group with
+- `# BL-277-MATCHER` in the hook roster, `scripts/lib/claude-settings.sh` (`soif_register_hook_roster`,
+  which `init.sh` sources since #451 moved the roster out of it; this entry's hunk moved with it, inside
+  the greenfield branch of the maintainer's `# BL-242-SETTINGS-BL277` guard, which is unchanged): the
+  detector's PostToolUse registration is its own hook group with
   `"matcher": "Bash"`, consistent with every other scoped registration in the file, instead of being
   appended to group `[0]` and inheriting its absent matcher. Pinned by R1 (a fresh `init.sh` project
   carries exactly one detector registration under matcher Bash and none elsewhere), R2 (the Stop
@@ -17567,10 +18255,14 @@ each marked:
   detector moved) — all three in the FULL-LANE suite, because they run `init.sh`. The registration's
   idempotence probe (the `if ! jq -e` guard that stops a re-run appending a second group) was widened
   from group `[0]` to any group; that guard is unreachable through `init.sh` itself, which refuses an
-  existing directory, so R4 in the unit suite reads the probe out of `init.sh` by its marker and runs
+  existing directory, so R4 in the unit suite reads the probe out of the roster by its marker and runs
   the filter against two fixtures: the detector in a later matcher-scoped group must be found, an
   absent detector must not. Review's surviving mutant (the probe regressed to `[0]`) is now M8 and is
   killed by R4. `tests/test-bl029-integration.sh` T1 looks the registration up by matcher now.
+  R5 (control) sources the roster and runs it on one fixture in each mode: greenfield registers the
+  PostToolUse detector once, adoption registers none, both keep the Stop arm. It passes at base and
+  after the change, because it pins the maintainer's guard, not this entry's; M9 lifts that guard and
+  R5 kills it. On adopted projects the PostToolUse arm stays off until the guard is lifted.
 - `docs/audit-log-lifecycle.md`: `tool_output` added to the `actor` enum, `false_positive` to
   `user_response`, the `claude_bypass_proposal` section rewritten per actor, two cold-pickup queries
   added. The section had said an authored row starts at `final_outcome: "n/a"`; the detector's row
@@ -17578,7 +18270,8 @@ each marked:
   so.
 
 **Suites — two, split by lane.** `tests/test-bl277-detector-authorship.sh` is hermetic (temp trees,
-the real scripts over stdin, `init.sh` read but never run) and is in the `tests.yml` unit lane.
+the real scripts over stdin, the roster sourced into a temp tree, `init.sh` never run) and is in the
+`tests.yml` unit lane.
 `tests/test-bl277-matcher-registration.sh` runs `init.sh --non-interactive` twice (R1–R3 and M7) and is
 in `tests/full-project-test-suite.sh` ONLY: `init.sh` installs the Claude Dev Framework into `$HOME`,
 cloning it from GitHub when absent and pulling the developer's real clone when present (review
@@ -17639,10 +18332,11 @@ M7 reported `operative text occurs 0 times` — the quoting trap made visible ra
 | M4 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 4 | `false_positive`/`recorded_only` → `declined`/`abandoned` | D1 | D3 |
 | M5 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 5 | the reason guard → `if false; then` | D4 | — |
 | M6 | pending-approval, `# BL-277-FP-REASON` | ≤ 6 | the reason guard → `if false; then` | D2 | D1 |
-| M7 (full lane) | init.sh, `# BL-277-MATCHER` | ≤ 5 | the group written without `"matcher": "Bash"` | R1 | the registration itself |
-| M8 | init.sh (copied, never run), `# BL-277-MATCHER` | ≤ 4 | the idempotence probe regressed to `[0].hooks[]?` | R4 | — |
+| M7 (full lane) | roster in a framework mirror that init.sh runs from, `# BL-277-MATCHER` | ≤ 5 | the group written without `"matcher": "Bash"` | R1 | the registration itself |
+| M8 | roster (copied, never run), `# BL-277-MATCHER` | ≤ 4 | the idempotence probe regressed to `[0].hooks[]?` | R4 | — |
+| M9 | roster (copied, sourced), `THE PostToolUse ARM IS GREENFIELD-ONLY FOR NOW` | ≤ 4 | the adoption guard → `if true; then` | R5 | — |
 
-All nine killed on both shells; each "survives" column is asserted too, so a kill that came from
+All killed on both shells (M9 added at the 25 September re-cut); each "survives" column is asserted too, so a kill that came from
 breaking something else is reported as such. Review ran four of its own (the event test inverted at
 distance 6; the reason assignment dropped at distance 51; the reason not passed to the library at
 distance 42; the probe regressed): the first three were killed by the committed suite, the fourth
@@ -21162,6 +21856,74 @@ and are WP9c's since v2.2; row 33 (this) stays UNOWNED.
 **Related:** `## BL-242:` (§8.7a), `## BL-284:` (`verify-install.sh`'s CDF-adjacent fixers),
 `## BL-277:` (the roster's PostToolUse arm — WP9c ships it only after that entry closes).
 
+**HALF LANDED 2026-09-22 (WP9c/1) — the ROSTER half only. The entry stays Open for the CDF
+install, which is row 33 and is still UNOWNED.** `init.sh`'s `fi` closing `if [ "$framework_valid" =
+true ]` moved UP, above the hooks-merge block, which now carries
+`# BL-296-ROSTER-UNCONDITIONAL`. Every hook in that block runs a script from the project's own
+`scripts/`; none of them belongs to the Development Guardrails, and
+`.claude/settings.json` — the guard the block reads — is written unconditionally by `init.sh`
+itself, earlier, so the move is safe rather than merely desirable.
+
+The block registers hooks that run **twelve** scripts, derived rather than counted by eye
+(`sed -n '2011,2190p' init.sh | grep -oE 'scripts/(hooks/)?[a-z0-9-]+\.sh' | LC_ALL=C sort -u`), and
+`.claude/settings.json` is written 192 lines earlier at 1819. *(A first draft of this block and of
+the commit message said "seven hooks" and "190 lines"; the same sentence then listed ten names. Both
+numbers are derived above.)*
+
+**WHAT THE PROOF IS, AND WHAT IT IS NOT.**
+`tests/test-bl296-hook-roster-unconditional.sh` is a **structural** pin, four cases. R1 locates the
+branch's matching `fi` by counting block openers against closers (skipping heredoc bodies) and
+asserts the roster's marker falls AFTER it, **and that the computed span is plausible**; R2 asserts
+every `scripts/(hooks/)?*.sh` the block registers exists in this repo, with a floor of twelve
+DISTINCT scripts; R3 asserts `.claude/settings.json` is written before the block reads it **and in
+the same function**; R4 asserts nothing at or after the marker reads `$framework_valid`. It is NOT
+behavioural — proving it by execution means faking a network failure and a full scaffold — and the
+file's header says so in as many words.
+
+**IT RUNS IN THE UNIT LANE NOW, AND THE FIRST DRAFT RAN IN NO PR-GATING LANE AT ALL.** It was
+registered only with the aggregator, and `lint-tests-registered.sh` marked it
+`unit-lane-exempt:init-sh-invoker` — which it is not: it greps `init.sh` in 39 milliseconds and
+invokes nothing. That is `## BL-181:`'s standing residual (*the predicate is "names `init.sh` on an
+executed line"*, which the `INIT=` assignment satisfies), and CLAUDE.md's own note that **an exempt
+row is a claim, not a verdict** is exactly what it cost here. Added to `tests.yml`'s `tests=(`.
+
+**SEVEN MUTATIONS, ALL RED, ALL REPLAYED AGAINST THE HARDENED SUITE** (copies under a scratch root;
+the repo's `init.sh` hashes identically before and after). Five of them passed the FIRST draft 3/0,
+and adversarial review is what produced them:
+
+| mutation | first draft | now |
+|---|---|---|
+| `M1` the `fi` back where it was | RED (the only one it caught) | RED R1 |
+| `M2` `[ "$framework_valid" = true ] &&` re-added to the marker line | **3 passed, rc 0** | RED R4 |
+| `M3` `[ "$framework_valid" = true ] \|\| return 0` as the block's first statement | **3 passed, rc 0** | RED R4 |
+| `M4` a `fi` planted in a heredoc, roster back inside the branch | **3 passed, rc 0** (span `1899-1901`) | RED R1 |
+| `M5b` a `scripts/hooks/` script renamed to one that does not exist | **3 passed, rc 0** | RED R2 |
+| `M6` the `settings.json` write lifted into a function nobody calls | **3 passed, rc 0** | RED R3 |
+
+The lesson is one sentence and it generalises: **a positional pin cannot see a data-flow defect.**
+`M2` and `M3` re-introduce the entry's whole subject without moving a line, so R4 pins the data flow
+separately. `M4` is the second half of it — an absurd computed span (`1899-1901`) is a broken
+MEASUREMENT, and a broken measurement that happens to satisfy the comparison is a pass that means
+nothing, so R1 now refuses to decide on an implausible span.
+
+**AND THE HELPER SHIPPED WITH THE BUG IT EXISTS TO CATCH — TWICE.** The first draft counted bare
+`for` / `while` / `if` tokens without stripping quoted strings, so
+`print_ok "Development Guardrails for Claude Code installed and configured"` counted as a `for …
+done` opener; the depth never returned to zero at the real `fi`, the helper walked on to the next
+unbalanced one 200 lines later, and R1 reported the roster INSIDE a branch it had already left. A
+false FAIL that time. The second was `M4` above, in the other direction. The helper now strips
+quoted strings BEFORE comments (the other order truncates a line at a `#` inside a string) and skips
+heredoc bodies, and its own awk program carries **no apostrophes**, because it lives inside a
+single-quoted shell string where one apostrophe ends the program and bash reports the syntax error
+on a later, well-formed line — which is how that paragraph broke twice while being written.
+
+**One honest qualification on the word "unconditionally", now in the code comment too:** the block
+is still inside `if command -v git &>/dev/null`. `check_prerequisites` exits 1 on a missing git long
+before this line, so the condition cannot be false in a run that reaches it — what the marker means
+is that the roster no longer depends on the CDF CLONE, the thing a transient network failure
+switches off.
+
+
 ---
 
 ## BL-304: the not-writable hooks arm prints `[FAIL] Cannot create project directory` over an unwritable HOOKS directory — `2>/dev/null` does not suppress it, because `print_fail` writes to stdout
@@ -21319,3 +22081,76 @@ resolution rather than a status word — plus a migration position for hosts tha
 
 **Related:** `## BL-289:` (the gitleaks half, closed), `## BL-242:` (the driver), `## BL-251:`
 (`# BL-251-PROBE-HOST`, the presence-only probe).
+
+---
+
+## BL-307: `local a="$1" b="$a/x"` — one `local` statement never sees its own earlier assignment, and the wrong value is silent
+
+**Status:** Open — **four** sites carried the shape when this was filed; **three remain**, the fourth
+having been fixed here. Two of the three are harmless only by accident of bash's dynamic scoping and
+one is not obviously either.
+
+*(This entry said THREE for one commit, and did not state its derivation scope, so a reader took the
+table as the population. The missed site is the one that is actually wrong — the "grep under-reads
+this surface" history CLAUDE.md records, reproduced inside the entry written about a bug found by
+that same class. Found by adversarial review.)*
+
+**Found:** 2026-09-22 while building WP7/1's `adopt_write_adoption_record`, whose first draft wrote
+`local root="$1" report="$2" log="$root/APPROVAL_LOG.md"`. Every run refused with
+`APPROVAL_LOG.md is not there, so the Adoption Record has nowhere to go` — against a project whose
+log was exactly where it should be. `log` was `/APPROVAL_LOG.md`.
+
+**The rule, measured rather than reasoned.** In ONE `local` statement bash expands every right-hand
+side BEFORE it assigns any of them, so a later name reads whatever that name meant in the ENCLOSING
+scope — empty if nothing, and the *caller's* value if the caller happens to have a local of the same
+name. `probe.sh` fed on stdin to `bash:<v>` images plus this Mac:
+
+```
+f(){ local aa="$1" bb="$aa/X"; echo "aa=$aa bb=$bb"; }; f P1
+
+  3.2.57  4.0.44  4.4.23  5.0.18  5.2.37  5.3.20      aa=P1 bb=/X      (all six identical)
+```
+
+**This is NOT a version split, and that matters.** CLAUDE.md records two traps that ARE
+(`${var/pat/rep}` at 5.2, `local` declared-without-assignment at 4.0), where a green local run hides
+a red runner. This one is the same on every bash from 3.2 to 5.3, so a local run does reproduce it —
+what hides it instead is **dynamic scoping**:
+
+```
+root=GLOBAL; k(){ local root="$1" dest="$root/x"; echo "$dest"; }; k /tmp/p     ->  GLOBAL/x
+```
+
+**The three sites, derived** (single-`local` statements only; a `;`-separated second `local` is its
+own command and is fine):
+
+| site | shape | why it works today |
+|---|---|---|
+| `scripts/lib/adopt/adopt-state.sh` `adopt_write_write_set` | `local root="$1" dest="$root/$ADOPT_WRITE_SET_REL"` | its caller `_adopt_write_phase` has a `local root` with the same value — dynamic scoping, not correctness |
+| `scripts/lib/adopt/adopt-test-debt.sh` `_td_tier_trusted` | `local root="$1" manifest="$root/.claude/manifest.json"` | same: the caller's `root` |
+| `scripts/upgrade-project.sh` `_bl099_rendered_doc_notice` | `local label="$1" prel="$2" src="$3" pfile="$PROJECT_ROOT/$prel"` | **not established** — its one call site at `# BL-099-DOC-GUARD` does hold a `prel`, but that has not been proven by execution |
+| `tests/test-bl233-wpb-accumulation.sh` `add_origin` | `local d="$1" bare="$TOPTMP/$(basename "$d").origin.git"` | **IT DOES NOT.** `basename ""` is `.`, so seven of the eleven fixtures shared ONE bare at `$TOPTMP/.origin.git`. **FIXED 2026-09-23** — two statements; suite still 100/0 |
+
+**The derivation, scope stated so the table can be re-checked**: single-`local` statements only
+(`local a=X; local b=$a` on one line is two commands and is safe), over `scripts/`, `init.sh`,
+`tests/` and `templates/`, matching a later name that expands an earlier one from the same
+statement. That is four hits today. The measurement that found the fourth one broken:
+
+```
+$ bash tests/test-bl233-wpb-accumulation.sh   # with a probe line added to add_origin
+=== distinct bares ===   7 .origin.git]   1 fixaHX0Xk.origin.git]   1 fixAyFyxX.origin.git]
+                         1 fix3qFi8i.origin.git]   1 fix2BLiUy.origin.git]
+=== total add_origin calls ===   11
+Results: 100 passed, 0 failed
+```
+
+The suite was green throughout; what was lost was its hermeticity, which no assertion looked at.
+
+**Why the remaining three are filed rather than swept.** Fixing them is a two-line change each and
+carries a real risk of its own: a site whose behaviour today comes from the caller's variable may CHANGE behaviour
+when it starts reading its own argument, and two of the three are inside the adoption write phase.
+Each wants its own execution proof, not a sed. The rule going forward is the same one CLAUDE.md gives
+for the 4.0 trap: **assign at the declaration**, applied to code you are already touching —
+`adopt-record.sh` does, with the reason in the comment.
+
+**Related:** `## BL-242:` (the package that surfaced it).
+
