@@ -15376,7 +15376,16 @@ do; a hand-edited manifest with a duplicate key or two JSON documents can satisf
 - The intake's §13 "WHAT YOU DO NOT HAVE" names the Platform Module (chosen in the assessment) instead
   of the guides adoption now writes.
 
-**Pinned by** `tests/test-brownfield-wp9c-session-layer.sh` (L1–L7), eight mutants killed; L2 is the
+**Review:** two reviewers stalled past their bounds and were stopped; a tightly scoped third
+confirmed greenfield unchanged (old inline vs lib byte-identical across 12 languages and 8 roster
+starting states, idempotent re-runs included) — `minor_concerns`, three nits fixed. The session's own
+probes found two defects, fixed: a `settings.json` with a string `permissions` refused the WHOLE
+adoption, and one with an array `hooks` composed the rules, failed the roster silently and printed
+that the hooks were registered. A shape the framework cannot compose into is now left alone and said
+(`# BL-242-SESSION-COMPOSABLE`), and "registered" is printed only on a receipt
+(`# BL-242-SESSION-ROSTER-RECEIPT`); L8 pins it.
+
+**Pinned by** `tests/test-brownfield-wp9c-session-layer.sh` (L1–L8), nine mutants killed; L2 is the
 parity-by-derivation pin — the adoptee's (event, script) set equals init.sh's function's, minus
 exactly the one BL-277 pair. Re-aimed: bl296 R2/R3 and bl233 H3 read the lib; the stage-order
 literals in wp4/wp7/wp12b.
