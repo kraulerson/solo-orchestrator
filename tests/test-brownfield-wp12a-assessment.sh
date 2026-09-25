@@ -170,7 +170,11 @@ k6() {
   _record "$P"
   ( cd "$P" && SOIF_ADOPT_ACT4_HALT_AFTER=verdict bash "$REPO_ROOT/scripts/adopt-project.sh" --act4 --root . ) > "$WORK/k6.out" 2>&1
   jq -e '.adoption.assessment == null' "$P/.claude/manifest.json" >/dev/null 2>&1 || bad="$bad [an assessment block exists after a halt before merge]"
-  _resume "$P" | grep -q 'You are running its ASSESSMENT' || bad="$bad [resume did not re-offer the assessment]"
+  # Captured, not piped — see K11: `_resume | grep -q` under pipefail went red on
+  # the ubuntu runner with the text present (SIGPIPE into the writer).
+  _resume "$P" > "$WORK/k6-resume.out"
+  grep -q 'You are running its ASSESSMENT' "$WORK/k6-resume.out" \
+    || bad="$bad [resume did not re-offer the assessment; it printed: $(grep -v '^$' "$WORK/k6-resume.out" | head -4 | tr '\n' '|') phase=$(jq -r .current_phase "$P/.claude/phase-state.json" 2>&1) assessment=$(jq -c .adoption.assessment "$P/.claude/manifest.json" 2>&1)]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
@@ -274,7 +278,12 @@ k11() {
   # product greeting with "before starting Phase 0" for good (review).
   _adopted "$q" || { fail_ "$label" "setup"; return; }
   jq '.current_phase = 4' "$q/.claude/phase-state.json" > "$q/ps.tmp" && mv "$q/ps.tmp" "$q/.claude/phase-state.json"
-  if _resume "$q" | grep -q 'You are running its ASSESSMENT'; then fail_ "$label" "the assessment prompt fired at phase 4"
+  # Captured, not piped: `_resume | grep -q` under pipefail fails when grep
+  # exits on its first match and the writer takes SIGPIPE — K6 went red on the
+  # ubuntu runner that way while the text WAS there. Here the pipe would have
+  # passed falsely instead.
+  _resume "$q" > "$WORK/k11-resume.out"
+  if grep -q 'You are running its ASSESSMENT' "$WORK/k11-resume.out"; then fail_ "$label" "the assessment prompt fired at phase 4"
   else pass "$label"; fi
 }
 
