@@ -99,6 +99,9 @@ source "$SCRIPT_DIR/scripts/lib/currency-manifest.sh"
 # framework-side. (tests/test-currency-birth-stamp.sh + tests/test-plan-staging.sh
 # pin the byte-identity.)
 source "$SCRIPT_DIR/scripts/lib/render-project-docs.sh"
+# The session layer (permissions, hook roster, vendored skills) — shared with
+# the adoption driver so both give a project the same one (§10-WP9c).
+source "$SCRIPT_DIR/scripts/lib/claude-settings.sh"
 
 # BL-199 (2026-07-29): the anchor a bare/relative --project-dir resolves
 # against. It is the PARENT OF THE DIRECTORY CONTAINING init.sh — NOT the cwd.
@@ -1689,7 +1692,7 @@ create_project() {
   # Adding a new skill: drop it under templates/generated/skills/<name>/
   # and append a line to the loop below.
   mkdir -p .claude/skills
-  for skill in session-handoff sweep-triage zoom-out grill-with-docs; do
+  for skill in $(soif_vendored_skills); do
     if [ -d "$SCRIPT_DIR/templates/generated/skills/$skill" ]; then
       mkdir -p ".claude/skills/$skill"
       cp "$SCRIPT_DIR/templates/generated/skills/$skill/SKILL.md" ".claude/skills/$skill/"
@@ -1717,129 +1720,9 @@ create_project() {
   mkdir -p .claude
 
   # Build language-specific allow rules
-  local lang_rules=""
-  case "$LANGUAGE" in
-    typescript|javascript)
-      lang_rules=$(cat <<'LANGEOF'
-      "Bash(npm install *)",
-      "Bash(npm ci)",
-      "Bash(npm run *)",
-      "Bash(npm test *)",
-      "Bash(npm outdated)",
-      "Bash(npx *)",
-      "Bash(node *)",
-      "Bash(tsc *)",
-      "Bash(eslint *)",
-      "Bash(prettier *)",
-LANGEOF
-) ;;
-    python)
-      lang_rules=$(cat <<'LANGEOF'
-      "Bash(pip install *)",
-      "Bash(pip list *)",
-      "Bash(pip show *)",
-      "Bash(pip freeze *)",
-      "Bash(python -m pip *)",
-      "Bash(python -m pytest *)",
-      "Bash(python -m unittest *)",
-      "Bash(pytest *)",
-      "Bash(python *)",
-      "Bash(python3 *)",
-      "Bash(mypy *)",
-      "Bash(ruff *)",
-      "Bash(black *)",
-LANGEOF
-) ;;
-    rust)
-      lang_rules=$(cat <<'LANGEOF'
-      "Bash(cargo build *)",
-      "Bash(cargo test *)",
-      "Bash(cargo run *)",
-      "Bash(cargo check *)",
-      "Bash(cargo clippy *)",
-      "Bash(cargo fmt *)",
-      "Bash(cargo add *)",
-      "Bash(cargo audit *)",
-      "Bash(rustc *)",
-LANGEOF
-) ;;
-    go)
-      lang_rules=$(cat <<'LANGEOF'
-      "Bash(go build *)",
-      "Bash(go test *)",
-      "Bash(go run *)",
-      "Bash(go mod *)",
-      "Bash(go vet *)",
-      "Bash(go fmt *)",
-      "Bash(golangci-lint *)",
-LANGEOF
-) ;;
-    csharp)
-      lang_rules=$(cat <<'LANGEOF'
-      "Bash(dotnet build *)",
-      "Bash(dotnet test *)",
-      "Bash(dotnet run *)",
-      "Bash(dotnet restore *)",
-      "Bash(dotnet add *)",
-      "Bash(dotnet format *)",
-LANGEOF
-) ;;
-    kotlin|java)
-      lang_rules=$(cat <<'LANGEOF'
-      "Bash(./gradlew *)",
-      "Bash(gradle *)",
-      "Bash(mvn *)",
-      "Bash(java *)",
-      "Bash(javac *)",
-      "Bash(kotlinc *)",
-LANGEOF
-) ;;
-    dart)
-      lang_rules=$(cat <<'LANGEOF'
-      "Bash(flutter *)",
-      "Bash(dart *)",
-      "Bash(dart pub *)",
-      "Bash(flutter pub *)",
-      "Bash(flutter test *)",
-      "Bash(flutter build *)",
-      "Bash(flutter analyze *)",
-LANGEOF
-) ;;
-    swift)
-      lang_rules=$(cat <<'LANGEOF'
-      "Bash(swift build *)",
-      "Bash(swift test *)",
-      "Bash(swift package *)",
-      "Bash(swiftlint *)",
-      "Bash(xcodebuild *)",
-LANGEOF
-) ;;
-  esac
-
-  cat > .claude/settings.json << PERMEOF
-{
-  "permissions": {
-    "allow": [
-      "Read",
-      "Edit",
-      "Write",
-      "Glob",
-      "Grep",
-      "Bash",
-$lang_rules
-      "WebFetch(domain:*)"
-    ],
-    "deny": [
-      "Bash(rm -rf /)",
-      "Bash(rm -rf /*)",
-      "Bash(curl * | bash)",
-      "Bash(wget * | bash)",
-      "Read(./.env)",
-      "Read(./.env.*)"
-    ]
-  }
-}
-PERMEOF
+  # The permissions block and its language rules live in the shared session-
+  # layer lib, so an adopted project gets the same ones (§10-WP9c).
+  soif_claude_settings_json "$LANGUAGE" > .claude/settings.json
   print_ok "Claude Code permissions configured (auto-accept safe operations)"
 
   # Install Development Guardrails for Claude Code
@@ -2017,182 +1900,11 @@ PERMEOF
     # Add orchestrator hooks to SessionStart (after CDF hooks are in place,
     # when there are any)
     if [ -f ".claude/settings.json" ] && command -v jq &>/dev/null; then   # BL-296-ROSTER-UNCONDITIONAL
-        local hooks_added=false
-        # Add version check hook
-        if jq -e '.hooks.SessionStart' .claude/settings.json >/dev/null 2>&1; then
-          if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-version-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
-            jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-version-check.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
-              && mv .claude/settings.json.tmp .claude/settings.json
-            hooks_added=true
-          fi
-        else
-          jq '.hooks.SessionStart = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-version-check.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-        # Add test gate check hook
-        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-test-gate-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-test-gate-check.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-        # BL-109 S2: freshness check hook (Currency System, Layer 1 — detection).
-        # Silent-when-current, zero-network, fail-open (exit 0 always), writes only
-        # .claude/cache/. Injected exactly like session-version-check.sh above.
-        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-freshness-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-freshness-check.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-        # BL-202-INTAKE-HOOK-BEGIN — intake/Phase-0 onboarding state on every
-        # launch surface (desktop/IDE included, where terminal prints cannot
-        # reach). Silent when healthy; the agent relays. Injected exactly like
-        # the three hooks above; fenced so the registration is excisable for
-        # mutation proofs without touching its siblings.
-        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-intake-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-intake-check.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-        # BL-202-INTAKE-HOOK-END
-        # CADENCE-NAG-HOOK-BEGIN — the maintenance-cadence nag (design v1 §8.3's
-        # SessionStart enforcement point, the soft half of the pair whose hard
-        # half is the release cut). Silent when every cadence is current,
-        # zero-network, fail-open (exit 0 under every failure mode). Injected
-        # exactly like the four hooks above; fenced so the registration is
-        # excisable for a mutation proof without touching its siblings.
-        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-cadence-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-cadence-check.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-        # CADENCE-NAG-HOOK-END
-        # Add Qdrant reminder to Stop hook
-        if jq -e '.hooks.Stop' .claude/settings.json >/dev/null 2>&1; then
-          if ! jq -e '.hooks.Stop[0].hooks[] | select(.command | contains("session-end-qdrant-reminder.sh"))' .claude/settings.json >/dev/null 2>&1; then
-            jq '.hooks.Stop[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-end-qdrant-reminder.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
-              && mv .claude/settings.json.tmp .claude/settings.json
-            hooks_added=true
-          fi
-        else
-          jq '.hooks.Stop = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-end-qdrant-reminder.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-
-        # Add pre-commit gate to PreToolUse hook (must target Bash matcher group)
-        if jq -e '.hooks.PreToolUse' .claude/settings.json >/dev/null 2>&1; then
-          if ! jq -e '.hooks.PreToolUse[]? | .hooks[]? | select(.command | contains("pre-commit-gate.sh"))' .claude/settings.json >/dev/null 2>&1; then
-            # Find the Bash matcher group index, or create a new one
-            BASH_INDEX=$(jq '[.hooks.PreToolUse[] | .matcher // "none"] | to_entries[] | select(.value == "Bash") | .key' .claude/settings.json 2>/dev/null | head -1 || echo "")
-            if [ -n "$BASH_INDEX" ]; then
-              jq ".hooks.PreToolUse[$BASH_INDEX].hooks += [{\"type\": \"command\", \"command\": \"bash \\\"\$CLAUDE_PROJECT_DIR\\\"/scripts/pre-commit-gate.sh\"}]" .claude/settings.json > .claude/settings.json.tmp \
-                && mv .claude/settings.json.tmp .claude/settings.json
-            else
-              # No Bash matcher group exists — create one
-              jq '.hooks.PreToolUse += [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/pre-commit-gate.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
-                && mv .claude/settings.json.tmp .claude/settings.json
-            fi
-            hooks_added=true
-          fi
-        else
-          jq '.hooks.PreToolUse = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/pre-commit-gate.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-
-        # Add MCP session gate to PreToolUse hook (targets Write and Edit)
-        # This blocks file modifications until required MCP tools (qdrant-find, context7)
-        # have been called — closing the session-start enforcement gap.
-        for GATE_TOOL in Write Edit; do
-          if ! jq -e ".hooks.PreToolUse[]? | select(.matcher == \"$GATE_TOOL\") | .hooks[]? | select(.command | contains(\"session-mcp-gate.sh\"))" .claude/settings.json >/dev/null 2>&1; then
-            # Check if a matcher group for this tool already exists
-            GATE_INDEX=$(jq "[.hooks.PreToolUse[] | .matcher // \"none\"] | to_entries[] | select(.value == \"$GATE_TOOL\") | .key" .claude/settings.json 2>/dev/null | head -1 || echo "")
-            if [ -n "$GATE_INDEX" ]; then
-              jq ".hooks.PreToolUse[$GATE_INDEX].hooks += [{\"type\": \"command\", \"command\": \"bash \\\"\$CLAUDE_PROJECT_DIR\\\"/scripts/session-mcp-gate.sh\"}]" .claude/settings.json > .claude/settings.json.tmp \
-                && mv .claude/settings.json.tmp .claude/settings.json
-            else
-              jq ".hooks.PreToolUse += [{\"matcher\": \"$GATE_TOOL\", \"hooks\": [{\"type\": \"command\", \"command\": \"bash \\\"\$CLAUDE_PROJECT_DIR\\\"/scripts/session-mcp-gate.sh\"}]}]" .claude/settings.json > .claude/settings.json.tmp \
-                && mv .claude/settings.json.tmp .claude/settings.json
-            fi
-            hooks_added=true
-          fi
-        done
-
-        # Add tool usage tracking to PostToolUse hook.
-        #
-        # BL-233: registered on PostToolUse ALONE, this tracker never saw a
-        # failure. A failed MCP call fires PostToolUseFailure and NOT
-        # PostToolUse (measured 2026-08-13 with a probe on both events), so
-        # failures were not miscounted by the framework — they were INVISIBLE
-        # to it, and a call that reached nothing left the same trace as no call
-        # at all. Both events are registered, each passing its own --event
-        # argument so the tracker can score the outcome without depending on a
-        # payload field, and can refuse to guess when the two disagree.
-        if jq -e '.hooks.PostToolUse' .claude/settings.json >/dev/null 2>&1; then
-          if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("track-tool-usage.sh"))' .claude/settings.json >/dev/null 2>&1; then
-            jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]' .claude/settings.json > .claude/settings.json.tmp \
-              && mv .claude/settings.json.tmp .claude/settings.json
-            hooks_added=true
-          fi
-        else
-          jq '.hooks.PostToolUse = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-
-        # Add the SAME tracker to PostToolUseFailure — the event a failing MCP
-        # call actually fires.
-        if jq -e '.hooks.PostToolUseFailure' .claude/settings.json >/dev/null 2>&1; then
-          if ! jq -e '.hooks.PostToolUseFailure[0].hooks[] | select(.command | contains("track-tool-usage.sh"))' .claude/settings.json >/dev/null 2>&1; then
-            jq '.hooks.PostToolUseFailure[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUseFailure"}]' .claude/settings.json > .claude/settings.json.tmp \
-              && mv .claude/settings.json.tmp .claude/settings.json
-            hooks_added=true
-          fi
-        else
-          jq '.hooks.PostToolUseFailure = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUseFailure"}]}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-
-        # BL-029: bypass-detector PostToolUse + Stop. Always-on, regardless
-        # of enforcement_level — Claude-side audit channel is non-configurable.
-        if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-        if ! jq -e '.hooks.Stop[0].hooks[]? | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq 'if (.hooks.Stop // []) | length == 0
-              then .hooks.Stop = [{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]
-              else .hooks.Stop[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]
-              end' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-
-        # BL-030: PostToolUse hook for the Claude-commit recorder
-        # (always-on). Records SHA of every successful Claude-issued
-        # git commit into .claude/claude-commits.jsonl.
-        if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("record-claude-commit.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq '.hooks.PostToolUse[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/record-claude-commit.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-
-        # BL-030: SessionStart hook for the out-of-band detector. Self-
-        # no-ops when enforcement_level=no; runs on light + strict to
-        # surface user-terminal commits in .claude/bypass-audit.json.
-        if ! jq -e '.hooks.SessionStart[0].hooks[]? | select(.command | contains("detect-out-of-band-commits.sh"))' .claude/settings.json >/dev/null 2>&1; then
-          jq 'if (.hooks.SessionStart // []) | length == 0
-              then .hooks.SessionStart = [{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/detect-out-of-band-commits.sh"}]}]
-              else .hooks.SessionStart[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/detect-out-of-band-commits.sh"}]
-              end' .claude/settings.json > .claude/settings.json.tmp \
-            && mv .claude/settings.json.tmp .claude/settings.json
-          hooks_added=true
-        fi
-
-        if [ "$hooks_added" = true ]; then
+        # The roster itself lives in scripts/lib/claude-settings.sh, shared
+        # with the adoption driver (§10-WP9c); this call is where it runs, and
+        # it is outside `framework_valid` for the reason above.
+        soif_register_hook_roster ".claude/settings.json"
+        if [ "$SOIF_ROSTER_ADDED" = true ]; then
           print_ok "Session hooks installed (version check, test gate, MCP gate, Qdrant reminder, commit gate, tool tracking, bypass detector)"
         fi
     fi

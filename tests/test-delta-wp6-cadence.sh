@@ -808,9 +808,13 @@ else
   # — it reads it. Do not "simplify" this back.
   INITF="$REPO_ROOT/init"; INITF="${INITF}.sh"
   h6_ok=1; h6_detail=""
-  grep -qF "# CADENCE-NAG-HOOK-BEGIN" "$INITF" || { h6_ok=0; h6_detail="$h6_detail no-fence"; }
-  grep -qF "# CADENCE-NAG-HOOK-END" "$INITF"   || { h6_ok=0; h6_detail="$h6_detail no-fence-end"; }
-  grep -qF 'session-cadence-check.sh"))' "$INITF" || { h6_ok=0; h6_detail="$h6_detail no-idempotent-guard"; }
+  # The REGISTRATION moved with the hook roster into the shared session-layer
+  # lib (WP9c, which init.sh calls); the SHIPPING (cp/chmod) stays in init.sh.
+  ROSTERF="$REPO_ROOT/scripts/lib/claude-settings.sh"
+  grep -qF "# CADENCE-NAG-HOOK-BEGIN" "$ROSTERF" || { h6_ok=0; h6_detail="$h6_detail no-fence"; }
+  grep -qF "# CADENCE-NAG-HOOK-END" "$ROSTERF"   || { h6_ok=0; h6_detail="$h6_detail no-fence-end"; }
+  grep -qF 'session-cadence-check.sh"))' "$ROSTERF" || { h6_ok=0; h6_detail="$h6_detail no-idempotent-guard"; }
+  grep -qF 'soif_register_hook_roster ".claude/settings.json"' "$INITF" || { h6_ok=0; h6_detail="$h6_detail init-does-not-call-the-roster"; }
   grep -qF 'cp "$SCRIPT_DIR/scripts/session-cadence-check.sh" scripts/' "$INITF" || { h6_ok=0; h6_detail="$h6_detail not-shipped"; }
   grep -q 'chmod +x .*scripts/session-cadence-check\.sh' "$INITF" || { h6_ok=0; h6_detail="$h6_detail not-chmodded"; }
   # §0.3-C1: the orphan is INVOCATION-only. Re-shipping the checker would

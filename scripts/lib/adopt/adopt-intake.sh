@@ -383,10 +383,12 @@ S13B
 
   cat <<'S13C'
 
-WHAT YOU DO NOT HAVE: the Solo Orchestrator Builder's Guide and the Platform
-Modules. A scaffolded project receives them in docs/reference/; an adopted one
-does not yet. Do not act as though a process reference is attached. Ask for it,
-or work from this framework's own scripts and their headers.
+WHAT YOU DO NOT HAVE: a Platform Module. A scaffolded project gets the one for
+its platform in docs/platform-modules/; an adopted project's platform is decided
+in the assessment, so none is here yet. Do not act as though a process reference
+is attached beyond what is on disk: the framework's guides are in
+docs/reference/ (the Builder's Guide among them) wherever you had no file of
+your own at those paths.
 
 START HERE, IN THIS ORDER:
 1. Fill in every blank cell in this intake by ASKING me. Do not infer them from
