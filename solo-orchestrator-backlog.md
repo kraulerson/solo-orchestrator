@@ -18249,16 +18249,14 @@ each marked:
   the greenfield branch of the maintainer's `# BL-242-SETTINGS-BL277` guard, which is unchanged): the
   detector's PostToolUse registration is its own hook group with
   `"matcher": "Bash"`, consistent with every other scoped registration in the file, instead of being
-  appended to group `[0]` and inheriting its absent matcher. Pinned by R1 (a fresh `init.sh` project
-  carries exactly one detector registration under matcher Bash and none elsewhere), R2 (the Stop
-  registration is present once), R3 (the tool tracker and the commit recorder stay unscoped: only the
-  detector moved) — all three in the FULL-LANE suite, because they run `init.sh`. The registration's
-  idempotence probe (the `if ! jq -e` guard that stops a re-run appending a second group) was widened
-  from group `[0]` to any group; that guard is unreachable through `init.sh` itself, which refuses an
-  existing directory, so R4 in the unit suite reads the probe out of the roster by its marker and runs
-  the filter against two fixtures: the detector in a later matcher-scoped group must be found, an
-  absent detector must not. Review's surviving mutant (the probe regressed to `[0]`) is now M8 and is
-  killed by R4. `tests/test-bl029-integration.sh` T1 looks the registration up by matcher now.
+  appended to group `[0]` and inheriting its absent matcher. The registration's idempotence probe
+  (the `if ! jq -e` guard that stops a re-run appending a second group) was widened from group `[0]`
+  to any group. Pinned by R6 in the unit suite: the roster, sourced, runs twice in greenfield mode on
+  the settings template, and the settings then hold exactly one detector, under matcher Bash and in no
+  other group, the Stop arm once, and the tool tracker and commit recorder unscoped (only the detector
+  moved). The second run is what reaches the probe; a second `init.sh` never can, because it refuses an
+  existing directory. `tests/test-bl029-integration.sh` T1 (full lane) looks the registration up by
+  matcher in a project `init.sh` produces.
   R5 (control) sources the roster and runs it on one fixture in each mode: greenfield registers the
   PostToolUse detector once, adoption registers none, both keep the Stop arm. It passes at base and
   after the change, because it pins the maintainer's guard, not this entry's; M9 lifts that guard and
@@ -18269,10 +18267,13 @@ each marked:
   literal (now beside `# BL-277-AUTHORSHIP`) has always been `recorded_only` and the document now says
   so.
 
-**Suites — two, split by lane.** `tests/test-bl277-detector-authorship.sh` is hermetic (temp trees,
+**Suites.** `tests/test-bl277-detector-authorship.sh` is hermetic (temp trees,
 the real scripts over stdin, the roster sourced into a temp tree, `init.sh` never run) and is in the
-`tests.yml` unit lane.
-`tests/test-bl277-matcher-registration.sh` runs `init.sh --non-interactive` twice (R1–R3 and M7) and is
+`tests.yml` unit lane. At the 25 September re-cut it absorbed the full-lane suite: #451 made the roster
+sourceable, so R6 pins the matcher in the PR-blocking lane (review finding R-277-1: a matcher widened to
+`Bash|Read|Edit|Write` had survived every unit-lane suite), and it replaced R4's static read of the
+probe and the full-lane R1–R3 and M7, which were then removed (R-277-2). Until then,
+`tests/test-bl277-matcher-registration.sh` ran `init.sh --non-interactive` twice (R1–R3 and M7) and is
 in `tests/full-project-test-suite.sh` ONLY: `init.sh` installs the Claude Dev Framework into `$HOME`,
 cloning it from GitHub when absent and pulling the developer's real clone when present (review
 reproduced a 1.3 MB clone plus `~/.claude`, `~/.claude.json`, `~/.npm` and `~/.semgrep` appearing under
@@ -18281,7 +18282,7 @@ those cases in the unit suite and the unit lane; the review's block finding R-38
 Every fixture in both is assembled from split literals (see the correction above); a scan of each file
 with the six regexes finds zero matches. Controls: A5 (T1's exact envelope still writes exactly one
 row), A6 (clean output writes nothing), G1, G3, D3, X1 (non-JSON, an unknown event, a string
-`tool_response` and empty stdin all exit 0, leave the ledger byte-identical, and raise nothing), R2, R3.
+`tool_response` and empty stdin all exit 0, leave the ledger byte-identical, and raise nothing), R5.
 The three pre-existing
 suites whose cases assumed the OLD contract were retargeted, each with a comment naming this entry:
 `tests/test-bypass-detector.sh` T5 and T12 (PENDING and the sentinel are now authored-row facts, so
@@ -18332,15 +18333,16 @@ M7 reported `operative text occurs 0 times` — the quoting trap made visible ra
 | M4 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 4 | `false_positive`/`recorded_only` → `declined`/`abandoned` | D1 | D3 |
 | M5 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 5 | the reason guard → `if false; then` | D4 | — |
 | M6 | pending-approval, `# BL-277-FP-REASON` | ≤ 6 | the reason guard → `if false; then` | D2 | D1 |
-| M7 (full lane) | roster in a framework mirror that init.sh runs from, `# BL-277-MATCHER` | ≤ 5 | the group written without `"matcher": "Bash"` | R1 | the registration itself |
-| M8 | roster (copied, never run), `# BL-277-MATCHER` | ≤ 4 | the idempotence probe regressed to `[0].hooks[]?` | R4 | — |
+| M7 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 5 | the group written without `"matcher": "Bash"` | R6 | R5 |
+| M8 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 4 | the idempotence probe regressed to `[0].hooks[]?` | R6 | R5 |
+| M10 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 5 | `"matcher": "Bash"` → `"matcher": "Bash\|Read\|Edit\|Write"` | R6 | R5 |
 | M9 | roster (copied, sourced), `THE PostToolUse ARM IS GREENFIELD-ONLY FOR NOW` | ≤ 4 | the adoption guard → `if true; then` | R5 | — |
 
-All killed on both shells (M9 added at the 25 September re-cut); each "survives" column is asserted too, so a kill that came from
+All killed on both shells (M9 and M10 added, and M7 and M8 moved onto R6, at the 25 September re-cut); each "survives" column is asserted too, so a kill that came from
 breaking something else is reported as such. Review ran four of its own (the event test inverted at
 distance 6; the reason assignment dropped at distance 51; the reason not passed to the library at
 distance 42; the probe regressed): the first three were killed by the committed suite, the fourth
-survived because nothing reached the probe — M8 and R4 are its repair, and the two markers at
+survived because nothing reached the probe — M8 is its repair, killed by R4 then and by R6 since the re-cut, and the two markers at
 distances 51 and 42 (`# BL-277-FP-RECORD`, `# BL-277-FP-PASS`) now sit on the lines those mutants
 anchored to.
 
@@ -18365,6 +18367,12 @@ anchored to.
    proposals — but the reason is applied to all of them at once, as `accept` and `decline` always have.
 4. **`escalation` rows are untouched by the third disposition**, as by the other two (the D2 fix's
    scoping in `bypass_audit_close_pending`). Closing an escalation as a false positive has no meaning.
+5. **The adoption guard's comment goes stale when this entry closes.** The maintainer's comment at
+   `# BL-242-SETTINGS-BL277` in `scripts/lib/claude-settings.sh` keeps the detector's PostToolUse arm
+   off on adopted projects "until that entry closes". Merging this meets that condition, and nothing
+   flags the comment. Lifting the guard is the maintainer's one-line choice, not made here. R5 pins
+   the current behaviour (adoption registers no PostToolUse detector), so lifting the guard means
+   flipping R5 with it.
 
 **Container run.** Recorded in the PR body: both suites and the neighbours in `ubuntu:24.04` as a
 non-root user, `--platform linux/amd64` (CLAUDE.md's own note on ARM instability); the unit suite with

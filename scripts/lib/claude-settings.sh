@@ -12,7 +12,8 @@
 # was split in two and prints to stdout (init.sh redirects it); and the one
 # adoption-only guard (`# BL-242-SETTINGS-BL277`). Review measured the result
 # byte-identical to main's inline code across 12 languages and 8 roster
-# starting states, idempotent re-runs included.
+# starting states, idempotent re-runs included. BL-277 has since moved the
+# detector's PostToolUse arm into its own group.
 #
 # bash-3.2 safe. Needs jq for the roster (the caller checks, as init.sh did).
 

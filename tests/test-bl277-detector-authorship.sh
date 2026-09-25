@@ -32,20 +32,20 @@
 #       does.
 #   D*  the third disposition of scripts/pending-approval.sh.
 #   X*  malformed hook input.
-#   R4  the registration's idempotence probe in the hook roster
-#       (scripts/lib/claude-settings.sh), pinned statically against a settings
-#       fixture (the probe is unreachable through init.sh, which refuses an
-#       existing directory).
-#   R5  the roster in adoption mode still registers no PostToolUse detector:
-#       the maintainer's `# BL-242-SETTINGS-BL277` guard, unchanged.
+#   R5  the hook roster (scripts/lib/claude-settings.sh) in adoption mode
+#       still registers no PostToolUse detector: the maintainer's
+#       `# BL-242-SETTINGS-BL277` guard, unchanged.
+#   R6  the roster run twice in greenfield mode: one detector, under matcher
+#       Bash and nowhere else.
 #   M*  marker presence and mutants. Each mutant proves its location by distance
 #       from its marker and asserts the literal text that landed; one that
 #       cannot be applied is a SETUP failure, never a kill.
 #
 # HERMETIC: temp trees only, the real scripts driven over stdin the way Claude
-# Code drives them. No network, and init.sh is never run — the cases
-# that run it (R1–R3, M7) are in tests/test-bl277-matcher-registration.sh,
-# full lane only, because init.sh installs the Claude Dev Framework into $HOME.
+# Code drives them, and the roster sourced into temp trees. No network, and
+# init.sh is never run: it installs the Claude Dev Framework into $HOME.
+# tests/test-bl029-integration.sh T1 (full lane) pins the same registration
+# in a project init.sh produces.
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -325,30 +325,6 @@ chk_decline_still_declines() {
   return 0
 }
 
-# R4 — the idempotence probe at # BL-277-MATCHER, read out of the roster and
-# run against fixtures. The roster guards the registration with `if ! jq -e '<probe>'`
-# so a re-run does not append a second group; a second init.sh on the same
-# directory is refused, so nothing reaches that guard through the scaffolder
-# and the filter would otherwise be untested. The probe must find the detector
-# when it sits in a LATER, matcher-scoped group (the shape # BL-277-MATCHER
-# writes) and must not find it when it is absent.
-probe_filter() {
-  local f="$1" ml
-  ml="$(S='# BL-277-MATCHER' awk 'index($0, ENVIRON["S"]){print NR; exit}' "$f")"
-  [ -n "$ml" ] || return 1
-  awk -v s="$ml" 'NR > s && NR <= s + 6 && /if ! jq -e '\''/ { n = split($0, a, "'\''"); print a[2]; exit }' "$f"
-}
-chk_probe_static() {
-  local init="$1" filter with without
-  filter="$(probe_filter "$init")"
-  [ -n "$filter" ] || { echo "no jq probe within 6 lines after the marker"; return 1; }
-  with='{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]},{"matcher":"Bash","hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]}}'
-  without='{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]}]}}'
-  printf '%s' "$with" | jq -e "$filter" >/dev/null 2>&1 || { echo "the probe does not find the detector in a later matcher-scoped group, so a re-run would register it twice"; return 1; }
-  if printf '%s' "$without" | jq -e "$filter" >/dev/null 2>&1; then echo "the probe finds a detector that is not there"; return 1; fi
-  return 0
-}
-
 # R5 — the roster sourced and run on one fixture in each mode. Greenfield must
 # register the PostToolUse detector (else adoption's absence proves nothing);
 # adoption must not, and must still register the Stop arm.
@@ -366,6 +342,30 @@ chk_adoption_no_post() {
   init="$(roster_counts "$roster" init)"; adopt="$(roster_counts "$roster" adoption)"
   [ "$init" = "1 1" ] || { echo "greenfield registered PostToolUse/Stop detectors '$init', want '1 1'"; return 1; }
   [ "$adopt" = "0 1" ] || { echo "adoption registered PostToolUse/Stop detectors '$adopt', want '0 1'"; return 1; }
+  return 0
+}
+
+# R6 — the roster sourced and run TWICE in greenfield mode on the settings
+# template. The second run reaches the idempotence probe that a second init.sh
+# never can (it refuses an existing directory). Exactly one detector, under
+# matcher Bash and in no other group; Stop once; the tool tracker and the
+# commit recorder still unscoped, so only the detector moved.
+chk_roster_scoped() {
+  local roster="$1" d s det scoped other stop trk rec
+  d="$(newtmp)"; s="$d/.claude/settings.json"
+  ( cd "$d" && . "$roster" && mkdir -p .claude && soif_claude_settings_json typescript > .claude/settings.json \
+      && soif_register_hook_roster .claude/settings.json init && soif_register_hook_roster .claude/settings.json init ) >/dev/null 2>&1 \
+    || { echo "the roster did not run twice"; return 1; }
+  det='.hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'
+  scoped="$(jq -r "[.hooks.PostToolUse[]? | select(.matcher == \"Bash\") | $det] | length" "$s" 2>/dev/null || printf 'ERR')"
+  other="$(jq -r "[.hooks.PostToolUse[]? | select((.matcher // \"\") != \"Bash\") | $det] | length" "$s" 2>/dev/null || printf 'ERR')"
+  stop="$(jq -r "[.hooks.Stop[]? | $det] | length" "$s" 2>/dev/null || printf 'ERR')"
+  trk="$(jq -r '[.hooks.PostToolUse[]? | select(has("matcher") | not) | .hooks[]? | select((.command // "") | contains("track-tool-usage.sh"))] | length' "$s" 2>/dev/null || printf 'ERR')"
+  rec="$(jq -r '[.hooks.PostToolUse[]? | select(has("matcher") | not) | .hooks[]? | select((.command // "") | contains("record-claude-commit.sh"))] | length' "$s" 2>/dev/null || printf 'ERR')"
+  [ "$scoped" = "1" ] && [ "$other" = "0" ] \
+    || { echo "detector under matcher Bash=$scoped, elsewhere=$other, want 1 and 0"; return 1; }
+  [ "$stop" = "1" ] || { echo "Stop detector registrations=$stop, want 1"; return 1; }
+  [ "$trk" = "1" ] && [ "$rec" = "1" ] || { echo "unscoped tracker=$trk recorder=$rec, want 1 and 1"; return 1; }
   return 0
 }
 
@@ -458,11 +458,11 @@ done
 if [ -z "$x_fail" ]; then pass "X1 (control) — non-JSON, an unknown event, a string tool_response and empty stdin all exit 0 and write nothing"
 else fail_ "X1" "$x_fail"; fi
 
-echo "=== R — the registration's idempotence probe, statically ==="
-if why="$(chk_probe_static "$ROSTER")"; then pass "R4 — the # BL-277-MATCHER probe finds the detector in a later matcher-scoped group and not when absent"
-else fail_ "R4" "$why"; fi
+echo "=== R — the hook roster, sourced ==="
 if why="$(chk_adoption_no_post "$ROSTER")"; then pass "R5 (control) — adoption mode still registers no PostToolUse detector, greenfield does, both keep Stop"
 else fail_ "R5" "$why"; fi
+if why="$(chk_roster_scoped "$ROSTER")"; then pass "R6 — the roster run twice: one detector, under matcher Bash and nowhere else; Stop once; tracker and recorder unscoped"
+else fail_ "R6" "$why"; fi
 
 echo "=== M — markers and mutants ==="
 # Each marker must be present exactly once in its file.
@@ -574,17 +574,29 @@ if why="$(mutate "$MP" "# BL-277-FP-REASON" 'if [ -z "${reason//[[:space:]]/}" ]
   else pass "M6 (MUTATION) — the script's reason guard removed: D2 kills it, D1 survives"; fi
 else fail_ "M6 setup" "$why"; fi
 
-# M8 — the probe regressed to group [0] (adversarial review's surviving mutant
-# D): with the detector in its own later group the guard never finds it and a
-# re-run would register it twice. Killed by R4. The roster is copied, never run.
-MI="$(newtmp)/claude-settings.sh"
-if ! cp "$ROSTER" "$MI"; then fail_ "M8 setup" "could not copy the roster"
-elif why="$(mutate "$MI" "# BL-277-MATCHER" \
-       ".hooks.PostToolUse[]? | .hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" \
-       ".hooks.PostToolUse[0].hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" 4)"; then
-  if chk_probe_static "$MI" >/dev/null 2>&1; then fail_ "M8 (MUTATION)" "the group-[0] probe survived R4"
-  else pass "M8 (MUTATION) — the idempotence probe regressed to group [0]: R4 kills it"; fi
-else fail_ "M8 setup" "$why"; fi
+# roster_mutant <id> <operative> <replacement> <max-distance> <case-kill-msg>
+# — copy the roster, apply one mutant at # BL-277-MATCHER, and require R6 to
+# fail on it while R5 still passes (so the kill is R6's, not a broken roster).
+roster_mutant() {
+  local id="$1" op="$2" rep="$3" maxd="$4" msg="$5" mi why
+  mi="$(newtmp)/claude-settings.sh"
+  if ! cp "$ROSTER" "$mi"; then fail_ "$id setup" "could not copy the roster"; return; fi
+  if ! why="$(mutate "$mi" "# BL-277-MATCHER" "$op" "$rep" "$maxd")"; then fail_ "$id setup" "$why"; return; fi
+  if chk_roster_scoped "$mi" >/dev/null 2>&1; then fail_ "$id (MUTATION)" "$msg survived R6"
+  elif ! chk_adoption_no_post "$mi" >/dev/null 2>&1; then fail_ "$id (MUTATION)" "the mutant broke R5 too, so the kill proves nothing about R6"
+  else pass "$id (MUTATION) — $msg: R6 kills it, R5 survives"; fi
+}
+REG='.hooks.PostToolUse += [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]'
+# M7 — the group written without its matcher: the detector runs after every tool.
+roster_mutant M7 "$REG" '.hooks.PostToolUse += [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' 5 "the registration written without its matcher"
+# M8 — the idempotence probe regressed to group [0]: with the detector in its
+# own later group the second run never finds it and registers it twice.
+roster_mutant M8 \
+  ".hooks.PostToolUse[]? | .hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" \
+  ".hooks.PostToolUse[0].hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" 4 \
+  "the idempotence probe regressed to group [0]"
+# M10 — the matcher widened back over Read, Edit and Write (review's X1).
+roster_mutant M10 "$REG" '.hooks.PostToolUse += [{"matcher": "Bash|Read|Edit|Write", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' 5 "the matcher widened to Bash|Read|Edit|Write"
 
 # M9 — the maintainer's adoption guard lifted, so adoption registers the
 # PostToolUse arm. Killed by R5.
@@ -595,8 +607,6 @@ elif why="$(mutate "$MI" "THE PostToolUse ARM IS GREENFIELD-ONLY FOR NOW" \
   if chk_adoption_no_post "$MI" >/dev/null 2>&1; then fail_ "M9 (MUTATION)" "the lifted guard survived R5"
   else pass "M9 (MUTATION) — the adoption guard lifted: R5 kills it"; fi
 else fail_ "M9 setup" "$why"; fi
-# M7, the mutant that runs init.sh without the matcher, lives in
-# tests/test-bl277-matcher-registration.sh (full lane).
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
