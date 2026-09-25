@@ -15263,14 +15263,35 @@ GitLab/Bitbucket project it reports THEIR pipeline as the framework's; the relea
   landing through the adoptee's own hooks at rc 0, and the next `resume.sh` printing the project's
   Phase 0 prompt.
 
-**Pinned by** `tests/test-brownfield-wp12a-assessment.sh` (K1–K9), thirteen mutants killed; wp9 R1
+**Review round (one, adversarial) — verdict `block`, fixed:**
+- **R-1 (block):** `(.interview.inProduction // null) | type` read `false` as missing — jq's `//`
+  replaces false too — so NO project not in production could finish. Types are read directly; K10.
+- **R-2 (block):** `--act4` kept no ledger, so a refusal after the classification write printed "did
+  not begin … nothing was written" over a modified process-state.json. The finisher now opens a
+  ledger, and the preconditions a later stage needed (the intake file is one JSON object) moved into
+  `validate_record`, before any write. K10 pins the honest message.
+- **R-3 (major):** an EMPTY record passed (jq exits 0 on no input), a classification ARRAY passed
+  (`index` does subarray search), a non-list `findings` skipped the requirementRef check, and answer
+  keys the gates read (`project_name`, `repo_visibility`) could be rewritten. Now: exactly one JSON
+  object; typed checks throughout; requirementRef by exact membership; an answer-key ALLOWLIST
+  (`ADOPT_ACT4_ANSWER_KEYS`, `# BL-242-ACT4-ANSWER-KEYS`) that the prompt lists verbatim.
+- **R-4 (major):** eight mutants survived K3; K3 now carries each refusal. **R-6:** the prompt asked
+  about ZDR only for pii/financial/health/regulated while the Phase 1→2 gate requires it for all but
+  `public` — the suite's own record would have failed that gate. The finisher now refuses what the
+  gate would (`# BL-242-ACT4-REFUSE-ZDR`) and the prompt asks for it. **R-5:** the resume branch now
+  fires at phase 0 only — an adoptee that moved on unassessed kept being told "before starting
+  Phase 0" even at phase 4; K11. **R-7:** the verdict grammar is spelled out in the prompt.
+
+**Pinned by** `tests/test-brownfield-wp12a-assessment.sh` (K1–K11), twenty-nine mutants killed; wp9 R1
 flipped as §10-WP12a said (R1 now reads an assessed copy; R1b pins the assessment prompt), wp9 H1,
 wp4 W1/S1, wp7 A10, wp12b D8 and wp7b B9 (called stubs now **two**) re-aimed.
 
 **Residuals:** the `accessibility` → `accessibility_target` rename in `_scout_prefill_table` (M14) is
 not done — the prompt steers the model to `accessibility_target`, and the Act 2 A7 row keeps its
 old key; the model's judgement is not suite-provable (§12 item 8) — only the record is; the
-finisher does not commit, by design; `evaluators` is accepted and not validated beyond shape.
+finisher does not commit, by design; `evaluators` is checked to be a list and nothing more;
+`soif_adoption_assess` writes through a fixed `$manifest.tmp` with no lock, as the stamp writer does
+(one session runs it).
 
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 

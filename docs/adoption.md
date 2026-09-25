@@ -986,13 +986,19 @@ answers. It is split in two, because half of it is judgement and half is fact:
    ```
 
    It **checks the record before it writes anything**, and refuses — naming
-   each reason — when a finding names no requirement, the commit is not the one
-   this project was adopted at, *in production* is not a plain true/false, the
-   data classification is not one of the seven, or the verdict lacks its
-   `## Plain English` half with a `Recommendation:` and a `Reason:`. Measured:
+   each reason — when the file is not exactly one JSON object, a finding names
+   no requirement, the commit is not the one this project was adopted at,
+   *in production* is not a plain true/false, the data classification is not
+   one of the seven, a classification other than `public` has neither a ZDR
+   attestation nor a written reason (the Phase 1→2 gate would block it later),
+   an interview answer uses a key outside the ten the prompt lists, or the
+   verdict lacks its technical account or its `## Plain English` half with a
+   `Recommendation:` and a `Reason:`. If it stops after it has written
+   something, it says what. Measured:
 
    ```text
    [REFUSED] the assessment record was not accepted, and nothing was written
+             The assessment finisher did not begin. Nothing was committed and nothing was written.
              - fitness finding F1 names no interview axis in requirementRef — a finding is relative to a stated requirement (§5.3)
              Fix .claude/adoption/assessment-record.json (or the verdict), then run this again.
    ```
