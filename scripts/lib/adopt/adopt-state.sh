@@ -69,6 +69,8 @@ _adopt_state_order() {
   printf '%s\n' framework_docs   # BL-242-DOCS-STAGE-ORDER
   # The framework's CI, at its own name (§7.4), before the record that names it.
   printf '%s\n' ci   # BL-242-CI-STAGE-ORDER
+  # The Claude Code session layer (§10-WP9c): settings, hook roster, skills, MCP.
+  printf '%s\n' session_layer   # BL-242-SESSION-STAGE-ORDER
   # The prompt resume.sh prints for the assessment; it needs the stamp's commit.
   printf '%s\n' assessment_prompt   # BL-242-ASSESSMENT-PROMPT-ORDER
   printf '%s\n' adoption_record   # BL-242-RECORD-STAGE
@@ -1778,6 +1780,7 @@ _adopt_write_phase() {
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;
       framework_docs) adopt_write_framework_docs "$root" || return 1 ;;   # BL-242-DOCS-STAGE
       ci)          adopt_write_ci "$root" "$report" || return 1 ;;   # BL-242-CI-STAGE
+      session_layer) adopt_write_session_layer "$root" "$report" || return 1 ;;   # BL-242-SESSION-STAGE
       assessment_prompt) adopt_write_assessment_prompt "$root" || return 1 ;;
       adoption_record) adopt_write_adoption_record "$root" "$report" || return 1 ;;   # BL-242-RECORD-STAGE
       write_set)   adopt_write_write_set "$root" || return 1 ;;   # BL-242-WRITE-SET

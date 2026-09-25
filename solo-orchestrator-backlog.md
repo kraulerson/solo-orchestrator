@@ -15354,6 +15354,46 @@ write-up still owed (its flag needs an open delta) — `delta.sh --status` and `
 do; a hand-edited manifest with a duplicate key or two JSON documents can satisfy the predicate
 (`jq -e` judges the last); the process-state row is a separate write from the delta record.
 
+### WP9c's build (2026-09-25) — the Claude Code session layer, from the code init.sh uses
+
+**What ships:**
+- **The extraction.** `init.sh`'s language rules, permissions heredoc and hook-roster block move
+  VERBATIM into a new core lib, `scripts/lib/claude-settings.sh` (`soif_claude_lang_rules`,
+  `soif_claude_settings_json`, `soif_register_hook_roster`, `soif_vendored_skills`); `init.sh` calls
+  them, the `# BL-296-ROSTER-UNCONDITIONAL` call still outside `framework_valid`. Measured
+  byte-identical before the change was kept: the old inline code and the lib produced the same
+  `settings.json`, roster included, for all eleven language arms.
+- **The adoption stage** `session_layer` (`adopt_write_session_layer`, `# BL-242-SESSION-STAGE`,
+  scripts/lib/adopt/adopt-session.sh): `settings.json` written when absent, COMPOSED when present
+  (`# BL-242-SESSION-COMPOSE` — theirs kept, the framework's `allow`/`deny` unioned in, hooks added
+  where absent; archive disposition `composed`, `# BL-242-ARCHIVE-DISPO-SESSION`); the roster
+  registered in `adoption` mode, which leaves the bypass detector's PostToolUse arm OFF while
+  `## BL-277:` is open (`# BL-242-SETTINGS-BL277`); the four vendored skills, framework-wins; the
+  Qdrant MCP declaration under init.sh's predicate (`SOIF_ADOPT_QDRANT` test seam) — found while
+  measuring: `settings.local.json` is in Claude Code's global git excludes, so recording it for
+  staging made the preflight refuse the whole adoption; it is written machine-local, as init.sh does,
+  and the requirement goes into the committed manifest.
+- The intake's §13 "WHAT YOU DO NOT HAVE" names the Platform Module (chosen in the assessment) instead
+  of the guides adoption now writes.
+
+**Review:** two reviewers stalled past their bounds and were stopped; a tightly scoped third
+confirmed greenfield unchanged (old inline vs lib byte-identical across 12 languages and 8 roster
+starting states, idempotent re-runs included) — `minor_concerns`, three nits fixed. The session's own
+probes found two defects, fixed: a `settings.json` with a string `permissions` refused the WHOLE
+adoption, and one with an array `hooks` composed the rules, failed the roster silently and printed
+that the hooks were registered. A shape the framework cannot compose into is now left alone and said
+(`# BL-242-SESSION-COMPOSABLE`), and "registered" is printed only on a receipt
+(`# BL-242-SESSION-ROSTER-RECEIPT`); L8 pins it.
+
+**Pinned by** `tests/test-brownfield-wp9c-session-layer.sh` (L1–L8), nine mutants killed; L2 is the
+parity-by-derivation pin — the adoptee's (event, script) set equals init.sh's function's, minus
+exactly the one BL-277 pair. Re-aimed: bl296 R2/R3 and bl233 H3 read the lib; the stage-order
+literals in wp4/wp7/wp12b.
+
+**Residuals:** the `docs/reference/*` list is still spelled in adopt-docs.sh rather than derived from
+init.sh's `cp` lines (§10-WP9c(1)'s shared parser); the four skill paths are spelled again in the
+archive's disposition arm; BL-296 row 33 (the Development Guardrails install) remains unowned.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

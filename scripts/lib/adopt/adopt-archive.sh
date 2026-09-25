@@ -810,6 +810,15 @@ adopt_archive_write() {
       # unlike a hook one DOES reach this loop — the inventory's `-f` follows
       # it — and `-w` answers for the TARGET, so it has to be asked first.
       # Measured: a symlinked FEATURES.md read `replaced` while it sat untouched.
+      # WP9c: settings.json is COMPOSED — theirs kept, the framework's rules
+      # unioned in and its hooks added (`# BL-242-SESSION-COMPOSE`). The four
+      # vendored skills are framework-wins at their own paths. A symlink or an
+      # unwritable file is left alone by that stage, so it stays `kept`.
+      .claude/settings.json)
+        if [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel" && [ -w "$root/$rel" ] \
+           && jq -e 'type == "object" and ((.permissions == null) or ((.permissions | type) == "object")) and ((.hooks == null) or ((.hooks | type) == "object"))' "$root/$rel" >/dev/null 2>&1; then dispo="composed"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-SESSION
+      .claude/skills/session-handoff/SKILL.md|.claude/skills/sweep-triage/SKILL.md|.claude/skills/zoom-out/SKILL.md|.claude/skills/grill-with-docs/SKILL.md)
+        if [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel" && [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;
       CLAUDE.md|FEATURES.md|BUGS.md|RELEASE_NOTES.md|docs/INDEX.md|docs/IDENTIFIERS.md|docs/archive/README.md)
         # …and so is one inside a symlinked FOLDER (`# BL-242-PARENT-LINK`).
         if [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel" && [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-DOCS

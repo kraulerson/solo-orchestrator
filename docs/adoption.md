@@ -11,15 +11,16 @@ the files it wrote.
 > intake, the state writes and adoption stamp, the collision archive with
 > `--re-add`, the test-debt ledger, the **Adoption Record** and the audit rows,
 > the **commit-time scanners**, the **framework documents** (a rendered
-> `CLAUDE.md` among them), the **CI carve-out** (the framework's CI at its own
-> filename; yours read for risky patterns, never changed), the **assessment**
-> (a Claude Code conversation that `scripts/resume.sh` starts, and a finisher
-> that records it), the **provenance header** on the reconstructed intake, and
-> the **in-production exemption** (an adopted project the assessment records as
-> in production may open a hotfix delta below phase 4, and keeps its retro).
-> What is designed and **not built**: composing the framework's Claude Code
-> session settings, hooks, MCP declaration and skills into an adopted project
-> (WP9c). See [What is not built yet](#what-is-not-built-yet).
+> `CLAUDE.md` among them), the **Claude Code session layer** (the framework's
+> permissions, session hooks and skills, composed into any settings you had),
+> the **CI carve-out** (the framework's CI at its own filename; yours read for
+> risky patterns, never changed), the **assessment** (a Claude Code conversation
+> that `scripts/resume.sh` starts, and a finisher that records it), the
+> **provenance header** on the reconstructed intake, and the **in-production
+> exemption** (an adopted project the assessment records as in production may
+> open a hotfix delta below phase 4, and keeps its retro). Every designed work
+> package ships; two gaps with no owner yet are listed under
+> [What is not built yet](#what-is-not-built-yet).
 
 Everything on this page is output that was observed, pasted as it printed.
 
@@ -957,17 +958,10 @@ the ledger are real; the *automatic* part is not.
 
 ## What is not built yet
 
-This section started as the list of what was designed and not built; most of
-it now ships, and each subsection says so in its heading. **One designed
-package remains**, and it prints no block during the run:
+This section started as the list of what was designed and not built; all of
+it now ships, and each subsection says so in its heading.
 
-- **WP9c — the Claude Code session layer.** An adopted project gets the
-  framework's scripts, gates and documents, but not the `.claude/settings.json`
-  permissions and hook registrations, the Qdrant MCP declaration, or the four
-  vendored skills `init.sh` gives a new project. Until it lands, a Claude Code
-  session in an adopted project runs without the framework's session hooks.
-
-Two further gaps have no owning package yet:
+Two gaps have no owning package yet:
 
 - **The Development Guardrails for Claude Code are not installed.** `init.sh`
   clones and runs that companion framework (`~/.claude-dev-framework`) for a new
@@ -1357,6 +1351,33 @@ that came back empty.
 
 The **CI carve-out** ships — see
 [The CI carve-out](#the-ci-carve-out--ships-wp7) below.
+
+### The Claude Code session layer — SHIPS (WP9c)
+
+A scaffolded project gets its Claude Code session layer from `init.sh`; an
+adopted one now gets the same one, from the same code
+(`scripts/lib/claude-settings.sh`, which `init.sh` calls too):
+
+- **`.claude/settings.json`** — the framework's permissions for the project's
+  language, and its session hooks: the version, test-gate, freshness, intake and
+  cadence checks at session start, the commit gate and the MCP gate before a
+  tool runs, tool tracking after it, the Qdrant reminder and the bypass
+  detector at session end. **If you already have a `settings.json` it is
+  composed, not replaced**: every key, rule and hook of yours stays, the
+  framework's rules are added to `allow` and `deny`, and its hooks are added
+  where absent. Your original is in the archive, recorded as `composed`. A
+  symlinked `settings.json` is left alone and the run says so.
+- **One difference from a new project, on purpose:** the bypass detector's
+  per-tool hook is not registered on an adopted project while `## BL-277:` is
+  open; its end-of-session hook is.
+- **The four vendored skills** — `session-handoff`, `sweep-triage`, `zoom-out`,
+  `grill-with-docs` — in `.claude/skills/`. A copy of yours at one of those
+  names is archived and replaced; any other skill of yours is untouched.
+- **The Qdrant MCP declaration**, only where `init.sh` would write one (a
+  registered Qdrant server, or a running container with `uvx`):
+  `.claude/settings.local.json` with this project's collection — machine-local
+  and not committed, as in a new project — and the requirement recorded in
+  `.claude/manifest.json`, which is.
 
 ### The CI carve-out — SHIPS (WP7)
 

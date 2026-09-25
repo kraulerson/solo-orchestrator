@@ -599,6 +599,7 @@ jobs:
             tests/test-brownfield-wp12a-assessment.sh
             tests/test-brownfield-wp7f-provenance.sh
             tests/test-brownfield-wp12c-production-exemption.sh
+            tests/test-brownfield-wp9c-session-layer.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -993,6 +994,7 @@ jobs:
             tests/test-pre-commit-gate-lints.sh        # 122s — from slow-misc; runs 4 lint copies inside fixture projects
             tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — from slow-misc
             tests/test-brownfield-wp7b-commit-hook.sh  # ~172s on CI (PR #442) — from lint-sweep; real adoptions and real commits
+            tests/test-brownfield-wp9c-session-layer.sh  # new — six real adoptions
             tests/test-brownfield-wp7f-provenance.sh   # new — one real adoption, then the checker and the finisher
             tests/test-brownfield-wp7e-ci-carveout.sh  # new — real adoptions, CI files read and one written
           )

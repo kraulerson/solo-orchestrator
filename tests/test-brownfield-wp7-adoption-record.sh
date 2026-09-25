@@ -592,7 +592,7 @@ a10() {
   case "$order" in
     # WP12b's `framework_docs` sits between them (`# BL-242-DOCS-STAGE-ORDER`);
     # the record still follows `manifest` and precedes `write_set`.
-    *"manifest framework_docs ci assessment_prompt adoption_record write_set"*) : ;;   # WP7's `ci` stage (§7.4) also precedes the record
+    *"manifest framework_docs ci session_layer assessment_prompt adoption_record write_set"*) : ;;   # WP7's `ci` stage (§7.4) also precedes the record
     *) bad="$bad [the stage order is '$order' — adoption_record must sit after manifest (and WP12b's framework_docs) and before write_set]" ;;
   esac
   grep -q 'adopt-record' "$REPO_ROOT/scripts/adopt-project.sh" \

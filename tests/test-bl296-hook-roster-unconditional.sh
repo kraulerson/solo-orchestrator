@@ -193,11 +193,17 @@ r1() {
 # ═══════════════════════════════════════════════════════════════════════════
 r2() {
   local label="R2 every script the roster registers ships in this repo's own scripts/"
-  local open close bad="" s
+  local open close bad="" s roster
   open="$(grep -n 'BL-296-ROSTER-UNCONDITIONAL' "$INIT" | head -1 | cut -d: -f1)"
   [ -n "$open" ] || { fail_ "$label" "no roster marker"; return; }
   close="$(_branch_close "$INIT" "$open")"
   [ -n "$close" ] || { fail_ "$label" "could not bound the roster block"; return; }
+  # WP9c MOVED THE ROSTER into scripts/lib/claude-settings.sh so the adoption
+  # driver registers the same one. The marked block in init.sh now CALLS it;
+  # the scripts are read from the function the call names.
+  sed -n "${open},${close}p" "$INIT" | grep -q 'soif_register_hook_roster' \
+    || { fail_ "$label" "the marked block no longer calls soif_register_hook_roster"; return; }
+  roster="$(awk '/^soif_register_hook_roster\(\)/{f=1} f{print} f&&/^}/{exit}' "$REPO_ROOT/scripts/lib/claude-settings.sh")"
   # `(hooks/)?` IS LOAD-BEARING. The first draft matched `scripts/[a-z0-9-]+\.sh`,
   # which cannot cross a second path separator, so `scripts/hooks/bypass-detector.sh`
   # and `scripts/hooks/record-claude-commit.sh` were INVISIBLE to this case —
@@ -208,7 +214,7 @@ r2() {
     [ -n "$s" ] || continue
     [ -f "$REPO_ROOT/$s" ] || bad="$bad [$s is registered but not in this repo]"
   done <<SCRIPTS
-$(sed -n "${open},${close}p" "$INIT" | grep -oE "$rx" | LC_ALL=C sort -u)
+$(printf '%s\n' "$roster" | grep -oE "$rx" | LC_ALL=C sort -u)
 SCRIPTS
   # VACUITY FLOOR: the block must actually name the scripts, or an empty
   # extraction satisfies the loop above.
@@ -220,7 +226,7 @@ SCRIPTS
   # stands; adding a hook raises it and removing one is a deliberate act that
   # should have to edit this line.
   local n
-  n=$(sed -n "${open},${close}p" "$INIT" | grep -oE "$rx" | LC_ALL=C sort -u | grep -c .)
+  n=$(printf '%s\n' "$roster" | grep -oE "$rx" | LC_ALL=C sort -u | grep -c .)
   [ "$n" -ge 12 ] || bad="$bad [only $n DISTINCT scripts found in the block — the roster registers twelve, so the extraction is wrong or a hook was dropped]"
   [ -z "$bad" ] && pass "$label ($n distinct scripts)" || fail_ "$label" "$bad"
 }
@@ -235,7 +241,9 @@ SCRIPTS
 r3() {
   local label="R3 init.sh writes .claude/settings.json itself, before the roster's guard reads it"
   local writer marker
-  writer="$(grep -n 'cat > \.claude/settings\.json' "$INIT" | head -1 | cut -d: -f1)"
+  # Since WP9c the content comes from soif_claude_settings_json, and init.sh
+  # redirects it into the file — still init.sh's own, unconditional write.
+  writer="$(grep -nE '^[^#]*> \.claude/settings\.json([[:space:]]|$)' "$INIT" | head -1 | cut -d: -f1)"
   marker="$(grep -n 'BL-296-ROSTER-UNCONDITIONAL' "$INIT" | head -1 | cut -d: -f1)"
   if [ -z "$writer" ]; then
     fail_ "$label" "init.sh no longer writes .claude/settings.json directly — the roster's guard may never be satisfied without the CDF clone"
