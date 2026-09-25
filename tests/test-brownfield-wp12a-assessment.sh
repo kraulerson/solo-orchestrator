@@ -62,7 +62,7 @@ _record() {
     schemaVersion: 1, assessedAt: "2026-09-24T12:00:00Z", adoptedAtCommit: $c,
     interview: { users: "three people in one office", availability: "office hours",
                  exposure: "internal network only", scalability: "none expected",
-                 dataClassification: "internal", zdrAttested: false, zdrReason: "",
+                 dataClassification: "internal", zdrAttested: true, zdrReason: "",
                  inProduction: true, operations: {},
                  answers: { users_launch: "3", uptime: "business hours", accessibility_target: "WCAG 2.1 AA" } },
     evaluators: [],
@@ -120,10 +120,30 @@ k3() {
 no requirementRef|.fitness.findings[0] |= del(.requirementRef)
 requirementRef names no axis|.fitness.findings[0].requirementRef = "taste"
 wrong commit|.adoptedAtCommit = "0000000000000000000000000000000000000000"
+schemaVersion not 1|.schemaVersion = 2
+verdictArtifact elsewhere|.verdictArtifact = "verdict.md"
+verdict not keep or rebuild|.fitness.verdict = "maybe"
+findings not a list|.fitness.findings = "none"
+evaluators not a list|.evaluators = "none"
+classification an array|.interview.dataClassification = ["pii","financial"]
+internal with no ZDR attestation or reason|.interview.zdrAttested = false
+requirementRef with a trailing newline|.fitness.findings[0].requirementRef = "interview.users\n"
+answer key a gate reads|.interview.answers.project_name = "evil-name"
+answer key outside the allowlist|.interview.answers.not_a_wizard_key = "z"
+answer value not a string|.interview.answers.uptime = 99
 inProduction absent|.interview |= del(.inProduction)
 inProduction not boolean|.interview.inProduction = "yes"
 classification outside taxonomy|.interview.dataClassification = "secret"
 CASES
+  # An EMPTY record: jq reads no document and exits 0.
+  _record "$P"; : > "$P/.claude/adoption/assessment-record.json"
+  before="$(_state "$P")"; _finish "$P" "k3e"
+  { [ "$RUN_RC" -ne 0 ] && [ "$(_state "$P")" = "$before" ]; } || bad="$bad [an empty record was accepted]"
+  # Two records in one file.
+  _record "$P"; cat "$P/.claude/adoption/assessment-record.json" "$P/.claude/adoption/assessment-record.json" > "$WORK/two.json"
+  cp "$WORK/two.json" "$P/.claude/adoption/assessment-record.json"
+  before="$(_state "$P")"; _finish "$P" "k3d"
+  { [ "$RUN_RC" -ne 0 ] && [ "$(_state "$P")" = "$before" ]; } || bad="$bad [two concatenated records were accepted]"
   # The verdict's two halves.
   _record "$P"; printf '# Only a technical account\n\nIt fits.\n' > "$P/.claude/adoption/verdict.md"
   before="$(_state "$P")"; _finish "$P" "k3v1"
@@ -131,6 +151,17 @@ CASES
   _record "$P"; sed -i.bak '/^Reason:/d' "$P/.claude/adoption/verdict.md"; rm -f "$P/.claude/adoption/verdict.md.bak"
   before="$(_state "$P")"; _finish "$P" "k3v2"
   { [ "$RUN_RC" -ne 0 ] && [ "$(_state "$P")" = "$before" ]; } || bad="$bad [a recommendation with no reason was accepted]"
+  _record "$P"; sed -i.bak '/^Recommendation:/d' "$P/.claude/adoption/verdict.md"; rm -f "$P/.claude/adoption/verdict.md.bak"
+  before="$(_state "$P")"; _finish "$P" "k3v3"
+  { [ "$RUN_RC" -ne 0 ] && [ "$(_state "$P")" = "$before" ]; } || bad="$bad [a reason with no recommendation was accepted]"
+  _record "$P"; printf '## Plain English\n\nRecommendation: keep it.\nReason: it fits.\n' > "$P/.claude/adoption/verdict.md"
+  before="$(_state "$P")"; _finish "$P" "k3v4"
+  { [ "$RUN_RC" -ne 0 ] && [ "$(_state "$P")" = "$before" ]; } || bad="$bad [a verdict with no technical account was accepted]"
+  # An intake file the prefill could not edit is caught BEFORE any write.
+  _record "$P"; cp "$P/.claude/intake-progress.json" "$WORK/ip.bak"; printf '[]\n' > "$P/.claude/intake-progress.json"
+  before="$(_state "$P")"; _finish "$P" "k3i"
+  { [ "$RUN_RC" -ne 0 ] && [ "$(_state "$P")" = "$before" ]; } || bad="$bad [a non-object intake-progress.json let the classification be written first]"
+  cp "$WORK/ip.bak" "$P/.claude/intake-progress.json"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
@@ -196,14 +227,14 @@ k7() {
 }
 
 k8() {
-  local label="K8 every wizard key the prompt names resolves in intake-wizard.sh" bad="" k keys
-  keys="$(sed -n '/"answers" uses the intake wizard/,/string values only/p' "$P/.claude/adoption/assessment-prompt.md" \
-    | grep -oE '[a-z][a-z0-9]*(_[a-z0-9]+)+' | sort -u)"
-  [ -n "$keys" ] || { fail_ "$label" "no keys found in the prompt"; return; }
+  local label="K8 the answer allowlist is what the prompt names, and every key resolves in intake-wizard.sh" bad="" k keys
+  keys="$( ( set +u; . "$REPO_ROOT/scripts/lib/adopt/adopt-act4.sh" >/dev/null 2>&1; printf '%s' "$ADOPT_ACT4_ANSWER_KEYS" ) )"
+  [ -n "$keys" ] || { fail_ "$label" "no allowlist"; return; }
+  grep -qF "$keys" "$P/.claude/adoption/assessment-prompt.md" || bad="$bad [the prompt does not list the allowlist verbatim]"
   for k in $keys; do
-    grep -qE "save_answer +\"$k\"" "$REPO_ROOT/scripts/intake-wizard.sh" || bad="$bad [$k]"
+    grep -qE "save_answer +\"$k\"" "$REPO_ROOT/scripts/intake-wizard.sh" || bad="$bad [$k is not a wizard key]"
   done
-  [ -z "$bad" ] && pass "$label" || fail_ "$label" "not wizard keys:$bad"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
 k9() {
@@ -219,7 +250,35 @@ k9() {
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 
-k1; k3; k6; k2; k4; k5; k7; k8; k9
+k10() {
+  local label="K10 inProduction false is accepted, and a refusal after a write says what was written" bad="" q="$WORK/q"
+  _adopted "$q" || { fail_ "$label" "setup"; return; }
+  # A halt after the classification stage: something WAS written, and the
+  # refusal must not say "did not begin" (review: it did, over a changed file).
+  _record "$q" '.interview.inProduction = false'
+  ( cd "$q" && SOIF_ADOPT_ACT4_HALT_AFTER=classification bash "$REPO_ROOT/scripts/adopt-project.sh" --act4 --root . ) > "$WORK/k10h.out" 2>&1
+  grep -q 'did not begin' "$WORK/k10h.out" && bad="$bad [a refusal after the classification write claims nothing was written]"
+  grep -q 'already written' "$WORK/k10h.out" || bad="$bad [the refusal does not say what was written]"
+  _finish "$q" "k10"
+  [ "$RUN_RC" -eq 0 ] || bad="$bad [inProduction false was refused: $(grep -- '- ' "$WORK/k10.out" | head -2 | tr '\n' ' ')]"
+  jq -e '.adoption.assessment.inProduction == false' "$q/.claude/manifest.json" >/dev/null 2>&1 || bad="$bad [inProduction false is not recorded as false]"
+  [ "$(jq -r '.answers.data_classification' "$q/.claude/intake-progress.json")" = "internal" ] \
+    || bad="$bad [the recorded classification is not in the intake answers]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+
+k11() {
+  local label="K11 past phase 0, an unassessed adoptee is NOT sent back to the assessment" q="$WORK/q4"
+  # Nothing makes the assessment a precondition for the gates, so an adoptee can
+  # move on without one; at phase 4 this branch would replace the shipped-
+  # product greeting with "before starting Phase 0" for good (review).
+  _adopted "$q" || { fail_ "$label" "setup"; return; }
+  jq '.current_phase = 4' "$q/.claude/phase-state.json" > "$q/ps.tmp" && mv "$q/ps.tmp" "$q/.claude/phase-state.json"
+  if _resume "$q" | grep -q 'You are running its ASSESSMENT'; then fail_ "$label" "the assessment prompt fired at phase 4"
+  else pass "$label"; fi
+}
+
+k1; k3; k6; k2; k4; k5; k7; k8; k9; k10; k11
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

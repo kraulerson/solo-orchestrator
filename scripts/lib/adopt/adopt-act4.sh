@@ -24,6 +24,12 @@
 
 ADOPT_ASSESSMENT_RECORD_REL=".claude/adoption/assessment-record.json"
 ADOPT_VERDICT_REL=".claude/adoption/verdict.md"
+# The intake answers the finisher accepts: the keys the prompt names, each a
+# key `intake-wizard.sh` saves (K8 derives that). An allowlist rather than a
+# pattern, because the progress file also holds keys the GATES read —
+# project_name, repo_visibility — and a record must not rewrite them
+# (review: a record set both and check-gate.sh creates the remote from them).
+ADOPT_ACT4_ANSWER_KEYS="users_launch users_6mo users_12mo uptime hosting data_volume problem_statement mvp_date known_risks accessibility_target"
 
 # The order, as data, spelled once.                    # BL-242-ACT4-ORDER
 _adopt_act4_order() {
@@ -38,21 +44,53 @@ _adopt_act4_record_errors() {
   rec="$root/$ADOPT_ASSESSMENT_RECORD_REL"
   stamp="$(jq -r '.adoption.adoptedAtCommit // ""' "$root/.claude/manifest.json" 2>/dev/null)"
   tax="$ADOPT_DC_TAXONOMY"
-  jq -r --arg stamp "$stamp" --arg tax "$tax" '
-    def axis: test("^interview\\.(users|availability|exposure|scalability|dataClassification|inProduction)$");
+  # ONE JSON OBJECT, OR NOTHING ELSE IS ASKED. jq exits 0 on an EMPTY file —
+  # it reads no document and prints nothing — so an empty record used to pass
+  # every check below by producing no errors at all (review, measured), and
+  # two concatenated records were read as two.
+  if ! jq -es 'length == 1 and (.[0] | type) == "object"' "$rec" >/dev/null 2>&1; then
+    printf '%s\n' "the record is not exactly one JSON object"
+    return 0
+  fi
+  # `//` IS NOT "IF MISSING": it also replaces `false`. `(.x // null) | type`
+  # therefore read inProduction: false as missing and refused every project not
+  # in production (review, measured). Types are read directly.
+  jq -r --arg stamp "$stamp" --arg tax "$tax" --arg keys "$ADOPT_ACT4_ANSWER_KEYS" '
+    def axes: ["interview.users","interview.availability","interview.exposure","interview.scalability","interview.dataClassification","interview.inProduction"];
     ( if .schemaVersion != 1 then "schemaVersion is not 1" else empty end ),
-    ( if (.adoptedAtCommit // "") != $stamp then "adoptedAtCommit is not the commit this project was adopted at (\($stamp))" else empty end ),   # BL-242-ACT4-REFUSE-COMMIT
-    ( if ((.interview.inProduction // null) | type) != "boolean" then "interview.inProduction is missing or not true/false" else empty end ),   # BL-242-ACT4-REFUSE-INPROD
-    ( if ((.interview.dataClassification // "") as $c | ($tax | split(" ") | index($c))) == null then "interview.dataClassification is not one of: \($tax)" else empty end ),   # BL-242-ACT4-REFUSE-DC
-    ( if (.fitness.verdict // "") | IN("keep", "rebuild") | not then "fitness.verdict is not keep or rebuild" else empty end ),
-    ( .fitness.findings[]? | select(((.requirementRef // "") | axis) | not)
-      | "fitness finding \(.id // "?") names no interview axis in requirementRef — a finding is relative to a stated requirement (§5.3)" ),   # BL-242-ACT4-REFUSE-REQREF
-    ( .interview.answers // {} | to_entries[] | select((.key | test("^[a-z][a-z0-9_]*$")) | not)
-      | "interview.answers key \(.key | @json) is not a wizard-style key" ),
-    ( .interview.answers // {} | to_entries[] | select((.value | type) != "string")
-      | "interview.answers.\(.key) is not a string" ),
-    ( if (.verdictArtifact // "") != ".claude/adoption/verdict.md" then "verdictArtifact is not .claude/adoption/verdict.md" else empty end )
-  ' "$rec" 2>/dev/null || printf '%s\n' "the record is not valid JSON"
+    ( if (.adoptedAtCommit | type) != "string" or .adoptedAtCommit != $stamp then "adoptedAtCommit is not the commit this project was adopted at (\($stamp))" else empty end ),   # BL-242-ACT4-REFUSE-COMMIT
+    ( if (.interview | type) != "object" then "interview is missing or not an object" else empty end ),
+    ( if (.interview.inProduction | type) != "boolean" then "interview.inProduction is missing or not true/false" else empty end ),   # BL-242-ACT4-REFUSE-INPROD
+    ( if (.interview.dataClassification | type) != "string" or ((.interview.dataClassification) as $c | ($tax | split(" ") | index([$c]))) == null then "interview.dataClassification is not one of: \($tax)" else empty end ),   # BL-242-ACT4-REFUSE-DC
+    # The phase gate requires a ZDR attestation, or a written reason, for every
+    # classification but public (the Phase 1->2 ZDR arm of check-phase-gate.sh).
+    ( if (.interview.dataClassification | type) == "string" and .interview.dataClassification != "public"
+         and .interview.zdrAttested != true and (((.interview.zdrReason // "") | tostring | gsub("\\s"; "")) == "")
+      then "interview.dataClassification is \(.interview.dataClassification): the phase gate needs zdrAttested true or a zdrReason for anything but public" else empty end ),   # BL-242-ACT4-REFUSE-ZDR
+    ( if (.fitness | type) != "object" then "fitness is missing or not an object" else empty end ),
+    ( if (.fitness.verdict | type) != "string" or (.fitness.verdict | IN("keep", "rebuild") | not) then "fitness.verdict is not keep or rebuild" else empty end ),
+    ( if (.fitness.findings | type) != "array" then "fitness.findings is not a list" else empty end ),
+    ( if (.fitness.findings | type) == "array" then .fitness.findings[]
+        | select((type != "object") or ((.requirementRef | type) != "string") or ((.requirementRef as $r | axes | index([$r])) == null))
+        | "fitness finding \((.id? // "?") | tostring) names no interview axis in requirementRef — a finding is relative to a stated requirement (§5.3)"
+      else empty end ),   # BL-242-ACT4-REFUSE-REQREF
+    ( if (.evaluators | type) != "array" then "evaluators is not a list" else empty end ),
+    ( if ((.interview.answers // {}) | type) != "object" then "interview.answers is not an object" else empty end ),
+    ( if ((.interview.answers // {}) | type) == "object" then (.interview.answers // {}) | to_entries[]
+        | select((.key as $k | ($keys | split(" ") | index([$k]))) == null)
+        | "interview.answers key \(.key | @json) is not one the prompt names (\($keys))"
+      else empty end ),   # BL-242-ACT4-ANSWER-KEYS
+    ( if ((.interview.answers // {}) | type) == "object" then (.interview.answers // {}) | to_entries[] | select((.value | type) != "string")
+        | "interview.answers.\(.key) is not a string" else empty end ),
+    ( if .verdictArtifact != ".claude/adoption/verdict.md" then "verdictArtifact is not .claude/adoption/verdict.md" else empty end )
+  ' "$rec" 2>/dev/null || printf '%s\n' "the record could not be read"
+  # The intake file this run will edit must be editable — checked HERE, before
+  # any write, so a refusal at the prefill stage cannot follow a written
+  # classification (review: "did not begin" printed over a modified file).
+  if [ -f "$root/.claude/intake-progress.json" ] \
+     && ! jq -es 'length == 1 and (.[0] | type) == "object"' "$root/.claude/intake-progress.json" >/dev/null 2>&1; then
+    printf '%s\n' ".claude/intake-progress.json is not a single JSON object, so the answers could not be written into it"
+  fi
 }
 
 # _adopt_act4_verdict_errors ROOT — D8's two halves (§5.5): a technical account,
@@ -70,6 +108,14 @@ _adopt_act4_verdict_errors() {                         # BL-242-ACT4-VERDICT-HAL
 adopt_act4_finish() {                                  # BL-242-ACT4-FINISH
   local root="$1" stage errs
   ADOPT_OPERATION="The assessment finisher"
+  # A LEDGER, so a refusal after the first write says what was written.
+  # Without one, `adopt_refuse` counted nothing and printed "did not begin …
+  # nothing was written" over a modified process-state.json (review). The
+  # caller removes ADOPT_WORK on exit.
+  if [ -z "${ADOPT_WORK:-}" ]; then
+    ADOPT_WORK="$(mktemp -d 2>/dev/null)" || { adopt_refuse "could not create a working directory"; return 1; }
+  fi
+  adopt_ledger_init "$ADOPT_WORK/written" || { adopt_refuse "could not open the finisher's ledger"; return 1; }
   command -v jq >/dev/null 2>&1 || { adopt_refuse "jq is required"; return 1; }
   if ! soif_adoption_adopted "$root/.claude/manifest.json"; then
     adopt_refuse "this project was not adopted, so there is no assessment to finish"
@@ -208,8 +254,9 @@ Then, WITH ME — ask, do not infer:
 1. The five requirement axes: how many people use it (users); whether it needs high availability
    (availability); whether it is internet-facing (exposure); what growth it must handle
    (scalability); how sensitive the data is (dataClassification — exactly one of:
-   public internal confidential pii financial health regulated). For pii, financial, health or
-   regulated, ask whether a zero-data-retention attestation applies (zdrAttested, zdrReason).
+   public internal confidential pii financial health regulated). For anything but public, the
+   phase gate needs a zero-data-retention attestation: ask whether the AI provider is used under
+   zero data retention (zdrAttested true), and if not, record the written reason (zdrReason).
 2. Is this software in production today — are real users on it? Record true or false.
 3. If the evidence shows a mature project (a deploy lane, releases, several contributors), ask who
    runs it, what breaks, who the backup maintainer is, and where it is hosted (interview.operations).
@@ -220,7 +267,8 @@ Then, WITH ME — ask, do not infer:
 5. Verdict: keep or rebuild. Either way the project continues from phase 0.
 6. Write .claude/adoption/verdict.md: the technical account first, then a section headed exactly
    "## Plain English" with what happened, what it means for me, the options with pros and cons, a
-   line starting "Recommendation:", a line starting "Reason:", and what happens if I do nothing.
+   line that begins "Recommendation:" with the recommendation on that same line, a line that begins
+   "Reason:" with the reason on that same line, and what happens if I do nothing.
 7. Write the plan to docs/phase-0/adoption-plan.md.
 8. Fold what is worth keeping from the archived documents into CLAUDE.md, FEATURES.md, BUGS.md and
    RELEASE_NOTES.md, and tell me what you moved.
@@ -242,8 +290,9 @@ Then, WITH ME — ask, do not infer:
      "plan": { "path": "docs/phase-0/adoption-plan.md", "summary": "..." },
      "verdictArtifact": ".claude/adoption/verdict.md" }
 
-   "answers" uses the intake wizard's keys — users_launch, users_6mo, users_12mo, uptime, hosting,
-   data_volume, problem_statement, mvp_date, known_risks, accessibility_target — string values only.
+   "answers" may use ONLY these intake wizard keys, with string values:
+   $ADOPT_ACT4_ANSWER_KEYS
+   The finisher refuses any other key.
 10. Run the finisher, and show me everything it prints:
 
     bash "\$(jq -r .source_dir .claude/orchestrator-source.json)/scripts/adopt-project.sh" --act4 --root .

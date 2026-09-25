@@ -251,6 +251,8 @@ fi
 # conversation runs once it has written .claude/adoption/assessment-record.json.
 # A different operation again — it never re-runs the adoption.
 if [ -n "$ADOPT_ACT4" ]; then
+  ADOPT_WORK="$(mktemp -d)" || { echo "adopt-project: could not create a working directory" >&2; exit 1; }
+  trap 'rm -rf "$ADOPT_WORK"' EXIT
   adopt_act4_finish "$ADOPT_ROOT_ABS"
   exit $?
 fi

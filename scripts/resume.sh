@@ -31,7 +31,11 @@ fi
 # §8.5). The predicate reads STATE only — `.adoption.adopted` and the absence of
 # `.adoption.assessment` — and the prompt is a file adoption wrote: this core
 # script names no adoption code, which the module-dependency lint requires.
-if [ -f ".claude/manifest.json" ] && command -v jq >/dev/null 2>&1 \
+# AT PHASE 0 ONLY. Nothing makes the assessment a precondition for the gates,
+# so an adoptee can move on without one — and at phase 4 this branch would
+# replace the shipped-product greeting with "before starting Phase 0" for good
+# (review). Past phase 0 the ordinary branches below decide.
+if [ "$PHASE" = "0" ] && [ -f ".claude/manifest.json" ] && command -v jq >/dev/null 2>&1 \
    && jq -e '.adoption.adopted == true and .adoption.assessment == null' .claude/manifest.json >/dev/null 2>&1; then   # BL-242-RESUME-ASSESSMENT
   echo -e "${CYAN}--- Copy everything below this line into Claude Code ---${NC}"
   echo ""
