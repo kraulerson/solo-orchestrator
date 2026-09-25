@@ -23,6 +23,61 @@ if [ -f ".claude/phase-state.json" ]; then
   [ -z "$PHASE" ] && PHASE="unknown"
 fi
 
+# --- BL-242: the adoption branch, checked FIRST ------------------------------
+# An ADOPTED project whose assessment is not yet recorded is offered the
+# assessment (Act 3), before the intake branches below: Act 2 leaves a phase-0
+# project with an intake, which those branches would otherwise route into
+# Phase 0 before anyone has asked what the project is for (adoption design v2
+# §8.5). The predicate reads STATE only — `.adoption.adopted` and the absence of
+# `.adoption.assessment` — and the prompt is a file adoption wrote: this core
+# script names no adoption code, which the module-dependency lint requires.
+# AT PHASE 0 ONLY. Nothing makes the assessment a precondition for the gates,
+# so an adoptee can move on without one — and at phase 4 this branch would
+# replace the shipped-product greeting with "before starting Phase 0" for good
+# (review). Past phase 0 the ordinary branches below decide.
+if [ "$PHASE" = "0" ] && [ -f ".claude/manifest.json" ] && command -v jq >/dev/null 2>&1 \
+   && jq -e '.adoption.adopted == true and .adoption.assessment == null' .claude/manifest.json >/dev/null 2>&1; then   # BL-242-RESUME-ASSESSMENT
+  echo -e "${CYAN}--- Copy everything below this line into Claude Code ---${NC}"
+  echo ""
+  if [ -s ".claude/adoption/assessment-prompt.md" ]; then
+    cat ".claude/adoption/assessment-prompt.md"
+  else
+    # Adopted before the assessment existed: no prompt was written. Say so.
+    echo "This project was adopted into the Solo Orchestrator framework and has not been"
+    echo "assessed, but the assessment prompt adoption writes (.claude/adoption/assessment-prompt.md)"
+    echo "is not here. Read CLAUDE.md and PROJECT_INTAKE.md, then ask me what this project is for"
+    echo "before starting Phase 0."
+  fi
+  echo ""
+  echo -e "${CYAN}--- End (a blank Claude Code screen means it is ready and waiting, not stuck) ---${NC}"
+  exit 0
+fi
+
+# ── DELTA-RESUME-BEGIN (the adopted-in-production entry) ───────────────────
+# FENCED WITH THE SAME NAME as the delta block below, so severing the post-1.0
+# module drops both (tests/test-delta-severability.sh's `_drop_fenced_block`
+# removes every DELTA-RESUME fence) — the first cut sat outside any fence and
+# survived the sever as a live seam call.
+# The adopted-in-production exemption's entry, BEFORE the BL-202 branches.
+# R2 (Karl, 2026-09-17; adoption design v2.2 §8.5, §10-WP12c): an adopted
+# project whose assessment records that it is in production may open a delta
+# below phase 4. When it has one OPEN, that piece of work outranks a Phase 0
+# kickoff, so this sets a flag the BL-202 branches yield to and the delta block
+# below renders. With nothing open it does nothing — the post-release greeting
+# never fires below phase 4, and the project goes to its Phase 0 entry.
+# State only, through the one declared seam, like the delta block itself.
+# SYNC SIBLINGS: scripts/delta.sh _delta_adopted_in_production, scripts/resume.sh DELTA-RESUME-EXEMPTION, scripts/validate.sh DELTA-ERA-EXEMPTION-INFO — change all three together.
+pmv_exempt_open=""
+if [ "$PHASE" != "4" ] && [ -f ".claude/manifest.json" ] && command -v jq >/dev/null 2>&1 \
+   && jq -e '.adoption.adopted == true and .adoption.assessment.inProduction == true' .claude/manifest.json >/dev/null 2>&1 \
+   && [ -f "$SCRIPT_DIR/process-checklist.sh" ]; then                  # DELTA-RESUME-EXEMPTION
+  pmv_pre="$( bash "$SCRIPT_DIR/process-checklist.sh" --delta-state-read </dev/null 2>/dev/null )" || pmv_pre=""   # lint-delta-boundary: allow core->core delegation to the ONE declared seam — this names the seam's action FLAG, never a module path (T1 is clean) and the seam allowlist stays at cardinality 1 (§3.1/§3.3)
+  if [ -n "$(printf '%s\n' "$pmv_pre" | jq -r '.active_delta.id // ""' 2>/dev/null)" ]; then
+    pmv_exempt_open=1
+  fi
+fi
+# ── DELTA-RESUME-END (the adopted-in-production entry) ─────────────────────
+
 # --- BL-202: state-aware first-message branches ---------------------------
 # This script is the SINGLE generator of "what do I paste into Claude Code";
 # every wizard/init print points here. Three states, checked in order:
@@ -31,7 +86,7 @@ fi
 #      (Agent Initialization Prompt) verbatim
 #   3. anything else -> the classic resume prompt below
 # Detection matches scripts/session-intake-check.sh (blank-cell predicate).
-if [ -f "PROJECT_INTAKE.md" ] && [ "$PHASE" != "unknown" ] && [ "${PHASE:-1}" -eq 0 ] 2>/dev/null; then
+if [ -z "${pmv_exempt_open:-}" ] && [ -f "PROJECT_INTAKE.md" ] && [ "$PHASE" != "unknown" ] && [ "${PHASE:-1}" -eq 0 ] 2>/dev/null; then
   # BL-202-INTAKE-PREDICATE (SYNC SIBLINGS: scripts/validate.sh, scripts/session-intake-check.sh, scripts/resume.sh) — count only truly-blank cells: '\| *\|$'. The old '|\| *$' alternative matched EVERY table row (constant 258 on real intakes — review R-BL202-1).
   bl202_blanks=$(grep -cE '\| *\|$' PROJECT_INTAKE.md 2>/dev/null || true)
   case "$bl202_blanks" in ''|*[!0-9]*) bl202_blanks=0 ;; esac
@@ -99,7 +154,7 @@ fi
 #
 # The whole block is contiguous between these two markers so the sever is a
 # single-block revert, like the seam's own fence.
-if [ "$PHASE" = "4" ] && command -v jq >/dev/null 2>&1; then          # DELTA-RESUME-PHASE4
+if { [ "$PHASE" = "4" ] || [ -n "${pmv_exempt_open:-}" ]; } && command -v jq >/dev/null 2>&1; then          # DELTA-RESUME-PHASE4
   pmv_seam="$SCRIPT_DIR/process-checklist.sh"
   pmv_doc=""
   if [ -f "$pmv_seam" ]; then

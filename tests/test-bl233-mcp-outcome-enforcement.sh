@@ -833,8 +833,10 @@ else
   fail_ "H2" "outcome fields in seed = '$h2_out' (want 'false false 0')"
 fi
 
-h3_reg=$(grep -c 'PostToolUseFailure' "$SCAFFOLDER" 2>/dev/null)
-h3_ev=$(grep -c 'track-tool-usage.sh --event' "$SCAFFOLDER" 2>/dev/null)
+# WP9c moved the roster into scripts/lib/claude-settings.sh (init.sh calls it),
+# so the scaffolder's registrations are read from both.
+h3_reg=$(cat "$SCAFFOLDER" "$REPO_ROOT/scripts/lib/claude-settings.sh" 2>/dev/null | grep -c 'PostToolUseFailure')
+h3_ev=$(cat "$SCAFFOLDER" "$REPO_ROOT/scripts/lib/claude-settings.sh" 2>/dev/null | grep -c 'track-tool-usage.sh --event')
 if [ "$(_num "$h3_reg")" -gt 0 ] && [ "$(_num "$h3_ev")" -ge 2 ]; then
   pass "H3: the scaffolder registers the tracker on PostToolUseFailure as well as PostToolUse, each with its own --event argument. Registered on PostToolUse alone, failures were not miscounted by the framework — they were INVISIBLE to it"
 else

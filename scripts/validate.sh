@@ -371,6 +371,17 @@ _postmvp_era_assertion() {
   [ -n "$doc" ] || return 0
   open_id=$(printf '%s\n' "$doc" | jq -r '.active_delta.id // ""' 2>/dev/null || echo "")
   [ -n "$open_id" ] || return 0
+  # R2's exemption (adoption design v2.2 §10-WP12c): an adopted project whose
+  # assessment records it is in production may open a delta below phase 4. When
+  # the open delta says it was opened that way, and the state still says the
+  # project qualifies, the two records agree — report it, do not warn.
+  # SYNC SIBLINGS: scripts/delta.sh _delta_adopted_in_production, scripts/resume.sh DELTA-RESUME-EXEMPTION, scripts/validate.sh DELTA-ERA-EXEMPTION-INFO — change all three together.
+  if [ "$(printf '%s\n' "$doc" | jq -r '.active_delta.exemption // ""' 2>/dev/null)" = "adopted-in-production" ] \
+     && [ -f ".claude/manifest.json" ] \
+     && jq -e '.adoption.adopted == true and .adoption.assessment.inProduction == true' .claude/manifest.json >/dev/null 2>&1; then
+    print_info "Post-release work $open_id is open at phase $phase under the adopted-in-production exemption: this project was adopted and its assessment records that it is in production."   # DELTA-ERA-EXEMPTION-INFO
+    return 0
+  fi
   warn "Post-release work $open_id is recorded as open, but this project is at phase $phase — that work only exists after launch (phase 4). One of the two records is wrong."   # DELTA-ERA-REPORT-ONLY
   return 0
 }

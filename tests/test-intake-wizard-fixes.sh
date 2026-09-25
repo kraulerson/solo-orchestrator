@@ -644,8 +644,11 @@ grep -rqF "start-here" "$REPO_ROOT/scripts" && BL202_OK=0   # R-BL202-9: the und
 grep -qF "a blank Claude Code screen means it is ready and waiting, not stuck" "$WIZARD" || BL202_OK=0
 grep -qF "https://claude.com/claude-code" "$WIZARD" || BL202_OK=0
 grep -qF "When you've filled it in, run: bash scripts/resume.sh" "$WIZARD" || BL202_OK=0
-grep -qF "# BL-202-INTAKE-HOOK-BEGIN" "$INITF" || BL202_OK=0
-grep -qF 'session-intake-check.sh"))' "$INITF" || BL202_OK=0
+# The registration moved with the hook roster into the shared session-layer
+# lib (WP9c); init.sh calls it.
+grep -qF "# BL-202-INTAKE-HOOK-BEGIN" "$REPO_ROOT/scripts/lib/claude-settings.sh" || BL202_OK=0
+grep -qF 'session-intake-check.sh"))' "$REPO_ROOT/scripts/lib/claude-settings.sh" || BL202_OK=0
+grep -qF 'soif_register_hook_roster ".claude/settings.json"' "$INITF" || BL202_OK=0
 grep -qF "Then paste the first message printed by:  bash scripts/resume.sh" "$INITF" || BL202_OK=0
 grep -qF "│ Read the following files in order" "$INITF" && BL202_OK=0   # only the PASTE block must be unboxed — other init boxes are out of BL-202 scope
 if [ "$BL202_OK" -eq 1 ]; then
