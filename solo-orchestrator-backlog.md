@@ -15323,6 +15323,27 @@ not-first-content arm is pinned by its REASON: without it the file is still reje
 **Still designed and unbuilt after this:** WP9c (session settings, hooks, MCP declaration, skills)
 and WP12c (the in-production delta exemption).
 
+### WP12c's build (2026-09-25) — the adopted-in-production exemption (R2)
+
+**What ships**, in exactly the three readers §10-WP12c names and no phase gate:
+- `scripts/delta.sh`: `_delta_adopted_in_production` (`# DELTA-OPEN-ERA-EXEMPTION`) —
+  `.adoption.adopted == true and .adoption.assessment.inProduction == true`, `== true` and nothing
+  looser (absent means never asked) — lets `--open` pass `# DELTA-OPEN-ERA-GUARD` below phase 4.
+  The delta record gets `exemption: "adopted-in-production"` (`# DELTA-OPEN-EXEMPTION-RECORD`),
+  `.claude/process-state.json` gets an `.adoption_exemptions[]` row (`# DELTA-OPEN-EXEMPTION-STATE`),
+  the run says which exemption opened it, and the hotfix retro is booked as at phase 4.
+- `scripts/resume.sh`: `# DELTA-RESUME-EXEMPTION`, before the BL-202 branches — with an OPEN
+  exempt delta, the resume-that-work prompt outranks the Phase 0 entry; with none, nothing, and the
+  post-release greeting never fires below phase 4.
+- `scripts/validate.sh`: an INFO (`# DELTA-ERA-EXEMPTION-INFO`) instead of "one of the two records is
+  wrong" when the open delta carries the exemption and the state still qualifies.
+- The delta design's §10.1 is amended by reference; the Adoption Record names where the in-production
+  answer and any exemption live (it is written before either exists).
+
+**Pinned by** `tests/test-brownfield-wp12c-production-exemption.sh` (E1–E7), ten mutants killed —
+including greeting-below-phase-4, which needed a fixture where the BL-202 branches FALL THROUGH (a
+manifesto exists) to be reachable at all. Both boundary lints green.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.

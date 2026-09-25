@@ -6,21 +6,20 @@ pipeline, and its own habits. It puts that project under the framework at
 **phase 0**, archives anything of yours it has to replace, and commits exactly
 the files it wrote.
 
-> **What ships, and what does not.** Adoption itself works end to end: Scout's
-> survey, the tier question, the credential scan and its tier-scoped stop, the
-> reverse intake, the state writes and adoption stamp, the collision archive
-> with `--re-add`, the test-debt ledger, the **Adoption Record** and the audit
-> rows, the **commit-time scanners**, the **framework documents** — a rendered
-> `CLAUDE.md` among them — and the **CI carve-out** (the framework's CI at its
-> own filename; yours read for risky patterns, never changed) — and the
-> **assessment** (the requirements interview, the fitness verdict and the plan:
-> a Claude Code conversation that `scripts/resume.sh` starts, and a finisher that
-> records it), and the **provenance header** on the reconstructed intake. What
-> is designed and **not built**: composing the framework's Claude Code session
-> settings, hooks, MCP declaration and skills into an adopted project (WP9c),
-> and the *in production* exemption that lets an adopted production project
-> open a hotfix delta below phase 4 (WP12c). See
-> [What is not built yet](#what-is-not-built-yet).
+> **What ships, and what does not.** Adoption works end to end: Scout's survey,
+> the tier question, the credential scan and its tier-scoped stop, the reverse
+> intake, the state writes and adoption stamp, the collision archive with
+> `--re-add`, the test-debt ledger, the **Adoption Record** and the audit rows,
+> the **commit-time scanners**, the **framework documents** (a rendered
+> `CLAUDE.md` among them), the **CI carve-out** (the framework's CI at its own
+> filename; yours read for risky patterns, never changed), the **assessment**
+> (a Claude Code conversation that `scripts/resume.sh` starts, and a finisher
+> that records it), the **provenance header** on the reconstructed intake, and
+> the **in-production exemption** (an adopted project the assessment records as
+> in production may open a hotfix delta below phase 4, and keeps its retro).
+> What is designed and **not built**: composing the framework's Claude Code
+> session settings, hooks, MCP declaration and skills into an adopted project
+> (WP9c). See [What is not built yet](#what-is-not-built-yet).
 
 Everything on this page is output that was observed, pasted as it printed.
 
@@ -959,18 +958,14 @@ the ledger are real; the *automatic* part is not.
 ## What is not built yet
 
 This section started as the list of what was designed and not built; most of
-it now ships, and each subsection says so in its heading. **Two designed
-packages remain**, and neither prints a block during the run:
+it now ships, and each subsection says so in its heading. **One designed
+package remains**, and it prints no block during the run:
 
 - **WP9c — the Claude Code session layer.** An adopted project gets the
   framework's scripts, gates and documents, but not the `.claude/settings.json`
   permissions and hook registrations, the Qdrant MCP declaration, or the four
   vendored skills `init.sh` gives a new project. Until it lands, a Claude Code
   session in an adopted project runs without the framework's session hooks.
-- **WP12c — the *in production* exemption.** The assessment records whether the
-  project is in production; the exemption that lets such a project open a
-  hotfix delta below phase 4 (`scripts/delta.sh`) is not built, so a production
-  adoptee at phase 0 cannot use the delta track yet.
 
 Two further gaps have no owning package yet:
 
@@ -1031,6 +1026,14 @@ answers. It is split in two, because half of it is judgement and half is fact:
    wizard's own keys, and merges the assessment into `.claude/manifest.json` —
    **once**; a second run is refused. It never moves the phase and never writes
    `PRODUCT_MANIFESTO.md`, and it does not commit: it prints what to commit.
+
+**If the project is in production, a live incident does not wait for phase 4.**
+The assessment records the answer, and an adopted project recorded as in
+production may open a hotfix delta below phase 4 (`scripts/delta.sh --open`).
+The delta record and `.claude/process-state.json` both record that the
+exemption was used, the hotfix still owes its write-up, `validate.sh` reports
+it as an INFO rather than a mismatch, and no phase gate reads it. A project not
+in production — or assessed before the question existed — is refused as before.
 
 **Either verdict continues from phase 0.** After the assessment, `resume.sh`
 opens Phase 0 — measured on a real adoption, the committed assessment passes the
