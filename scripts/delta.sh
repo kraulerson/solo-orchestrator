@@ -379,6 +379,17 @@ _seam() {
 # _current_phase — the project's phase as a bare integer, or "" when it cannot
 # be read. An unreadable phase is NOT treated as 4: the era guard below compares
 # for equality, so "unknown" refuses, which is the fail-closed direction.
+# _delta_adopted_in_production — R2's predicate (Karl, 2026-09-17; adoption
+# design v2.2 §3.6, §10-WP12c). True ONLY for a project that entered by
+# adoption AND whose recorded assessment says it is in production — read as
+# STATE from .claude/manifest.json, `== true` and nothing looser: an absent key
+# means "never asked" (an assessment older than the question), never "yes".
+_delta_adopted_in_production() {                                     # DELTA-OPEN-ERA-EXEMPTION
+  [ -f ".claude/manifest.json" ] || return 1
+  jq -e '.adoption.adopted == true and .adoption.assessment.inProduction == true' \
+    ".claude/manifest.json" >/dev/null 2>&1
+}
+
 _current_phase() {
   local v=""
   if [ -f "$PHASE_STATE" ] && command -v jq >/dev/null 2>&1; then
@@ -1001,6 +1012,7 @@ cmd_open() {
   local phase doc active_id pair touched lines gates obj now id slug reasons rc
   local retro_days retro_due retro_row audit_at gates_done filter
   local brief_rel brief_created brief_json ledger_json ledger_file tmpl existing
+  local exempt=""
 
   command -v jq >/dev/null 2>&1 || { print_fail "jq is required to open a delta."; return 1; }
 
@@ -1010,7 +1022,14 @@ cmd_open() {
   # forever (a phase 5 was rejected by decision), so anything else is a project
   # that has not shipped yet.
   phase="$(_current_phase)"
-  if [ "$phase" != "4" ]; then                                        # DELTA-OPEN-ERA-GUARD
+  # R2's ONE loosening: an adopted project whose assessment recorded that it is
+  # in production may open a delta below phase 4, so a live incident keeps the
+  # hotfix retro and its write-up. Nobody else — a scaffolded project, or an
+  # adopted one not in production, is refused exactly as before.
+  if [ "$phase" != "4" ] && _delta_adopted_in_production; then
+    exempt="adopted-in-production"
+  fi
+  if [ "$phase" != "4" ] && [ -z "$exempt" ]; then                    # DELTA-OPEN-ERA-GUARD
     echo ""
     print_fail "This project is not finished yet, so there is nothing to maintain."
     print_info "The delta track is for after your product has shipped. This project is at $(_phase_words "$phase")."
@@ -1289,6 +1308,11 @@ cmd_open() {
       audit_row_at_open: $audit,
       gates_required: $gates,
       gates_completed: $done }')"
+  # The exemption is written INTO the delta record, and only when it is what
+  # let this delta open — a phase-4 delta carries no such field.
+  if [ -n "$exempt" ]; then
+    obj="$(printf '%s' "$obj" | jq -c --arg e "$exempt" '. + {exemption: $e}')"   # DELTA-OPEN-EXEMPTION-RECORD
+  fi
 
   # THE ONLY WRITE IN THIS FILE, AND IT IS NOT A WRITE — it is a request to the
   # single writer (§7.1/D7). delta.sh never opens the state file.
@@ -1312,8 +1336,27 @@ cmd_open() {
     return 1
   fi
 
+  # …and the second record R2 names: an entry in process-state's
+  # `.adoption_exemptions[]`, so the use of the exemption is visible where the
+  # project's other process records live.
+  if [ -n "$exempt" ]; then
+    if [ -f ".claude/process-state.json" ] \
+       && jq --arg id "$id" --arg at "$now" --arg p "$phase" \
+            '.adoption_exemptions = ((.adoption_exemptions // []) + [{kind: "adopted-in-production", delta_id: $id, at: $at, current_phase: ($p | tonumber? // $p)}])' \
+            ".claude/process-state.json" > ".claude/process-state.json.tmp" 2>/dev/null \
+       && mv ".claude/process-state.json.tmp" ".claude/process-state.json"; then   # DELTA-OPEN-EXEMPTION-STATE
+      :
+    else
+      rm -f ".claude/process-state.json.tmp" 2>/dev/null || true
+      print_warn "The delta opened, but its exemption could not be added to .claude/process-state.json. The delta record itself carries it (exemption: adopted-in-production)."
+    fi
+  fi
+
   echo ""
   print_ok "Opened $id — $slug ($CLASS)."
+  if [ -n "$exempt" ]; then
+    print_info "Opened below phase 4 under the adopted-in-production exemption: this project was adopted and its assessment records that it is in production. The write-up for a hotfix is still owed."
+  fi
   if [ -n "$brief_rel" ]; then
     print_info "Write down what has to be TRUE when this is finished, in $brief_rel under 'Done-observable'. That list is the whole review at the end — you are writing it now, before you are invested in how you built it."
   fi

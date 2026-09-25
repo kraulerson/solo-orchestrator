@@ -74,7 +74,7 @@
 # Three §8.6 content rows have no source in this build and the record says so
 # by name rather than omitting them: the assessment's findings and verdict and
 # the interview's answers (WP12a — Act 3 is a Claude Code session and has not
-# run), the in-production declaration and the exemptions used under it (WP12c),
+# run), the in-production declaration and the exemptions used under it,
 # and whether the commit-msg gate is LIVE. That last one is not a gap in this
 # module — `adopt_install_hooks` runs AFTER the adoption commit, deliberately,
 # so at the moment this record is written the answer is genuinely not known.
@@ -485,18 +485,20 @@ _adopt_rec_render() {
     printf '%s\n' "this record is written the answer is not yet known. The run itself checks it and"
     printf '%s\n' "says so on screen."
     printf '\n'
-    printf '%s\n\n' "### What this record does not say, and who owes it"
-    printf '%s\n' "Three things belong in a complete record and are absent because nothing in this"
-    printf '%s\n' "build produces them. They are named rather than omitted, so that a reader does not"
-    printf '%s\n' "read their absence as a measurement that came back empty:"
+    printf '%s\n\n' "### What this record does not say, and where it will be"
+    printf '%s\n' "This record is written once, at adoption, before the assessment. Three things a"
+    printf '%s\n' "complete account needs come later, and are named here rather than omitted, so that"
+    printf '%s\n' "a reader does not read their absence as a measurement that came back empty:"
     printf '\n'
-    printf '%s\n' "- **The assessment — its findings, its fitness verdict and the plan (WP12a).** No"
-    printf '%s\n' "  one has yet been asked what this project is for. That conversation happens in a"
-    printf '%s\n' "  Claude Code session, not in the adoption script, and it has not happened."
-    printf '%s\n' "- **The recorded interview answers (WP12a).** PROJECT_INTAKE.md carries the cells"
-    printf '%s\n' "  the survey could fill and leaves the judgement cells blank."
-    printf '%s\n' "- **The in-production declaration and any exemption used under it (WP12c).** No"
-    printf '%s\n' "  such exemption can exist yet, because nothing can grant one."
+    printf '%s\n' "- **The assessment — its findings, its fitness verdict and the plan.** Written by"
+    printf '%s\n' "  the assessment conversation to .claude/adoption/assessment-record.json and"
+    printf '%s\n' "  .claude/adoption/verdict.md, and merged into .claude/manifest.json by the finisher."
+    printf '%s\n' "- **The interview answers.** Written by the finisher into .claude/intake-progress.json;"
+    printf '%s\n' "  until then PROJECT_INTAKE.md leaves the judgement cells blank."
+    printf '%s\n' "- **Whether the project is in production, and any delta opened because of it.** The"
+    printf '%s\n' "  answer is in .claude/manifest.json once assessed; each delta opened below phase 4"
+    printf '%s\n' "  under that exemption is recorded in its delta record and in"
+    printf '%s\n' "  .claude/process-state.json (adoption_exemptions)."
     printf '\n'
   } > "$out"
 }

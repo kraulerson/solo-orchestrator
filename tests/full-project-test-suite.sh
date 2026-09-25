@@ -915,6 +915,9 @@ run_child_suite "tests/test-brownfield-wp12a-assessment.sh" \
 run_child_suite "tests/test-brownfield-wp7f-provenance.sh" \
   "WP7: the provenance header on the reconstructed intake, and its exact check" \
   "WP7 provenance tests FAILED (run tests/test-brownfield-wp7f-provenance.sh for details)"
+run_child_suite "tests/test-brownfield-wp12c-production-exemption.sh" \
+  "WP12c: the adopted-in-production exemption for hotfix work below phase 4" \
+  "WP12c exemption tests FAILED (run tests/test-brownfield-wp12c-production-exemption.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.
