@@ -37,6 +37,7 @@ Everything on this page is output that was observed, pasted as it printed.
 | `shasum` or `sha256sum` | The adoption stamp hashes the survey it was made from | Refused during the pre-write rehearsal, before anything is written |
 | `gitleaks` | The credential scan of your history | **Organizational**: the adoption stops, with no override. **Personal**: it can continue if you accept that on the record |
 | `semgrep` | The commit-time static-analysis pass | Every commit prints `semgrep not found — pre-commit SAST skipped.`; nothing blocks |
+| A clone of the Development Guardrails at `~/.claude-dev-framework` | The Claude Code rules and hooks a new project gets | Adoption completes without them and prints the two commands that install them later. Adoption never fetches the clone itself. Get it with `git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework` |
 
 Your project must be a normal git repository with at least one commit. A linked
 worktree, a submodule, or a repository with `core.hooksPath` configured is
@@ -961,15 +962,50 @@ the ledger are real; the *automatic* part is not.
 This section started as the list of what was designed and not built; all of
 it now ships, and each subsection says so in its heading.
 
-Two gaps have no owning package yet:
+One gap has no owning package: **a file of yours sitting where a framework
+*script* goes is left alone**, so the framework's version of that script is not
+installed; the run names it.
 
-- **The Development Guardrails for Claude Code are not installed.** `init.sh`
-  clones and runs that companion framework (`~/.claude-dev-framework`) for a new
-  project, which is where its Claude Code rules and hooks come from; adoption
-  never runs it. Ruled in on 2026-09-18 (`## BL-296:`, row 33) and not yet
-  designed.
-- **A file of yours sitting where a framework *script* goes is left alone**, so
-  the framework's version of that script is not installed; the run names it.
+### The Development Guardrails for Claude Code — SHIP (`## BL-296:`)
+
+When `~/.claude-dev-framework` holds a clone, adoption runs **the same
+installer a new project runs**. It writes the rules and hooks into
+`.claude/framework/`, merges its hooks into `.claude/settings.json`, and records
+its version in `.claude/manifest.json`. All of it is part of the adoption commit.
+Adoption runs it without a terminal, so it never asks a question. The profile
+comes from the installer's own detection over your project's files; when it
+recognises nothing (a plain Python, Go, Rust or shell project), adoption uses
+`web-api`, the fallback a new project gets, says so, and prints the command
+that changes it. The platform itself is decided in the assessment. It runs before the adoption stamp is written, because the installer
+replaces `.claude/manifest.json`, and the stamp is then merged into its file.
+Measured:
+
+```text
+══ The Development Guardrails for Claude Code
+   Installed the Guardrails (version 4.3.1, profile web-api) —
+   the same installer a new project runs. Its rules and hooks are in .claude/framework/.
+```
+
+Three differences from a new project, on purpose:
+
+- **No clone.** Adoption never fetches the Guardrails over the network. Without a
+  clone it says **NOT INSTALLED** and prints the two commands that install them
+  afterwards, and the Adoption Record says so.
+- **No update.** It installs the version on disk, and the Record names it.
+- **An existing install is left alone.** A project that already has
+  `.claude/framework/` keeps its own.
+- **Your `settings.json` keeps its hooks.** The installer replaces the `hooks`
+  in `.claude/settings.json` with its own. Adoption puts yours back, ahead of
+  the installer's, and stops if it cannot. If the file is not plain JSON, or is
+  a symlink, it is restored exactly as it was, and the run and the Adoption
+  Record say the Guardrails' hooks are **not registered**.
+- **A symlinked `.claude` is not installed into**, because the installer would
+  write through the link to wherever it points. The run says NOT INSTALLED.
+
+The installer's own backup directory (`.claude-backup/<timestamp>/`) is
+removed, as `init.sh` removes it: the adoption archive already holds every
+original. A `.claude-backup` of yours is not touched. If the installer fails,
+the adoption stops in the pre-write rehearsal, before anything is written.
 
 ### The assessment — Act 3 and Act 4 — SHIPS (WP12a)
 

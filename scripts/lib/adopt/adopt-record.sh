@@ -478,6 +478,7 @@ _adopt_rec_render() {
     _adopt_rec_row "Hooks directory git will use" "$hooks_dir"
     _adopt_rec_row "Pre-write rehearsal, seconds" "$reh_s"
     _adopt_rec_row "Pre-write rehearsal, megabytes" "$reh_mb"
+    _adopt_rec_row "Development Guardrails" "$(_adopt_rec_or "${ADOPT_GUARDRAILS_RESULT:-}" "not recorded")"   # BL-296-ADOPT-RECORD
     printf '\n'
     printf '%s\n' "The hooks directory is where git will look for this project's hooks. Whether the"
     printf '%s\n' "commit-msg gate is actually running from it is NOT asserted here, and the omission"

@@ -600,6 +600,7 @@ jobs:
             tests/test-brownfield-wp7f-provenance.sh
             tests/test-brownfield-wp12c-production-exemption.sh
             tests/test-brownfield-wp9c-session-layer.sh
+            tests/test-bl296-adopt-guardrails.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

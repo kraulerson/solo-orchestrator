@@ -240,7 +240,12 @@ _writers() {
       # declaration — a variable name, not a command.
       grep -rnE -- "(^|[^A-Za-z0-9_])$_v" "$REPO_ROOT"/scripts/lib/adopt/*.sh
     done
-    for _v in '> "$' '>> "$'; do
+    # `rm -rf "$root` / `rmdir "$root` — a deletion in the adoptee is a write.
+    # Added for `## BL-296:`'s guardrails stage, whose main write is an
+    # external installer run in a subshell (`( cd "$root" && bash … init.sh )`):
+    # no verb here can see a write a SUBPROCESS makes, so T10 sees that file
+    # through its backup cleanup instead. Recorded on `## BL-296:`.
+    for _v in '> "$' '>> "$' 'rm -rf "$root' 'rmdir "$root'; do
       grep -rnF -- "$_v" "$REPO_ROOT"/scripts/lib/adopt/*.sh
     done; } \
     | grep -vE ':[0-9]+: *#' \

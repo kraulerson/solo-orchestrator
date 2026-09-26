@@ -207,7 +207,7 @@ r8() {
   local label="R8 the dispositions stage sits after intake and before manifest" order
   order="$( ( set +u; . "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" >/dev/null 2>&1; _adopt_state_order ) | tr '\n' ' ')"
   case "$order" in
-    *"intake dispositions manifest"*) pass "$label" ;;
+    *"intake dispositions guardrails manifest"*) pass "$label" ;;   # BL-296 row 33 sits between them
     *) fail_ "$label" "order is: $order" ;;
   esac
 }

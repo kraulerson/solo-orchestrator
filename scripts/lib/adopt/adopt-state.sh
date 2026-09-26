@@ -56,7 +56,9 @@ _adopt_state_order() {
   # before the stamp so an acceptance that cannot be recorded blocks the run
   # before the project reads as adopted. On the §8.4 line, not a line of its
   # own, because that line is a single-site mutation anchor.
-  printf '%s\n' phase_state intake dispositions manifest   # BL-242-DISPOSITIONS-ORDER # BF-ADOPT-STATE-ORDER
+  # `guardrails` (`## BL-296:` row 33) sits BEFORE `manifest` because its
+  # installer REPLACES .claude/manifest.json; the stamp stage then merges into it.
+  printf '%s\n' phase_state intake dispositions guardrails manifest   # BL-242-DISPOSITIONS-ORDER # BL-296-ADOPT-ORDER # BF-ADOPT-STATE-ORDER
   # AFTER `manifest` AND NOT BEFORE IT. The Adoption Record names the commit
   # this project was adopted at, and it takes that value from the stamp rather
   # than from a second `git rev-parse HEAD` — one fact, one source. The stamp
@@ -1169,9 +1171,13 @@ adopt_write_manifest() {
   # reason: init.sh's prepare_initial_state_for_commit writes `poc_mode:null`.
   local poc_json='null'   # BL-253-POC-NULL-MANIFEST
   [ -n "$ADOPT_POC_MODE" ] && poc_json="\"$ADOPT_POC_MODE\""
+  # `remote_url` IS KEPT, OR SEEDED "" (# BL-296-ADOPT-REMOTE-URL): once the
+  # Guardrails installer runs, a manifest always exists here — its own, which
+  # has no `remote_url` — so this merge arm is the one every real adoption
+  # takes, and it must produce init.sh's key set as the create arm does.
   if [ -f "$root/.claude/manifest.json" ]; then
     adopt_jq_edit "$root" ".claude/manifest.json" \
-      '.host = $h | .mode = $m | .deployment = $d | .poc_mode = $p | .enforcement_level = (.enforcement_level // "strict")' \
+      '.host = $h | .mode = $m | .deployment = $d | .poc_mode = $p | .enforcement_level = (.enforcement_level // "strict") | .remote_url = (.remote_url // "")' \
       --arg h "$host" --arg m "$mode" --arg d "$ADOPT_DEPLOYMENT" --argjson p "$poc_json" || return 1
   else
     jq -n --arg h "$host" --arg m "$mode" --arg d "$ADOPT_DEPLOYMENT" --argjson p "$poc_json" \
@@ -1777,6 +1783,7 @@ _adopt_write_phase() {
       phase_state) adopt_write_phase_state "$root" || return 1 ;;
       intake)      adopt_write_intake "$root" "$report" || return 1 ;;
       dispositions) adopt_write_dispositions "$root" "$report" || return 1 ;;   # BL-242-DISPOSITIONS-STAGE
+      guardrails)  adopt_write_guardrails "$root" "$report" || return 1 ;;   # BL-296-ADOPT-STAGE
       manifest)    adopt_write_manifest "$root" "$report" || return 1 ;;
       framework_docs) adopt_write_framework_docs "$root" || return 1 ;;   # BL-242-DOCS-STAGE
       ci)          adopt_write_ci "$root" "$report" || return 1 ;;   # BL-242-CI-STAGE
@@ -2152,6 +2159,7 @@ adopt_main() {
   # sit at a FIXED position in the run: the intake's count depends on what the
   # environment has installed (PR #446 measured one more on the ubuntu runner).
   adopt_ci_audit "$root" || return 1   # BL-242-CI-AUDIT-CALL
+  adopt_guardrails_resolve "$root" || return 1   # BL-296-ADOPT-RESOLVE-CALL
 
   adopt_run_reverse_intake "$report" || return 1
 
