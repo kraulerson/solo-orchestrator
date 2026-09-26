@@ -21643,9 +21643,16 @@ pessimistic "had already ATTEMPTED writes" sentence over a provably clean tree (
 
 ## BL-296: the Development Guardrails (CDF) install is an `init.sh` effect adoption never performs — and greenfield registers the Solo hook roster only inside the CDF-success branch
 
-**Status:** Open — **DECIDED 2026-09-18 (Karl): YES, an adoptee receives the Development Guardrails
-install, on the same terms a scaffolded project does.** The question this entry was filed to ask is
-answered; the DESIGN is not written and the code is not built, so the entry stays Open for both.
+**Status:** Closed — 2026-09-26, PR #455 (merge `f7ff2f5`). Both halves shipped: the roster half
+(WP9c/1, PR #451) and the adoption install, row 33 (PR #455, built on Karl's 2026-09-25 "Option A";
+blocks below). Upstream companion: kraulerson/claude-dev-framework#8 (`init.sh --help` no longer
+installs), open for Karl. Residual carried: the PR lane has no CDF clone, so the real installer is
+exercised only where a host has one (G6).
+
+**Original status (pre-close, kept for audit trail):** Open — **DECIDED 2026-09-18 (Karl): YES, an
+adoptee receives the Development Guardrails install, on the same terms a scaffolded project does.**
+The question this entry was filed to ask is answered; the DESIGN is not written and the code is not
+built, so the entry stays Open for both.
 
 **What the ruling settles, and what it leaves to the design.** Settled: an adopted project is not a
 second class of project — it gets what `init.sh` gives a scaffolded one. Left open, and WP9c's to
