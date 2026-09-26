@@ -47,7 +47,9 @@ _base() {   # _base DIR — a small TypeScript project with its own history
 _commit() { ( cd "$1" && git add -- "${@:2}" && git commit -q --no-verify -m "chore: their history" ) >/dev/null 2>&1; }
 _adopt() {  # _adopt DIR TAG [ENV=VAL]
   local p="$1" tag="$2"; shift 2
-  ( cd "$p" && printf '1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n' | env "$@" bash "$REPO_ROOT/scripts/adopt-project.sh" ) > "$WORK/$tag.out" 2>&1
+  # No Guardrails clone: this suite is about the session layer alone, and a
+  # host that has one would otherwise add its hooks to the roster L2 compares.
+  ( cd "$p" && printf '1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n' | env SOIF_ADOPT_GUARDRAILS_DIR="$WORK/no-guardrails" "$@" bash "$REPO_ROOT/scripts/adopt-project.sh" ) > "$WORK/$tag.out" 2>&1
   RUN_RC=$?
 }
 _pairs() {  # _pairs FILE — (event, script) pairs, sorted

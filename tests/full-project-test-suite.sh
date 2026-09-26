@@ -921,6 +921,9 @@ run_child_suite "tests/test-brownfield-wp12c-production-exemption.sh" \
 run_child_suite "tests/test-brownfield-wp9c-session-layer.sh" \
   "WP9c: the Claude Code session layer an adopted project receives" \
   "WP9c session-layer tests FAILED (run tests/test-brownfield-wp9c-session-layer.sh for details)"
+run_child_suite "tests/test-bl296-adopt-guardrails.sh" \
+  "BL-296 row 33: the Development Guardrails on the adoption path" \
+  "BL-296 adoption-Guardrails tests FAILED (run tests/test-bl296-adopt-guardrails.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.
