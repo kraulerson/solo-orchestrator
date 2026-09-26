@@ -21709,6 +21709,22 @@ SUBPROCESS (the installer), which no line-level recipe can see; T10 now sees the
 `rm -rf "$root` / `rmdir "$root` backup cleanup, and T9's per-function marker check covers those
 lines. The installer's own writes are pinned behaviourally instead (G1–G4, and the recorded-files
 mutant). The PR lane has no clone, so there both suites take the `absent` arm and were never red.
+**Review round (2026-09-26, one adversarial pass, verdict block — all reachable findings fixed):**
+R-296-1, the installer's `detect-profile.sh` exits 1 without a TTY on a project it cannot classify,
+so every Python/Go/Rust/shell adoption was refused on a host with the clone — adoption now always
+passes `--profile` (detected, else init.sh's `web-api` fallback, said; `# BL-296-ADOPT-PROFILE`).
+R-296-2, the installer's `. + {hooks: $h}` REPLACED the operator's settings.json hooks and overwrote a
+non-JSON file, after which the session layer printed "nothing of yours was removed" — adoption now
+snapshots the file, composes the operator's hooks back ahead of the installer's with a receipt, or
+restores a non-composable/symlinked file byte for byte and says the hooks are not registered
+(`# BL-296-ADOPT-SETTINGS`, `# BL-296-ADOPT-SETTINGS-RECEIPT`). R-296-3, the stub appended where the
+real installer replaces, which hid R-2 — the stub now copies the real merge and profile detection,
+and G7–G10 pin the four cases (all four RED before the fix; the receipt kills a compose-identity
+mutant). R-296-4, pre-existing operator files under `.claude/project` were claimed as installer
+writes and tripped I20 — only files the installer created or changed are recorded. Found while
+fixing: a symlinked `.claude` would take the installer's writes outside the project — not installed,
+said (`# BL-296-ADOPT-LINKED`). **Residual:** the PR lane has no clone, so the real installer runs
+only on a host that has one (G6); the stub is the lane's model of it and must track upstream.
 
 **HALF LANDED 2026-09-22 (WP9c/1) — the ROSTER half only. The entry stays Open for the CDF
 install, which is row 33 and is still UNOWNED.** `init.sh`'s `fi` closing `if [ "$framework_valid" =

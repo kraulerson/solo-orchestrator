@@ -972,9 +972,11 @@ When `~/.claude-dev-framework` holds a clone, adoption runs **the same
 installer a new project runs**. It writes the rules and hooks into
 `.claude/framework/`, merges its hooks into `.claude/settings.json`, and records
 its version in `.claude/manifest.json`. All of it is part of the adoption commit.
-Adoption runs it without a terminal, so it never asks a question and picks its
-profile from your project's files; the platform itself is decided in the
-assessment. It runs before the adoption stamp is written, because the installer
+Adoption runs it without a terminal, so it never asks a question. The profile
+comes from the installer's own detection over your project's files; when it
+recognises nothing (a plain Python, Go, Rust or shell project), adoption uses
+`web-api`, the fallback a new project gets, says so, and prints the command
+that changes it. The platform itself is decided in the assessment. It runs before the adoption stamp is written, because the installer
 replaces `.claude/manifest.json`, and the stamp is then merged into its file.
 Measured:
 
@@ -992,6 +994,13 @@ Three differences from a new project, on purpose:
 - **No update.** It installs the version on disk, and the Record names it.
 - **An existing install is left alone.** A project that already has
   `.claude/framework/` keeps its own.
+- **Your `settings.json` keeps its hooks.** The installer replaces the `hooks`
+  in `.claude/settings.json` with its own. Adoption puts yours back, ahead of
+  the installer's, and stops if it cannot. If the file is not plain JSON, or is
+  a symlink, it is restored exactly as it was, and the run and the Adoption
+  Record say the Guardrails' hooks are **not registered**.
+- **A symlinked `.claude` is not installed into**, because the installer would
+  write through the link to wherever it points. The run says NOT INSTALLED.
 
 The installer's own backup directory (`.claude-backup/<timestamp>/`) is
 removed, as `init.sh` removes it: the adoption archive already holds every
