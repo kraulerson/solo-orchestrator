@@ -206,8 +206,11 @@ questions rather than a shortcut past them.
 > - the **Claude Code session layer** — the framework's permissions, session
 >   hooks and skills, composed into any settings you already had.
 >
-> Every designed work package ships. The Development Guardrails install that
-> `init.sh` performs is not run by adoption and has no owning package yet.
+> - the **Development Guardrails for Claude Code**, from the same installer a new
+>   project runs, whenever `~/.claude-dev-framework` holds a clone. Adoption never
+>   fetches it; without one it tells you the two commands.
+>
+> Every designed work package ships.
 > [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
 
 **These three pages live in this repo and are not copied into generated

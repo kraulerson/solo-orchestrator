@@ -15394,6 +15394,13 @@ literals in wp4/wp7/wp12b.
 init.sh's `cp` lines (§10-WP9c(1)'s shared parser); the four skill paths are spelled again in the
 archive's disposition arm; BL-296 row 33 (the Development Guardrails install) remains unowned.
 
+### Karl's ruling on hook managers (2026-09-25) — adoption REPLACES them, it does not chain them
+
+Asked repeatedly since WP7/3 (§7.1): an adoptee's Python `pre-commit` or lefthook is archived and
+REPLACED by the framework's fallback hook, not chained to run beside it. The recommendation was to
+chain. **Karl chose to keep replacing ("Go with B").** The archive keeps the original with a restore
+line and `--re-add` puts it back; nothing further is owed. Do not re-raise it as an open question.
+
 ## BL-248: `adopt_evidence_deploy_lane` reads rung 4's evidence without consulting `.satisfied`, so a project with NO deploy lane is told "Points to: built out"
 
 **Logged:** 2026-09-01, by round-4 adversarial review of the BL-242 WP9a branch.
@@ -21672,6 +21679,36 @@ and are WP9c's since v2.2; row 33 (this) stays UNOWNED.
 
 **Related:** `## BL-242:` (§8.7a), `## BL-284:` (`verify-install.sh`'s CDF-adjacent fixers),
 `## BL-277:` (the roster's PostToolUse arm — WP9c ships it only after that entry closes).
+
+**ADOPTION HALF BUILT 2026-09-25 (Karl's go-ahead, "Option A"): the Guardrails are installed on the
+adoption path.** `scripts/lib/adopt/adopt-guardrails.sh` — `adopt_guardrails_resolve`
+(`# BL-296-ADOPT-RESOLVE`, before any write) and the `guardrails` write stage (`# BL-296-ADOPT-STAGE`,
+ordered by `# BL-296-ADOPT-ORDER` BEFORE `manifest`, because the installer writes
+`.claude/manifest.json` with `>` and would otherwise erase the adoption stamp). It runs the same
+`~/.claude-dev-framework/scripts/init.sh` init.sh runs, with `--prepopulate` and
+`--skip-plugin-check`, stdin from /dev/null (every installer prompt is `[ -t 0 ]`-guarded) and no
+`--profile` (the installer detects one; the platform is the assessment's). A failure blocks in the
+rehearsal (`# BL-296-ADOPT-RECEIPT`); the installer's own `.claude-backup/<ts>` is removed, an
+operator's is not; every file it writes is recorded for the adoption commit; the Adoption Record
+names the outcome (`# BL-296-ADOPT-RECORD`). **Three deliberate differences from init.sh:** no
+network clone (the PR lane has none, and adoption does not reach the network unasked — without a
+clone it prints the two commands and records "not installed"); no `git pull`; an existing
+`.claude/framework/` is left alone. Measured on a real adoption with the real clone: version 4.3.1,
+profile web-api, 36 files committed, manifest carrying both the installer's keys and the stamp.
+Pinned by `tests/test-bl296-adopt-guardrails.sh` (G1–G6, a stub installer so the lane is hermetic;
+G6 runs the real one where present), seven mutants killed.
+**Found while researching:** the Guardrails' `scripts/init.sh` has NO `--help` — any invocation
+installs into the current directory (it ran inside this repo on 2026-09-25; nothing tracked changed,
+three untracked directories were deleted). The upstream fix belongs in kraulerson/claude-dev-framework.
+**Found by the full adoption sweep with the real clone installed (61/63 before these fixes):**
+(1) the `manifest` stage's merge arm never wrote `remote_url`, and once the installer runs a manifest
+always exists, so every real adoption took that arm and lost init.sh's key (`test-bl253` P1e) — now
+kept or seeded `""` (`# BL-296-ADOPT-REMOTE-URL`); (2) `test-bl225-staging-preflight.sh` T10 found
+no writer in `adopt-guardrails.sh`. **Residual, recorded not fixed:** the stage's main write is a
+SUBPROCESS (the installer), which no line-level recipe can see; T10 now sees the file through its
+`rm -rf "$root` / `rmdir "$root` backup cleanup, and T9's per-function marker check covers those
+lines. The installer's own writes are pinned behaviourally instead (G1–G4, and the recorded-files
+mutant). The PR lane has no clone, so there both suites take the `absent` arm and were never red.
 
 **HALF LANDED 2026-09-22 (WP9c/1) — the ROSTER half only. The entry stays Open for the CDF
 install, which is row 33 and is still UNOWNED.** `init.sh`'s `fi` closing `if [ "$framework_valid" =
