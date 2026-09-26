@@ -261,7 +261,15 @@ else
   [ "$X1_RC" -eq 0 ] \
     && pass "X1 — with the scanner already present the adoption completes (rc 0)" \
     || fail_ "X1" "adoption refused (rc $X1_RC) when the scanner was already installed"
-  if grep -qi 'secret.detection\|gitleaks' "$RUN_OUT" 2>/dev/null; then
+  # THE RESOLVER'S OWN LINE, NOT ANY MENTION OF THE WORDS. Every line the
+  # resolver arm prints begins `Secret detection:` — capital S, trailing colon
+  # (`# BL-251-ALREADY-LINE`). This matched `secret.detection` case-
+  # insensitively, and WP7/3's install note — "Commit-time scanners installed:
+  # secret detection, the static-analysis pass …" — satisfies that too, so M1
+  # below reported "dropping the resolver call changed nothing observable"
+  # while the resolver really had been dropped. A signal has to be specific to
+  # the thing it is a signal OF.
+  if grep -q 'Secret detection:' "$RUN_OUT" 2>/dev/null; then
     pass "X1b — the run SAYS it resolved the scanner (the resolver actually ran)"
   else
     fail_ "X1b" "no sign the resolver ran; X1's silence proves nothing"
@@ -715,7 +723,8 @@ else
   _mk_resolver "$M1/resolver" already ""
   _ans 1 > "$M1/answers"
   run_adopt "$M1/p" "$M1/answers" "$REPORT" "$M1/fw" "SOIF_ADOPT_RESOLVER=$M1/resolver"
-  if grep -qi 'secret.detection\|gitleaks' "$RUN_OUT" 2>/dev/null; then
+  # Same specific signal as X1b, for the same reason — see there.
+  if grep -q 'Secret detection:' "$RUN_OUT" 2>/dev/null; then
     fail_ "M1 (MUTATION)" "dropping the resolver call changed nothing observable"
   else
     pass "M1 (MUTATION) — dropping the call removes every sign the resolver ran: X1b is what pins it"

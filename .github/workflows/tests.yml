@@ -178,7 +178,7 @@ jobs:
       # PR author sees one failure and cannot tell what else is broken.
       fail-fast: false
       matrix:
-        shard: [lint-sweep, lint-scan, sast, slow-misc, rest]
+        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, commit-hooks, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -318,7 +318,7 @@ jobs:
           # it. Delete a name here and its `pin_*` array is ORPHANED — it
           # no longer enters `pinned`, so those paths fall back into `rest`
           # and STILL RUN. Fail-safe, not silently dropped.
-          shard_names="lint-sweep lint-scan sast slow-misc rest"
+          shard_names="lint-sweep lint-scan sast slow-misc adopt commit-hooks rest"
 
           roster="|"
           shard_arms=0
@@ -589,6 +589,17 @@ jobs:
             tests/test-brownfield-wp10b-decision-table.sh
             tests/test-bl289-gitleaks-version-floor.sh
             tests/test-brownfield-wp11-archive-classes.sh
+            tests/test-bl296-hook-roster-unconditional.sh
+            tests/test-brownfield-wp7-adoption-record.sh
+            tests/test-brownfield-wp7b-commit-hook.sh
+            tests/test-brownfield-dispositions-template.sh
+            tests/test-brownfield-wp12b-framework-docs.sh
+            tests/test-brownfield-wp7d-audit-rows.sh
+            tests/test-brownfield-wp7e-ci-carveout.sh
+            tests/test-brownfield-wp12a-assessment.sh
+            tests/test-brownfield-wp7f-provenance.sh
+            tests/test-brownfield-wp12c-production-exemption.sh
+            tests/test-brownfield-wp9c-session-layer.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -618,6 +629,9 @@ jobs:
           #
           # Seconds are measured CI time from run 30297887329 (main @ 9d71824).
           pin_lint_sweep=(
+            # From `adopt`, 2026-09-24: that leg ran 10m54s (91%) on PR #446.
+            tests/test-brownfield-wp7d-audit-rows.sh       #  68s on PR #446
+            tests/test-brownfield-wp9-act-boundaries.sh    #  ~60s on PR #446
             tests/test-run-lints.sh                    # 318s at pin time; the lint-sweep leg now measures 131s TOTAL — BL-191's rewrite landed after this figure and it is stale. Re-measure before relying on it.
             # ── Re-pinned 2026-08-15. The `rest` leg was CANCELLED at the
             #    12-minute cap on PR #351 having printed "ran 156 unit test
@@ -762,14 +776,23 @@ jobs:
             #    90.3s vs a 40s claim is far outside that band. The move is
             #    justified on the suite measurement; the leg percentages above
             #    are context, not the evidence.
-            tests/test-brownfield-wp4-driver.sh            # 90.3s in CI (run 33880279546) — THE pole
-            tests/test-brownfield-wp9-act-boundaries.sh    # 66.0s in CI (run 33880279546) — the second
             tests/test-bl200-syntax-detector.sh        #  44s on PR #416 — the `rest` shard's longest pole, moved when `rest` reached 11m12s of the 12m cap
+            # ── Re-pinned 2026-09-24, the second move in one day. On PR #442
+            #    this suite first cancelled `rest` (734s of 720s, nothing
+            #    failing); pinned to `lint-scan`, it then took THAT leg to 699s —
+            #    it costs ~172s on CI (lint-scan 527s -> 699s), more than the
+            #    local 74s suggested. This leg was the lightest on the same run
+            #    (493s), and lands near 665s with it.
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
             tests/test-lint-raw-read-prompt.sh         #  41s — real-repo arm
             tests/test-lint-doc-anchors.sh             #  16s — real-repo arm
+            # Three from `rest`, 2026-09-24: with `adopt` added, `rest` projected
+            # to 576s (80%) and every new suite lands there; this leg had 313s spare.
+            tests/test-delta-wp8-intake.sh             #  37s on PR #444
+            tests/test-delta-wp4-close-rubric.sh       #  36s on PR #444
+            tests/test-freshness-check.sh              #  35s on PR #444
             # ── Re-pinned 2026-08-15, the partner move to the lint-sweep note
             #    above. This was the `rest` leg's TOP pole at 108.5s measured
             #    CI time, 1.6x the next one, and it is the third brownfield
@@ -866,13 +889,17 @@ jobs:
             #    comment said wp10a belongs "beside its sibling" — it does not:
             #    its siblings are in `slow-misc`, which is the leg this pin
             #    deliberately avoids.)*
-            tests/test-brownfield-wp9b-preflight-approval.sh   # 334s local / ~174s on the runner — THE pole
             tests/test-brownfield-wp10a-tool-resolution.sh     #  45s local (S/MS block added nine adoptions) / ~30s on the runner
             #    The BL-221 suite that landed alongside this one is NOT pinned
             #    and is deliberately not named as a path here: it measures under
             #    a second, pinning it would buy nothing, and a commented path
             #    inside an array is the shape this file warns about two arrays
             #    up. It stays in the computed complement.
+            # wp7b WAS HERE for one PR (#442) and moved on to `pin_lint_sweep`:
+            #    it cost ~172s on CI, not the estimate, and took this leg from
+            #    527s to 699s of the 720s cap — 21s of slack, the same
+            #    "approaching" state the move was meant to cure. See its note
+            #    in `pin_lint_sweep`.
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
@@ -894,7 +921,7 @@ jobs:
           pin_slow_misc=(
             tests/test-brownfield-wp9d-driver-edges.sh    #  32s local — Scout + full adoptions; `rest` was 9m36s of a 12m cap
             tests/test-brownfield-wp9d-window-rehearsal.sh #  22s local — same shape; pinned with its sibling
-            tests/test-pre-commit-gate-lints.sh        # 122s — runs 4 lint copies inside fixture projects
+            tests/test-brownfield-wp11-archive-classes.sh  #  36.5s on PR #442 — moved WITH wp7b, the complement's second pole: wp7b alone would leave it at ~89% of the cap, and it takes a new suite nearly every work package
             tests/test-upgrade-sync-framework.sh       #  37s
             tests/test-plan-staging.sh                 #  34s
             # ── Re-pinned 2026-08-09, measured from runs 31332638444 (main @
@@ -925,7 +952,6 @@ jobs:
             #    host-reading probe and a mutant that did not mutate), so a
             #    timeout here does not merely delay the answer — it replaces a
             #    red with a cancellation and the failures go unread.
-            tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — see note above
             # ── Re-pinned 2026-08-10, the second time today. The complement is
             #    at 93% of the cap and the two brownfield suites are why.
             #    Derived from the shard history rather than a local stopwatch,
@@ -943,6 +969,35 @@ jobs:
             tests/test-bl276-stdin-hang.sh               # 53s on PR #412 — the complement's new longest pole; bounds four stdin-hang cases with timeouts by design
             tests/test-bl233-wpb-accumulation.sh         # 43s on PR #412 — moved WITH bl276 so the complement lands near 85% of the cap, not 99%: run 35028774242 hit 748s against 720s with 0 failures
           )
+          # ── `adopt` — the brownfield adoption suites (2026-09-24) ─────────
+          # PR #444 measured four legs within 140s of the 720s cap: lint-scan
+          # 663s, lint-sweep 681s, rest 680s, slow-misc 585s, sast 403s —
+          # 3012s over five legs, ~84% each however they were re-pinned, with
+          # four adoption packages still to land. Re-pinning could only move
+          # the heat, so this is a sixth leg rather than a raised cap.
+          # Per-suite figures are ::group:: spans from run 36040583339.
+          pin_adopt=(
+            tests/test-brownfield-wp9b-preflight-approval.sh  # 257s on PR #444 — moved from lint-scan
+            tests/test-brownfield-wp4-driver.sh               #  98s on PR #444 — moved from lint-sweep
+            tests/test-brownfield-dispositions-template.sh    #  48s on PR #444 — rest's top pole
+            tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
+            tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
+            tests/test-brownfield-wp12a-assessment.sh         #  new — one real adoption, then the Act 4 finisher run a dozen times
+          )
+          # ── `commit-hooks` — the suites that drive real commits through real
+          # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
+          # 11m43s (98% of the cap) on two consecutive runs of PR #445, a
+          # swing no re-pin inside five or six legs absorbs. These three are
+          # the largest suites of that shape, taken from the two legs they
+          # were heaviest in.
+          pin_commit_hooks=(
+            tests/test-pre-commit-gate-lints.sh        # 122s — from slow-misc; runs 4 lint copies inside fixture projects
+            tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — from slow-misc
+            tests/test-brownfield-wp7b-commit-hook.sh  # ~172s on CI (PR #442) — from lint-sweep; real adoptions and real commits
+            tests/test-brownfield-wp9c-session-layer.sh  # new — six real adoptions
+            tests/test-brownfield-wp7f-provenance.sh   # new — one real adoption, then the checker and the finisher
+            tests/test-brownfield-wp7e-ci-carveout.sh  # new — real adoptions, CI files read and one written
+          )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
           # pinned-set build and the dispatch go through this function, so
@@ -956,6 +1011,8 @@ jobs:
               lint-scan)  printf '%s\n' "${pin_lint_scan[@]}" ;;
               sast)       printf '%s\n' "${pin_sast[@]}" ;;
               slow-misc)  printf '%s\n' "${pin_slow_misc[@]}" ;;
+              adopt)      printf '%s\n' "${pin_adopt[@]}" ;;
+              commit-hooks) printf '%s\n' "${pin_commit_hooks[@]}" ;;
               rest)       : ;;
               *) echo "shard roster: '$1' is in the roster but has no arm in pins_for" >&2
                  return 1 ;;
@@ -1007,7 +1064,7 @@ jobs:
             esac
           done
 
-          # COVERAGE ASSERTION — the five shards are a partition of the
+          # COVERAGE ASSERTION — the shards are a partition of the
           # canonical list: disjoint (guarded above) and complete (here).
           # Every shard job re-runs this, so a mis-pin fails the PR loudly
           # instead of silently dropping a test out of CI.
@@ -1070,7 +1127,7 @@ jobs:
   # branch-protection label — keep it stable.
   #
   # `needs.unit-shard.result` is the matrix's ROLLED-UP result: `success`
-  # only when all five legs succeeded. `always()` is required so this job
+  # only when every leg succeeded. `always()` is required so this job
   # still runs (and still fails) when a shard fails, times out, or is
   # cancelled — a cancelled shard yields `cancelled` here and turns `unit`
   # RED. Note what PR #278's 20m15s cancellation was and was not: it was

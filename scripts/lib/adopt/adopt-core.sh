@@ -117,18 +117,36 @@ adopt_refuse() {
   # rather than a proxy for one.
   if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] || [ "$_n" -gt 0 ] || adopt_has_touched_disk; then
     printf '\n[BLOCKED] %s\n' "$1" >&2
+    # INSIDE THE REHEARSAL, THE CAUSE AND NOTHING ELSE. Everything below states
+    # what was written to "this project" — and during the rehearsal that is the
+    # COPY. `adopt_prewrite_preflight` forwards this text under its own "nothing
+    # was written to your project", so the copy's "80 file(s) were already
+    # written into this project" printed directly beneath it and contradicted
+    # it. Measured on a block raised by the dispositions stage (a corrupt audit
+    # ledger): the real tree held nothing but the operator's own `.claude/`.
+    [ "${ADOPT_REHEARSING:-0}" -eq 1 ] && return 1   # BL-242-REHEARSAL-CAUSE-ONLY
     # THE LABEL AND THE DETAIL ANSWER DIFFERENT QUESTIONS. `adopt_block` forces
     # the label because a named check RAN (docs/messaging-standard.md); what is
     # on disk is still DERIVED, so a block that wrote nothing says so rather
     # than inheriting the "ATTEMPTED writes" sentence, which would be the same
     # unmeasured claim `## BL-225:` removed from the other direction.
-    if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] && [ "$_n" -eq 0 ] && ! adopt_has_touched_disk; then
+    # NOT AFTER A COMMIT. `--finish` keeps no write ledger and no touched-disk
+    # marker, so a block raised AFTER its commit landed met this arm first and
+    # printed "did not begin. Nothing was committed and nothing was written" —
+    # on every `--finish` whose commit-time scanners could not be installed,
+    # directly under a commit that had just landed 85 files. Measured by review.
+    if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] && [ "$_n" -eq 0 ] && ! adopt_has_touched_disk \
+       && [ "${ADOPT_COMMITTED:-0}" -ne 1 ]; then   # BL-242-REFUSE-AFTER-COMMIT
       printf '          %s did not begin. Nothing was committed and nothing was written.\n' "${ADOPT_OPERATION:-Adoption}" >&2
       return 1
     fi
     if [ "${ADOPT_COMMITTED:-0}" -eq 1 ]; then
       printf '          The adoption commit HAD already landed; a later step did not complete.\n' >&2
-      printf '          %s file(s) were written and committed.\n' "$_n" >&2
+      # THE COUNT ONLY WHEN THERE IS ONE. `--finish` keeps no write ledger, so
+      # `_n` is 0 there and this printed "0 file(s) were written and committed"
+      # directly under `85 files changed` — the fix for the "did not begin" line
+      # moved WHICH arm printed without changing what it derived.
+      [ "$_n" -gt 0 ] && printf '          %s file(s) were written and committed.\n' "$_n" >&2
     elif [ "$_n" -gt 0 ]; then
       printf '          Nothing was committed. %s file(s) were already written into this project.\n' "$_n" >&2
       # No promise about the index: adopt_refuse does not know the adoptee's
@@ -152,6 +170,7 @@ adopt_refuse() {
     fi
   else
     printf '\n[REFUSED] %s\n' "$1" >&2
+    [ "${ADOPT_REHEARSING:-0}" -eq 1 ] && return 1   # BL-242-REHEARSAL-CAUSE-ONLY
     printf '          %s did not begin. Nothing was committed and nothing was written.\n' "${ADOPT_OPERATION:-Adoption}" >&2
   fi
   return 1
@@ -418,6 +437,28 @@ adopt_ledger_init() {
 }
 
 # adopt_record_write RELPATH — one ledger row. Deduplicated at read time.
+# adopt_path_under_link ROOT REL — true when any FOLDER above REL (not REL
+# itself) is a symlink.                                 # BL-242-PARENT-LINK
+# A `-L` test on the file alone misses `docs -> /elsewhere/docs`: every write
+# to `docs/INDEX.md` then lands outside the project, and the pre-write
+# rehearsal's `tar` copy keeps an ABSOLUTE link absolute, so even the rehearsal
+# wrote into the operator's real folder — and the rehearsal's archive copy was
+# deleted with it. Measured on WP12b's first cut: a shared INDEX.md overwritten,
+# the run refused, and the refusal said "nothing was written".
+# Walked component by component, not via `pwd -P`, because the folders need
+# not exist yet and a dangling link is still a link.
+adopt_path_under_link() {
+  local root="$1" rest="$2" pre=""
+  rest="${rest%/*}"
+  [ "$rest" = "$2" ] && return 1        # no folder part
+  while [ -n "$rest" ]; do
+    pre="${pre:+$pre/}${rest%%/*}"
+    [ -L "$root/$pre" ] && return 0
+    case "$rest" in */*) rest="${rest#*/}" ;; *) rest="" ;; esac
+  done
+  return 1
+}
+
 adopt_record_write() {
   [ -n "$ADOPT_WRITTEN_LEDGER" ] || return 0
   printf '%s\n' "$1" >> "$ADOPT_WRITTEN_LEDGER"

@@ -14,7 +14,9 @@ here.
 - The README "Quick Start" **no longer carries a kickoff prompt of its own**
   (BL-202 residual 2). It points at `bash scripts/resume.sh` — the single
   state-aware first-message generator, whose three branches are the intake
-  prompt, `PROJECT_INTAKE.md` § 13 verbatim, and the classic resume prompt.
+  prompt, `PROJECT_INTAKE.md` § 13 verbatim, and the classic resume prompt —
+  plus, checked before them, the assessment prompt for an adopted project not
+  yet assessed (`# BL-242-RESUME-ASSESSMENT`, which prints a file adoption wrote).
   That script and everything its output names (`CLAUDE.md`,
   `PROJECT_INTAKE.md`, `docs/reference/…`, `.claude/phase-state.json`) exist
   **in generated projects only**; the README says so in as many words, because
@@ -258,6 +260,50 @@ here.
   would break the arch selection above. This recipe is a local diagnostic that
   never gates anything; **do not copy it into anything that does** without
   pinning both digests.
+- **`grep` INSIDE A CLAUDE CODE AGENT SHELL IS A SNAPSHOT FUNCTION ROUTING TO AN
+  EMBEDDED ugrep, AND ugrep IS LOCALE-INSENSITIVE WHERE EVERY RUNNER'S GREP IS
+  NOT.** There is no ugrep binary on this host at all; the function is the whole
+  mechanism, and `PATH=` does not escape it:
+  ```
+  $ type -a grep                      # inside an agent shell
+  grep is a shell function from /Users/karl/.claude/shell-snapshots/snapshot-zsh-….sh
+  grep is /usr/bin/grep
+  $ PATH=/usr/bin:/bin grep --version | head -1
+  ugrep 7.8.4 …                       # STILL the function — a PATH prefix does not help
+  $ /bin/zsh -l -c 'grep --version | head -1'      # Karl's own login shell
+  grep (BSD grep, GNU compatible) 2.6.0-FreeBSD
+  ```
+  ugrep treats `.` as a UTF-8 CHARACTER **even under `LC_ALL=C`**; BSD grep and
+  GNU grep 3.11 treat it as a BYTE. So a pattern that must match a multibyte
+  character with `.` — the `→` in `Phase 0 → Phase 1` is three bytes — passes
+  here in every locale and fails on a runner in a byte locale.
+  **USE `command grep`, `/usr/bin/grep`, OR `bash -c` TO SEE THE REAL ANSWER** —
+  a `PATH=` prefix gives you the MASKING one, and the first draft of this bullet
+  prescribed exactly that, so an agent following it would have read `1` and
+  concluded the pattern was safe:
+  ```
+  $ printf '## Phase Gate: Phase 0 \xe2\x86\x92 Phase 1\n' > arrow.txt
+  $ PATH=/usr/bin:/bin LC_ALL=C grep -cE 'Phase [0-9] . Phase [0-9]' arrow.txt   # 1  <- WRONG, the function
+  $ LC_ALL=C command grep       -cE 'Phase [0-9] . Phase [0-9]' arrow.txt        # 0  <- the truth
+  $ LC_ALL=C /usr/bin/grep      -cE 'Phase [0-9] . Phase [0-9]' arrow.txt        # 0
+  $ LC_ALL=C /bin/bash -c "grep -cE 'Phase [0-9] . Phase [0-9]' arrow.txt"       # 0
+  $ LC_ALL=C /usr/bin/grep      -cE 'Phase [0-9].*Phase [0-9]' arrow.txt         # 1  <- safe pattern
+  ```
+  A suite run with `bash tests/…` sees the real grep, which is why the pin for
+  this (`A11` in `tests/test-brownfield-wp7-adoption-record.sh`) works at all.
+  `docker run --rm -i ubuntu:24.04` agrees (GNU grep 3.11), **and a bare
+  container's default locale is the failing one** — `LC_ALL=C.UTF-8` matches,
+  `C`, `POSIX` and an ungenerated `en_US.UTF-8` do not. This is the third
+  local-green/runner-red split on this host, alongside `${var/pat/rep}` (5.2)
+  and `local`-without-assignment (4.0), and it is the nastiest of the three
+  because a pattern that "works locally in every locale" gives no hint.
+  **Two rules: never rely on `.` to match a multibyte character — use `.*`,
+  which has no locale dependency in any implementation — and reproduce a
+  locale-sensitive grep with `PATH=/usr/bin:/bin LC_ALL=C` before believing a
+  local green.** It cost `# BL-242-RECORD-WINDOW` its enforcement: the arm that
+  finds the last gate header matched nothing under `LC_ALL=C`, and the function
+  returned "clean" because it had nothing to measure against — a check that
+  could not run reporting that it passed, which is `## BL-147:`'s own shape.
 - **This Mac's git is configured and an ubuntu-latest runner's is not — and the
   difference is silent.** Xcode ships
   `/Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig`
@@ -334,7 +380,7 @@ here.
   HOUSE RULES).
   - **Adding a test is still a ONE-LINE edit** — append it to the canonical
     array. The lane is sharded (matrix `shard: [lint-sweep, lint-scan, sast,
-    slow-misc, rest]`), but only the measured long poles are pinned to a
+    slow-misc, adopt, commit-hooks, rest]`), but only the measured long poles are pinned to a
     shard by the `pin_*` arrays; `rest` is the COMPLEMENT, so a new entry
     lands there automatically.
   - **Never write the literal array-opening token (`tests`+`=`+`(`) anywhere
