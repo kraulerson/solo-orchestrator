@@ -21977,11 +21977,15 @@ for the 4.0 trap: **assign at the declaration**, applied to code you are already
 
 **Status:** Open — entry only, the sweep asked for on #419 ("the 'assertion that cannot fail'
 shape is worth the wider sweep you suggested; file it as a follow-up entry rather than folding it
-in"). No fix is on this branch. BL-300, the fix for #420 (prepared on our side, not yet opened),
-covers the three sites in `tests/test-bl233-wpb-accumulation.sh` and nothing else.
+in"). No fix is on this branch. A pending fix for #420 covering the three sites in
+`tests/test-bl233-wpb-accumulation.sh` touches no other site.
+
+**The three counts, at `19d27e3`:** 27 assertion sites in 9 files in total; 24 absence sites in
+8 suites cannot fail today where the script under test runs under 5.3 (the title's figure);
+22 in 7 suites will still be unable to fail once the pending three-site fix for #420 lands.
 
 **Found:** 2026-09-17 in #420, in one suite. Swept 2026-09-22 over `tests/` at `d95520f`; the
-same sweep on 2026-09-23 at `32832a3` returns identical results.
+same sweep on 2026-09-23 at `32832a3` and on 2026-09-26 at `19d27e3` returns identical results.
 
 **The shape.** A test captures the output of the script under test and asserts that a shell
 diagnostic is ABSENT by grepping for one wording of it. `[: X: integer expression expected` is
@@ -22012,17 +22016,17 @@ command keys on the full phrase, so it misses a grep for part of it. Second, the
 assertion site, `tests/test-intake-wizard-fixes.sh` (T-bl203-session-check-null-safe), whose
 conjunct `! printf '%s' "$OUT" | grep -q 'integer expression'` targets the same diagnostic from a
 script run under bare `bash`. The other lines it returns are `fail_` and `pass` messages, an
-`echo` and a comment. Both scans give the same lines at `d95520f` and at `32832a3`. Sites were then split by
+`echo` and a comment. Both scans give the same lines at `d95520f`, `32832a3` and `19d27e3`. Sites were then split by
 direction, absence (the test wants the diagnostic gone) or presence (the test wants a mutant to
 leak it), and checked for a wording-independent arm in their alternation. Whether any site already
 matches both wordings: `grep -rF 'integer( expression)? expected' tests/` and a search for the
-bare `integer expected` return nothing. On our integration branch at `e915cad`, which holds 12
-fixes and an earlier cut of this entry, the derived command returns 39 lines: BL-300 moves the
-three sites in `tests/test-bl233-wpb-accumulation.sh` to a pattern matching both wordings, and
-adds one line, `_sid_old` in K1 of `tests/test-bl233-wpb-accumulation.sh`, a self-check of its own pattern
-against the old wording, which is not an assertion site. That leaves 24 sites in 8 files, 22 of
-which cannot fail where the script under test runs under 5.3 (19 on a Mac whose `PATH` bash is
-5.3). No other fix adds, removes or changes a site.
+bare `integer expected` return nothing. With the pending fix for #420 merged onto `19d27e3`
+(a `git merge-tree` of the two, which merges cleanly and changes only
+`tests/test-bl233-wpb-accumulation.sh` under `tests/`), the derived command returns 39 lines: the
+fix moves that suite's three sites to a pattern matching both wordings, and adds one line,
+`_sid_old`, a self-check of its own pattern against the old wording, which is not an assertion
+site. That leaves 24 sites in 8 files, 22 of which cannot fail where the script under test runs
+under 5.3 (19 on a Mac whose `PATH` bash is 5.3).
 
 **Count: 27 assertion sites in 9 files.**
 
@@ -22041,8 +22045,8 @@ which cannot fail where the script under test runs under 5.3 (19 on a Mac whose 
 So 26 absence sites, of which 2 are immune and 24, in 8 suites, cannot fail where the script
 under test runs under 5.3, plus 1 presence site that goes red there. On a Mac whose `PATH` bash is
 5.3, that is 21 sites in 7 suites, because the three in `tests/test-test-gate-counter-sanitizer.sh`
-still run under `/bin/bash` 3.2.57. Zero sites match the 5.3 wording. Once BL-300 lands, 22
-vacuous sites in 7 files remain (19 on such a Mac). Not measured here: a per-site kill on a 5.3
+still run under `/bin/bash` 3.2.57. Zero sites match the 5.3 wording. Once the pending
+three-site fix for #420 lands, 22 vacuous sites in 7 files remain (19 on such a Mac). Not measured here: a per-site kill on a 5.3
 host beyond the one #420 ran; the count is by reading, the wording table is by execution.
 
 **Why CI does not see it.** The unit lane runs on `ubuntu-latest`, currently 24.04, whose bash is
@@ -22055,7 +22059,7 @@ The day `ubuntu-latest` is repointed at an image that ships 5.3, the 16 stop dis
 too, silently; only M23 will announce it.
 
 **Proposed follow-up (not built; the shape is yours to decide).** One change over the eight
-suites (seven once BL-300 lands): match both wordings with `integer( expression)? expected`
+suites (seven once the pending fix for #420 lands): match both wordings with `integer( expression)? expected`
 (under `grep -E`), a superset of the current pattern, so every absence assertion strengthens and
 the M23 presence arm goes green on 5.3. A `grep -q` site in BRE needs `-E`, and where its
 alternation is written `\|` (null-handling T1 and T4, `expected\|unbound variable`) adding `-E`
@@ -22070,6 +22074,7 @@ directory` from #419's table, `command not found`) has the same exposure to a re
 second pass over quoted `line [0-9]+:` diagnostics would find them.
 
 **Related:** `## BL-233:` (owner of N6 and M23), #420 (the one-suite instance and the
-demonstration), #419 (where the follow-up was asked for), BL-300 (the three-site fix, in flight).
+demonstration), #419 (where the follow-up was asked for), the pending fix for #420 (the three sites in
+`tests/test-bl233-wpb-accumulation.sh`, not yet opened).
 
 ---
