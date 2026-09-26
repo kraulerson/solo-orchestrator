@@ -21644,7 +21644,7 @@ pessimistic "had already ATTEMPTED writes" sentence over a provably clean tree (
 ## BL-296: the Development Guardrails (CDF) install is an `init.sh` effect adoption never performs — and greenfield registers the Solo hook roster only inside the CDF-success branch
 
 **Status:** Closed — 2026-09-26, PR #455 (merge `f7ff2f5`). Both halves shipped: the roster half
-(WP9c/1, PR #451) and the adoption install, row 33 (PR #455, built on Karl's 2026-09-25 "Option A";
+(PR #441, merge `f790e09`) and the adoption install, row 33 (PR #455, built on Karl's 2026-09-25 "Option A";
 blocks below). Upstream companion: kraulerson/claude-dev-framework#8 (`init.sh --help` no longer
 installs), open for Karl. Residual carried: the PR lane has no CDF clone, so the real installer is
 exercised only where a host has one (G6).
@@ -21682,7 +21682,7 @@ hook, and the condition under which the Solo roster (`track-tool-usage.sh`, `byp
 `session-*-check.sh`, …) is registered at all come from `~/.claude-dev-framework/scripts/init.sh`,
 which adoption never runs. Rows 18–21 of the design's install-parity table (`docs/reference/*`,
 `.claude/settings.json`, `.claude/settings.local.json`, vendored skills) were UNOWNED at `579b0b0`
-and are WP9c's since v2.2; row 33 (this) stays UNOWNED.
+and are WP9c's since v2.2; row 33 (this) stayed UNOWNED until 2026-09-25 (superseded: closed 2026-09-26, PR #455).
 
 **Related:** `## BL-242:` (§8.7a), `## BL-284:` (`verify-install.sh`'s CDF-adjacent fixers),
 `## BL-277:` (the roster's PostToolUse arm — WP9c ships it only after that entry closes).
@@ -21734,7 +21734,7 @@ said (`# BL-296-ADOPT-LINKED`). **Residual:** the PR lane has no clone, so the r
 only on a host that has one (G6); the stub is the lane's model of it and must track upstream.
 
 **HALF LANDED 2026-09-22 (WP9c/1) — the ROSTER half only. The entry stays Open for the CDF
-install, which is row 33 and is still UNOWNED.** `init.sh`'s `fi` closing `if [ "$framework_valid" =
+install, which is row 33 and was then still UNOWNED (superseded: closed 2026-09-26, PR #455).** `init.sh`'s `fi` closing `if [ "$framework_valid" =
 true ]` moved UP, above the hooks-merge block, which now carries
 `# BL-296-ROSTER-UNCONDITIONAL`. Every hook in that block runs a script from the project's own
 `scripts/`; none of them belongs to the Development Guardrails, and
