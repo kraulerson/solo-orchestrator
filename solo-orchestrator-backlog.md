@@ -22025,8 +22025,8 @@ bare `integer expected` return nothing. With the pending fix for #420 merged ont
 `tests/test-bl233-wpb-accumulation.sh` under `tests/`), the derived command returns 39 lines: the
 fix moves that suite's three sites to a pattern matching both wordings, and adds one line,
 `_sid_old`, a self-check of its own pattern against the old wording, which is not an assertion
-site. That leaves 24 sites in 8 files, 22 of which cannot fail where the script under test runs
-under 5.3 (19 on a Mac whose `PATH` bash is 5.3).
+site. After the three-site fix, that leaves 24 sites in 8 files, 22 of which cannot fail where the
+script under test runs under 5.3 (19 on a Mac whose `PATH` bash is 5.3).
 
 **Count: 27 assertion sites in 9 files.**
 
