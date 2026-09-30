@@ -836,6 +836,12 @@ run_child_suite "tests/test-brownfield-wp10a-tool-resolution.sh" \
 run_child_suite "tests/test-bl253-adoption-state-parity.sh" \
   "BL-253 adoption state parity (poc_mode null like init.sh; --start-phase4 and the org Pre-Phase-0 guard)" \
   "BL-253 adoption state-parity tests FAILED (run tests/test-bl253-adoption-state-parity.sh for details)"
+# BL-311 rows 2 and 8: a Guardrails-only .claude/ adopts and keeps every
+# setting (a manifest with any Solo key still refuses); the track is asked,
+# with init.sh's descriptions and rules, and never defaulted.
+run_child_suite "tests/test-bl311-b-adopt-guardrails-track.sh" \
+  "BL-311 rows 2 and 8: a Guardrails-only .claude/ adopts; the track is asked" \
+  "BL-311 Guardrails-only/track tests FAILED (run tests/test-bl311-b-adopt-guardrails-track.sh for details)"
 
 # BL-254: a generated CI pipeline may only call scripts the scaffold ships,
 # and a governance check may not swallow its own failure; plus the lint that

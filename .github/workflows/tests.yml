@@ -580,6 +580,7 @@ jobs:
             tests/test-bl230-workflow-html-lint-surface.sh
             tests/host-drivers/error-translate.test.sh
             tests/test-bl253-adoption-state-parity.sh
+            tests/test-bl311-b-adopt-guardrails-track.sh
             tests/test-bl254-ci-templates-call-shipped-scripts.sh
             tests/test-lint-user-guide-scripts.sh
             tests/test-bl255-sed-replacement-escape.sh
@@ -1001,6 +1002,7 @@ jobs:
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
             tests/test-brownfield-wp12a-assessment.sh         #  new — one real adoption, then the Act 4 finisher run a dozen times
+            tests/test-bl311-b-adopt-guardrails-track.sh      #  new — one real adoption, three halted at the intake, ~20 refusals
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
