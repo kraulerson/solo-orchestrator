@@ -413,6 +413,8 @@ S13C
 adopt_render_intake_progress() {
   local root="$1"
   local answers_json field title kind value prov
+  # `## BL-311:` review round 1 — never a track the question did not settle.
+  adopt_track_known ".claude/intake-progress.json" || return 1   # BL-311-TRACK-GUARD-IP
   answers_json="{}"
   while IFS="$(printf '\t')" read -r field title kind value prov; do
     [ -n "${field:-}" ] || continue

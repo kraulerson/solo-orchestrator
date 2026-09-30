@@ -3,9 +3,10 @@
 #
 # Point it at a project that already exists and it walks the operator through
 # bringing that project under the framework: it reads Scout's survey, shows
-# what the survey found, asks who the project is FOR, confirms the facts the
-# scan already derived, writes the project's state at PHASE 0, stamps the
-# adoption, and commits — exactly the files it wrote and nothing else.
+# what the survey found, asks who the project is FOR and which track it is on,
+# confirms the facts the scan already derived, writes the project's state at
+# PHASE 0, stamps the adoption, and commits — exactly the files it wrote and
+# nothing else.
 #
 # THIS SCRIPT IS ACT 2 OF FOUR, and its final block says so. Act 1 is Scout
 # (read-only, separate). Acts 3 and 4 — the requirements interview, the fitness
@@ -174,12 +175,15 @@ adoption. Point it at one of your own files as the archive MANIFEST names it
 (for example .git/hooks/pre-commit); it shows you what the framework thinks
 that trade costs, asks you to confirm, puts the file back exactly as it was,
 and records the choice in the audit trail. The framework's premise is
-opinionated enforcement, not confiscation — your files are yours.
+opinionated enforcement, not confiscation — your files are yours. The one file
+it will not put back is .claude/manifest.json: adoption changed none of your
+settings in it, and the archived copy has no adoption stamp, so restoring it
+would un-adopt the project.
 
 What it does, in order: reads the survey, offers what the survey found as
-EVIDENCE, asks who the project is for, confirms the answers the survey already
-derived, writes the project's state at phase 0, records the adoption, and
-commits exactly the files it wrote.
+EVIDENCE, asks who the project is for and which track it is on, confirms the
+answers the survey already derived, writes the project's state at phase 0,
+records the adoption, and commits exactly the files it wrote.
 
 Your project starts at phase 0 whatever the survey found. Nothing is marked as
 already done and no shortcut is taken past any gate — the questions about what

@@ -1136,6 +1136,12 @@ adopt_ask_audience() {
 #            Light answer is ALWAYS re-asked here, between Standard and Full.
 # Unlike init.sh's `[y/N]`, nothing here has a default: an empty answer or end
 # of input REFUSES, as every adoption question does (`adopt_ask_choice`).
+# FOUR READS, each refusing on its own (tests/test-bl311-b-adopt-guardrails-track.sh
+# T6 ends the input at every one): the track (`# BL-311-TRACK-ASK`), the Full
+# re-confirmation (`# BL-311-TRACK-CONFIRM-FULL`), the track again after
+# declining Full (`# BL-311-TRACK-ASK-AFTER-FULL`) and the Light re-ask
+# (`# BL-311-TRACK-ASK-LIGHT`). And both writers refuse a track that is not
+# exactly one of the three (`adopt_track_known`).
 # ONE VARIABLE, READ BY BOTH WRITERS — `adopt_write_phase_state` and
 # `adopt_render_intake_progress` — so the two files cannot disagree.
 ADOPT_TRACK=""   # BL-311-TRACK
@@ -1155,20 +1161,37 @@ adopt_ask_track() {
     adopt_note "For personal projects, Standard track provides external-user readiness without"
     adopt_note "enterprise overhead (pen testing, legal review). You can upgrade later."
     adopt_ask_choice "$ADOPT_TRACK_CONFIRM_LABEL" "Continue with Full track?" \
-      "choose a different track" "continue with Full track" || return 1
+      "choose a different track" "continue with Full track" || return 1   # BL-311-TRACK-CONFIRM-FULL
     if [ "$ADOPT_ANSWER" = "choose a different track" ]; then
-      adopt_ask_choice "$ADOPT_TRACK_LABEL" "Project track:" light standard full || return 1
+      adopt_ask_choice "$ADOPT_TRACK_LABEL" "Project track:" light standard full || return 1   # BL-311-TRACK-ASK-AFTER-FULL
       ADOPT_TRACK="$ADOPT_ANSWER"
     fi
   fi
   if [ "$ADOPT_TRACK" = "light" ] && [ "$ADOPT_POC_MODE" != "private_poc" ]; then   # BL-311-TRACK-RULE-LIGHT
     adopt_note "Production builds require Standard or Full track."
     adopt_note "Light track skips market validation, user testing, and security hardening."
-    adopt_ask_choice "$ADOPT_TRACK_LABEL" "Select a track:" standard full || return 1
+    adopt_ask_choice "$ADOPT_TRACK_LABEL" "Select a track:" standard full || return 1   # BL-311-TRACK-ASK-LIGHT
     ADOPT_TRACK="$ADOPT_ANSWER"
   fi
   adopt_note "Track: $ADOPT_TRACK"
   return 0
+}
+
+# adopt_track_known FILE — 0 iff ADOPT_TRACK is exactly light, standard or
+# full; otherwise REFUSE, naming FILE as not written. Both writers of the track
+# call it first (`# BL-311-TRACK-GUARD-PS`, `# BL-311-TRACK-GUARD-IP`), so a
+# track the question did not settle is never recorded. Review round 1
+# (R-BL311B-3): `adopt_ask_track` reads FOUR times — the track, the Full
+# re-confirmation, the track again after declining Full, the Light re-ask — and
+# a read that fell through (`|| true` on the third) wrote `track: ""` with
+# every check green. This refuses any answer that is not one of the three,
+# which a read that falls through carries (empty, or the unoffered text); it
+# cannot see a read that falls through and leaves an earlier valid track in
+# place — T6's one case per read is what pins that.
+adopt_track_known() {
+  case "$ADOPT_TRACK" in light|standard|full) return 0 ;; esac   # BL-311-TRACK-KNOWN
+  adopt_refuse "the project track is '$ADOPT_TRACK', which is not light, standard or full — $1 was not written"
+  return 1
 }
 
 # THE LANDING IS A CONSTANT, AND IT IS SPELLED AS ONE (D10). Every adopted
@@ -1178,6 +1201,7 @@ adopt_ask_track() {
 # exactly one thing to move and phase-state is the witness that it moved.
 adopt_write_phase_state() {
   local root="$1"
+  adopt_track_known ".claude/phase-state.json" || return 1   # BL-311-TRACK-GUARD-PS
   local adopt_landing=0   # BL-242-PHASE0-LANDING
   # NULL, NOT "" — init.sh's own idiom (`poc_json="null"` in create_project).
   # The readers forgive an empty string; the parity oracle in the BL-253 suite
