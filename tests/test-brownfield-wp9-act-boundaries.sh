@@ -120,17 +120,19 @@ if [ "$REPORT_OK" -ne 1 ]; then
   exit 1
 fi
 
-# ── The answer script, and why it is FIVE lines ─────────────────────────────
+# ── The answer script, and why it is SIX lines ──────────────────────────────
 # Under A7 Act 2 asks the tier question and the scan-derived confirmations and
-# NOTHING ELSE. This fixture's report carries four askable scan-derived rows
+# NOTHING ELSE — plus, since `## BL-311:` row 8, the track, straight after the
+# tier, answered `standard` (one line: neither of the track's rules re-asks it).
+# This fixture's report carries four askable scan-derived rows
 # (sections 1, 1_repo_setup, 11_5, 12; section 13 is disclosed, never asked),
-# so a complete run needs exactly 1 + 4 answers. THE LENGTH IS LOAD-BEARING:
+# so a complete run needs exactly 1 + 1 + 4 answers. THE LENGTH IS LOAD-BEARING:
 # every mutant that puts a question back runs OUT of answers and refuses, which
 # is what makes those mutations discriminate.
 #
 # AND THAT COUPLING HAS A COST A FUTURE READER MUST BE TOLD ABOUT. N4 kills its
 # mutant by STARVATION, so what it strictly pins is "Act 2 consumes exactly
-# five answers", not "Act 2 asks no judgment questions". A later package that
+# six answers", not "Act 2 asks no judgment questions". A later package that
 # legitimately adds one confirmation row will fail N4 for the wrong reason, and
 # the obvious repair — lengthening this function — silently RETIRES the proof.
 # **If you lengthen it, re-derive N4 against the new length or replace it.**
@@ -138,7 +140,7 @@ fi
 # coupling; between them the property is pinned twice, by different means.
 _ans() {
   local tier="${1:-1}"
-  printf '%s\n1\n1\n1\n1\n' "$tier"
+  printf '%s\nstandard\n1\n1\n1\n1\n' "$tier"
 }
 
 RUN_RC=0; RUN_OUT=""; RUN_ERR=""
@@ -395,8 +397,9 @@ else
 fi
 
 # D4 (MUTATION) — drop the tier question's call. The mutant REPLACES the marked
-# line with `:` rather than deleting it, so the answer script still has five
-# lines for four questions; a trailing unread answer is ignored, so the run
+# line with `:` rather than deleting it, so the answer script still has six
+# lines for five reads (the tier's line goes to the track, as Light, and the
+# track's `standard` to its re-ask); a trailing unread answer is ignored, so the run
 # completes and the damage is visible in the STATE rather than in a refusal.
 D4M="$(newtmp)"
 if mk_mirror "$D4M/fw"; then
@@ -667,7 +670,7 @@ if mk_mirror "$N4M/fw"; then
   fi
   if [ "$n4_shipped" -eq 1 ] && [ "$n4_changed" -eq 2 ] && [ "$n4_parse" -eq 1 ] \
      && [ "$n4_rc" = "1" ] && [ "$n4_state" -eq 0 ]; then
-    pass "N4 (MUTATION): with Act 2 asking the judgment rows again (1 line, mutant still parses), the same five-answer script runs out and the adoption REFUSES (rc $n4_rc) with no phase-state written — asserted on the exit code and the absent state"
+    pass "N4 (MUTATION): with Act 2 asking the judgment rows again (1 line, mutant still parses), the same six-answer script runs out and the adoption REFUSES (rc $n4_rc) with no phase-state written — asserted on the exit code and the absent state"
   else
     fail_ "N4 (MUTATION): restoring Act 2's judgment questions changed nothing observable" "shipped-sites=$n4_shipped changed=$n4_changed parses=$n4_parse rc=$n4_rc phase-state-written=$n4_state"
   fi
@@ -855,10 +858,10 @@ r2_dep=$(jq -r '.deployment // ""' "$CTL/p/.claude/intake-progress.json" 2>/dev/
 r2_trk=$(jq -r '.track // ""' "$CTL/p/.claude/intake-progress.json" 2>/dev/null)
 
 if [ -z "$r2_missing" ] && [ "$r2_last" = "0" ] && [ "$r2_done" -eq 0 ] \
-   && [ -n "$r2_pn" ] && [ "$r2_dep" = "personal" ] && [ "$r2_trk" = "full" ]; then
+   && [ -n "$r2_pn" ] && [ "$r2_dep" = "personal" ] && [ "$r2_trk" = "standard" ]; then
   pass "R2: .claude/intake-progress.json carries all seven keys intake-wizard.sh's load_progress() subscripts a non-empty project_name and the expected values for deployment and track, last_section is 0 AND completed_sections is empty — so --resume starts at Section 1 and WALKS Section 5 rather than skipping it by either of the two mechanisms that can"
 else
-  fail_ "R2: the progress file cannot be resumed from" "missing-keys:${r2_missing:- none} last_section=$r2_last (want 0) completed_sections=$r2_done (want 0) project_name='$r2_pn' (want non-empty) deployment='$r2_dep' (want personal) track='$r2_trk' (want full)"
+  fail_ "R2: the progress file cannot be resumed from" "missing-keys:${r2_missing:- none} last_section=$r2_last (want 0) completed_sections=$r2_done (want 0) project_name='$r2_pn' (want non-empty) deployment='$r2_dep' (want personal) track='$r2_trk' (want standard, the answer _ans gives)"
 fi
 
 # R3 — THE ESCAPE HATCH, executed. `check-phase-gate.sh`'s Phase 1->2 ZDR block

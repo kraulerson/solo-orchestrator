@@ -183,6 +183,17 @@ AI
     printf '%s\t%s\t%s\n' "APPROVAL_LOG.md" "approval-log" "APPROVAL_LOG.md"
   fi
 
+  # ── `.claude/manifest.json` — `## BL-311:` row 2 ──────────────────────────
+  # Only ever the Development Guardrails' own manifest: the preflight refuses
+  # every other one (`# BL-311-GUARDRAILS-ONLY`). The `manifest` stage MERGES
+  # this framework's keys into it and changes none of theirs, so its
+  # disposition is `composed`, like settings.json's — but adoption still
+  # rewrites the file, and I20 (`_adopt_overwrite_inventory_check`) is right to
+  # require the copy: without this row every such adoption BLOCKED there.
+  if [ -f "$root/.claude/manifest.json" ]; then
+    printf '%s\t%s\t%s\n' ".claude/manifest.json" "guardrails-manifest" ".claude/manifest.json"   # BL-311-MANIFEST-ARCHIVE
+  fi
+
   # ── `script` — the install set's collisions (D1 framework-wins) ──────────
   # Every framework script the adoptee ALREADY owns. Until WP11 the installer
   # skipped these, so they were never replaced and needed no row; framework-wins
@@ -657,7 +668,7 @@ ADOPT_ARCHIVE_ENTRIES=0
 
 adopt_archive_write() {
   local root="$1" work="$2"
-  local rel class arel n=0 mode sha desc dispo staged reason
+  local rel class arel n=0 mode sha desc dispo staged reason nores=""
   local arc_rel arc_abs status count note first
   local _arcinv_rc=0
 
@@ -795,6 +806,9 @@ adopt_archive_write() {
       .git/hooks/pre-commit)
         if [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-HOOK
       APPROVAL_LOG.md)       dispo="replaced" ;;   # BL-242-ARCHIVE-DISPO
+      # `## BL-311:` row 2 — their Guardrails keys stay, this framework's are
+      # added beside them (`adopt_write_manifest` merges; it never rewrites).
+      .claude/manifest.json) dispo="composed" ;;   # BL-311-MANIFEST-DISPO
       # §7.2's row table gives these three `replaced`, and the comment above
       # states the rule they broke: `kept` means "the operator's original is
       # still at the path", which is FALSE in the document an auditor reads.
@@ -863,14 +877,27 @@ adopt_archive_write() {
       staged="false"; reason="gitignored"
     fi
 
+    # `## BL-311:` review round 1 (R-BL311B-1) — ONE ROW WITH NO RESTORE LINE.
+    # Every archived `.claude/manifest.json` predates the adoption stamp (the
+    # archive runs before any writer), and adoption changes none of the keys
+    # already in it, so its copy gives back nothing of theirs and takes away
+    # the adoption. Measured with the line it used to carry: the stamp and
+    # every tier key gone, "Adoption stamp LOST" from the phase gate, and after
+    # a commit `Phase gates consistent.` `restore` is null and `doNotRestore`
+    # says why; the disclosure and MANIFEST.md read that, and `--re-add`
+    # refuses the path (`# BL-311-MANIFEST-READD-REFUSE`).
+    nores=""
+    [ "$rel" = ".claude/manifest.json" ] && nores="$ADOPT_MANIFEST_UNCHANGED $ADOPT_MANIFEST_NO_RESTORE"   # BL-311-MANIFEST-NO-RESTORE
     jq -n --arg op "$rel" --arg ap "$arel" --arg cl "$class" --arg sh "$sha" \
           --arg mo "$mode" --arg de "$desc" --arg di "$dispo" \
-          --argjson st "$staged" --arg re "$reason" --arg ad "$arc_rel" \
+          --argjson st "$staged" --arg re "$reason" --arg ad "$arc_rel" --arg nr "$nores" \
       '{originalPath: $op, archivedPath: $ap, class: $cl, sha256: $sh, mode: $mo,
         disposition: $di, description: $de,
         stagedForCommit: $st, withheldReason: $re,
-        restore: ("cp " + ($ad + "/" + $ap | @sh) + " " + ($op | @sh)
-                  + " && chmod " + $mo + " " + ($op | @sh))}' \
+        restore: (if $nr != "" then null
+                  else ("cp " + ($ad + "/" + $ap | @sh) + " " + ($op | @sh)
+                        + " && chmod " + $mo + " " + ($op | @sh)) end)}
+       + (if $nr != "" then {doNotRestore: $nr} else {} end)' \
       >> "$work/arcentries" 2>/dev/null
   done < "$work/arcinv"
 
@@ -1023,9 +1050,11 @@ _adopt_record_if_stageable() {
 _adopt_archive_manifest_md() {
   local mj="$1"
   printf '# What was archived, and how to get it back\n\n'
-  printf 'These are copies of files you already had. They were **moved to ensure the\n'
-  printf 'framework operates properly** — nothing here was deleted, and every file\n'
-  printf 'below can be put back with the single command beside it.\n\n'
+  printf 'These are copies of files you already had, as they were before adoption. Each\n'
+  printf 'was **moved to ensure the framework operates properly**, or composed with it —\n'
+  printf 'yours kept in place, the framework'"'"'s additions beside it. Nothing here was\n'
+  printf 'deleted, and every file below can be put back with the single command beside\n'
+  printf 'it, except where that column says not to.\n\n'
   printf 'Archive: `%s`\n\n' "$(jq -r '.archiveDir' "$mj" 2>/dev/null)"
   printf 'Secret scan before anything was committed: **%s**' "$(jq -r '.secretsScan.status' "$mj" 2>/dev/null)"
   printf ' (%s finding(s))\n\n' "$(jq -r '.secretsScan.findingCount // "not counted"' "$mj" 2>/dev/null)"
@@ -1033,13 +1062,15 @@ _adopt_archive_manifest_md() {
   printf '%s\n\n' "$(jq -r '.advisory' "$mj" 2>/dev/null)"
   printf '| Your file | Archived as | What it did | Committed? | Put it back with |\n'
   printf '|---|---|---|---|---|\n'
+  # The last cell is the restore command in backticks, or — for a row with
+  # none (`# BL-311-MANIFEST-NO-RESTORE`) — the sentence saying why not.
   jq -r '.entries[] | [.originalPath, .archivedPath,
                        (if (.description // "") == "" then "-" else .description end),
                        (if .stagedForCommit then "yes" else ("no — " + .withheldReason) end),
-                       .restore]
+                       (if (.doNotRestore // "") != "" then .doNotRestore else ("`" + (.restore // "") + "`") end)]   # BL-311-MANIFEST-NO-RESTORE-MD
                     | @tsv' "$mj" 2>/dev/null \
     | while IFS="$(printf '\t')" read -r op ap de st re; do
-        printf '| `%s` | `%s` | %s | %s | `%s` |\n' "$op" "$ap" "$de" "$st" "$re"
+        printf '| `%s` | `%s` | %s | %s | %s |\n' "$op" "$ap" "$de" "$st" "$re"
       done
   printf '\n## Adding one back\n\n'
   printf 'Run the command in the last column, or let the driver record it for you:\n\n'
@@ -1057,21 +1088,35 @@ _adopt_archive_manifest_md() {
 # this moment is to see their own filenames go past so they can object.
 _adopt_archive_disclose() {
   local root="$1" arc="$2" mj="$3"
-  local op ap st re de withheld
+  local op ap st rf re de withheld
 
   adopt_head "Your own configuration has been archived"
-  adopt_say "   The files below were moved to ensure the framework operates properly."
-  adopt_note "Nothing was deleted. Every one of them is in $arc and can be put back."
+  # "MOVED TO ENSURE THE FRAMEWORK OPERATES PROPERLY" is the design's sentence
+  # (tests/test-brownfield-wp6-collision-archive.sh D1 pins it). Since
+  # `## BL-311:` row 2 the list carries files that were COMPOSED rather than
+  # moved — the Guardrails' manifest and settings.json stay where they are with
+  # the framework's additions beside theirs — so the sentence names both.
+  adopt_say "   The files below were moved to ensure the framework operates properly, or composed"
+  adopt_say "   with it — yours kept in place, the framework's additions beside it."
+  adopt_note "Nothing was deleted. A copy of every one, as it was, is in $arc;"
+  adopt_note "the lines under each say how to put it back, or why not to."
   adopt_blank
-  jq -r '.entries[] | [.originalPath, .archivedPath, (if .stagedForCommit then "committed" else ("withheld:" + .withheldReason) end), (.description // "")] | @tsv' "$mj" 2>/dev/null \
-    | while IFS="$(printf '\t')" read -r op ap st de; do
+  # The flag is a WORD, never empty: `read` with a tab IFS collapses an empty
+  # middle field, and `de` — which can be empty — has to stay last.
+  jq -r '.entries[] | [.originalPath, .archivedPath, (if .stagedForCommit then "committed" else ("withheld:" + .withheldReason) end), (if (.doNotRestore // "") != "" then "norestore" else "restore" end), (.description // "")] | @tsv' "$mj" 2>/dev/null \
+    | while IFS="$(printf '\t')" read -r op ap st rf de; do
         adopt_note "yours: $op"
         adopt_note "   archived as: $arc/$ap"
         [ -n "$de" ] && adopt_note "   what it did: $de"
         case "$st" in
           withheld:*) adopt_note "   NOT COMMITTED — $(printf '%s' "$st" | sed 's/^withheld://')" ;;
         esac
-        adopt_note "   put it back: cp $arc/$ap $op"
+        if [ "$rf" = "norestore" ]; then   # BL-311-MANIFEST-NO-RESTORE-SAY
+          adopt_note "   $ADOPT_MANIFEST_UNCHANGED"
+          adopt_note "   $ADOPT_MANIFEST_NO_RESTORE"
+        else
+          adopt_note "   put it back: cp $arc/$ap $op"
+        fi
       done
   adopt_blank
 
@@ -1099,7 +1144,7 @@ _adopt_archive_disclose() {
     fi
     adopt_blank
   fi
-  adopt_note "The full record, including a restore line for every file, is in"
+  adopt_note "The full record — the restore line for every file, or why there is none — is in"
   adopt_note "$arc/MANIFEST.md (and MANIFEST.json beside it)."
   return 0
 }
@@ -1109,6 +1154,13 @@ _adopt_archive_disclose() {
 # there is a single site for a test to pin and a single site to change if Karl
 # ever rewords it.
 ADOPT_READD_WARNING="Personal systems may conflict with the framework — accuracy, documentation, and capabilities may be compromised."
+
+# `## BL-311:` review round 1 (R-BL311B-1) — what the archive says for the
+# Development Guardrails' `.claude/manifest.json` INSTEAD of a restore line, in
+# the MANIFEST (`# BL-311-MANIFEST-NO-RESTORE`) and the disclosure
+# (`# BL-311-MANIFEST-NO-RESTORE-SAY`). Spelled once, as the warning is.
+ADOPT_MANIFEST_UNCHANGED="Nothing of yours was changed: adoption only added this framework's keys beside yours."
+ADOPT_MANIFEST_NO_RESTORE="Do not put it back: this copy has no adoption stamp, so restoring it would un-adopt the project."
 
 # adopt_archive_latest ROOT — the newest archive directory, relative to ROOT.
 # Newest by NAME, which is safe because the name begins with a UTC timestamp in
@@ -1151,6 +1203,33 @@ adopt_archive_readd() {
     {
       echo "          What is in there:"
       jq -r '.entries[] | "            " + .originalPath' "$mj" 2>/dev/null
+    } >&2
+    return 1
+  fi
+  # `## BL-311:` review round 1 (R-BL311B-1) — THE ONE FILE THIS NEVER PUTS
+  # BACK. This function never argues about a file of the operator's, and this
+  # is not an argument: an archived `.claude/manifest.json` is the Development
+  # Guardrails' manifest from before adoption, adoption changed none of its
+  # keys, and the copy has no adoption stamp. Restoring it — measured, before
+  # this — removed the stamp and every tier key (`host`, `mode`, `deployment`,
+  # `poc_mode`, `enforcement_level`, `remote_url`): the phase gate failed
+  # "Adoption stamp LOST", after a commit it said `Phase gates consistent.`,
+  # `resume.sh` skipped the assessment, and a second adoption was refused.
+  # Keyed on the PATH, not on the row's class or disposition: every archived
+  # copy of this path predates the stamp, whatever its row says. settings.json
+  # is NOT refused: restoring it (measured) keeps the stamp and the tier, the
+  # gate stays consistent and the assessment still runs — it takes the
+  # framework's session hooks out, which is what a re-add is for.
+  if [ "$want" = ".claude/manifest.json" ]; then   # BL-311-MANIFEST-READD-REFUSE
+    adopt_refuse "$want is not put back: nothing of yours in it was changed"
+    {
+      echo "          Adoption added this framework's keys beside your Development Guardrails"
+      echo "          settings and changed none of them, so there is nothing of yours to restore."
+      echo "          The archived copy is the file from before adoption, so putting it back"
+      echo "          would remove the adoption stamp and the project's tier (host, mode,"
+      echo "          deployment, poc_mode, enforcement_level, remote_url): the project would no"
+      echo "          longer be adopted, and the phase gate would report the stamp LOST."
+      echo "          This framework documents no way to undo an adoption, and this is not one."
     } >&2
     return 1
   fi

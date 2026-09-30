@@ -342,9 +342,12 @@ jq '.phaseMap.suggestedPhase = 2' "$REPORT" > "$TOPTMP/report.json" 2>/dev/null
 # judgment sections and the data classification moved to Act 3's interview
 # (§8.2 step 7, §8.3a-A7). The first line is the tier — 2 is organizational,
 # which is the tier this suite's ratchet assertions are written against.
+# `## BL-311:` row 8 made it six: the track follows the tier, answered
+# `standard`.
 _ans() {
   cat <<'ANS'
 2
+standard
 1
 1
 1

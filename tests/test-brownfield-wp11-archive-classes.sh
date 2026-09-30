@@ -245,7 +245,7 @@ e1() {
   local before_sha
   before_sha=$(shasum -a 256 "$T/p/PROJECT_INTAKE.md" | cut -d' ' -f1)
 
-  printf '1\n1\n1\n1\n1\n1\n' > "$T/answers"
+  printf '1\nstandard\n1\n1\n1\n1\n1\n' > "$T/answers"   # the tier, then the track (`## BL-311:` row 8)
   mk_report "$T/scan" "$T/p" || { fail_ "$label" "Scout could not survey the fixture"; return; }
   ( cd "$T/p" && bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$T/scan/scout-report.json" ) \
     < "$T/answers" > "$T/out" 2> "$T/err"
@@ -288,7 +288,7 @@ e2() {
   chmod +x "$T/p/scripts/validate.sh"
   commit_all "$T/p" || { fail_ "$label" "commit failed"; return; }
 
-  printf '1\n1\n1\n1\n1\n1\n' > "$T/answers"
+  printf '1\nstandard\n1\n1\n1\n1\n1\n' > "$T/answers"   # the tier, then the track (`## BL-311:` row 8)
   mk_report "$T/scan" "$T/p" || { fail_ "$label" "Scout could not survey the fixture"; return; }
   ( cd "$T/p" && bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$T/scan/scout-report.json" ) \
     < "$T/answers" > "$T/out" 2> "$T/err"
@@ -320,7 +320,7 @@ e3() {
   printf '# their intake\n' > "$T/p/PROJECT_INTAKE.md"
   commit_all "$T/p" || { fail_ "$label" "commit failed"; return; }
 
-  printf '1\n1\n1\n1\n1\n1\n' > "$T/answers"
+  printf '1\nstandard\n1\n1\n1\n1\n1\n' > "$T/answers"   # the tier, then the track (`## BL-311:` row 8)
   mk_report "$T/scan" "$T/p" || { fail_ "$label" "Scout could not survey the fixture"; return; }
   # The seam drops a class from the inventory, which is exactly the shape of
   # "somebody added a writer and forgot the row".
@@ -356,7 +356,7 @@ e4() {
   commit_all "$T/p" || { fail_ "$label" "commit failed"; return; }
   mk_report "$T/scan" "$T/p" || { fail_ "$label" "Scout could not survey the fixture"; return; }
 
-  printf '1\n1\n1\n1\n1\n1\n' > "$T/answers"
+  printf '1\nstandard\n1\n1\n1\n1\n1\n' > "$T/answers"   # the tier, then the track (`## BL-311:` row 8)
   local rc=0
   ( cd "$T/p" && SOIF_ADOPT_ARCHIVE_SKIP_COPY=scripts/validate.sh \
       bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$T/scan/scout-report.json" ) \
@@ -406,7 +406,7 @@ e5() {
   local hook_before
   hook_before=$(shasum -a 256 "$T/p/.git/hooks/commit-msg" | cut -d' ' -f1)
 
-  printf '1\n1\n1\n1\n1\n1\n' > "$T/answers"
+  printf '1\nstandard\n1\n1\n1\n1\n1\n' > "$T/answers"   # the tier, then the track (`## BL-311:` row 8)
   local rc=0
   ( cd "$T/p" && bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$T/scan/scout-report.json" ) \
     < "$T/answers" > "$T/out" 2> "$T/err" || rc=$?
@@ -451,7 +451,7 @@ e6() {
   commit_all "$T/p" || { fail_ "$label" "commit failed"; return; }
   mk_report "$T/scan" "$T/p" || { fail_ "$label" "Scout could not survey the fixture"; return; }
 
-  printf '1\n1\n1\n1\n1\n1\n' > "$T/answers"
+  printf '1\nstandard\n1\n1\n1\n1\n1\n' > "$T/answers"   # the tier, then the track (`## BL-311:` row 8)
   ( cd "$T/p" && bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$T/scan/scout-report.json" ) \
     < "$T/answers" > "$T/out" 2> "$T/err"
 

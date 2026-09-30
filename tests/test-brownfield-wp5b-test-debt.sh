@@ -774,9 +774,11 @@ else
     # WP9: five answers — the tier question (2 = organizational, the tier this
     # suite's ratchet arms are written against) and the four scan-derived
     # confirmations. The chooser, the ladder, the nine judgment sections and
-    # the classification are no longer asked here (D4, D10, A7).
+    # the classification are no longer asked here (D4, D10, A7). `## BL-311:`
+    # row 8 made it six: the track, answered `standard`, after the tier.
     cat > "$GD/answers" <<'ANS'
 2
+standard
 1
 1
 1

@@ -27,7 +27,7 @@
 # is the defect. A `claude mcp add` with no `-e` at all (Context7's) is fine.
 #
 # TWO FILES ARE ALLOWED TO SPELL THE DEFECT, EACH FOR A STATED REASON (below):
-# this suite's own fixtures, and tests/test-bl311-adopt-mcp.sh's M12, which
+# this suite's own fixtures, and tests/test-bl311-adopt-mcp-mutants.sh's M12, which
 # reintroduces the broken order on purpose to prove the adoption step's guard.
 #
 # Cases: O1 the tracked tree is clean; O2-O5 the parser's positive and negative
@@ -50,11 +50,11 @@ trap 'rm -rf "$WORK"' EXIT
 # THE ALLOWLIST. Path, then the reason it may spell the broken order.
 ALLOW_PATHS="
 tests/test-bl311-mcp-add-order.sh
-tests/test-bl311-adopt-mcp.sh
+tests/test-bl311-adopt-mcp-mutants.sh
 "
 # tests/test-bl311-mcp-add-order.sh — its O2-O5 fixtures and OM1/OM2 mutants
 #   must contain the defect to prove the scanner finds it.
-# tests/test-bl311-adopt-mcp.sh — its M12 mutant writes the broken order back
+# tests/test-bl311-adopt-mcp-mutants.sh — its M12 mutant writes the broken order back
 #   into adopt-mcp.sh to prove the adoption step's guard (`# BL-311-MCP-QDRANT-ADD`).
 
 # _scan FILE... — print `file:line: <the offending command>` for each defect.
@@ -122,7 +122,7 @@ if [ "$o1_files" -gt 0 ]; then
     sed "s#$REPO_ROOT/##; s#^#         (O1) #" "$WORK/o1" | cut -c1-160
     fail_ "O1 the tracked tree" "$(command grep -c . "$WORK/o1") broken spelling(s), listed above — put the server name before -e"
   else
-    pass "O1 no tracked file spells a claude mcp add with -e before the server name ($o1_files file(s) mention the command; the allowlist is this suite and test-bl311-adopt-mcp.sh)"
+    pass "O1 no tracked file spells a claude mcp add with -e before the server name ($o1_files file(s) mention the command; the allowlist is this suite and test-bl311-adopt-mcp-mutants.sh)"
   fi
 else
   fail_ "O1 the tracked tree" "no tracked file mentions 'claude mcp add' — the scan cannot be looking at the repository"

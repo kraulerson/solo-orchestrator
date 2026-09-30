@@ -836,6 +836,12 @@ run_child_suite "tests/test-brownfield-wp10a-tool-resolution.sh" \
 run_child_suite "tests/test-bl253-adoption-state-parity.sh" \
   "BL-253 adoption state parity (poc_mode null like init.sh; --start-phase4 and the org Pre-Phase-0 guard)" \
   "BL-253 adoption state-parity tests FAILED (run tests/test-bl253-adoption-state-parity.sh for details)"
+# BL-311 rows 2 and 8: a Guardrails-only .claude/ adopts and keeps every
+# setting (a manifest with any Solo key still refuses); the track is asked,
+# with init.sh's descriptions and rules, and never defaulted.
+run_child_suite "tests/test-bl311-b-adopt-guardrails-track.sh" \
+  "BL-311 rows 2 and 8: a Guardrails-only .claude/ adopts; the track is asked" \
+  "BL-311 Guardrails-only/track tests FAILED (run tests/test-bl311-b-adopt-guardrails-track.sh for details)"
 
 # BL-254: a generated CI pipeline may only call scripts the scaffold ships,
 # and a governance check may not swallow its own failure; plus the lint that
@@ -925,10 +931,14 @@ run_child_suite "tests/test-bl296-adopt-guardrails.sh" \
   "BL-296 row 33: the Development Guardrails on the adoption path" \
   "BL-296 adoption-Guardrails tests FAILED (run tests/test-bl296-adopt-guardrails.sh for details)"
 # BL-311 fixes 1 and 9: adoption offers the Qdrant and Context7 MCP servers the
-# session is checked for; every MCP reader honours CLAUDE_CONFIG_DIR.
+# session is checked for; every MCP reader honours CLAUDE_CONFIG_DIR. The cases
+# and their mutation proofs are two files, one CI leg each (`# BL-311-MCP-SPLIT`).
 run_child_suite "tests/test-bl311-adopt-mcp.sh" \
   "BL-311: the MCP servers on the adoption path, and CLAUDE_CONFIG_DIR" \
   "BL-311 adoption-MCP tests FAILED (run tests/test-bl311-adopt-mcp.sh for details)"
+run_child_suite "tests/test-bl311-adopt-mcp-mutants.sh" \
+  "BL-311: the mutation proofs over the adoption MCP step, killed by those cases" \
+  "BL-311 adoption-MCP mutation proofs FAILED (run tests/test-bl311-adopt-mcp-mutants.sh for details)"
 run_child_suite "tests/test-bl311-mcp-add-order.sh" \
   "BL-311: every tracked claude mcp add puts the server name before -e" \
   "BL-311 mcp-add order tests FAILED (run tests/test-bl311-mcp-add-order.sh for details)"

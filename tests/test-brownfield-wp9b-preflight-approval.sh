@@ -161,7 +161,9 @@ fi
 # Five answers: the tier question plus this report's four scan-derived
 # confirmations (A7). Inherited from the WP9a suite, where the LENGTH is
 # documented as load-bearing; here it only has to be long enough to complete.
-_ans() { local tier="${1:-1}"; printf '%s\n1\n1\n1\n1\n' "$tier"; }
+# The tier, the track (`## BL-311:` row 8, answered `standard`), then the
+# four scan-derived confirmations.
+_ans() { local tier="${1:-1}"; printf '%s\nstandard\n1\n1\n1\n1\n' "$tier"; }
 
 RUN_RC=0; RUN_OUT=""; RUN_ERR=""
 run_adopt() {

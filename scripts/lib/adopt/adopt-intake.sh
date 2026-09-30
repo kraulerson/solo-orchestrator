@@ -413,6 +413,8 @@ S13C
 adopt_render_intake_progress() {
   local root="$1"
   local answers_json field title kind value prov
+  # `## BL-311:` review round 1 — never a track the question did not settle.
+  adopt_track_known ".claude/intake-progress.json" || return 1   # BL-311-TRACK-GUARD-IP
   answers_json="{}"
   while IFS="$(printf '\t')" read -r field title kind value prov; do
     [ -n "${field:-}" ] || continue
@@ -436,8 +438,9 @@ adopt_render_intake_progress() {
   #
   # ADOPTION KNOWS THREE OF THE SEVEN AND WRITES THE OTHER FOUR HONESTLY.
   # Known: `project_name` (the directory), `deployment` (the tier question —
-  # its only source) and `track` ("full", the same value
-  # `adopt_write_phase_state` records, so the two files cannot disagree).
+  # its only source) and `track` (the track question, `## BL-311:` row 8 — the
+  # same variable `adopt_write_phase_state` records, so the two files cannot
+  # disagree; it was the constant "full" in both until then).
   # Not known and therefore written EMPTY rather than guessed: `platform`,
   # `language`, `description` — an empty string satisfies the subscript and
   # reads as unanswered, while a guessed platform would be a fact nobody gave.
@@ -448,10 +451,10 @@ adopt_render_intake_progress() {
   # `project_name` — which is why `deployment` and `track` could be blanked with
   # every check green. A count in a comment can be load-bearing.)*
   jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson a "$answers_json" \
-        --arg pn "$ADOPT_PROJECT_NAME" --arg dep "$ADOPT_DEPLOYMENT" \
+        --arg pn "$ADOPT_PROJECT_NAME" --arg dep "$ADOPT_DEPLOYMENT" --arg tr "$ADOPT_TRACK" \
     '{version: 1, started_at: $at, last_section: 0, completed_sections: [],
       source: "adopt-project.sh",
-      project_name: $pn, platform: "", track: "full", deployment: $dep,
+      project_name: $pn, platform: "", track: $tr, deployment: $dep,
       language: "", description: "",
       answers: $a}' \
     | adopt_write_file "$root" ".claude/intake-progress.json"

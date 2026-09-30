@@ -74,6 +74,14 @@ adopt_write_guardrails() {
   case "$ADOPT_GUARDRAILS_STATE" in
     already)
       adopt_note "This project already has the Guardrails (.claude/framework/). They were left as they were."
+      # `## BL-311:` row 2 — say what happens to their settings in the manifest
+      # the Guardrails wrote: kept in place. NO RESTORE POINTER (review round
+      # 1, R-BL311B-1): the archived copy gives back nothing of theirs and
+      # takes the adoption away (`# BL-311-MANIFEST-READD-REFUSE`).
+      if jq -e '.frameworkVersion' "$root/.claude/manifest.json" >/dev/null 2>&1; then   # BL-311-GUARDRAILS-KEPT
+        adopt_note "Their settings in .claude/manifest.json (profile $(jq -r '.profile // "none"' "$root/.claude/manifest.json" 2>/dev/null), $(jq -r '(.activeRules // []) | length' "$root/.claude/manifest.json" 2>/dev/null) rules, $(jq -r '(.activeHooks // []) | length' "$root/.claude/manifest.json" 2>/dev/null) hooks) are kept:"
+        adopt_note "adoption adds this framework's keys beside them and changes none of theirs."
+      fi
       return 0 ;;
     absent)
       adopt_note "NOT INSTALLED: there is no clone of the Guardrails at ~/.claude-dev-framework, and"

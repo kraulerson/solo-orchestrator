@@ -96,7 +96,9 @@ else
 fi
 
 # _ans — the tier answer plus the four confirmations.
-_ans() { local tier="${1:-1}"; printf '%s\n1\n1\n1\n1\n' "$tier"; }
+# The tier, the track (`## BL-311:` row 8, answered `standard`), then the
+# four scan-derived confirmations.
+_ans() { local tier="${1:-1}"; printf '%s\nstandard\n1\n1\n1\n1\n' "$tier"; }
 
 RUN_RC=0; RUN_OUT=""; RUN_ERR=""
 # run_adopt <cwd> <root-args...> — drives the shipped driver, capturing rc and output.
