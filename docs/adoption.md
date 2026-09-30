@@ -46,6 +46,17 @@ worktree, a submodule, or a repository with `core.hooksPath` configured is
 refused before anything is written, because the gates would be installed where
 git never looks.
 
+A project that **looks already under this framework** is refused the same way,
+before any question: one scaffolded by `init.sh` (it has
+`.claude/phase-state.json`), one already adopted, or one with any other
+`.claude/manifest.json`. The refusal reads
+`[REFUSED] this project already looks framework-managed: …` and names what it
+found. A project that has **only the Development Guardrails** is not refused
+(`## BL-311:` row 2): a `.claude/manifest.json` with a `frameworkVersion` and
+none of the keys this framework writes, `.claude/framework/` beside it, and no
+`.claude/phase-state.json` is adopted, and every Guardrails setting is kept
+(see *The Development Guardrails for Claude Code*, below).
+
 ### 1. Get the framework
 
 The framework is a clone that stays **outside** your project; adoption copies
@@ -75,9 +86,9 @@ cd /path/to/your-project
 bash ~/solo-orchestrator/scripts/adopt-project.sh --scan-report /tmp/scout/scout-report.json
 ```
 
-Without `--scan-report` it runs its own survey. It asks one question a scan
-cannot answer — **who the project is for** — and that answer sets its
-enforcement tier:
+Without `--scan-report` it runs its own survey. It asks two questions a scan
+cannot answer — **who the project is for**, which sets its enforcement tier,
+and **the project's track** ([the track question](#then-the-track)). The first:
 
 ```text
 Who is this project for?
@@ -276,8 +287,60 @@ Who is this project for?
 
 That answer sets your project's **tier**, and the tier decides how strictly the
 framework treats you — most visibly, how hard it stops when a secret scan finds
-something. It is the one thing adoption asks because it is the one thing no
-amount of reading your code can determine.
+something. No amount of reading your code can determine it.
+
+### Then the track
+
+Straight after it, adoption asks the project's **track** (`## BL-311:` row 8 —
+until then it wrote `full`, the enterprise track, without asking). It is the
+question a new project gets from `init.sh`, with the same three descriptions.
+Observed, answering `1` (Light) on a personal project:
+
+```text
+Project tracks:
+   Light    — Internal tools, prototypes, POCs. <10 users. Minimal governance.
+   Standard — External users, moderate complexity. Market audit, user testing.
+   Full     — Enterprise buyers, sensitive data. Pen testing, legal review mandatory.
+Project track:
+   1) light
+   2) standard
+   3) full
+   Answer with the number or the words:
+   Production builds require Standard or Full track.
+   Light track skips market validation, user testing, and security hardening.
+Select a track:
+   1) standard
+   2) full
+   Answer with the number or the words:
+   Track: standard
+```
+
+The same two rules apply as for a new project:
+
+- **Light needs a Private POC.** Adoption asks no POC question and lands every
+  project as a production build, so a Light answer is always asked again, as
+  above, between Standard and Full.
+- **Full on a personal project is confirmed.** Observed:
+
+  ```text
+     Full track is designed for organizational projects with enterprise compliance.
+     For personal projects, Standard track provides external-user readiness without
+     enterprise overhead (pen testing, legal review). You can upgrade later.
+  Continue with Full track?
+     1) choose a different track
+     2) continue with Full track
+     Answer with the number or the words:
+  ```
+
+  `choose a different track` asks the track again.
+
+Unlike `init.sh`'s `[y/N]`, nothing here has a default: an empty answer or the
+end of your input stops the run before anything is written, naming the question
+(`no answer was given: the project track`, or `…: whether to keep the Full
+track`). The answer is recorded once, in both `.claude/phase-state.json` and
+`.claude/intake-progress.json`, and the `CLAUDE.md` adoption writes carries it.
+A script answers it on standard input like every other question — the option's
+number or its words, one per line.
 
 ---
 
@@ -1414,7 +1477,20 @@ Three differences from a new project, on purpose:
   afterwards, and the Adoption Record says so.
 - **No update.** It installs the version on disk, and the Record names it.
 - **An existing install is left alone.** A project that already has
-  `.claude/framework/` keeps its own.
+  `.claude/framework/` keeps its own — including the settings the Guardrails
+  keep in `.claude/manifest.json` (profile, rules, hooks, project config,
+  discovery answers). Adoption adds its own keys beside them, changes none of
+  them, and archives the file as it was, `composed` in the archive's MANIFEST
+  like `.claude/settings.json`. Observed (brownfield dogfood run 1's project,
+  Guardrails 4.3.0):
+
+  ```text
+  ══ The Development Guardrails for Claude Code
+     This project already has the Guardrails (.claude/framework/). They were left as they were.
+     Their settings in .claude/manifest.json (profile desktop-app, 13 rules, 14 hooks) are kept:
+     adoption adds this framework's keys beside them and changes none of theirs. The file
+     as it was is in the adoption archive listed above, with the line that puts it back.
+  ```
 - **Your `settings.json` keeps its hooks.** The installer replaces the `hooks`
   in `.claude/settings.json` with its own. Adoption puts yours back, ahead of
   the installer's, and stops if it cannot. If the file is not plain JSON, or is
@@ -1691,7 +1767,7 @@ from the same sources:
 
 | Written | From |
 |---|---|
-| `CLAUDE.md` | rendered by the renderer `init.sh` uses, with your project's name, the tier you chose (an organizational adoption gets the branch-protection section), the track the intake recorded (`full` today), `undecided` for platform and language, and a placeholder description — the assessment asks for both |
+| `CLAUDE.md` | rendered by the renderer `init.sh` uses, with your project's name, the tier you chose (an organizational adoption gets the branch-protection section), the track you chose, `undecided` for platform and language, and a placeholder description — the assessment asks for both |
 | `FEATURES.md`, `BUGS.md`, `RELEASE_NOTES.md`, `docs/INDEX.md`, `docs/IDENTIFIERS.md`, `docs/archive/README.md` | the framework's templates, copied |
 | `docs/reference/*.md` — the eight guides | copied **only where absent**; a guide you already have there is left alone |
 
