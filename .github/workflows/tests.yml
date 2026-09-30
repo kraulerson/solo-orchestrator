@@ -178,7 +178,7 @@ jobs:
       # PR author sees one failure and cannot tell what else is broken.
       fail-fast: false
       matrix:
-        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, commit-hooks, mcp, rest]
+        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, commit-hooks, mcp, mcp-mutants, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -331,7 +331,7 @@ jobs:
           # it. Delete a name here and its `pin_*` array is ORPHANED — it
           # no longer enters `pinned`, so those paths fall back into `rest`
           # and STILL RUN. Fail-safe, not silently dropped.
-          shard_names="lint-sweep lint-scan sast slow-misc adopt commit-hooks mcp rest"
+          shard_names="lint-sweep lint-scan sast slow-misc adopt commit-hooks mcp mcp-mutants rest"
 
           roster="|"
           shard_arms=0
@@ -618,6 +618,7 @@ jobs:
             tests/test-brownfield-wp9c-session-layer.sh
             tests/test-bl296-adopt-guardrails.sh
             tests/test-bl311-adopt-mcp.sh
+            tests/test-bl311-adopt-mcp-mutants.sh
             tests/test-bl311-mcp-add-order.sh
           )
 
@@ -995,6 +996,10 @@ jobs:
           # four adoption packages still to land. Re-pinning could only move
           # the heat, so this is a sixth leg rather than a raised cap.
           # Per-suite figures are ::group:: spans from run 36040583339.
+          # This leg ran 585s (81% of the cap) on PR #477's merge run, so the
+          # BL-311 group B adoption suite is not added here: it sits in
+          # `pin_mcp`, beside its sibling, on a leg the split left far below
+          # the cap.
           pin_adopt=(
             tests/test-brownfield-wp9b-preflight-approval.sh  # 257s on PR #444 — moved from lint-scan
             tests/test-brownfield-wp4-driver.sh               #  98s on PR #444 — moved from lint-sweep
@@ -1002,7 +1007,6 @@ jobs:
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
             tests/test-brownfield-wp12a-assessment.sh         #  new — one real adoption, then the Act 4 finisher run a dozen times
-            tests/test-bl311-b-adopt-guardrails-track.sh      #  new — one real adoption, three halted at the intake, ~20 refusals
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
@@ -1018,16 +1022,34 @@ jobs:
             tests/test-brownfield-wp7f-provenance.sh   # new — one real adoption, then the checker and the finisher
             tests/test-brownfield-wp7e-ci-carveout.sh  # new — real adoptions, CI files read and one written
           )
-          # ── `mcp` — the BL-311 group A suite, alone (2026-09-30). It runs
-          # ~540s locally (128 assertions, 71 of them mutation proofs over the
-          # adoption MCP step and the written Qdrant procedure). Landing
-          # unpinned it took `rest` to 764s and the cap cancelled the leg with
-          # nothing failed (PR #477, run 36720512756); every other leg ran
-          # 400–648s of 720s on that run, so no re-pin could absorb it. Per the
-          # doctrine above the timeout-minutes line, that is a new leg, not a
-          # raised cap.
+          # ── `mcp` and `mcp-mutants` — the BL-311 group A suite, in two files
+          # (2026-09-30). The history, all on PR #477:
+          #   - Unpinned, tests/test-bl311-adopt-mcp.sh landed in `rest`, and
+          #     the cap cancelled that leg at 764s with nothing failed, the
+          #     suite at 55 of its 128 assertions (run 36720512756). `rest`
+          #     without it is ~559s job-level: 548s of job time had elapsed
+          #     when the suite started, plus ~10s for
+          #     tests/test-bl311-mcp-add-order.sh, which never ran. Every other
+          #     leg ran 400–648s of 720s on that run, so no re-pin could absorb
+          #     it, and it got a leg of its own, `mcp`.
+          #   - Projected at 566s, `mcp` measured 661s on the merge run — 92%
+          #     of the cap — and a leg that runs one file cannot be re-pinned.
+          #   - So the suite is now two files, a leg each. Its 57 cases stay in
+          #     tests/test-bl311-adopt-mcp.sh (~230s local) on `mcp`; its 71
+          #     mutation proofs are tests/test-bl311-adopt-mcp-mutants.sh
+          #     (~318s local) on `mcp-mutants`, which sources the cases file
+          #     for the cases each mutant re-runs (`# BL-311-MCP-SPLIT`). The
+          #     BL-311 group B adoption suite (~37s local) joins `mcp`, the
+          #     leg with the room, rather than `adopt` (585s, 81%, on the same
+          #     merge run).
+          # If either leg nears the cap, the remedy is to split further — never
+          # to raise the cap (the doctrine above the timeout-minutes line).
           pin_mcp=(
-            tests/test-bl311-adopt-mcp.sh              # ~540s local; `rest` without it was ~513s on PR #477
+            tests/test-bl311-adopt-mcp.sh                 # ~230s local — the 57 cases, no mutant
+            tests/test-bl311-b-adopt-guardrails-track.sh  # ~37s local — one real adoption, three halted at the intake, ~20 refusals
+          )
+          pin_mcp_mutants=(
+            tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
@@ -1045,6 +1067,7 @@ jobs:
               adopt)      printf '%s\n' "${pin_adopt[@]}" ;;
               commit-hooks) printf '%s\n' "${pin_commit_hooks[@]}" ;;
               mcp)        printf '%s\n' "${pin_mcp[@]}" ;;
+              mcp-mutants) printf '%s\n' "${pin_mcp_mutants[@]}" ;;
               rest)       : ;;
               *) echo "shard roster: '$1' is in the roster but has no arm in pins_for" >&2
                  return 1 ;;
