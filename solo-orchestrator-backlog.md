@@ -22216,6 +22216,9 @@ adoption replaces them (`## BL-242:`, "Karl's ruling on hook managers").
 **Status:** Open — Karl approved fixing every row (2026-09-28), then a FULL CLEAN RERUN. Each row closes
 by its own PR; the entry closes when the rerun passes.
 
+**Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). The entry stays Open
+until the clean rerun passes.
+
 **What ran.** A fresh Claude Code session (Sonnet, a clean `CLAUDE_CONFIG_DIR`) played a systems
 technician with one to two years of experience — not a developer — installing Solo Orchestrator from
 the public README and adopting a private copy of k-pdf (Python/uv, 240 commits, scaffolded by an OLDER
@@ -22244,8 +22247,9 @@ beside their `Edit(...)` twins (startup warnings).
 **Test-design lesson, for the rerun:** a clean `CLAUDE_CONFIG_DIR` also drops the user's MCP servers,
 so Stage 0 must register them the way the CLI Setup Addendum says.
 
-**Group A residuals (round 15, not fixed).** Measured by the round-15 review (real Docker 29.8.1,
-Qdrant 1.17.1); recorded, not fixed:
+**Group A residuals (rounds 15–16, not fixed).** R-BL311-10 to -12 measured by the round-15 review
+(real Docker 29.8.1, Qdrant 1.17.1), R-BL311-13 to -15 by round 16 on the versions each names;
+recorded, not fixed:
 - **R-BL311-10** — a container on `--network container:<id>` reads as loopback, and adoption prints
   nothing about it. An improbable shape for a Qdrant container.
 - **R-BL311-11** — `-P` together with an explicit `127.0.0.1` binding on every exposed port is
@@ -22253,6 +22257,14 @@ Qdrant 1.17.1); recorded, not fixed:
 - **R-BL311-12** — Qdrant 1.17.1 enforces an EMPTY `QDRANT__SERVICE__API_KEY=` (a request with no
   key gets 401, one with an empty `api-key` header 200), and a container with only a read-only key
   reads as "no key". The warning points the right way; its wording is inaccurate.
+- **R-BL311-13** — Qdrant 1.7 and older return no `checksum` in the create-snapshot response
+  (measured on `qdrant/qdrant:v1.7.4`; `v1.8.4` has it), so step 2 of "Recreating an exposed Qdrant
+  container" never passes and its advice to paste step 1 again loops. It stops safely; nothing is lost.
+- **R-BL311-14** — a full disk during step 1 is reported as "the old container did not answer … or it
+  needs its API key" (measured with HOME on a full 64k tmpfs, under bash and zsh).
+- **R-BL311-15** — the `[::]` → `[::1]` rewrite of `docker port` output does not answer on Docker
+  Desktop for an IPv6-only publish (measured on Docker Desktop 29.2.1: `[::1]` → 000, `127.0.0.1` →
+  200). It stops safely.
 
 ## BL-312: an opt-in "TL;DR mode" for the person the agent works for — greenfield and brownfield
 
