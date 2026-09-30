@@ -375,9 +375,12 @@ S13A
   # `sed` replacement carrying a literal newline does not work, and finding that
   # out at run time inside a writer is worse than two heredocs.
   if [ -d "$root/.claude/adoption-archive" ]; then
+    # Not "a restore line for each" (`## BL-311:`): a Guardrails-only project's
+    # archived manifest must not go back (`# BL-311-MANIFEST-READD-REFUSE`).
     cat <<'S13B'
-4. .claude/adoption-archive/ — anything of yours the adoption moved aside, with
-   a MANIFEST and a restore line for each.
+4. .claude/adoption-archive/ — anything of yours the adoption moved aside or
+   composed with, and a MANIFEST that gives, for each file, how to put it back
+   or why not to.
 S13B
   fi
 
