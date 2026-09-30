@@ -842,6 +842,12 @@ run_child_suite "tests/test-bl253-adoption-state-parity.sh" \
 run_child_suite "tests/test-bl311-b-adopt-guardrails-track.sh" \
   "BL-311 rows 2 and 8: a Guardrails-only .claude/ adopts; the track is asked" \
   "BL-311 Guardrails-only/track tests FAILED (run tests/test-bl311-b-adopt-guardrails-track.sh for details)"
+# BL-311 rows 4 and 5: Scout runs the test command through the detected
+# package manager (uv run pytest, pnpm test, ...), and the ignore-rule block
+# names the rule, its file and line, grouped by rule, with the one-line fix.
+run_child_suite "tests/test-bl311-c-scout-runner-ignore-rule.sh" \
+  "BL-311 rows 4 and 5: the test runner is prefixed; the ignoring rule is named" \
+  "BL-311 runner/ignore-rule tests FAILED (run tests/test-bl311-c-scout-runner-ignore-rule.sh for details)"
 
 # BL-254: a generated CI pipeline may only call scripts the scaffold ships,
 # and a governance check may not swallow its own failure; plus the lint that

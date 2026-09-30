@@ -477,9 +477,13 @@ ci=$(jqv "$njson" '.stack.ciHost')
 if [ "$ts_files" = "13" ] && [ "$ts_conf" = "high" ] \
    && printf '%s' "$pm" | grep -q 'pnpm' \
    && printf '%s' "$bf" | grep -q 'package.json' \
-   && [ "$tc" = "vitest run" ] && [ "$tcs" = "package.json scripts.test" ] \
+   && [ "$tc" = "pnpm test" ] \
+   && [ "$tcs" = 'package.json scripts.test (`vitest run`); run through pnpm because pnpm-lock.yaml is present' ] \
    && [ "$ci" = "github" ]; then
-  pass "S1: node fixture — typescript(13,high), pnpm, package.json, testCommand from scripts.test, ciHost=github"
+  # `## BL-311:` row 4 — the script BODY is not a command (`node_modules/.bin`
+  # is not on PATH outside the package manager), so the value is how pnpm runs
+  # it and the body moved into the evidence, beside the lockfile that chose pnpm.
+  pass "S1: node fixture — typescript(13,high), pnpm, package.json, testCommand 'pnpm test' from scripts.test, ciHost=github"
 else
   fail_ "S1" "ts_files=$ts_files ts_conf=$ts_conf pm='$pm' bf='$bf' tc='$tc' tcs='$tcs' ci='$ci'"
 fi

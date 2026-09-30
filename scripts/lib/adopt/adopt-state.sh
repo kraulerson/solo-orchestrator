@@ -1918,6 +1918,94 @@ STATE_ORDER
   return 0
 }
 
+# adopt_ignore_rules_explain ROOT ROWS — `## BL-311:` row 5: for each
+# `<refused path>\t<the path the decision asked about>` row, the ignore rule git
+# reports, GROUPED BY RULE (one `lib/` refusing 24 paths is one entry, with its
+# count), then the one-line fix where there is one. Prints nothing and returns
+# 1 when git cannot name a rule for every row — the caller then keeps the block
+# it always printed, and says how to ask git directly.
+#
+# WHAT GIT GIVES. `check-ignore -v -z --stdin` answers `<source> NUL <line> NUL
+# <pattern> NUL <path> NUL`; `-z` needs `--stdin` (measured: "fatal: -z only
+# makes sense with --stdin"). `--no-index` because the decision used it. For a
+# path under an excluded directory git names the DIRECTORY's rule (measured on
+# git 2.54.0, five rule orders). A `!` pattern means git found the path
+# RE-INCLUDED — `-v` exits 0 for that too — which contradicts the decision, so
+# it names nothing rather than a rule that did not fire.
+#
+# WHERE A RULE LIVES. A relative `.gitignore` is in the project, and nested
+# ones anchor relative to their own directory. `info/exclude` belongs to this
+# clone alone and is never committed. Anything else is the operator's personal
+# excludes file (`core.excludesFile`, or git's default under XDG_CONFIG_HOME):
+# outside the repository, read by every repository on the machine.
+#
+# THE FIX IS SUGGESTED, NEVER MADE. A rule with no slash but a trailing one
+# (`lib/`) matches at any depth; anchoring it (`/lib/`) is the one-line fix when
+# the refused paths are not under the top-level match — and only the operator
+# knows whether the rule meant "every lib/". When anchoring would still match,
+# the block says so instead of offering it; a glob or an already-anchored rule
+# gets "narrow or remove". Adoption never edits an ignore file.
+adopt_ignore_rules_explain() {
+  local root="$1" rows="$2" rel="" q="" out="" src="" ln="" pat="" echoed=""
+  local tab="" nl="" table=""
+  tab="$(printf '\t')"; nl="$(printf '\n_')"; nl="${nl%_}"
+  while IFS="$tab" read -r rel q; do
+    [ -n "$rel" ] || continue
+    out="$( cd "$root" 2>/dev/null && printf '%s\0' "$q" \
+      | git check-ignore -v -z --stdin --no-index 2>/dev/null | tr '\0' '\n' )"
+    src="$(printf '%s\n' "$out" | sed -n 1p)"
+    ln="$(printf '%s\n' "$out" | sed -n 2p)"
+    pat="$(printf '%s\n' "$out" | sed -n 3p)"
+    echoed="$(printf '%s\n' "$out" | sed -n 4p)"
+    case "$ln" in ''|*[!0-9]*) return 1 ;; esac
+    [ -n "$src" ] && [ -n "$pat" ] && [ "$echoed" = "$q" ] || return 1
+    case "$pat" in '!'*) return 1 ;; esac   # BL-311-IGNORE-RULE-NEGATED
+    table="$table$src$tab$ln$tab$pat$tab$rel$tab$q$nl"
+  done <<ROWS
+$rows
+ROWS
+  [ -n "$table" ] || return 1
+  printf '%s' "$table" | awk -F'\t' '
+    {
+      key = $1 FS $2 FS $3   # BL-311-IGNORE-RULE-GROUP
+      if (!(key in n)) { k++; order[k] = key; src[key] = $1; ln[key] = $2; pat[key] = $3; ex[key] = $4 }
+      n[key]++
+      qs[key] = qs[key] "\n" $5
+    }
+    END {
+      for (i = 1; i <= k; i++) {
+        key = order[i]; s = src[key]; p = pat[key]; l = ln[key]
+        where = s " (outside this repository: your personal git excludes file (core.excludesFile), which every repository on this machine reads)"   # BL-311-IGNORE-RULE-OUTSIDE
+        if (s !~ /^\// && s ~ /(^|\/)\.gitignore$/) where = s
+        if (s ~ /(^|\/)info\/exclude$/) where = s " (this clone only, never committed)"   # BL-311-IGNORE-RULE-EXCLUDE
+        printf "  %s, line %s: `%s` refuses %d of them (for example %s)\n", where, l, p, n[key], ex[key]
+        base = ""
+        if (s !~ /^\// && s ~ /\/\.gitignore$/) base = substr(s, 1, length(s) - 10)
+        stem = p; sub(/\/$/, "", stem)
+        floating = (p !~ /^[!\/\\]/ && stem != "" && stem !~ /[\/*?\[]/)
+        helps = 1; hit = ""
+        nq = split(qs[key], arr, "\n")
+        for (j = 1; j <= nq; j++) {
+          q = arr[j]; if (q == "") continue
+          if (base != "" && index(q, base) == 1) q = substr(q, length(base) + 1)
+          c = split(q, comp, "/")
+          if (comp[1] == stem) helps = 0
+          if (hit == "") {
+            acc = ""
+            for (t = 1; t <= c; t++) { acc = acc (t > 1 ? "/" : "") comp[t]; if (comp[t] == stem) { hit = base acc; break } }
+          }
+        }
+        if (!floating) printf "    Narrow or remove that line; which is right is your call. Adoption never edits your ignore files.\n"
+        else if (!helps) printf "    Anchoring it would not help: the paths this adoption needs sit under the top-level %s, where `/%s` still matches. Narrowing or removing the rule is your call. Adoption never edits your ignore files.\n", stem, p   # BL-311-IGNORE-RULE-NO-ANCHOR
+        else {
+          printf "    It has no leading slash, so it matches `%s` at any depth, not only at the top%s.\n", stem, (hit == "" ? "" : ": here it matched " hit)
+          printf "    One-line fix, if the rule was meant for the top-level %s only: change line %s of %s to `/%s`.\n", p, l, s, p   # BL-311-IGNORE-RULE-ANCHOR
+          printf "    Whether it was is your judgement: if it is meant to ignore every %s at any depth, anchoring it is wrong, and these files stay refused until the rule changes. Adoption never edits your ignore files.\n", p
+        }
+      }
+    }'
+}
+
 # adopt_prewrite_preflight ROOT REPORT — refuse BEFORE the first write if any
 # path the adoption is about to write is refused by the adoptee's ignore rules.
 #
@@ -2096,16 +2184,25 @@ adopt_prewrite_preflight() {
   # FAIL CLOSED. `check-ignore` exits 128 on a pathspec beyond a symbolic link,
   # and treating that as "not ignored" would be a fail-OPEN guard — the shape
   # this entry exists to remove. Anything but 0 or 1 refuses.
+  #
+  # ONE PATH FEEDS BOTH QUESTIONS (`## BL-311:` row 5). `_q` is what the
+  # decision asks about — the directory, for a tracked path — and it is what
+  # the block later asks `check-ignore -v` about, so the rule it names is the
+  # rule that fired, not a rule git would report for some other spelling.
+  local _tab="" _nl="" _bl311_rows="" _why=""
+  _tab="$(printf '\t')"; _nl="$(printf '\n_')"; _nl="${_nl%_}"
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
-    local _ci=0 _dir
+    local _ci=0 _dir="" _q=""
     if ( cd "$root" && git ls-files --error-unmatch -- "$rel" ) >/dev/null 2>&1; then
       _dir="${rel%/*}"
       [ "$_dir" = "$rel" ] && continue        # top-level tracked file: git add accepts it
-      ( cd "$root" && git check-ignore --no-index -q -- "$_dir" ) 2>/dev/null || _ci=$?
+      _q="$_dir"
     else
-      ( cd "$root" && git check-ignore --no-index -q -- "$rel" ) 2>/dev/null || _ci=$?
+      _q="$rel"
     fi
+    ( cd "$root" && git check-ignore --no-index -q -- "$_q" ) 2>/dev/null || _ci=$?
+    [ "$_ci" -ne 0 ] || _bl311_rows="$_bl311_rows$rel$_tab$_q$_nl"   # BL-311-IGNORE-RULE-SAME-PATH
     case "$_ci" in
       0) ignored="$ignored
 $rel" ;;
@@ -2173,7 +2270,20 @@ LANDED
     # STDOUT and refusals on STDERR, so a reader piping stderr to a log would
     # get "some of your files are refused" with no list of which.
     # ROWS, not words: `wc -w` counted "my file.txt" as two refused files.
-    adopt_block "your ignore rules refuse $(printf '%s' "$ignored" | grep -c .) of the files this adoption must write, so it would leave the project half-installed. NOTHING WAS WRITTEN. The refused path(s):$ignored"   # BL-225-PREWRITE-REFUSE
+    #
+    # NAME THE RULE (`## BL-311:` row 5). "your ignore rules refuse 24 of the
+    # files" was right, and the dogfood operator still had to read .gitignore to
+    # learn it was `lib/` matching `scripts/lib/`. git knows which rule fired;
+    # the block now says so, grouped by rule. When git cannot say, the block is
+    # the one it always was plus how to ask git directly — the refusal itself
+    # was decided above and never depends on this.
+    _why="$(adopt_ignore_rules_explain "$root" "$_bl311_rows")" || _why=""   # BL-311-IGNORE-RULE-EXPLAIN
+    if [ -n "$_why" ]; then
+      _why="$_nl${_nl}The rule(s) that refuse them, as \`git check-ignore -v\` names each:$_nl$_why"
+    else
+      _why="$_nl${_nl}git could not name the rule that refuses them (\`git check-ignore -v\` did not answer). Ask it about each path above:$_nl  git check-ignore -v --no-index -- <path>"   # BL-311-IGNORE-RULE-FALLBACK
+    fi
+    adopt_block "your ignore rules refuse $(printf '%s' "$ignored" | grep -c .) of the files this adoption must write, so it would leave the project half-installed. NOTHING WAS WRITTEN. The refused path(s):$ignored$_why"   # BL-225-PREWRITE-REFUSE
     adopt_note "These are the files the adoption IS — skipping one produces a broken install,"
     adopt_note "not a disclosed omission. Un-ignore them (or narrow the rule) and run this again."
     adopt_note "Note that git cannot re-include a file under an ignored DIRECTORY, so a"

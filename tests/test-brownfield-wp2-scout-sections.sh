@@ -327,6 +327,13 @@ mk_ci_findings_fixture() {
 
 # A node project with a REAL, trivially-runnable test command and a mixed
 # source tree — five implementation files, one test file.
+#
+# NPM'S LOCKFILE, AND npm ON THE HOST. Since `## BL-311:` row 4 Scout runs
+# `scripts.test` through the project's package manager, so this fixture's
+# `npm test` needs npm — which the CI runner has, and which the lockfile-less
+# fixtures below (T3, T7, T8) already reached through Scout's npm default. It
+# carried a pnpm lockfile before, and pnpm is on neither this Mac nor the
+# runner: T2 then measured the host's missing tool (exitCode 127), not Scout.
 mk_tests_fixture() {
   local d="$1" i
   mkdir -p "$d/src" "$d/tests"
@@ -337,7 +344,7 @@ mk_tests_fixture() {
   "scripts": { "test": "sh -c 'exit 0'" }
 }
 EOF
-  printf 'lockfileVersion: 6.0\n' > "$d/pnpm-lock.yaml"
+  printf '{ "name": "acme-api", "lockfileVersion": 3, "packages": {} }\n' > "$d/package-lock.json"
   i=1
   while [ "$i" -le 5 ]; do
     printf 'export const v%s = %s;\n' "$i" "$i" > "$d/src/mod$i.ts"

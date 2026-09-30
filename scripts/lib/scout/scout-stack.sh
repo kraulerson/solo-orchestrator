@@ -164,7 +164,9 @@ _scout_pkg_json_script() {
 # `project_scaffolded` list in scripts/lib/scout/scout-reality.sh too — S4 in
 # tests/test-brownfield-wp1-scout.sh asserts BOTH surfaces for every row,
 # because a spelling added to one and forgotten in the other is the shape this
-# defect actually takes.
+# defect actually takes. A Python or Node manager added here also needs its
+# arm in `_scout_python_test` / `_scout_node_test` (`## BL-311:` row 4), or its
+# projects keep the bare command that cannot see the project's environment.
 _scout_pkg_managers() {
   local root="$1" work="$2" row f m
   : > "$work/pkgmgr"
@@ -222,22 +224,119 @@ _scout_build_files() {
   return 0
 }
 
+# _scout_runner_file ROOT WORK MANAGER — the file that put MANAGER into
+# packageManagers: the first PMTABLE row naming it that exists, so a lockfile
+# is named ahead of the manifest that generated it.
+_scout_runner_file() {
+  local root="$1" work="$2" want="$3" f="" m=""
+  while read -r f m; do
+    [ "$m" = "$want" ] || continue
+    if [ -e "$root/$f" ]; then printf '%s\n' "$f"; return 0; fi
+  done < "$work/pmtable"
+  return 1
+}
+
+# _scout_pick_runner ROOT WORK CANDIDATE... — two lines: the first CANDIDATE
+# in evidence, then the sentence saying why. Returns 1 when none is.
+#
+# SEVERAL IN EVIDENCE IS NOT AN ERROR, AND NOT A SILENT CHOICE. A project that
+# moved from poetry to uv often keeps the old lockfile for a while. Scout picks
+# by the order the caller gives (lockfile precedence, most specific tool
+# first), names every other file it saw, and asks the operator to confirm —
+# §4.2: evidence, not a verdict.
+_scout_pick_runner() {
+  local root="$1" work="$2" m="" first="" why="" others="" order=""
+  shift 2
+  for m in "$@"; do
+    order="$order${order:+, then }$m"
+    grep -qx -- "$m" "$work/pkgmgr" 2>/dev/null || continue
+    if [ -z "$first" ]; then
+      first="$m"
+      why="run through $m because $(_scout_runner_file "$root" "$work" "$m") is present"   # BL-311-SCOUT-RUN-WHY
+    else
+      others="$others${others:+, }$(_scout_runner_file "$root" "$work" "$m")"
+    fi
+  done
+  [ -n "$first" ] || return 1
+  if [ -n "$others" ]; then
+    why="$why; also present: $others. Scout prefers $order, so confirm which one this project uses"
+  fi
+  printf '%s\n%s\n' "$first" "$why"
+}
+
+# _scout_python_test ROOT WORK SOURCE — `pytest`, through the project's own
+# environment manager when one is in evidence (`## BL-311:` row 4).
+#
+# A BARE `pytest` IS NOT THE PROJECT'S TEST COMMAND in a managed project: the
+# tool lives in the environment the manager keeps (`.venv` for uv), which is
+# not on PATH. The dogfood run's suite passed 1071/0 and Scout reported exit
+# 127. Each tool's run syntax is from its own documentation (uv, poetry, pdm,
+# pipenv — `<tool> run pytest`). Plain pip and setuptools keep the bare
+# command: there the operator's activated environment IS the PATH.
+_scout_python_test() {
+  local root="$1" work="$2" src="$3" pick="" m="" cmd="pytest"
+  pick="$(_scout_pick_runner "$root" "$work" uv poetry pdm pipenv)" || pick=""   # BL-311-SCOUT-PY-PRECEDENCE
+  if [ -n "$pick" ]; then
+    m="$(printf '%s\n' "$pick" | sed -n 1p)"
+    case "$m" in
+      uv)     cmd="uv run pytest" ;;       # BL-311-SCOUT-RUN-UV
+      poetry) cmd="poetry run pytest" ;;   # BL-311-SCOUT-RUN-POETRY
+      pdm)    cmd="pdm run pytest" ;;      # BL-311-SCOUT-RUN-PDM
+      pipenv) cmd="pipenv run pytest" ;;   # BL-311-SCOUT-RUN-PIPENV
+    esac
+    src="$src; $(printf '%s\n' "$pick" | sed -n 2p)"
+  fi
+  printf '%s\t%s\n' "$cmd" "$src" > "$work/testcmd"
+}
+
+# _scout_node_test ROOT WORK BODY — package.json's `scripts.test`, run the way
+# the project's package manager runs it (`## BL-311:` row 4, the Node twin).
+#
+# THE BODY IS NOT A COMMAND. `vitest run` works under `npm test` because npm
+# puts `node_modules/.bin` on PATH for the script; `sh -c 'vitest run'` does not
+# find it. Measured: a pnpm fixture whose `vitest` passes reported exitCode 127
+# — the same defect as the bare `pytest`. `bun test` is Bun's OWN test runner
+# and never reads scripts.test, so Bun's arm is `bun run test`; `deno task`
+# falls back to package.json scripts. With no lockfile, npm: it ships with Node
+# and `npm test` runs the script whatever installed node_modules. The body stays
+# in the evidence, so the operator still sees what the script is.
+_scout_node_test() {
+  local root="$1" work="$2" body="$3" pick="" m="" why="" cmd=""
+  pick="$(_scout_pick_runner "$root" "$work" pnpm yarn npm bun deno)" || pick=""   # BL-311-SCOUT-NODE-PRECEDENCE
+  if [ -n "$pick" ]; then
+    m="$(printf '%s\n' "$pick" | sed -n 1p)"
+    why="$(printf '%s\n' "$pick" | sed -n 2p)"
+  else
+    m="npm"; why="run through npm because no lockfile names a package manager, and npm ships with Node"   # BL-311-SCOUT-RUN-NPM-DEFAULT
+  fi
+  case "$m" in
+    pnpm) cmd="pnpm test" ;;         # BL-311-SCOUT-RUN-PNPM
+    yarn) cmd="yarn test" ;;         # BL-311-SCOUT-RUN-YARN
+    npm)  cmd="npm test" ;;          # BL-311-SCOUT-RUN-NPM
+    bun)  cmd="bun run test" ;;      # BL-311-SCOUT-RUN-BUN
+    deno) cmd="deno task test" ;;    # BL-311-SCOUT-RUN-DENO
+  esac
+  printf '%s\t%s\n' "$cmd" "package.json scripts.test (\`$body\`); $why" > "$work/testcmd"
+}
+
 # _scout_test_command ROOT WORK — `<command>\t<source>` into $work/testcmd, or
-# an empty file.
+# an empty file. Needs $work/pkgmgr and $work/pmtable (`_scout_pkg_managers`).
 #
 # Ordered by how much the source ACTUALLY KNOWS. A declared `scripts.test` is
 # the project telling you its test command in its own words; `go test ./...`
 # inferred from a go.mod is Scout telling you the language's convention and
 # hoping. The `source` field carries that difference to the operator instead of
-# flattening it, which is §4.2's rule applied to a single field.
+# flattening it, which is §4.2's rule applied to a single field — and, since
+# `## BL-311:`, it also says which package manager the command goes through
+# and which file made Scout choose it.
 _scout_test_command() {
-  local root="$1" work="$2" v
+  local root="$1" work="$2" v=""
   : > "$work/testcmd"
 
   if [ -f "$root/package.json" ]; then
     v=$(_scout_pkg_json_script "$root/package.json" test)
     if [ -n "$v" ]; then
-      printf '%s\t%s\n' "$v" "package.json scripts.test" > "$work/testcmd"
+      _scout_node_test "$root" "$work" "$v"
       return 0
     fi
   fi
@@ -248,19 +347,19 @@ _scout_test_command() {
   fi
 
   if [ -f "$root/pytest.ini" ]; then
-    printf '%s\t%s\n' "pytest" "pytest.ini present" > "$work/testcmd"
+    _scout_python_test "$root" "$work" "pytest.ini present"
     return 0
   fi
   if [ -f "$root/tox.ini" ] && grep -q 'pytest' "$root/tox.ini" 2>/dev/null; then
-    printf '%s\t%s\n' "pytest" "tox.ini names pytest" > "$work/testcmd"
+    _scout_python_test "$root" "$work" "tox.ini names pytest"
     return 0
   fi
   if [ -f "$root/pyproject.toml" ] && grep -q 'tool.pytest' "$root/pyproject.toml" 2>/dev/null; then
-    printf '%s\t%s\n' "pytest" "pyproject.toml [tool.pytest]" > "$work/testcmd"
+    _scout_python_test "$root" "$work" "pyproject.toml [tool.pytest]"
     return 0
   fi
   if [ -f "$root/setup.cfg" ] && grep -q 'tool:pytest' "$root/setup.cfg" 2>/dev/null; then
-    printf '%s\t%s\n' "pytest" "setup.cfg [tool:pytest]" > "$work/testcmd"
+    _scout_python_test "$root" "$work" "setup.cfg [tool:pytest]"
     return 0
   fi
 
