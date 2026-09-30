@@ -65,7 +65,7 @@ _base() {   # _base DIR — a project with its own history
 }
 _run() {    # _run DIR TAG AUDIENCE [args...] — sets RUN_RC
   local p="$1" tag="$2" aud="$3"; shift 3
-  printf '%s\n1\n1\n1\n1\n' "$aud" > "$WORK/ans-$tag"
+  printf '%s\nstandard\n1\n1\n1\n1\n' "$aud" > "$WORK/ans-$tag"   # the tier, then the track (`## BL-311:` row 8)
   ( cd "$p" && bash "$REPO_ROOT/scripts/adopt-project.sh" "$@" < "$WORK/ans-$tag" ) \
     > "$WORK/$tag.out" 2> "$WORK/$tag.err"
   RUN_RC=$?
@@ -166,7 +166,7 @@ _nopath_run() {   # _nopath_run DIR TAG [args...]
   # ubuntu runner a narrowed PATH hides more than on macOS, and a "Tooling
   # Configuration" confirmation appears that five answers ran out before
   # (PR #446, R6/R7 red on CI only). Unread answers are harmless.
-  printf '1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n' > "$WORK/ans-$tag"
+  printf '1\nstandard\n1\n1\n1\n1\n1\n1\n1\n1\n1\n' > "$WORK/ans-$tag"   # the tier, the track, then the rest
   ( cd "$p" && PATH=/usr/bin:/bin bash "$REPO_ROOT/scripts/adopt-project.sh" "$@" < "$WORK/ans-$tag" ) \
     > "$WORK/$tag.out" 2> "$WORK/$tag.err"
   RUN_RC=$?

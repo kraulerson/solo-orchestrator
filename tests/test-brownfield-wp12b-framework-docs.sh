@@ -72,7 +72,7 @@ _adoptee() {
 # 1 personal, 2 organizational.
 _adopt() {
   local p="$1" tag="$2" aud="$3"
-  printf '%s\n1\n1\n1\n1\n' "$aud" > "$WORK/ans-$tag"
+  printf '%s\nstandard\n1\n1\n1\n1\n' "$aud" > "$WORK/ans-$tag"   # the tier, then the track (`## BL-311:` row 8)
   ( cd "$p" && bash "$REPO_ROOT/scripts/adopt-project.sh" \
       --scan-report "$WORK/scan/scout-report.json" < "$WORK/ans-$tag" ) \
     > "$WORK/$tag.out" 2> "$WORK/$tag.err"

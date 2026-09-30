@@ -175,6 +175,10 @@ report_with_phase() {
 # asked here and are asked here no longer — the first two are deleted (D4,
 # D10) and the rest belong to Act 3's interview (§5.2).
 #
+# `## BL-311:` row 8 MADE IT SIX: the track is asked straight after the tier,
+# answered here by its words, `standard` — one line, because Standard is the
+# one answer neither of the track's two rules re-asks.
+#
 # THE LENGTH IS LOAD-BEARING, not incidental: it is exactly long enough, so
 # any mutant that puts a question back runs the run out of answers and it
 # refuses. tests/test-brownfield-wp9-act-boundaries.sh N4 is built on that.
@@ -187,7 +191,7 @@ report_with_phase() {
 # accident into a warn and the block they exist to prove never fires.
 _ans() {
   local tier="${1:-2}"
-  printf '%s\n1\n1\n1\n1\n' "$tier"
+  printf '%s\nstandard\n1\n1\n1\n1\n' "$tier"
 }
 
 # run_adopt DIR ANSWERFILE REPORT [HALT] [FRAMEWORK]
@@ -303,6 +307,7 @@ else
   # real answer — one extra line, at exactly that point.
   {
     printf '2\n'                    # the tier question
+    printf 'standard\n'             # the track (`## BL-311:` row 8)
     printf '2\nledger-service\n'    # section 1: change it, then the answer
     printf '1\n1\n1\n'              # the three remaining confirmations
   } > "$I2D/answers"

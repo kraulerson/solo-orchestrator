@@ -793,6 +793,42 @@ _adopt_preflight_prior_archive() {
 # stays green. (A draft credited PM1b, which drops arm 3 to prove arm 1 stands
 # ALONE — a different property, and the mis-citation this file's own rule about
 # citing by marker exists to prevent.)
+#
+# ── `## BL-311:` row 2 — THE GUARDRAILS' OWN `.claude/` IS NOT EVIDENCE ─────
+# The Development Guardrails installer writes `.claude/manifest.json` too, so a
+# project that carries the Guardrails and was never under this framework was
+# refused here as "already framework-managed" (brownfield dogfood run 1, k-pdf,
+# Guardrails 4.3.0). That shape is known and adoptable: its manifest carries the
+# Guardrails' keys (`frameworkVersion`, `profile`, `activeRules`, `activeHooks`,
+# `projectConfig`, `discovery`, …) and none of this framework's, and
+# `.claude/framework/` beside it. Adoption keeps every one of those settings —
+# the `guardrails` stage takes its already-installed arm, the `manifest` stage
+# MERGES this framework's keys in (`adopt_jq_edit`), and the archive keeps the
+# file as it was (`# BL-311-MANIFEST-ARCHIVE`).
+#
+# A LIST OF OUR KEYS, NOT OF THEIRS. The Guardrails add top-level keys between
+# releases (`frameworkCommit`, `files`), so an allowlist of theirs would refuse
+# the next release; the keys this framework writes are ours to enumerate.
+# SYNC: every top-level key init.sh or adoption writes into the manifest must
+# be on it. tests/test-bl311-b-adopt-guardrails-track.sh derives both halves
+# (K1 from a real adoption, K2 from init.sh's writers) and drives every entry
+# through this preflight (R1).
+ADOPT_SOLO_MANIFEST_KEYS='["host","mode","remote_url","deployment","poc_mode","enforcement_level","soloFrameworkCommit","currency","adoption","mcp"]'   # BL-311-SOLO-KEYS
+
+# _adopt_guardrails_only ROOT — 0 iff `.claude/manifest.json` is the
+# Guardrails' own and nothing of this framework's. `.claude/phase-state.json` is
+# not tested here: the arm that calls this is reached only without one.
+_adopt_guardrails_only() {
+  local root="$1"
+  # The `guardrails` stage's own already-installed test (`# BL-296-ADOPT-RESOLVE`).
+  # Without it that stage would run the installer, which REPLACES this manifest
+  # with `>` — every setting of theirs gone from the live file.
+  [ -d "$root/.claude/framework/hooks" ] || return 1   # BL-311-GUARDRAILS-ONLY-FRAMEWORK
+  jq -e --argjson solo "$ADOPT_SOLO_MANIFEST_KEYS" \
+    '(.frameworkVersion | type == "string" and length > 0) and ((keys - $solo) == keys)' \
+    "$root/.claude/manifest.json" >/dev/null 2>&1   # BL-311-GUARDRAILS-ONLY
+}
+
 _adopt_preflight_managed() {
   local root="$1" found=""
   ( cd "$root" && soif_adoption_adopted ".claude/manifest.json" ) && return 0
@@ -801,10 +837,15 @@ _adopt_preflight_managed() {
   if [ -f "$root/.claude/phase-state.json" ]; then
     # DECISIVE. `init.sh` and this driver are its only writers, so its presence
     # on an unadopted tree means the project was scaffolded.
+    # `## BL-311:` row 2 — AND IT IS NOW THE ONLY ARM that refuses a
+    # Guardrails-only manifest sitting beside a phase-state: the arm below
+    # admits that manifest, so this one being first is what refuses the pair.
     found=".claude/phase-state.json is present"
-  elif [ -f "$root/.claude/manifest.json" ]; then
+  elif [ -f "$root/.claude/manifest.json" ] && ! _adopt_guardrails_only "$root"; then   # BL-311-GUARDRAILS-ONLY-ARM
     # STRONG EVIDENCE, NOT PROOF — so the message says what was found and names
-    # both explanations rather than asserting one.
+    # both explanations rather than asserting one. The one manifest that is
+    # NOT evidence is the Development Guardrails' own (`_adopt_guardrails_only`):
+    # it falls through to the third signal below like a tree with no manifest.
     found=".claude/manifest.json is present"
   else
     # ── THE THIRD SIGNAL, AND IT IS A MAJORITY, NOT A SINGLE FILE ──────────
@@ -1080,6 +1121,56 @@ adopt_ask_audience() {
   return 0
 }
 
+# ── `## BL-311:` row 8 — THE TRACK IS ASKED, NEVER DEFAULTED ────────────────
+# It was the constant "full" in both state files, so a free offline hobby app
+# was adopted onto the enterprise track (pen testing, legal review) without
+# being asked. It is asked now, straight after the tier question it depends on,
+# the way init.sh's `collect_project_info` asks it: the same three descriptions
+# and the same two rules. SYNC SIBLING of that prompt —
+# tests/test-bl311-b-adopt-guardrails-track.sh T2 reads the descriptions out of
+# init.sh and requires them here verbatim.
+#   Rule 1 — Full on a personal project is warned about and re-confirmed;
+#            declining asks the track again.
+#   Rule 2 — Light needs a Private POC. Adoption asks no POC question and lands
+#            every project as a production build (`# BL-253-POC-MODE`), so a
+#            Light answer is ALWAYS re-asked here, between Standard and Full.
+# Unlike init.sh's `[y/N]`, nothing here has a default: an empty answer or end
+# of input REFUSES, as every adoption question does (`adopt_ask_choice`).
+# ONE VARIABLE, READ BY BOTH WRITERS — `adopt_write_phase_state` and
+# `adopt_render_intake_progress` — so the two files cannot disagree.
+ADOPT_TRACK=""   # BL-311-TRACK
+ADOPT_TRACK_LABEL="the project track"
+ADOPT_TRACK_CONFIRM_LABEL="whether to keep the Full track"
+
+adopt_ask_track() {
+  adopt_blank
+  adopt_say "Project tracks:"
+  adopt_note "Light    — Internal tools, prototypes, POCs. <10 users. Minimal governance."
+  adopt_note "Standard — External users, moderate complexity. Market audit, user testing."
+  adopt_note "Full     — Enterprise buyers, sensitive data. Pen testing, legal review mandatory."
+  adopt_ask_choice "$ADOPT_TRACK_LABEL" "Project track:" light standard full || return 1   # BL-311-TRACK-ASK
+  ADOPT_TRACK="$ADOPT_ANSWER"
+  if [ "$ADOPT_TRACK" = "full" ] && [ "$ADOPT_DEPLOYMENT" = "personal" ]; then   # BL-311-TRACK-RULE-FULL
+    adopt_note "Full track is designed for organizational projects with enterprise compliance."
+    adopt_note "For personal projects, Standard track provides external-user readiness without"
+    adopt_note "enterprise overhead (pen testing, legal review). You can upgrade later."
+    adopt_ask_choice "$ADOPT_TRACK_CONFIRM_LABEL" "Continue with Full track?" \
+      "choose a different track" "continue with Full track" || return 1
+    if [ "$ADOPT_ANSWER" = "choose a different track" ]; then
+      adopt_ask_choice "$ADOPT_TRACK_LABEL" "Project track:" light standard full || return 1
+      ADOPT_TRACK="$ADOPT_ANSWER"
+    fi
+  fi
+  if [ "$ADOPT_TRACK" = "light" ] && [ "$ADOPT_POC_MODE" != "private_poc" ]; then   # BL-311-TRACK-RULE-LIGHT
+    adopt_note "Production builds require Standard or Full track."
+    adopt_note "Light track skips market validation, user testing, and security hardening."
+    adopt_ask_choice "$ADOPT_TRACK_LABEL" "Select a track:" standard full || return 1
+    ADOPT_TRACK="$ADOPT_ANSWER"
+  fi
+  adopt_note "Track: $ADOPT_TRACK"
+  return 0
+}
+
 # THE LANDING IS A CONSTANT, AND IT IS SPELLED AS ONE (D10). Every adopted
 # project lands at phase 0 and stays there until the ordinary gates move it:
 # no scenario, no scanned rung, no floor, no arithmetic anywhere in any act.
@@ -1094,8 +1185,8 @@ adopt_write_phase_state() {
   local poc_json='null'   # BL-253-POC-NULL
   [ -n "$ADOPT_POC_MODE" ] && poc_json="\"$ADOPT_POC_MODE\""
   jq -n --arg p "$ADOPT_PROJECT_NAME" --arg d "$ADOPT_DEPLOYMENT" --argjson m "$poc_json" \
-        --argjson phase "$adopt_landing" \
-    '{project: $p, framework_version: "1.0", current_phase: $phase, track: "full",
+        --argjson phase "$adopt_landing" --arg t "$ADOPT_TRACK" \
+    '{project: $p, framework_version: "1.0", current_phase: $phase, track: $t,
       deployment: $d, poc_mode: $m, compliance_ready: false, review_gate_enforced: true,
       gates: {phase_0_to_1: null, phase_1_to_2: null, phase_2_to_3: null, phase_3_to_4: null}}' \
     | adopt_write_file "$root" ".claude/phase-state.json"
@@ -2110,8 +2201,7 @@ adopt_main() {
   # their own project, and §4.3 keeps it as pre-fill for the Phase 0 intake.
   adopt_present_evidence "$root" "$report"   # BL-242-EVIDENCE-CALL
 
-  # §8.2 STEP 1 — THE TIER QUESTION, AND IT IS THE ONLY QUESTION ADOPTION ASKS
-  # THAT IS NOT A CONFIRMATION. D9 keeps it: D4's reasoning is about
+  # §8.2 STEP 1 — THE TIER QUESTION. D9 keeps it: D4's reasoning is about
   # self-reported PROCESS MATURITY, which an operator using this framework
   # cannot be expected to know, and "is this for a company or for me" is a fact
   # they know for certain and no evidence can determine. It is the sole
@@ -2122,6 +2212,11 @@ adopt_main() {
   # installed, so a run abandoned at it has changed neither the repository nor
   # the host.
   adopt_ask_audience || return 1   # BL-242-TIER-QUESTION
+  # `## BL-311:` row 8 — the track, in the same step and for the same reasons:
+  # a fact about the project's future the operator knows and no scan can
+  # determine, asked before any writer. After the tier, because its first rule
+  # reads the tier.
+  adopt_ask_track || return 1   # BL-311-TRACK-QUESTION
 
   # §8.2 STEP 2 — TOOL RESOLUTION, AND ITS POSITION IS THE CONSTRAINT.
   # BEFORE the secrets check that reads its result (§6.2) and BEFORE any

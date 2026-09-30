@@ -207,10 +207,11 @@ _mk_resolver() {
   return 0
 }
 
-# Five answers: the tier question plus this report's four scan-derived
-# confirmations. A case that adds the install question passes six.
-_ans() { local tier="${1:-1}"; printf '%s\n1\n1\n1\n1\n' "$tier"; }
-_ans_install() { local tier="${1:-1}" install="${2:-2}"; printf '%s\n%s\n1\n1\n1\n1\n' "$tier" "$install"; }
+# Six answers: the tier question, the track (`## BL-311:` row 8, answered
+# `standard`) and this report's four scan-derived confirmations. A case that
+# adds the install question passes seven.
+_ans() { local tier="${1:-1}"; printf '%s\nstandard\n1\n1\n1\n1\n' "$tier"; }
+_ans_install() { local tier="${1:-1}" install="${2:-2}"; printf '%s\nstandard\n%s\n1\n1\n1\n1\n' "$tier" "$install"; }
 
 RUN_RC=0; RUN_OUT=""; RUN_ERR=""
 run_adopt() {   # run_adopt <dir> <answers> <report> [fw] [extra env assignments...]
@@ -486,8 +487,8 @@ if ! mk_adoptee "$X9/p"; then
 elif ! _mk_resolver "$X9/resolver" auto "true" "gitleaks-wp10a-absent"; then
   fail_ "X9 setup" "the resolver stub did not build"
 else
-  # tier, accept the install, then an answer that is not on offer
-  printf '1\n1\nNOT-AN-OPTION\n' > "$X9/answers"
+  # tier, track, accept the install, then an answer that is not on offer
+  printf '1\nstandard\n1\nNOT-AN-OPTION\n' > "$X9/answers"
   run_adopt "$X9/p" "$X9/answers" "$REPORT" "$REPO_ROOT" "SOIF_ADOPT_RESOLVER=$X9/resolver"
   X9_ALL="$(cat "$RUN_ERR" "$RUN_OUT" 2>/dev/null)"
   case "$X9_ALL" in
@@ -523,9 +524,9 @@ if ! mk_adoptee "$X10/p"; then
 elif ! _mk_resolver "$X10/resolver" auto "read _a; read _b; true" "gitleaks-wp10a-absent"; then
   fail_ "X10 setup" "the resolver stub did not build"
 else
-  # tier + accept the install + the four scan-derived confirmations. If the
-  # installer eats any of them the run cannot complete.
-  printf '1\n1\n1\n1\n1\n1\n' > "$X10/answers"
+  # tier + track + accept the install + the four scan-derived confirmations. If
+  # the installer eats any of them the run cannot complete.
+  printf '1\nstandard\n1\n1\n1\n1\n1\n' > "$X10/answers"
   run_adopt "$X10/p" "$X10/answers" "$REPORT" "$REPO_ROOT" "SOIF_ADOPT_RESOLVER=$X10/resolver"
   X10_RC="$RUN_RC"
   [ "$X10_RC" -eq 0 ] \

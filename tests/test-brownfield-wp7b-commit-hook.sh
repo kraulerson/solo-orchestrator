@@ -87,7 +87,7 @@ _adoptee() {
 # $WORK/<name>.out so a case can assert on what the operator was told.
 _adopt() {
   local p="$1" tag="$2"
-  printf '2\n1\n1\n1\n1\n' > "$WORK/ans"
+  printf '2\nstandard\n1\n1\n1\n1\n' > "$WORK/ans"   # the tier, then the track (`## BL-311:` row 8)
   ( cd "$p" && bash "$REPO_ROOT/scripts/adopt-project.sh" \
       --scan-report "$WORK/scan/scout-report.json" < "$WORK/ans" ) \
     > "$WORK/$tag.out" 2> "$WORK/$tag.err"
@@ -446,7 +446,7 @@ b15() {
   chmod +x "$p/.git/hooks/pre-commit"
   # Refused on the first run by their own hook, so the adoption stops before the
   # hooks are installed — the only window in which an archived copy can go.
-  printf '2\n1\n1\n1\n1\n' > "$WORK/ans"
+  printf '2\nstandard\n1\n1\n1\n1\n' > "$WORK/ans"   # the tier, then the track (`## BL-311:` row 8)
   ( cd "$p" && BLOCKIT=1 bash "$REPO_ROOT/scripts/adopt-project.sh" \
       --scan-report "$WORK/scan/scout-report.json" < "$WORK/ans" ) > "$WORK/gone.out" 2>&1
   arc="$( cd "$p" && ls -d .claude/adoption-archive/*/ 2>/dev/null | head -1 )"
@@ -489,7 +489,7 @@ b17() {
   local label="B17 a render that is incomplete is NOT reported as installed, and replaces nothing"
   local p="$WORK/trunc" bad=""
   _adoptee "$p" own || { fail_ "$label" "could not build the adoptee"; return; }
-  printf '2\n1\n1\n1\n1\n' > "$WORK/ans"
+  printf '2\nstandard\n1\n1\n1\n1\n' > "$WORK/ans"   # the tier, then the track (`## BL-311:` row 8)
   ( cd "$p" && SOIF_ADOPT_HOOK_FAULT=pctrunc bash "$REPO_ROOT/scripts/adopt-project.sh" \
       --scan-report "$WORK/scan/scout-report.json" < "$WORK/ans" ) > "$WORK/trunc.out" 2>&1
   ADOPT_RC=$?
@@ -511,7 +511,7 @@ b17b() {
   local label="B17b a render that is complete but NOT executable is not reported as installed"
   local p="$WORK/noexec" bad=""
   _adoptee "$p" || { fail_ "$label" "could not build the adoptee"; return; }
-  printf '2\n1\n1\n1\n1\n' > "$WORK/ans"
+  printf '2\nstandard\n1\n1\n1\n1\n' > "$WORK/ans"   # the tier, then the track (`## BL-311:` row 8)
   ( cd "$p" && SOIF_ADOPT_HOOK_FAULT=pcnoexec bash "$REPO_ROOT/scripts/adopt-project.sh" \
       --scan-report "$WORK/scan/scout-report.json" < "$WORK/ans" ) > "$WORK/noexec.out" 2>&1
   ADOPT_RC=$?

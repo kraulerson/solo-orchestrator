@@ -320,6 +320,8 @@ FW="$REPO_ROOT"
 RUN_PATH="$STUBS:$PATH"
 # _adopt ANSWERS [ENV=VAL...] — a whole adoption of $P, with this case's HOME,
 # CLAUDE_CONFIG_DIR and stubs.
+# ANSWERS start with the tier and then the track (`## BL-311:` row 8); a case
+# that answers the MCP question names it third, after `standard`.
 _adopt() {
   local ans="$1"; shift
   ( cd "$P" && printf "$ans" | env PATH="$RUN_PATH" HOME="$H" CLAUDE_CONFIG_DIR="$CFG" STUB_STATE="$ST" \
@@ -1048,7 +1050,7 @@ e2() {   # set it up now, whole adoption
   local bad="" rec=""
   _case e2 >/dev/null
   : > "$ST/docker-up"
-  _adopt "1\nset it up now\n$(_n1 12)"
+  _adopt "1\nstandard\nset it up now\n$(_n1 12)"
   [ "$RUN_RC" -eq 0 ] || bad="$bad [rc $RUN_RC: $(grep -E 'BLOCKED|REFUSED' "$C/out" | head -1)]"
   grep -q 'STDIN-HAD-DATA' "$ST/calls.log" && bad="$bad [a command read the operator's answers]"
   grep -E '\[mcp\] \[add\]|docker \[run\]' "$ST/calls.log" | grep -q 'cwd=.*adopt-work\.' || bad="$bad [the commands did not run from the run's work dir]"
@@ -1062,7 +1064,7 @@ e3() {   # skip, whole adoption
   local bad="" rec=""
   _case e3 >/dev/null
   : > "$ST/docker-up"
-  _adopt "1\nskip it\n$(_n1 12)"
+  _adopt "1\nstandard\nskip it\n$(_n1 12)"
   [ "$RUN_RC" -eq 0 ] || bad="$bad [rc $RUN_RC]"
   _calls_ran && bad="$bad [something ran]"
   rec="$(_record)"
@@ -1095,7 +1097,7 @@ e5() {   # registered but silent + skip: the adopted project's own gate blocks, 
   _case e5 >/dev/null
   _register "$CFG/.claude.json" qdrant
   : > "$ST/docker-up"; : > "$ST/qdrant-exists"
-  _adopt "1\nskip it\n$(_n1 12)"
+  _adopt "1\nstandard\nskip it\n$(_n1 12)"
   [ "$RUN_RC" -eq 0 ] || bad="$bad [rc $RUN_RC]"
   ( cd "$P" && env HOME="$H" CLAUDE_CONFIG_DIR="$CFG" bash scripts/session-test-gate-check.sh </dev/null >/dev/null 2>&1 )
   g="$( cd "$P" && printf '{"tool_name":"Write"}' | env HOME="$H" CLAUDE_CONFIG_DIR="$CFG" bash scripts/session-mcp-gate.sh 2>&1 )"
@@ -1112,7 +1114,7 @@ e6() {   # THE DOGFOOD SHAPE: registered only in ~/.claude.json, a clean
   _case e6 >/dev/null
   _register "$H/.claude.json" qdrant; _register "$H/.claude.json" context7
   : > "$ST/docker-up"; : > "$ST/qdrant-up"; : > "$ST/qdrant-exists"
-  _adopt "1\nskip it\n$(_n1 12)"
+  _adopt "1\nstandard\nskip it\n$(_n1 12)"
   [ "$RUN_RC" -eq 0 ] || bad="$bad [rc $RUN_RC]"
   grep -q 'Qdrant (memory across sessions): NOT registered for Claude Code.' "$C/out" || bad="$bad [the ~/.claude.json registration was read]"
   [ -e "$P/.claude/settings.local.json" ] && bad="$bad [a Qdrant declaration was written for a session that has no Qdrant]"

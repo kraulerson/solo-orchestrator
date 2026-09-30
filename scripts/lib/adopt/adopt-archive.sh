@@ -183,6 +183,17 @@ AI
     printf '%s\t%s\t%s\n' "APPROVAL_LOG.md" "approval-log" "APPROVAL_LOG.md"
   fi
 
+  # ── `.claude/manifest.json` — `## BL-311:` row 2 ──────────────────────────
+  # Only ever the Development Guardrails' own manifest: the preflight refuses
+  # every other one (`# BL-311-GUARDRAILS-ONLY`). The `manifest` stage MERGES
+  # this framework's keys into it and changes none of theirs, so its
+  # disposition is `composed`, like settings.json's — but adoption still
+  # rewrites the file, and I20 (`_adopt_overwrite_inventory_check`) is right to
+  # require the copy: without this row every such adoption BLOCKED there.
+  if [ -f "$root/.claude/manifest.json" ]; then
+    printf '%s\t%s\t%s\n' ".claude/manifest.json" "guardrails-manifest" ".claude/manifest.json"   # BL-311-MANIFEST-ARCHIVE
+  fi
+
   # ── `script` — the install set's collisions (D1 framework-wins) ──────────
   # Every framework script the adoptee ALREADY owns. Until WP11 the installer
   # skipped these, so they were never replaced and needed no row; framework-wins
@@ -795,6 +806,9 @@ adopt_archive_write() {
       .git/hooks/pre-commit)
         if [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-HOOK
       APPROVAL_LOG.md)       dispo="replaced" ;;   # BL-242-ARCHIVE-DISPO
+      # `## BL-311:` row 2 — their Guardrails keys stay, this framework's are
+      # added beside them (`adopt_write_manifest` merges; it never rewrites).
+      .claude/manifest.json) dispo="composed" ;;   # BL-311-MANIFEST-DISPO
       # §7.2's row table gives these three `replaced`, and the comment above
       # states the rule they broke: `kept` means "the operator's original is
       # still at the path", which is FALSE in the document an auditor reads.
