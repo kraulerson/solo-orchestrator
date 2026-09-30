@@ -22216,8 +22216,9 @@ adoption replaces them (`## BL-242:`, "Karl's ruling on hook managers").
 **Status:** Open — Karl approved fixing every row (2026-09-28), then a FULL CLEAN RERUN. Each row closes
 by its own PR; the entry closes when the rerun passes.
 
-**Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). The entry stays Open
-until the clean rerun passes.
+**Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). Group B (rows 2 and 8)
+merged as PR #490 (merge commit `3e737f6`, 2026-09-30). The entry stays Open until the clean rerun
+passes.
 
 **What ran.** A fresh Claude Code session (Sonnet, a clean `CLAUDE_CONFIG_DIR`) played a systems
 technician with one to two years of experience — not a developer — installing Solo Orchestrator from
@@ -22265,6 +22266,21 @@ recorded, not fixed:
 - **R-BL311-15** — the `[::]` → `[::1]` rewrite of `docker port` output does not answer on Docker
   Desktop for an IPv6-only publish (measured on Docker Desktop 29.2.1: `[::1]` → 000, `127.0.0.1` →
   200). It stops safely.
+
+**Found during groups A–B, not fixed here.** One line each, with what was measured:
+- **No documented undo.** The repo documents no way to undo an adoption; `--re-add
+  .claude/manifest.json` now refuses (`# BL-311-MANIFEST-READD-REFUSE`) and says so.
+- **`run_with_deadline` never fires without `date` on PATH.** `# BL-235-DEADLINE`
+  (`scripts/lib/helpers-core.sh`) reads its clock with `date +%s`: `run_with_deadline 2 sleep 5` with
+  no `date` on PATH ran the full 5s, rc 0 (re-measured 2026-09-30). The fix would be bash's `$SECONDS`.
+- **wp9b's AM1 compares empty with empty.** `tests/test-brownfield-wp9b-preflight-approval.sh` AM1
+  calls `_files_written` about 320 lines before that function is defined, so its "adoptee untouched"
+  leg compares `""` with `""`.
+- **`workflow.html` still says "the one question".** Step B's heading, its "The one question the scan
+  cannot answer" `<h4>`, the paragraph under it, and the glossary entry for adoption — adoption now
+  asks two (the tier, then the track).
+- **A one-off 36-minute stall** of case S17 in `tests/test-bl311-adopt-mcp.sh`, the shell blocked in
+  `run_with_deadline`'s `sleep 0.1`; not reproduced in 282 stress runs. Cause not isolated.
 
 ## BL-312: an opt-in "TL;DR mode" for the person the agent works for — greenfield and brownfield
 
