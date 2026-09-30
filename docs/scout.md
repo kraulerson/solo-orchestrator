@@ -130,9 +130,32 @@ has a credential behind it.
 
 - **Package managers in use:** none found
 - **Build / manifest files:** package.json
-- **How the tests are run:** `node test/run.js` (found in package.json scripts.test)
+- **How the tests are run:** `npm test` (found in package.json scripts.test (`node test/run.js`); run through npm because no lockfile names a package manager, and npm ships with Node)
 - **Where the automated checks live:** github
 ```
+
+**The test command goes through the project's package manager** (`## BL-311:`
+row 4). A tool the project installs lives in the environment its manager keeps —
+`.venv` for uv, `node_modules/.bin` for npm — which is not on `PATH`, so a bare
+`pytest` or a `scripts.test` body such as `vitest run` exits 127 on a suite that
+passes. The dogfood run that found this reported exit 127 for a suite passing
+1071/0. So:
+
+| Found | Command Scout runs and reports |
+|---|---|
+| `pytest` config, and `uv.lock` / `poetry.lock` / `pdm.lock` / `Pipfile.lock` or `Pipfile` | `uv run pytest` / `poetry run pytest` / `pdm run pytest` / `pipenv run pytest` |
+| `pytest` config, `requirements.txt` or no manager | `pytest`, unchanged — your activated environment is the `PATH` |
+| `package.json` `scripts.test`, and `pnpm-lock.yaml` / `yarn.lock` / `package-lock.json` / `bun.lock` or `bun.lockb` / `deno.lock` | `pnpm test` / `yarn test` / `npm test` / `bun run test` / `deno task test` |
+| `package.json` `scripts.test`, no lockfile | `npm test` — npm ships with Node |
+
+`bun run test`, not `bun test`: `bun test` is Bun's own test runner and never
+reads `scripts.test`. The evidence (the `source` field, "found in …" above) says
+which file chose the manager, and keeps the script body. **When several managers
+are in evidence** — a project that moved from poetry to uv often keeps the old
+lockfile a while — Scout takes the first in lockfile precedence (uv, then poetry,
+then pdm, then pipenv; pnpm, then yarn, then npm, then bun, then deno), names the
+others it saw, and asks you to confirm which one the project uses. A declared
+`make test` target is still used as it is.
 
 ### `phaseMap` — how far along the project looks
 
@@ -149,7 +172,7 @@ This is a ceiling, not a verdict: maximum satisfied rung; evidence for the Phase
 |---|---|---|
 | 1 | yes | README.md (the product is described in writing) |
 | 2 | yes | docs/ARCHITECTURE.md (the technical shape is documented) |
-| 3 | yes | test corpus at test/, runnable with `node test/run.js` |
+| 3 | yes | test corpus at test/, runnable with `npm test` |
 | 4 | yes | .github/workflows/deploy.yml (a deploy or release lane) |
 ```
 
@@ -171,7 +194,7 @@ Observed on a fixture whose rungs are yes / no / no / yes:
   "rungs": [
     { "rung": 1, "evidence": "README.md (the product is described in writing)", "satisfied": true },
     { "rung": 2, "evidence": "no architecture or design document found — looked for PROJECT_BIBLE.md, ARCHITECTURE.md, DESIGN.md, docs/architecture*, docs/design*, docs/adr*, docs/rfcs", "satisfied": false },
-    { "rung": 3, "evidence": "a test command exists (`node test/run.js`) but no test corpus was found", "satisfied": false },
+    { "rung": 3, "evidence": "a test command exists (`npm test`) but no test corpus was found", "satisfied": false },
     { "rung": 4, "evidence": ".github/workflows/deploy.yml (a deploy or release lane)", "satisfied": true }
   ],
   "note": "maximum satisfied rung; evidence for the Phase 0 intake, never a placement"
@@ -317,7 +340,7 @@ up. Bounded by `SCOUT_TEST_TIMEOUT` (default 300 seconds). Observed:
 
 ```json
 {
-  "testCommand": { "value": "node test/run.js", "source": "package.json scripts.test" },
+  "testCommand": { "value": "npm test", "source": "package.json scripts.test (`node test/run.js`); run through npm because no lockfile names a package manager, and npm ships with Node" },
   "commandRan": true,
   "reason": "Run once, with its output discarded rather than captured — test output is free text and free text is where a credential ends up.",
   "exitCode": 0,
@@ -331,7 +354,10 @@ up. Bounded by `SCOUT_TEST_TIMEOUT` (default 300 seconds). Observed:
 
 **Scout's read-only guarantee covers Scout. It does not cover your test
 command.** A test suite that writes fixtures, touches a database, or hits the
-network will do all of that under `--run-tests`. That is exactly why the flag is
+network will do all of that under `--run-tests` — and so will the package
+manager it runs through: `uv run`, for one, checks the lockfile and syncs the
+project's environment before every run, which can create `.venv` and download
+packages. That is exactly why the flag is
 opt-in: a scanner that runs an unknown repository's test command by default is a
 trap, not a convenience.
 
@@ -348,7 +374,7 @@ The setup interview asks about fifteen things. Scout classifies each one:
 | …
 | Data & Integrations (incl. 5.5 Data Classification & ZDR) | **you must answer this one** | there is no way to work it out from your files, and the project cannot move forward without it |
 | …
-| Testing & Bug Tracking | `node test/run.js` | package.json scripts.test |
+| Testing & Bug Tracking | `npm test` | package.json scripts.test (`node test/run.js`); run through npm because no lockfile names a package manager, and npm ships with Node |
 | Tooling Configuration | `(none detected)` | no package manager was in evidence |
 | Agent Initialization Prompt | `(generated from the completed intake)` | run_section_13 writes it from the answers above; it asks no question of its own |
 ```
