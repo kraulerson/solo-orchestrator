@@ -58,6 +58,19 @@ exit() {
   echo; echo "Results: ${PASSED:-0} passed, $(( ${FAILED:-0} + 1 )) failed, ${SKIPPED:-0} skipped"; builtin exit 1
 }
 . "$_BL311_CASES"
+# LOADING MUST HAVE DEFINED WHAT THE MUTANTS USE — checked before anything
+# expands a counter (`## BL-311:` review round 1, R-BL311B-4). With the cases
+# file's `# BL-311-MCP-SPLIT` return moved above its counters, sourcing returns
+# before PASSED or fail_ exist, and the unbound PASSED in the arithmetic `if`
+# below stops the shell — WITH rc 0 on /bin/bash 3.2.57 and rc 1 on 5.2.37,
+# measured on a two-line probe — without calling the `exit` above, so this file
+# passed with no Results line on this Mac. `${PASSED+x}` tests for the variable
+# without expanding it.
+if [ -z "${PASSED+x}" ] || [ -z "${FAILED+x}" ] || [ -z "${SKIPPED+x}" ] \
+   || ! declare -F pass fail_ skip _done >/dev/null 2>&1; then   # BL-311-MUTANTS-LOADED
+  echo "  [FAIL] $_BL311_AT — it defined no PASSED/FAILED/SKIPPED or no pass/fail_/skip/_done, so it returned before them (# BL-311-MCP-SPLIT above its counters?) and no mutant can be judged"
+  echo; echo "Results: 0 passed, 1 failed, 0 skipped"; builtin exit 1
+fi
 _BL311_AT="judging the mutants"
 if [ $((PASSED + FAILED + SKIPPED)) -ne 0 ]; then
   fail_ "loading the cases" "$((PASSED + FAILED + SKIPPED)) outcome(s) were counted while sourcing it — it ran cases, not only their definitions (# BL-311-MCP-SPLIT)"
