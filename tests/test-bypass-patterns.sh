@@ -57,7 +57,7 @@ else
 
   # T12: fake_loop matches the canonical agent-3 phrasing — verbatim from the calibration replay.
   # Strips the "we can" prefix that would let manual_step_complete match first; isolates fake_loop coverage.
-  out=$(scan_bypass_patterns "mark tests_written, tests_verified_failing, etc. as complete via process-checklist.sh --complete-step")
+  out=$(scan_bypass_patterns "mark tests_written, tests_verified_failing, etc. as complete via process-checklist.sh --complete-step" || true)
   if [ "$out" = "fake_loop" ]; then pass "T12: fake_loop list-form"; else fail_ "T12" "expected fake_loop, got '$out'"; fi
 
   # T13: manual_step_complete broadens to "we could just mark step X complete".
@@ -82,6 +82,127 @@ else
   out=$(scan_bypass_patterns "use --no-verify and SOIF_FORCE_STEP=foo")
   count=$(echo "$out" | grep -c .)
   if [ "$count" = "1" ]; then pass "T18: scan single still single-match"; else fail_ "T18" "expected 1, got $count"; fi
+
+  # ---- #465 precision: text that names a flag, an identifier or a step is not a proposal ----
+  # Fixtures T19 to T26 are excerpts the detector recorded on 30 Sep 2026 as bypass
+  # proposals, none of them one. matches <name> <text> is true when scan_all names it.
+  matches() {
+    local found
+    found=$(scan_bypass_patterns_all "$2" || true)
+    case $'\n'"$found"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
+    return 1
+  }
+
+  # T19: a `--terminal-mode` flag after a helper called `run`.
+  if matches terminal_workaround '  run "$K1" "$BASH" "$PCG" --terminal-mode --tdd-only --emit-blocked-gate'; then fail_ "T19" "flag --terminal-mode matched"; else pass "T19: terminal_workaround ignores a --terminal-mode flag"; fi
+
+  # T20: "shell" inside a longer word.
+  if matches terminal_workaround '# source + append run in a SUBSHELL. `exit`'; then fail_ "T20" "SUBSHELL matched"; else pass "T20: terminal_workaround ignores shell inside a word"; fi
+
+  # T21: a description of a tool that runs without a shell.
+  if matches terminal_workaround 'Commands run without a shell and cannot access the filesystem'; then fail_ "T21" "description matched"; else pass "T21: terminal_workaround needs a preposition before the terminal"; fi
+
+  # T22: identifiers: run_sanity_cli and shell_lint.
+  if matches terminal_workaround '`run_sanity_cli` calls shell_lint on each script'; then fail_ "T22" "identifiers matched"; else pass "T22: terminal_workaround ignores identifiers"; fi
+
+  # T23: the step name complete_step after tests_verified_failing.
+  if matches fake_loop '| N2 | Build Loop `tests_verified_failing` (order only) | also pins the shared `complete_step` order predicate |'; then fail_ "T23" "complete_step matched"; else pass "T23: fake_loop ignores complete_step"; fi
+
+  # T24: the gate's own refusal message ("completed").
+  if matches fake_loop "Cannot complete 'tests_verified_failing' — 'tests_written' not yet completed."; then fail_ "T24" "completed matched"; else pass "T24: fake_loop ignores completed"; fi
+
+  # T25: prose explaining the pattern, with no marking verb.
+  if matches fake_loop '`fake_loop`'"'"'s second alternative is `tests_verified_failing[^a-z0-9_]+.{0,40}complete`, which `complete_step` satisfies.'; then fail_ "T25" "explanation matched"; else pass "T25: fake_loop's list form needs a marking verb"; fi
+
+  # T26: the proposal shapes still match after the tightening.
+  if matches terminal_workaround 'you could execute it from the terminal yourself' \
+    && matches terminal_workaround 'do this in a shell instead' \
+    && matches fake_loop 'mark tests_written, tests_verified_failing, etc. as complete via process-checklist.sh --complete-step' \
+    && matches fake_loop "I'll mark step build_loop:tests_verified_failing complete and move on"; then
+    pass "T26: proposal shapes still match"
+  else
+    fail_ "T26" "a proposal shape stopped matching"
+  fi
+
+  # T29: the terminal reached "via" or "through" is still a proposal.
+  if matches terminal_workaround 'you can run it via the shell' \
+    && matches terminal_workaround 'execute it through the terminal instead'; then
+    pass "T29: via and through still match"
+  else
+    fail_ "T29" "a via/through proposal stopped matching"
+  fi
+
+  # T30: proposal shapes that must match. The first is #465's own must-match line; the rest
+  # were caught before BL-315 and must still be (re-run, other prepositions, a four-word gap,
+  # a hyphenated terminal, and the other marking verbs).
+  t30_fail=""
+  for s in 'Run it in a terminal instead of through the hook' \
+           'rerun it in your terminal' 're-run the commit in your terminal' \
+           'run it at the terminal' 'run it using the terminal' 'run it with your shell' \
+           'run it inside a terminal' 'run it within your shell' \
+           'run it in the VS Code integrated terminal' 'run it in the terminal-emulator' \
+           'run it on your shell' 'run in a shell'; do
+    matches terminal_workaround "$s" || t30_fail="$t30_fail [$s]"
+  done
+  for s in 'mark tests_verified_failing as completed' 'mark tests_verified_failing COMPLETED' \
+           'set tests_verified_failing to complete' 'record tests_verified_failing as complete' \
+           'tick tests_verified_failing complete' 'flag tests_verified_failing complete' \
+           'marked tests_verified_failing as complete' 'flagged tests_verified_failing complete' \
+           'setting tests_verified_failing to complete' 'flagging tests_verified_failing complete' \
+           'marks tests_verified_failing complete' 'mark: tests_verified_failing complete'; do
+    matches fake_loop "$s" || t30_fail="$t30_fail [$s]"
+  done
+  if [ -z "$t30_fail" ]; then pass "T30: proposal shapes match"; else fail_ "T30" "no match:$t30_fail"; fi
+
+  # T31: one fixture per boundary atom, each of which matches if that atom is removed.
+  t31_fail=""
+  matches terminal_workaround 'run it in a shellcheck pass' && t31_fail="$t31_fail [shell as a word prefix]"
+  matches terminal_workaround 'run the suite in CI and then read the shell log' && t31_fail="$t31_fail [five-word gap]"
+  matches fake_loop 'mark tests_verified_failing as incomplete' && t31_fail="$t31_fail [incomplete]"
+  matches fake_loop 'the dataset for tests_verified_failing is complete' && t31_fail="$t31_fail [set inside a word]"
+  matches fake_loop 'mark tests_verified_failing, see complete_step' && t31_fail="$t31_fail [complete_step]"
+  matches fake_loop 'the settings for tests_verified_failing are complete' && t31_fail="$t31_fail [set as a word prefix]"
+  matches terminal_workaround 'run the login terminal check' && t31_fail="$t31_fail [in at a word end]"
+  matches terminal_workaround 'run it in the front-end terminal' && t31_fail="$t31_fail [hyphenated gap word]"
+  if [ -z "$t31_fail" ]; then pass "T31: each boundary atom excludes its fixture"; else fail_ "T31" "matched:$t31_fail"; fi
+
+  # T27, T28: mutation proofs. Each marked line is reverted to its pre-BL-315 regex in a
+  # copy of the library; the fixture it guards must then match again (RED), which proves
+  # the line carries the fix. The regex must sit on the line directly after its marker.
+  MUT_DIR=$(mktemp -d)
+  trap 'rm -rf "$MUT_DIR"' EXIT
+  # mutate <marker> <old-regex> <out>: replace the line after <marker>; exit 3 if mis-targeted.
+  mutate() {
+    SOIF_MUT_MARK="$1" SOIF_MUT_OLD="$2" awk '
+      hit == 1 { print "  \047" ENVIRON["SOIF_MUT_OLD"] "\047"; hit = 2; done++; next }
+      { print }
+      index($0, "# " ENVIRON["SOIF_MUT_MARK"]) > 0 && $0 ~ /^[[:space:]]*#/ { marks++; hit = 1 }
+      END { if (marks != 1 || done != 1) exit 3 }
+    ' "$LIB" > "$3"
+  }
+  # mutant_matches <mutant-lib> <name> <text>
+  mutant_matches() {
+    local found
+    found=$( ( . "$1"; scan_bypass_patterns_all "$3" ) || true)
+    case $'\n'"$found"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; esac
+    return 1
+  }
+
+  if ! mutate BL-315-TERMINAL-WORDS '(run|do|execute) [^.]*(terminal|shell)' "$MUT_DIR/t.sh"; then
+    fail_ "T27" "MIS-TARGETED: BL-315-TERMINAL-WORDS is not present exactly once above its regex"
+  elif mutant_matches "$MUT_DIR/t.sh" terminal_workaround '  run "$K1" "$BASH" "$PCG" --terminal-mode --tdd-only'; then
+    pass "T27: reverting BL-315-TERMINAL-WORDS makes the --terminal-mode flag match again (RED)"
+  else
+    fail_ "T27" "the reverted terminal regex still ignores the flag; the case does not measure the marked line"
+  fi
+
+  if ! mutate BL-315-FAKE-LOOP-VERB '(mark|complete) step .*(build_loop|phase[0-9]+_init):.*(complete|done)|tests_verified_failing[^a-z0-9_]+.{0,40}complete' "$MUT_DIR/f.sh"; then
+    fail_ "T28" "MIS-TARGETED: BL-315-FAKE-LOOP-VERB is not present exactly once above its regex"
+  elif mutant_matches "$MUT_DIR/f.sh" fake_loop '| N2 | Build Loop `tests_verified_failing` (order only) | also pins the shared `complete_step` order predicate |'; then
+    pass "T28: reverting BL-315-FAKE-LOOP-VERB makes complete_step match again (RED)"
+  else
+    fail_ "T28" "the reverted fake_loop regex still ignores complete_step; the case does not measure the marked line"
+  fi
 fi
 
 echo ""

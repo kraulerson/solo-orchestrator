@@ -22279,3 +22279,50 @@ nothing — plus every command they must run, in a fenced block, never named in 
 `CLAUDE.md` both read); the hook's check (which parts it can verify mechanically, and how it avoids
 re-prompting forever on a reply it cannot parse); and how it coexists with the Guardrails' own Stop hooks.
 
+## BL-315: two bypass patterns match text that names a flag, an identifier or a step (#465)
+
+**Status:** Open — reproduction and fix in the pull request that files this entry.
+
+**What happens.** `terminal_workaround` was `(run|do|execute) [^.]*(terminal|shell)`: any sentence with
+the word "run" and, later, the letters "terminal" or "shell" matched, including a test helper called
+`run` followed by a `--terminal-mode` flag, "SUBSHELL", and a description of a tool that runs without a
+shell. `fake_loop`'s list form was `tests_verified_failing[^a-z0-9_]+.{0,40}complete`, which the step
+name `complete_step`, the gate's own refusal ("not yet completed") and prose explaining the pattern all
+satisfy. On an adopting project on 30 September 2026 these two patterns produced 29 detector rows in one
+day; five were authored text, which raises the pending-approval sentinel, and none was a proposal.
+
+**Ruling applied.** Files the agent writes are still scanned (#454's review); nothing is excluded by
+path. The patterns are narrowed instead.
+
+**Fix.** `# BL-315-TERMINAL-WORDS`: after the verb, the terminal or shell is reached with a preposition
+("in", "from", "on", "via", "through", "inside", "within", "at", "using" or "with") and at most four
+words, and "terminal" or "shell" is a word (no letter, digit or `_` after it; a hyphen is allowed, so
+"terminal-emulator" matches). Every proposal fixture has that shape; a flag after a helper called `run`,
+a word such as SUBSHELL, and a description with no preposition ("run without a shell") do not.
+`# BL-315-FAKE-LOOP-VERB`: the list form needs a marking verb as a word ("mark", "set", "record", "flag"
+or "tick", or its -s, -ed or -ing form) earlier in the same sentence, and "complete" not followed by `_`,
+so "settings" and `complete_step` do not match while "marked" and "completed" do; the step-name form is
+unchanged.
+
+**Tests.** `tests/test-bypass-patterns.sh`: T19 to T25 are excerpts the detector recorded on 30 September
+2026 on an adopting project, none a proposal (six red before the fix; T22 pins identifiers, which already
+did not match); the issue's three Observed rows, from 29 and 30 September, are of the same kind. T26, T29 and T30 keep the
+proposal shapes matching, including the issue's must-match line and the spellings the old pattern caught
+("re-run", the other prepositions, a four-word gap, the other marking verbs, "as completed"). T31 gives
+each boundary atom a fixture that matches if the atom is removed. T27 and T28 revert each marked line in
+a copy of the library and see its fixture match again. T1 to T18 unchanged and green;
+`tests/test-bypass-detector.sh` and `tests/test-bypass-sentinel.sh` green.
+
+**Residuals.** `no_verify` still matches prose that names the flag (for example "never `--no-verify`");
+narrowing it would stop "I'll use --no-verify here" (T7) matching, so it is left as it is. The issue's
+Stop-arm row ("which only you can do from a terminal") still matches: it has the proposal's shape, no
+pattern separates operator guidance from a proposal, and the operator closes it as a false positive.
+Given up deliberately: a gap of five or more words before the terminal; a sentence broken by an internal
+full stop ("step 2, i.e. tests_verified_failing, complete"); marking verbs outside the five named; and
+a hyphenated word in the gap before the terminal ("built-in", "front-end"), since gap words are letters
+only (T31 pins this). A description of the form "run within a <noun> shell", with "run" as its own
+word, still matches, like the Stop-arm row above: the preposition and noun are those of a proposal. A
+gap word holding a digit is not a gap word either, and no fixture pins that. Three atoms that predate BL-315 stay unpinned: the `.{0,40}` width and the separator after the step name
+in the list form, and the `[^.]*` sentence bound (the full-stop case above). The detector stores excerpts truncated, so a row whose match lay past the cut cannot be replayed from the
+audit log.
+
