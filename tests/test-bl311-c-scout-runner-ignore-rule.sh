@@ -34,9 +34,11 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  [PASS] $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  [FAIL] $1"; }
 chk() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (want '$3', got '$2')"; fi; }
-has() { if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1"; else bad "$1 (missing '$3')"; fi; }
-hasnt() { if printf '%s' "$2" | grep -qF -- "$3"; then bad "$1 (must not say '$3')"; else ok "$1"; fi; }
-nlines() { printf '%s\n' "$1" | grep -cF -- "$2"; }
+# Here-strings, not `printf | grep -q`: under pipefail an early-exiting grep
+# can SIGPIPE the writer and read as a miss (the class main fixed in #422).
+has() { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing '$3')"; fi; }
+hasnt() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (must not say '$3')"; else ok "$1"; fi; }
+nlines() { grep -cF -- "$2" <<<"$1"; }
 
 echo "== BL-311 rows 4 and 5 — Scout's test runner, and the ignore rule that refuses =="
 for t in git jq; do
@@ -467,7 +469,7 @@ mut() {   # LABEL REL-FILE MARKER FROM TO CASE-FN WANT
   out="$( LIBROOT="$m"; PASS=0; FAIL=0; "$fn" 2>&1 )"
   why="$(printf '%s\n' "$out" | grep '\[FAIL\]' | sed 's/^ *\[FAIL\] //' | tr '\n' ' ')"
   if [ -z "$why" ]; then bad "$label — the mutant SURVIVED $fn"
-  elif printf '%s' "$why" | grep -qF -- "$want"; then ok "$label — killed by '$want'"
+  elif grep -qF -- "$want" <<<"$why"; then ok "$label — killed by '$want'"
   else bad "$label — killed, but not by '$want': $(printf '%s' "$why" | cut -c1-240)"; fi
   rm -rf "$m"
 }
