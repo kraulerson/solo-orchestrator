@@ -18,13 +18,24 @@
 #   the Guardrails side — the real 4.3.0 shape adopts (A1), and adopting it
 #     changes none of the operator's Guardrails settings (A2-A5).
 #
+# AND THE ARCHIVED MANIFEST IS NEVER PUT BACK (A6, A7 — review round 1,
+# R-BL311B-1). Adoption changes none of the operator's keys, so the archived
+# copy returns nothing of theirs — and it predates the adoption stamp, so
+# restoring it removed the stamp and every tier key: the phase gate then said
+# "Adoption stamp LOST", and after a commit "Phase gates consistent." `--re-add
+# .claude/manifest.json` refuses (A6), and neither the disclosure nor
+# MANIFEST.md prints a `cp` line for it (A7).
+#
 # ROW 8 — adoption wrote `track: "full"` (enterprise) for a free offline hobby
 # app, because the track was a constant. It is ASKED now, beside the tier
 # question, with init.sh's three descriptions and its two rules (Full on a
 # personal project is re-confirmed; Light needs a Private POC, which adoption
 # never lands, so Light is re-asked). End of input refuses, as every adoption
-# question does — it never picks a track. Both state files record the one
-# answer (T1-T6).
+# question does — it never picks a track; the question has FOUR reads (the
+# track, the Full re-confirmation, the track again after declining Full, the
+# Light re-ask) and T6 ends the input at each. Both state files record the one
+# answer (T1-T5, T7 for Full on an organizational project), and both writers
+# refuse a track that is not exactly light, standard or full (T8).
 set -uo pipefail
 # `## BL-311:` the adoption driver's MCP step can ask a question and run
 # `claude mcp add` / `docker` on a machine that has `claude` and is missing a
@@ -157,16 +168,58 @@ a4() {
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 a5() {
-  local label="A5 the run says the Guardrails settings in the manifest were kept, and where the original is"
+  local label="A5 the run says the Guardrails settings in the manifest were kept, and points to no restore" bad=""
   [ "$PARC" -eq 0 ] || { fail_ "$label" "adoption did not complete (A1)"; return; }
-  if grep -q 'Their settings in .claude/manifest.json (profile desktop-app, 13 rules, 14 hooks) are kept' "$WORK/pa.out" \
-     && grep -q 'adoption adds this framework.s keys beside them and changes none of theirs' "$WORK/pa.out"; then
-    pass "$label"
-  else
-    fail_ "$label" "not said: $(grep -A3 'already has the Guardrails' "$WORK/pa.out" | tr '\n' '|')"
-  fi
+  grep -q 'Their settings in .claude/manifest.json (profile desktop-app, 13 rules, 14 hooks) are kept' "$WORK/pa.out" \
+    && grep -q 'adoption adds this framework.s keys beside them and changes none of theirs' "$WORK/pa.out" \
+    || bad="$bad [not said: $(grep -A3 'already has the Guardrails' "$WORK/pa.out" | tr '\n' '|')]"
+  # R-BL311B-1: the note used to end "with the line that puts it back".
+  grep -A4 'already has the Guardrails' "$WORK/pa.out" | grep -qi 'puts it back' && bad="$bad [the note still points to a restore]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
-a1; a2; a3; a4; a5
+# A6 and A7 — `## BL-311:` review round 1, R-BL311B-1. Run on a COPY of the
+# adopted tree, so a mutant that lets the restore through changes nothing the
+# other cases read.
+a6() {
+  local label="A6 --re-add .claude/manifest.json is refused: the stamp and every tier key stay, nothing is recorded, nothing is asked" p="$WORK/pa6" bad="" rc=0 pre=""
+  [ "$PARC" -eq 0 ] || { fail_ "$label" "adoption did not complete (A1)"; return; }
+  cp -R "$PA" "$p" || { fail_ "$label" "could not copy the adopted tree"; return; }
+  cp "$p/.claude/manifest.json" "$WORK/pa6-manifest.before"
+  pre="$(jq -c '{adopted: .adoption.adopted, missing: (["host","mode","deployment","poc_mode","enforcement_level","remote_url"] - keys)}' "$WORK/pa6-manifest.before" 2>&1)"
+  [ "$pre" = '{"adopted":true,"missing":[]}' ] \
+    || { fail_ "$label" "the adopted manifest does not carry the stamp and the six tier keys to begin with: $pre"; return; }
+  # `1` is "Yes — put it back": the answer that restored the file before the fix.
+  ( cd "$p" && printf '1\n' | bash "$REPO_ROOT/scripts/adopt-project.sh" --re-add .claude/manifest.json ) > "$WORK/pa6.out" 2>&1 || rc=$?
+  [ "$rc" -eq 1 ] || bad="$bad [rc $rc, not 1]"
+  grep -qF '[REFUSED] .claude/manifest.json is not put back: nothing of yours in it was changed' "$WORK/pa6.out" \
+    || bad="$bad [not the refusal: $(grep -m1 -E 'REFUSED|BLOCKED|is back' "$WORK/pa6.out")]"
+  grep -q 'would remove the adoption stamp' "$WORK/pa6.out" || bad="$bad [the refusal does not say what restoring it would do]"
+  grep -q 'Do you want to put your own' "$WORK/pa6.out" && bad="$bad [the question was asked]"
+  cmp -s "$WORK/pa6-manifest.before" "$p/.claude/manifest.json" \
+    || bad="$bad [the manifest changed: adoption=$(jq -c '.adoption.adopted' "$p/.claude/manifest.json" 2>/dev/null) deployment=$(jq -c '.deployment' "$p/.claude/manifest.json" 2>/dev/null)]"
+  jq -e '[.[] | select(.details.event == "collision_re_add")] | length == 0' "$p/.claude/bypass-audit.json" >/dev/null 2>&1 \
+    || bad="$bad [a collision_re_add row was recorded]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+a7() {
+  local label="A7 the disclosure and MANIFEST.md print no cp line for the manifest — they say nothing of theirs changed and not to restore it" bad="" arc=""
+  [ "$PARC" -eq 0 ] || { fail_ "$label" "adoption did not complete (A1)"; return; }
+  arc="$(cd "$PA" && ls -d .claude/adoption-archive/*/ 2>/dev/null | head -1)"; arc="${arc%/}"
+  [ -n "$arc" ] || { fail_ "$label" "no adoption archive"; return; }
+  grep -qF "put it back: cp $arc/.claude/manifest.json" "$WORK/pa.out" && bad="$bad [the disclosure prints a cp line for it]"
+  grep -A4 'yours: \.claude/manifest\.json' "$WORK/pa.out" | grep -q 'Nothing of yours was changed' || bad="$bad [the disclosure does not say nothing of theirs changed]"
+  grep -A4 'yours: \.claude/manifest\.json' "$WORK/pa.out" | grep -q 'Do not put it back' || bad="$bad [the disclosure does not say not to restore it]"
+  grep -F '| `.claude/manifest.json` |' "$PA/$arc/MANIFEST.md" | grep -q 'cp ' && bad="$bad [MANIFEST.md prints a cp line for it]"
+  grep -F '| `.claude/manifest.json` |' "$PA/$arc/MANIFEST.md" | grep -q 'Do not put it back' || bad="$bad [MANIFEST.md does not say not to restore it]"
+  jq -e '[.entries[] | select(.originalPath == ".claude/manifest.json" and .restore == null and ((.doNotRestore // "") | length > 0))] | length == 1' \
+    "$PA/$arc/MANIFEST.json" >/dev/null 2>&1 || bad="$bad [MANIFEST.json still carries a restore command for it]"
+  # THE CONTROL: every other file keeps its line, so "no cp line" is not the
+  # whole disclosure having lost them.
+  grep -qF "put it back: cp $arc/.claude/settings.json .claude/settings.json" "$WORK/pa.out" || bad="$bad [control: settings.json lost its restore line]"
+  grep -F '| `.claude/settings.json` |' "$PA/$arc/MANIFEST.md" | grep -q 'cp ' || bad="$bad [control: MANIFEST.md lost settings.json's restore line]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+a1; a2; a3; a4; a5; a6; a7
 
 echo
 echo "=== K — the Solo key list, derived from its writers ==="
@@ -321,12 +374,17 @@ t5() {
   [ "$(_tracks "$p")" = "full|full" ] || bad="$bad [recorded $(_tracks "$p")]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
-t6() {  # end of input at each of the three reads: refused, nothing written, never "full"
+t6() {  # end of input at each of the FOUR reads: refused, nothing written, never "full"
+  # `adopt_ask_track` reads four times: the track; the Full re-confirmation;
+  # the track again after declining Full (`afterfull`, review round 1,
+  # R-BL311B-3 — unpinned until then, so `|| true` on that read survived and
+  # wrote `track: ""`); and the Light re-ask.
   local c ans lbl p bad="" all=""
-  for c in first reconfirm reask; do
+  for c in first reconfirm afterfull reask; do
     case "$c" in
       first)     ans='1\n';          lbl='the project track' ;;
       reconfirm) ans='1\nfull\n';    lbl='whether to keep the Full track' ;;
+      afterfull) ans='1\nfull\nchoose a different track\n'; lbl='the project track' ;;
       reask)     ans='2\nlight\n';   lbl='the project track' ;;
     esac
     p="$WORK/t6-$c"; _base "$p"; _commit "$p" pyproject.toml src/app.py
@@ -342,10 +400,67 @@ t6() {  # end of input at each of the three reads: refused, nothing written, nev
     [ ! -e "$p/.claude/phase-state.json" ] || bad="$bad [phase-state written: $(_tracks "$p")]"
     [ -z "$bad" ] || all="$all {$c:$bad}"
   done
-  [ -z "$all" ] && pass "T6 end of input at the track question, the re-confirmation and the re-ask refuses — no track is ever picked" \
+  [ -z "$all" ] && pass "T6 end of input at each of the four reads — the track, the Full re-confirmation, the track after declining Full, the Light re-ask — refuses; no track is ever picked" \
     || fail_ "T6 end of input refuses at every track read" "$all"
 }
-t1; t2; t3; t4; t5; t6
+t7() {  # review round 1, R-BL311B-2: the Full rule's ORGANIZATIONAL side
+  # Only a personal project is warned about Full. Dropping the `personal`
+  # condition survived every case until this one. Three spare answers at the
+  # end let a mutant that asks too much still reach the intake stage, so it
+  # dies on the named assertions below and not on running out of input.
+  local label="T7 Full on an organizational project is neither warned about nor re-confirmed, and both files record full" p="$WORK/t7" bad=""
+  _base "$p"; _commit "$p" pyproject.toml src/app.py
+  _adopt "$p" t7 '2\nfull\n1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n1\n' intake
+  grep -q 'Full track is designed for organizational projects' "$WORK/t7.out" && bad="$bad [the personal-only Full warning fired on an organizational project]"
+  grep -q '^Continue with Full track?$' "$WORK/t7.out" && bad="$bad [Full was re-confirmed on an organizational project]"
+  [ "$(grep -c '^Project track:$' "$WORK/t7.out")" -eq 1 ] || bad="$bad [the track was asked $(grep -c '^Project track:$' "$WORK/t7.out") times]"
+  grep -q 'halted after the .intake. stage' "$WORK/t7.out" || bad="$bad [did not reach the intake stage: $(grep -m1 -E 'REFUSED|BLOCKED' "$WORK/t7.out")]"
+  [ "$(_tracks "$p")" = "full|full" ] || bad="$bad [recorded $(_tracks "$p")]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+# T8 — review round 1, R-BL311B-3: THE WRITERS FAIL CLOSED. Each is called on
+# its own, sourced the way the driver sources it, with a track that is not
+# exactly one of the three; the control (`standard`) proves the harness can
+# write at all, so a refusal is the guard and not a broken harness.
+cat > "$WORK/track-writer.sh" <<'TW'
+set -uo pipefail
+R="$1"; P="$2"; which="$3"
+ADOPT_FRAMEWORK_ROOT="$R"; ADOPT_CORE_LIB_DIR="$R/scripts/lib"
+. "$ADOPT_CORE_LIB_DIR/helpers-core.sh"
+for _p in adopt-core adopt-intake adopt-state; do . "$R/scripts/lib/adopt/$_p.sh"; done
+ADOPT_WORK="$5"; ADOPT_PROJECT_NAME=kp; ADOPT_DEPLOYMENT=personal; ADOPT_POC_MODE=""
+ADOPT_ANSWERS="$ADOPT_WORK/answers"; : > "$ADOPT_ANSWERS"
+ADOPT_TRACK="$4"
+case "$which" in
+  ps) adopt_write_phase_state "$P" ;;
+  ip) adopt_render_intake_progress "$P" ;;
+esac
+echo "RC=$?"
+TW
+t8() {
+  local w f v n=0 p bad="" all="" out rc
+  for w in ps ip; do
+    case "$w" in ps) f=.claude/phase-state.json ;; ip) f=.claude/intake-progress.json ;; esac
+    for v in "" Full enterprise "full " "light standard" standard; do
+      n=$((n + 1)); p="$WORK/t8-$n"; mkdir -p "$p/w" || { fail_ "T8" "could not create $p/w"; return; }
+      out="$(bash "$WORK/track-writer.sh" "$REPO_ROOT" "$p" "$w" "$v" "$p/w" 2>&1)"
+      rc="$(printf '%s\n' "$out" | sed -n 's/^RC=//p' | tail -1)"
+      bad=""
+      if [ "$v" = "standard" ]; then
+        [ "$rc" = 0 ] || bad="$bad [control: rc $rc: $(printf '%s' "$out" | tr '\n' '|' | cut -c1-200)]"
+        [ "$(jq -r '.track' "$p/$f" 2>/dev/null)" = "standard" ] || bad="$bad [control: $f does not record standard]"
+      else
+        [ "$rc" = 1 ] || bad="$bad [rc '$rc', not 1]"
+        [ ! -e "$p/$f" ] || bad="$bad [$f written: track $(jq -c '.track' "$p/$f" 2>/dev/null)]"
+        printf '%s\n' "$out" | grep -qF "the project track is '$v', which is not light, standard or full" || bad="$bad [not the track refusal: $(printf '%s' "$out" | grep -m1 -E 'REFUSED|BLOCKED')]"
+      fi
+      [ -z "$bad" ] || all="$all {$w '$v':$bad}"
+    done
+  done
+  [ -z "$all" ] && pass "T8 both writers refuse a track that is not exactly light, standard or full (empty, Full, enterprise, 'full ', two words) and write nothing; standard is written" \
+    || fail_ "T8 the writers fail closed on a track that is not one of the three" "$all"
+}
+t1; t2; t3; t4; t5; t6; t7; t8
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
