@@ -168,7 +168,7 @@ bash ~/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre-commit
 
 - [Quick start: install and use](#quick-start-install-and-use)
 - [Before you adopt: run Scout](#before-you-adopt-run-scout)
-- [The one question](#the-one-question)
+- [The two questions](#the-two-questions)
 - [The memory and documentation servers](#the-memory-and-documentation-servers)
 - [Where it lands: phase 0, always](#where-it-lands-phase-0-always)
 - [The reverse intake](#the-reverse-intake)
@@ -242,7 +242,7 @@ driver never calls `create_project()`.
 
 ---
 
-## The one question
+## The two questions
 
 Before it asks anything, the driver shows what the scan noticed — as **evidence
 that decides nothing**, each line carrying its own confidence:
@@ -269,7 +269,7 @@ that decides nothing**, each line carrying its own confidence:
    the Phase 0 questions, never a shortcut past them.
 ```
 
-Then it asks **one question**, and it is not about your code:
+Then it asks **the first question**, and it is not about your code:
 
 ```text
 Who is this project for?
