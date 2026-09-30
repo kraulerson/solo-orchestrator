@@ -53,9 +53,12 @@ before any question: one scaffolded by `init.sh` (it has
 `[REFUSED] this project already looks framework-managed: …` and names what it
 found. A project that has **only the Development Guardrails** is not refused
 (`## BL-311:` row 2): a `.claude/manifest.json` with a `frameworkVersion` and
-none of the keys this framework writes, `.claude/framework/` beside it, and no
-`.claude/phase-state.json` is adopted, and every Guardrails setting is kept
-(see *The Development Guardrails for Claude Code*, below).
+none of the keys this framework writes, a `.claude/framework/hooks/` directory
+beside it — the directory the Guardrails stage checks to know they are already
+installed (`# BL-311-GUARDRAILS-ONLY-FRAMEWORK`), so a `.claude/framework/`
+without `hooks/` is refused — and no `.claude/phase-state.json` is adopted, and
+every Guardrails setting is kept (see *The Development Guardrails for Claude
+Code*, below).
 
 ### 1. Get the framework
 
@@ -215,12 +218,15 @@ adoption. Point it at one of your own files as the archive MANIFEST names it
 (for example .git/hooks/pre-commit); it shows you what the framework thinks
 that trade costs, asks you to confirm, puts the file back exactly as it was,
 and records the choice in the audit trail. The framework's premise is
-opinionated enforcement, not confiscation — your files are yours.
+opinionated enforcement, not confiscation — your files are yours. The one file
+it will not put back is .claude/manifest.json: adoption changed none of your
+settings in it, and the archived copy has no adoption stamp, so restoring it
+would un-adopt the project.
 
 What it does, in order: reads the survey, offers what the survey found as
-EVIDENCE, asks who the project is for, confirms the answers the survey already
-derived, writes the project's state at phase 0, records the adoption, and
-commits exactly the files it wrote.
+EVIDENCE, asks who the project is for and which track it is on, confirms the
+answers the survey already derived, writes the project's state at phase 0,
+records the adoption, and commits exactly the files it wrote.
 
 Your project starts at phase 0 whatever the survey found. Nothing is marked as
 already done and no shortcut is taken past any gate — the questions about what
@@ -1488,9 +1494,35 @@ Three differences from a new project, on purpose:
   ══ The Development Guardrails for Claude Code
      This project already has the Guardrails (.claude/framework/). They were left as they were.
      Their settings in .claude/manifest.json (profile desktop-app, 13 rules, 14 hooks) are kept:
-     adoption adds this framework's keys beside them and changes none of theirs. The file
-     as it was is in the adoption archive listed above, with the line that puts it back.
+     adoption adds this framework's keys beside them and changes none of theirs.
   ```
+
+  **That archived copy is never put back**, and it is the one entry in the
+  archive with no restore line. Nothing of yours in it was changed, so it
+  gives nothing back — and it is the file from *before* adoption, with no
+  adoption stamp, so restoring it would remove the stamp and every tier key
+  (`host`, `mode`, `deployment`, `poc_mode`, `enforcement_level`,
+  `remote_url`) and the project would no longer be adopted. Its archive row
+  says so in place of the `cp` line, and
+  `adopt-project.sh --re-add .claude/manifest.json` refuses
+  (`# BL-311-MANIFEST-READD-REFUSE`):
+
+  ```text
+  [REFUSED] .claude/manifest.json is not put back: nothing of yours in it was changed
+            The re-add did not begin. Nothing was committed and nothing was written.
+            Adoption added this framework's keys beside your Development Guardrails
+            settings and changed none of them, so there is nothing of yours to restore.
+            The archived copy is the file from before adoption, so putting it back
+            would remove the adoption stamp and the project's tier (host, mode,
+            deployment, poc_mode, enforcement_level, remote_url): the project would no
+            longer be adopted, and the phase gate would report the stamp LOST.
+            This framework documents no way to undo an adoption, and this is not one.
+  ```
+
+  Your `.claude/settings.json` is not refused the same way: putting it back
+  keeps the adoption stamp and the tier, and takes out what the framework
+  added to it — its session hooks, and any permission rule of its that yours
+  did not already carry — which is what a re-add is for.
 - **Your `settings.json` keeps its hooks.** The installer replaces the `hooks`
   in `.claude/settings.json` with its own. Adoption puts yours back, ahead of
   the installer's, and stops if it cannot. If the file is not plain JSON, or is
@@ -1607,30 +1639,46 @@ no manifest row.
 
 **`APPROVAL_LOG.md` is the one entry adoption REPLACES**, and its row says so:
 `disposition: "replaced"`, where every other entry reads `kept` (your file is
-still where it was) or `composed` (the framework appended a marked block to your
-commit-msg hook). Adoption writes its own tier-matched approval log at that path
-because the phase gate cannot run without one — so if you keep an approval
-record there already, **your copy is archived with a restore line and the
-framework's template is what sits at the path afterwards**. That is the only
-in-place replacement in the run.
+still where it was) or `composed` (yours is still there, with the framework's
+additions: a marked block appended to your commit-msg hook, its rules and hooks
+added to your `.claude/settings.json`, its keys added beside the Development
+Guardrails' in `.claude/manifest.json`). Adoption writes its own tier-matched
+approval log at that path because the phase gate cannot run without one — so if
+you keep an approval record there already, **your copy is archived with a
+restore line and the framework's template is what sits at the path
+afterwards**. That is the only in-place replacement in the run.
 
-Nothing is deleted. Every entry carries a `restore` line you can paste, and
-every git-hook entry carries a short **advisory** description of what it
-invoked, assembled from a fixed list of tool names so that no byte of your hook
-can reach the manifest.
+Nothing is deleted. Every entry carries a `restore` line you can paste — except
+the Development Guardrails' `.claude/manifest.json`, whose `restore` is `null`
+and whose `doNotRestore` says why (see *The Development Guardrails for Claude
+Code*: its archived copy would un-adopt the project) — and every git-hook entry
+carries a short **advisory** description of what it invoked, assembled from a
+fixed list of tool names so that no byte of your hook can reach the manifest.
 
 The run then discloses it in full — the sentence, **the list** (every path, not
 a count), and the restore instructions:
 
 ```text
 ══ Your own configuration has been archived
-   The files below were moved to ensure the framework operates properly.
-   Nothing was deleted. Every one of them is in .claude/adoption-archive/… and can be put back.
+   The files below were moved to ensure the framework operates properly, or composed
+   with it — yours kept in place, the framework's additions beside it.
+   Nothing was deleted. A copy of every one, as it was, is in .claude/adoption-archive/…;
+   the lines under each say how to put it back, or why not to.
 
    yours: .git/hooks/pre-commit
       archived as: .claude/adoption-archive/…/git-hooks/pre-commit
       what it did: Ran `lint-staged`, `npx`, and other commands.
       put it back: cp .claude/adoption-archive/…/git-hooks/pre-commit .git/hooks/pre-commit
+```
+
+For the Development Guardrails' manifest the last line is two others
+(observed, brownfield dogfood run 1's `.claude/`):
+
+```text
+   yours: .claude/manifest.json
+      archived as: .claude/adoption-archive/…/.claude/manifest.json
+      Nothing of yours was changed: adoption only added this framework's keys beside yours.
+      Do not put it back: this copy has no adoption stamp, so restoring it would un-adopt the project.
 ```
 
 #### Your files are yours — `--re-add`
@@ -1641,7 +1689,9 @@ bash /path/to/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre
 
 It prints the warning, asks you to confirm (there is no default and no skip),
 restores the file byte-for-byte at its recorded mode, and writes the choice
-into `.claude/bypass-audit.json` as an `adoption_event` row. The framework's
+into `.claude/bypass-audit.json` as an `adoption_event` row. It refuses one
+path, `.claude/manifest.json`, before asking anything: the archived copy would
+un-adopt the project (`# BL-311-MANIFEST-READD-REFUSE`). The framework's
 premise is opinionated enforcement, not confiscation; it asks only that the
 override be findable by whoever reads the ledger next. See
 [audit-log-lifecycle.md](audit-log-lifecycle.md#adoption_event).
