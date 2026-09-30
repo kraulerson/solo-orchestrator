@@ -85,8 +85,20 @@ if command -v jq &>/dev/null; then
 fi
 
 # ── Initialize / merge Tool Usage Tracking ───────────────────────
+# BL-314: every write of the ledger goes through the same locked, unique-temp
+# writer as track-tool-usage.sh and session-mcp-gate.sh. A `cat >` truncates
+# the ledger in place, so a concurrent reader saw it empty, and the unlocked
+# merge could land over a tracker's row. Without the lib (or jq) no ledger can
+# be written, so a startup removes the one that is there: an inherited ledger's
+# `true` flags would otherwise let the first Write through (BL-236). The gate
+# then reports the ledger absent and points at verify-install.
 TOOL_USAGE=".claude/tool-usage.json"
-if command -v jq &>/dev/null; then
+LW_READY=0
+if [ -f "$SCRIPT_DIR/lib/ledger-write.sh" ]; then
+  # shellcheck source=scripts/lib/ledger-write.sh
+  . "$SCRIPT_DIR/lib/ledger-write.sh" && _lw_traps && LW_READY=1
+fi
+if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
   SESSION_ID=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   mkdir -p .claude
 
@@ -96,8 +108,7 @@ if command -v jq &>/dev/null; then
     # so the boundary is visible to a successor, and re-derive the
     # MCP requirements in case the user added or removed servers
     # between sessions.
-    tmp=$(mktemp "${TOOL_USAGE}.XXXXXX")
-    if jq \
+    if ! _lw_update \
         --arg sid "$SESSION_ID" \
         --argjson qreq "$QDRANT_CONFIGURED" \
         --argjson creq "$CONTEXT7_CONFIGURED" \
@@ -106,14 +117,10 @@ if command -v jq &>/dev/null; then
          | .session_id = $sid
          | .mcp_requirements.qdrant_required = $qreq
          | .mcp_requirements.context7_required = $creq
-         | .mcp_requirements.additional_required = ($orig.mcp_requirements.additional_required // [])' \
-        "$TOOL_USAGE" > "$tmp" 2>/dev/null; then
-      mv "$tmp" "$TOOL_USAGE"
-    else
+         | .mcp_requirements.additional_required = ($orig.mcp_requirements.additional_required // [])'; then
       # If jq fails (malformed prior file, etc.), fall through to a
       # fresh write so the gate is not left wedged.
-      rm -f "$tmp"
-      cat > "$TOOL_USAGE" << TUEOF
+      _lw_put << TUEOF
 {
   "session_id": "$SESSION_ID",
   "calls": [],
@@ -143,7 +150,7 @@ TUEOF
     # be true — and you have re-opened it. T5b pins the erasure AND the gate's
     # refusal; T5c is the mutant that puts the keys back and shows the gate flip
     # to allow. Do not "complete" this object.
-    cat > "$TOOL_USAGE" << TUEOF
+    _lw_put << TUEOF   # BL-314-SESSION-PUT
 {
   "session_id": "$SESSION_ID",
   "calls": [],
@@ -160,6 +167,8 @@ TUEOF
 }
 TUEOF
   fi
+elif [ "$SESSION_SOURCE" = "startup" ]; then
+  rm -f .claude/tool-usage.json   # BL-314-NOLIB-RESET
 fi
 
 # ── Report Unknown MCP Servers ────────────────────────────────────

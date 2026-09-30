@@ -113,3 +113,6 @@ terraform.tfvars.json
 # the untidiness it fixes:
 #     git rm --cached .claude/tool-usage.json
 .claude/tool-usage.json
+# BL-314: the ledger writer's temps (scripts/lib/ledger-write.sh). A SIGKILL
+# can leave one, a full copy of the ledger, until the next write sweeps it.
+.claude/tool-usage.json.lw.*

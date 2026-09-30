@@ -178,7 +178,7 @@ jobs:
       # PR author sees one failure and cannot tell what else is broken.
       fail-fast: false
       matrix:
-        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, commit-hooks, mcp, rest]
+        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, commit-hooks, mcp, ledger, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -331,7 +331,7 @@ jobs:
           # it. Delete a name here and its `pin_*` array is ORPHANED — it
           # no longer enters `pinned`, so those paths fall back into `rest`
           # and STILL RUN. Fail-safe, not silently dropped.
-          shard_names="lint-sweep lint-scan sast slow-misc adopt commit-hooks mcp rest"
+          shard_names="lint-sweep lint-scan sast slow-misc adopt commit-hooks mcp ledger rest"
 
           roster="|"
           shard_arms=0
@@ -618,6 +618,7 @@ jobs:
             tests/test-bl296-adopt-guardrails.sh
             tests/test-bl311-adopt-mcp.sh
             tests/test-bl311-mcp-add-order.sh
+            tests/test-bl314-tool-usage-concurrent.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1027,6 +1028,17 @@ jobs:
           pin_mcp=(
             tests/test-bl311-adopt-mcp.sh              # ~540s local; `rest` without it was ~513s on PR #477
           )
+          # ── `ledger` — the BL-314 concurrency suite, alone (2026-09-30). It
+          # runs ~225s locally (bash 5 and 3.2 alike): 56 assertions, most of
+          # them racing real writers and readers against the three ledgers.
+          # On main @ 891d10d (run 36730411778) the legs ran 476–638s and
+          # lint-scan was cancelled at 767s. Adding ~225s crosses the 720s
+          # cap on every leg but one, `rest` (543s) included; commit-hooks
+          # (476s) would land at ~701s, 97% of it. Per the doctrine above the
+          # timeout-minutes line, that is a new leg, not a raised cap.
+          pin_ledger=(
+            tests/test-bl314-tool-usage-concurrent.sh  # ~225s local
+          )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
           # pinned-set build and the dispatch go through this function, so
@@ -1043,6 +1055,7 @@ jobs:
               adopt)      printf '%s\n' "${pin_adopt[@]}" ;;
               commit-hooks) printf '%s\n' "${pin_commit_hooks[@]}" ;;
               mcp)        printf '%s\n' "${pin_mcp[@]}" ;;
+              ledger)     printf '%s\n' "${pin_ledger[@]}" ;;
               rest)       : ;;
               *) echo "shard roster: '$1' is in the roster but has no arm in pins_for" >&2
                  return 1 ;;

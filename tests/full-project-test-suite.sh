@@ -932,6 +932,11 @@ run_child_suite "tests/test-bl311-adopt-mcp.sh" \
 run_child_suite "tests/test-bl311-mcp-add-order.sh" \
   "BL-311: every tracked claude mcp add puts the server name before -e" \
   "BL-311 mcp-add order tests FAILED (run tests/test-bl311-mcp-add-order.sh for details)"
+# BL-314: concurrent tracker invocations shared one temp name and landed a
+# 0-byte ledger, which the MCP session gate then refused on every Write.
+run_child_suite "tests/test-bl314-tool-usage-concurrent.sh" \
+  "BL-314: concurrent writers never truncate the tool-usage ledger or lose a call row" \
+  "BL-314 concurrent ledger tests FAILED (run tests/test-bl314-tool-usage-concurrent.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.
@@ -1971,7 +1976,7 @@ run_child_suite "tests/test-validate-counter-sanitizer.sh" \
 run_child_suite "tests/test-record-claude-commit.sh" "tests/test-record-claude-commit.sh (9/9)"
 run_child_suite "tests/test-unrecord-feature.sh" "tests/test-unrecord-feature.sh (7/7)"
 run_child_suite "tests/test-session-test-gate-check-merge.sh" \
-  "tests/test-session-test-gate-check-merge.sh (11/11)"
+  "tests/test-session-test-gate-check-merge.sh (18/18)"
 
 # ----------------------------------------------------------------
 # Process-checklist / pending-approval / poc-modes (BL-035 C)

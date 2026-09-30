@@ -224,20 +224,23 @@ teardown
 
 echo "T5c: MUTANT — put the two keys back into the startup heredoc, gate flips to allow"
 setup_inherited
-MUT="$TMP/hook-mutant.sh"
+# The mutant sits in a mirror of scripts/ with the ledger lib beside it, since
+# the hook sources lib/ledger-write.sh from its own directory.
+mkdir -p "$TMP/m/scripts/lib" && cp "$REPO_ROOT/scripts/lib/ledger-write.sh" "$TMP/m/scripts/lib/"
+MUT="$TMP/m/scripts/session-test-gate-check.sh"
 # Structural discriminator for an ABSENCE: an omission cannot be greped for as
 # proof, so the two keys are spliced back INTO the startup heredoc (the SECOND
 # of the two in the file — the first is the jq-failure fallback) and the gate's
 # decision is read again. Anchored on the heredoc-open count, not on a line
 # number and not on the em-dash comment.
-awk '/cat > "\$TOOL_USAGE" << TUEOF/ { n++ }
+awk '/_lw_put << TUEOF/ { n++ }
      n==2 && /"mcp_gate_satisfied": false,/ && !done {
        print "  \"qdrant_find_succeeded\": true,";
        print "  \"context7_query_docs_succeeded\": true,";
        done=1
      }
      { print }' "$HOOK" > "$MUT"
-mut_sites=$(grep -c 'cat > "\$TOOL_USAGE" << TUEOF' "$HOOK" 2>/dev/null || echo 0)
+mut_sites=$(grep -c '_lw_put << TUEOF' "$HOOK" 2>/dev/null || echo 0)
 case "$mut_sites" in ''|*[!0-9]*) mut_sites=0 ;; esac
 mut_added=$(diff "$HOOK" "$MUT" 2>/dev/null | grep -c '^[<>]')
 case "$mut_added" in ''|*[!0-9]*) mut_added=0 ;; esac
@@ -252,6 +255,24 @@ if [ "$mut_sites" = "2" ] && [ "$mut_added" = "2" ] && [ "$mut_parses" = "1" ] \
   pass "T5c: with the two outcome keys written as true by the startup heredoc, the SAME first-Write that T5b blocked is ALLOWED — the omission is the whole fail-safe, and it is one 'complete the object' edit from gone"
 else
   fail_ "T5c" "heredocs=$mut_sites (want 2) lines_added=$mut_added (want 2) parses=$mut_parses (want 1) qdrant_succeeded=$m_q (want true) gate_denied=$mut_denied (want no)"
+fi
+teardown
+
+echo "T5d: source=startup with lib/ledger-write.sh MISSING still erases an inherited MCP success"
+# BL-314: the hook writes the ledger through that lib. Without it no fresh
+# ledger can be written, and an inherited one must not survive the startup
+# either, or its `true` flags let the first Write through.
+setup_inherited
+mkdir -p "$TMP/nolib/scripts"
+cp "$HOOK" "$TMP/nolib/scripts/session-test-gate-check.sh"
+run_hook_at "$TMP/nolib/scripts/session-test-gate-check.sh" "startup"
+nl_q=$(jq -r '.qdrant_find_succeeded // false' "$PROJ/.claude/tool-usage.json" 2>/dev/null)
+nl_gate=$(run_mcp_gate)
+nl_denied=no; grep -q '"permissionDecision": "deny"' <<<"$nl_gate" && nl_denied=yes
+if [ "$nl_q" != "true" ] && [ "$nl_denied" = "yes" ]; then
+  pass "T5d: with the ledger lib absent, the startup leaves no inherited qdrant_find_succeeded=true behind, and session-mcp-gate.sh DENIES the first Write"
+else
+  fail_ "T5d" "qdrant_succeeded=$nl_q (want not true) gate_denied=$nl_denied (want yes)"
 fi
 teardown
 
