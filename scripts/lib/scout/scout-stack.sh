@@ -281,11 +281,17 @@ _scout_pick_runner() {
 # came back ` M uv.lock` after one Scout run. `--frozen` is uv's documented way
 # "to use the lockfile without checking if it is up-to-date" (`UV_FROZEN`: "uv
 # will run without updating the `uv.lock` file"); it still syncs `.venv`, which
-# uv creates with its own `.gitignore` of `*`, so nothing shows in `git status`.
-# poetry, pdm and pipenv `run` do not lock (measured on stale lockfiles,
-# poetry 2.5.1, pdm 2.29.2, pipenv 2026.8.0, tracked bytes identical); what
-# each may create instead is listed in docs/scout.md, and no flag of theirs is
-# needed or used.
+# uv creates with its own `.gitignore` of `*` — but a setuptools-built project
+# also gets an untracked `<name>.egg-info/` from uv's editable install of it
+# (measured, uv 0.11.3: `?? src/k.egg-info/`). poetry, pdm and pipenv `run` do
+# not lock (measured on stale lockfiles, poetry 2.5.1, pdm 2.29.2, pipenv
+# 2026.8.0, tracked bytes identical); what each may create instead is listed in
+# docs/scout.md, and no flag of theirs is needed or used.
+#
+# THE FLAG IS SCOUT'S, NOT THE PROJECT'S (review R-BL311C2-5). This command is
+# also the adoption interview's prefill for the project's test command
+# (intakePrefill 11_5), so the evidence says why `--frozen` is there and what
+# the everyday command is; the JSON shape stays `{source, value}`.
 _scout_python_test() {
   local root="$1" work="$2" src="$3" pick="" m="" cmd="pytest"
   pick="$(_scout_pick_runner "$root" "$work" uv poetry pdm pipenv)" || pick=""   # BL-311-SCOUT-PY-PRECEDENCE
@@ -298,6 +304,7 @@ _scout_python_test() {
       pipenv) cmd="pipenv run pytest" ;;   # BL-311-SCOUT-RUN-PIPENV
     esac
     src="$src; $(printf '%s\n' "$pick" | sed -n 2p)"
+    if [ "$m" = "uv" ]; then src="$src; Scout adds \`--frozen\` so its own run never rewrites uv.lock, and day to day the command is \`uv run pytest\`"; fi   # BL-311-SCOUT-FLAG-WHY-UV
   fi
   printf '%s\t%s\n' "$cmd" "$src" > "$work/testcmd"
 }
@@ -325,6 +332,8 @@ _scout_python_test() {
 # script name; pnpm 8, 9 and 10 accepted it and ran the script too (measured).
 # npm 11.12.1, yarn 1.22.22 and 4.18.1, bun 1.4.2 and deno 2.9.7 left a stale
 # lockfile byte-identical with no flag (measured; docs/scout.md has the table).
+# As with uv's `--frozen`, the evidence says the flag is Scout's and names the
+# everyday `pnpm test` (review R-BL311C2-5).
 _scout_node_test() {
   local root="$1" work="$2" body="$3" pick="" m="" why="" cmd=""
   pick="$(_scout_pick_runner "$root" "$work" pnpm yarn npm bun deno)" || pick=""   # BL-311-SCOUT-NODE-PRECEDENCE
@@ -341,6 +350,7 @@ _scout_node_test() {
     bun)  cmd="bun run test" ;;      # BL-311-SCOUT-RUN-BUN
     deno) cmd="deno task test" ;;    # BL-311-SCOUT-RUN-DENO
   esac
+  if [ "$m" = "pnpm" ]; then why="$why; Scout adds \`--config.verify-deps-before-run=false\` so its own run never installs or rewrites pnpm-lock.yaml, and day to day the command is \`pnpm test\`"; fi   # BL-311-SCOUT-FLAG-WHY-PNPM
   printf '%s\t%s\n' "$cmd" "package.json scripts.test (\`$body\`); $why" > "$work/testcmd"
 }
 

@@ -160,6 +160,12 @@ A_NST="$WORK/ad/nested-noanchor"; _adoptee "$A_NST"
 # case points git at its own config, so neither leaks into the other fixtures.
 A_GLB="$WORK/ad/global";    _adoptee "$A_GLB"
 printf '[core]\n\texcludesFile = %s\n' "$WORK/elsewhere/ignore" > "$WORK/global.gitconfig"
+# The way people actually write it: `~/` (review R-BL311C2-1). git expands it
+# against HOME, which is `$WORK/home` here, and so must the comparison.
+printf '[core]\n\texcludesFile = ~/.gitignore_global\n' > "$WORK/tilde.gitconfig"
+printf '.claude/\n' > "$HOME/.gitignore_global"
+# A SYSTEM core.excludesFile (review R-BL311C2-2), through GIT_CONFIG_SYSTEM.
+printf '[core]\n\texcludesFile = %s\n' "$WORK/elsewhere/ignore" > "$WORK/system.gitconfig"
 A_XDG="$WORK/ad/xdg";       _adoptee "$A_XDG"
 mkdir -p "$WORK/xdg-default/git" && printf '.claude/\n' > "$WORK/xdg-default/git/ignore"
 # A TRACKED file under the ignored directory: the decision asks about the
@@ -230,9 +236,14 @@ case_S_python() {
   chk "S1 uv: a uv project's pytest runs as 'uv run --frozen pytest'" "$(_val "$r")" "uv run --frozen pytest"
   has "S1 uv: the evidence keeps the arm that found pytest" "$(_src "$r")" "pyproject.toml [tool.pytest]"
   has "S1 uv: and says uv.lock is why it goes through uv" "$(_src "$r")" "run through uv because uv.lock is present"
+  # The value is also the interview's prefill for the project's own test
+  # command, so the evidence says the flag is Scout's (review R-BL311C2-5).
+  has "S1 uv: and says --frozen is Scout's own, and the everyday command" "$(_src "$r")" \
+    "Scout adds \`--frozen\` so its own run never rewrites uv.lock, and day to day the command is \`uv run pytest\`"
   r="$(_tc py-poetry)"
   chk "S2 poetry: 'poetry run pytest'" "$(_val "$r")" "poetry run pytest"
   has "S2 poetry: evidence names poetry.lock" "$(_src "$r")" "run through poetry because poetry.lock is present"
+  hasnt "S2 poetry: no flag of Scout's, so no note about one" "$(_src "$r")" "Scout adds"
   r="$(_tc py-pdm)"
   chk "S3 pdm: 'pdm run pytest'" "$(_val "$r")" "pdm run pytest"
   has "S3 pdm: evidence names pdm.lock" "$(_src "$r")" "run through pdm because pdm.lock is present"
@@ -260,8 +271,11 @@ case_S_node() {
   chk "N1 pnpm: scripts.test runs as 'pnpm --config.verify-deps-before-run=false test'" "$(_val "$r")" "pnpm --config.verify-deps-before-run=false test"
   has "N1 pnpm: the evidence keeps the script body" "$(_src "$r")" 'package.json scripts.test (`vitest run`)'
   has "N1 pnpm: and says pnpm-lock.yaml is why" "$(_src "$r")" "run through pnpm because pnpm-lock.yaml is present"
+  has "N1 pnpm: and says the flag is Scout's own, and the everyday command" "$(_src "$r")" \
+    "Scout adds \`--config.verify-deps-before-run=false\` so its own run never installs or rewrites pnpm-lock.yaml, and day to day the command is \`pnpm test\`"
   r="$(_tc js-yarn)"
   chk "N2 yarn: 'yarn test'" "$(_val "$r")" "yarn test"
+  hasnt "N2 yarn: no flag of Scout's, so no note about one" "$(_src "$r")" "Scout adds"
   r="$(_tc js-npm)"
   chk "N3 npm: 'npm test'" "$(_val "$r")" "npm test"
   has "N3 npm: evidence names package-lock.json" "$(_src "$r")" "because package-lock.json is present"
@@ -347,9 +361,15 @@ EOF
     "$(printf '%s' "$out" | jq -c '.stack.testCommand | keys')" '["source","value"]'
   chk "S8 and testsBaseline.testCommand is the same object" \
     "$(printf '%s' "$out" | jq -c '.testsBaseline.testCommand == .stack.testCommand')" "true"
+  has "S8 and the interview's prefill row carries why --frozen is there" \
+    "$(printf '%s' "$out" | jq -r '.intakePrefill.sections[] | select(.id == "11_5") | .source')" \
+    "Scout adds \`--frozen\` so its own run never rewrites uv.lock"
   out="$(STUB_LOG="$lg" PATH="$st:$PATH" bash "$sb" --root "$d" --run-tests --markdown </dev/null 2>/dev/null)"
   has "S10 under --run-tests the report says the project's own command ran there" "$out" \
-    "Scout itself wrote nothing into it, but \`--run-tests\` ran the project's own test command there once"
+    "Scout itself wrote nothing into it, but \`--run-tests\` ran the project's own test command, "
+  has "S10 and names that command in the same sentence" "$out" \
+    "ran the project's own test command, \`uv run --frozen pytest\`, there once"
+  hasnt "S10 and points at no testsBaseline heading the report does not have" "$out" "named under testsBaseline below"
   hasnt "S10 and no longer promises that Scout changed nothing" "$out" "Scout changed nothing"
   out="$(PATH="$st:$PATH" bash "$sb" --root "$d" --markdown </dev/null 2>/dev/null)"
   has "S10 without --run-tests the report still says Scout changed nothing" "$out" "Scout changed nothing — it only read."
@@ -366,6 +386,9 @@ EOF
     "$(printf '%s' "$out" | jq -r '.testsBaseline.exitCode')" "0"
   has "S9 and it really went through pnpm, with its install check off" "$(cat "$lg")" "pnpm --config.verify-deps-before-run=false test"
   has "S9 and pnpm ran the project's own vitest" "$(cat "$lg")" "vitest (node_modules) ran"
+  has "S9 and the interview's prefill row carries why the flag is there" \
+    "$(printf '%s' "$out" | jq -r '.intakePrefill.sections[] | select(.id == "11_5") | .source')" \
+    "day to day the command is \`pnpm test\`"
 }
 
 # U1 — REAL uv, REAL lockfile (review R-BL311C-1). `uv run` locks before it
@@ -454,6 +477,15 @@ case_I_sources() {
   GIT_CONFIG_GLOBAL="$WORK/global.gitconfig" _prewrite "$A_GLB" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
   has "I3b global: named as the global setting every repository of yours reads" "$e" \
     "$WORK/elsewhere/ignore (outside this repository: core.excludesFile in your global git config names it, so every repository of yours reads it unless one sets its own), line 1"
+  GIT_CONFIG_GLOBAL="$WORK/tilde.gitconfig" _prewrite "$A_GLB" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
+  has "I3e global, written as ~/: still named as the global setting, by its expanded path" "$e" \
+    "$HOME/.gitignore_global (outside this repository: core.excludesFile in your global git config names it, so every repository of yours reads it unless one sets its own), line 1"
+  # GIT_CONFIG_NOSYSTEM=0, not unset: a run under GIT_CONFIG_NOSYSTEM=1 (the
+  # runner-git recipe in CLAUDE.md) would otherwise skip GIT_CONFIG_SYSTEM.
+  GIT_CONFIG_NOSYSTEM=0 GIT_CONFIG_SYSTEM="$WORK/system.gitconfig" GIT_CONFIG_GLOBAL=/dev/null \
+    _prewrite "$A_GLB" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
+  has "I3f system: named as the machine's system setting every repository on it reads" "$e" \
+    "$WORK/elsewhere/ignore (outside this repository: core.excludesFile in this machine's system git config names it, so every repository on this machine reads it unless one sets its own), line 1"
   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="$WORK/xdg-default" \
     _prewrite "$A_XDG" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
   has "I3c XDG default: named as git's default, not as core.excludesFile" "$e" \
@@ -642,6 +674,12 @@ mut "M27 the configured excludes file is recognised" "$AS" '# BL-311-IGNORE-RULE
 mut "M28 a local core.excludesFile is this repository's alone" "$AS" '# BL-311-IGNORE-RULE-XSCOPE' 'local|worktree)' 'nolocal)' case_I_sources "I3 local: OUTSIDE this repository, and read by this repository alone"
 mut "M29 git's default honours XDG_CONFIG_HOME" "$AS" '# BL-311-IGNORE-RULE-XDG' '${XDG_CONFIG_HOME:-${HOME:-}/.config}' '${HOME:-}/.config' case_I_sources "I3c XDG default: named as git's default"
 mut "M30 the report stops promising 'changed nothing' after --run-tests" "$SS_REPORT" '# BL-311-SCOUT-REPORT-RAN' '= "1"' '= "x"' case_S_e2e "S10 under --run-tests the report says the project's own command ran there"
+# Review round 2 (R-BL311C2-1..5).
+mut "M31 a ~/ core.excludesFile is expanded before it is compared" "$AS" '# BL-311-IGNORE-RULE-XPATH-EXPAND' ' --type=path' '' case_I_sources "I3e global, written as ~/"
+mut "M32 a system core.excludesFile is every repository's on the machine" "$AS" '# BL-311-IGNORE-RULE-XSCOPE-SYSTEM' 'system)' 'nosystem)' case_I_sources "I3f system: named as the machine's system setting"
+mut "M33 the --run-tests opening line names the command" "$SS_REPORT" '# BL-311-SCOUT-REPORT-RAN-CMD' '"$(cut -f1 < "$work/testcmd")"' '""' case_S_e2e "S10 and names that command in the same sentence"
+mut "M34 uv's evidence says --frozen is Scout's" "$SS" '# BL-311-SCOUT-FLAG-WHY-UV' 'if [ "$m" = "uv" ]' 'if false' case_S_python "S1 uv: and says --frozen is Scout's own"
+mut "M35 pnpm's evidence says its flag is Scout's" "$SS" '# BL-311-SCOUT-FLAG-WHY-PNPM' 'if [ "$m" = "pnpm" ]' 'if false' case_S_node "N1 pnpm: and says the flag is Scout's own"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $SKIP skipped"

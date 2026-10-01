@@ -1973,13 +1973,13 @@ ROWS
   # `--type=path` expands `~/` the way git does, so the value compares equal to
   # the source `-v` printed (measured, git 2.54.0: both give the expanded path).
   local xs="" xscope="" xpath="" xword=""
-  xs="$( cd "$root" 2>/dev/null && git config --show-scope --type=path --get core.excludesFile 2>/dev/null )" || xs=""
+  xs="$( cd "$root" 2>/dev/null && git config --show-scope --type=path --get core.excludesFile 2>/dev/null )" || xs=""   # BL-311-IGNORE-RULE-XPATH-EXPAND
   if [ -n "$xs" ]; then
     xscope="${xs%%"$tab"*}"; xpath="${xs#*"$tab"}"
     case "$xscope" in
       local|worktree) xword="core.excludesFile in this repository's own git config names it, so only this repository reads it" ;;   # BL-311-IGNORE-RULE-XSCOPE
       global) xword="core.excludesFile in your global git config names it, so every repository of yours reads it unless one sets its own" ;;
-      system) xword="core.excludesFile in this machine's system git config names it, so every repository on this machine reads it unless one sets its own" ;;
+      system) xword="core.excludesFile in this machine's system git config names it, so every repository on this machine reads it unless one sets its own" ;;   # BL-311-IGNORE-RULE-XSCOPE-SYSTEM
       *) xword="core.excludesFile names it, set in $xscope config" ;;
     esac
   else

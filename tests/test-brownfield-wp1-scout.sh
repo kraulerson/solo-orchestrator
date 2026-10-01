@@ -478,13 +478,14 @@ if [ "$ts_files" = "13" ] && [ "$ts_conf" = "high" ] \
    && printf '%s' "$pm" | grep -q 'pnpm' \
    && printf '%s' "$bf" | grep -q 'package.json' \
    && [ "$tc" = "pnpm --config.verify-deps-before-run=false test" ] \
-   && [ "$tcs" = 'package.json scripts.test (`vitest run`); run through pnpm because pnpm-lock.yaml is present' ] \
+   && [ "$tcs" = 'package.json scripts.test (`vitest run`); run through pnpm because pnpm-lock.yaml is present; Scout adds `--config.verify-deps-before-run=false` so its own run never installs or rewrites pnpm-lock.yaml, and day to day the command is `pnpm test`' ] \
    && [ "$ci" = "github" ]; then
   # `## BL-311:` row 4 — the script BODY is not a command (`node_modules/.bin`
   # is not on PATH outside the package manager), so the value is how pnpm runs
   # it and the body moved into the evidence, beside the lockfile that chose pnpm.
   # The flag keeps pnpm 11 from installing (and rewriting pnpm-lock.yaml)
-  # before it runs the script (review R-BL311C-1).
+  # before it runs the script (review R-BL311C-1), and the evidence says the
+  # flag is Scout's, not the project's (review R-BL311C2-5).
   pass "S1: node fixture — typescript(13,high), pnpm, package.json, testCommand 'pnpm --config.verify-deps-before-run=false test' from scripts.test, ciHost=github"
 else
   fail_ "S1" "ts_files=$ts_files ts_conf=$ts_conf pm='$pm' bf='$bf' tc='$tc' tcs='$tcs' ci='$ci'"
