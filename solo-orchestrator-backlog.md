@@ -22217,8 +22217,8 @@ adoption replaces them (`## BL-242:`, "Karl's ruling on hook managers").
 by its own PR; the entry closes when the rerun passes.
 
 **Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). Group B (rows 2 and 8)
-merged as PR #490 (merge commit `3e737f6`, 2026-09-30). The entry stays Open until the clean rerun
-passes.
+merged as PR #490 (merge commit `3e737f6`, 2026-09-30). Group C (rows 4 and 5) merged as PR #491
+(merge commit `a8f64f4`, 2026-09-30). The entry stays Open until the clean rerun passes.
 
 **What ran.** A fresh Claude Code session (Sonnet, a clean `CLAUDE_CONFIG_DIR`) played a systems
 technician with one to two years of experience — not a developer — installing Solo Orchestrator from
@@ -22266,6 +22266,14 @@ recorded, not fixed:
 - **R-BL311-15** — the `[::]` → `[::1]` rewrite of `docker port` output does not answer on Docker
   Desktop for an IPv6-only publish (measured on Docker Desktop 29.2.1: `[::1]` → 000, `127.0.0.1` →
   200). It stops safely.
+
+**Group C residuals (review round 3, not fixed).** One line each:
+- **R-BL311C3-1** — Scout's markdown report line for `--run-tests` (`# BL-311-SCOUT-REPORT-RAN-CMD`)
+  calls the command Scout ran (`uv run --frozen pytest`) "the project's own test command", while the
+  same report says the flag in it is Scout's.
+- **R-BL311C3-2** — with two lockfiles (e.g. `uv.lock` + `poetry.lock`, or `pnpm-lock.yaml` +
+  `yarn.lock`), the flag note (`# BL-311-SCOUT-FLAG-WHY-UV` / `# BL-311-SCOUT-FLAG-WHY-PNPM`) states a
+  definite everyday command right after "confirm which one this project uses".
 
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
