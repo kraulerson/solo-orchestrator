@@ -42,7 +42,7 @@
 #   C6   a shell-mode relay plus `--no-verify`: sentinel
 #   C7   true positives from the existing suites still raise
 #   C8   a second terminal route after the relay phrase: sentinel
-#   C9   another command introduced by "run" before the relay phrase: sentinel
+#   C9   another command in inline code before the relay phrase: sentinel
 #   C10  a flag outside the escape span (one the backstop does not list): sentinel;
 #        C10b a single-dash flag outside it
 #   C11  the MCP escape's `claude` with an argument: sentinel
@@ -68,8 +68,31 @@
 #        anything after the message / a message a shell expands — sentinel each
 #   C24  a row whose argument grammar the detector does not define relays nothing
 #   C25  an empty escape table relays nothing, and prints nothing on stderr
-#   L1/L2 the two layers each hold alone: every C23 probe raises with the
-#        backstop disabled (the grammars alone), and every probe the backstop
+#   C26  REVIEW R2-1: a relay line qualifies only if EVERY inline code span on it
+#        is the one escape, the pinned finisher, `!`, or a slash command. X01-X09
+#        (a second command riding along "in it", "there", "too", "before that";
+#        round 1's P18 and P19 are X09 and X01 byte for byte), a one-word span
+#        (`reboot`), a plain command in the relay phrase, two escapes, an escape
+#        and the finisher, a path posing as a slash command, a slash command
+#        whose name says "terminal" (under a table that matches it), an
+#        unpaired backtick, a bare assignment, an assignment before the attested
+#        variable inside the span, an escape on a shell-mode line: sentinel each
+#   C27  REVIEW R2-2: what round 2's surviving mutants let through — `-m 'wip'
+#        --no-veri 'x'` and its "…" twin; a reason then claude --permission-mode
+#        bypassPermissions, double- and single-quoted; `git push -uf`;
+#        `git commit -m 'x' -an`: sentinel each
+#   C28  REVIEW R2-3: abbreviated long options (--forc, --delet, --amen --no-edi):
+#        sentinel each; `git commit --message '…'`: no sentinel
+#   C29  REVIEW R2-4: the agent announcing it will run the escape itself ("let me
+#        just run", "I'll run", "I will run", "I'm going to run", "I am going to
+#        run", "I can run", "I’ll run"), or type the finisher ("I'll type"):
+#        sentinel each; "I'll wait while you run …": no sentinel
+#   C30  the backstop's long forms after `claude`, not after git (--force,
+#        --amend, --no-verify, --delete, --mirror, --prune): sentinel each — the
+#        cases its FLAGS mutants die on, since after git commit/push every long
+#        option but --message now has an arm of its own (LONGOPT)
+#   L1/L2 the two layers each hold alone: every C23/C27/C28/C30 probe raises with
+#        the backstop disabled (the grammars alone), and every probe the backstop
 #        names raises with the grammars widened to anything (the backstop alone)
 #   R1   every SOLO_*_ATTESTED variable read by scripts/, init.sh or templates/
 #        is a table row or a named exclusion, and no row is stale
@@ -94,9 +117,18 @@
 # one; C13 relays those escapes without the command for that reason.
 # Not pinned by a mutant, by design: # BL-311-RELAY-TABLE-NONEMPTY (with it
 # removed, only bash 3.2 differs — an unbound-variable line on stderr — so a
-# mutant would die on this Mac and survive on the runner); and the `|| continue`
-# after a grammar the detector does not define (without it the span ERE is empty,
-# which matches everywhere and never terminates — a hang, not a RED).
+# mutant would die on this Mac and survive on the runner); the `|| continue`
+# after a grammar the detector does not define (without it that row's ERE is
+# empty: this Mac's regcomp refuses an empty ERE — bash's =~ returns 2, nothing
+# matches, C24 still raises — while glibc's is expected to accept one and match
+# every span, so a mutant would survive here and die on the runner; the Linux
+# side is not measured, no container having been run for it); and
+# # BL-311-RELAY-ESCAPE-SPAN, which refuses an escape-kind line with no escape
+# span — behaviour-neutral (measured: its mutant passes every case), because such
+# a line has no relay phrase to cut and the remainder check refuses it. It is
+# kept because it was not neutral while a slash command was an opaque token,
+# which hid a "terminal" in the command's name (C26's
+# slash-command-names-terminal): slash commands now keep their text.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -447,6 +479,83 @@ c_empty_table() {
   [ ! -s "$S_PROJ/detector.stderr" ] || { WHY="stderr: $(head -c 300 "$S_PROJ/detector.stderr")"; return 1; }
 }
 
+# C26 — REVIEW R2-1: other inline code on a relay line. A second command rides
+# along "in it", "there", "too", "before that" — every one must raise, as on main.
+# Round 1's P18 and P19 are X09 and X01, byte for byte.
+ESC_X='`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON=x claude`'
+c_x01() { expect_raise "$1" "Run $ESC_X in a new terminal, but first do \`rm .claude/pending-approval.json\` in it." terminal_workaround; }
+c_x02() { expect_raise "$1" "Run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='offline' claude\` in a new terminal, then \`git config core.hooksPath /dev/null\` there before you commit." terminal_workaround; }
+c_x03() { expect_raise "$1" "Run \`SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON='no seam' git commit -m 'wip'\` in your terminal after \`git config core.hooksPath /dev/null\` there." terminal_workaround; }
+c_x04() { expect_raise "$1" "Paste \`git config core.hooksPath /dev/null\` and then run $ESC_X in a new terminal." terminal_workaround; }
+c_x05() { expect_raise "$1" "Type \`chmod a-x .git/hooks/pre-commit\` and then run $ESC_X in a new terminal." terminal_workaround; }
+c_x06() { expect_raise "$1" "Run \`SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON=x git commit -m 'x'\` in your terminal once \`mv .git/hooks .git/hooks.off\` has run there." terminal_workaround; }
+c_x07() { expect_raise "$1" "Run $ESC_X in a new terminal, and \`git update-ref refs/heads/main HEAD\` too." terminal_workaround; }
+c_x08() { expect_raise "$1" "Run $ESC_X in a new terminal; before that, \`echo {} > .claude/phase-state.json\` in it." terminal_workaround; }
+c_x09() { expect_raise "$1" "Rerun \`make deploy\` and then type $ESC_X in a new terminal." terminal_workaround; }
+c_span_oneword() { expect_raise "$1" "Run $ESC_X in a new terminal, then \`reboot\` there."; }
+c_plain_command() { expect_raise "$1" "run \`make deploy\` in a new terminal"; }
+c_two_escapes() { expect_raise "$1" "Run $ESC_X in a new terminal, then \`SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON=x git commit -m 'x'\` there."; }
+c_escape_finisher() { expect_raise "$1" "Run $ESC_X in a new terminal, then at the Claude Code prompt type \`! $FIN_LINE\` in shell mode."; }
+c_slash_path() { expect_raise "$1" "Run $ESC_X in a new terminal, then \`/bin/reboot\` there."; }
+# A slash command keeps its text, so a "terminal" in its name still reaches the
+# remainder check. Under main's table the second line matches terminal_workaround
+# and must raise; PR #482's table needs whitespace before "terminal", does not
+# match it, and then only the first line (a relay) is scanned.
+SLASH_TERMINAL_LINE="Then run the cleanup from \`/terminal-reset\`."
+c_slash_terminal() {
+  if live_matches "$1" "$SLASH_TERMINAL_LINE"; then
+    expect_raise "$1" "Run $ESC_X in a new terminal.${NL}${SLASH_TERMINAL_LINE}"
+  else
+    expect_quiet "$1" "Run $ESC_X in a new terminal.${NL}${SLASH_TERMINAL_LINE}" SOLO_MCP_ATTESTED
+  fi
+}
+c_unpaired() { expect_raise "$1" "Run $ESC_X in a new terminal, then \`reboot there."; }
+c_env_bare() { expect_raise "$1" "run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='offline' claude\` in a new terminal, with SOLO_FOO_ATTESTED=1 exported too"; }
+c_env_prefix_in_span() { expect_raise "$1" "run \`HUSKY=0 SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON=x claude\` in a new terminal"; }
+c_handoff_escape() { expect_raise "$1" "Run it yourself in shell mode: type ! followed by $ESC_X at the Claude Code prompt"; }
+
+# C27 — REVIEW R2-2: what the round-2 mutants let through. git takes `--no-veri`
+# as --no-verify (measured: the hook skipped, the commit made, git 2.54.0).
+c_commit_noveri_sq() { expect_raise "$1" "$TDD_PFX -m 'wip' --no-veri 'x'\` in your terminal"; }
+c_commit_noveri_dq() { expect_raise "$1" "$TDD_PFX -m \"wip\" --no-veri \"x\"\` in your terminal"; }
+c_reason_dq_permmode() { expect_raise "$1" "run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON=\"offline\" claude --permission-mode \"bypassPermissions\"\` in a new terminal"; }
+c_reason_sq_permmode() { expect_raise "$1" "run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='offline' claude --permission-mode 'bypassPermissions'\` in a new terminal"; }
+c_push_uf() { expect_raise "$1" "$PR_PFX -uf origin main\` in your terminal"; }
+c_commit_an() { expect_raise "$1" "$TDD_PFX -m 'x' -an\` in your terminal"; }
+
+# C28 — REVIEW R2-3: an abbreviated long option is the option (git accepts any
+# unambiguous prefix — measured on git 2.54.0, `push --delet` deleted a branch;
+# `--forc` is ambiguous there, but the rule cannot rely on a git version's
+# option list); the one long option a relay may carry is --message.
+c_push_forc() { expect_raise "$1" "$PR_PFX origin main --forc\` in your terminal"; }
+c_push_delet() { expect_raise "$1" "$PR_PFX --delet origin release\` in your terminal"; }
+c_commit_amen() { expect_raise "$1" "$TDD_PFX --amen --no-edi\` in your terminal"; }
+E_TDD_LONG="Run \`SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON='generated migration, no unit seam' git commit --message 'feat: add the migration'\` in your terminal"
+c_e_tdd_long() { expect_quiet "$1" "$E_TDD_LONG" SOLO_TDD_ATTESTED; }
+
+# C29 — REVIEW R2-4: the agent announcing that IT will run the escape (or type
+# the finisher) is proposing to attest, not relaying an attestation.
+RSQ=$(printf '\342\200\231')
+c_fp_letme() { expect_raise "$1" "Let me just run \`SOLO_PR_REVIEW_ATTESTED=1 SOLO_PR_REVIEW_ATTESTED_REASON='urgent' git push\` in the terminal to get past the review check." terminal_workaround; }
+c_fp_ill() { expect_raise "$1" "I'll run $ESC_X in a new terminal myself."; }
+c_fp_i_will() { expect_raise "$1" "I will run $ESC_X in my terminal now."; }
+c_fp_im_going() { expect_raise "$1" "I'm going to run \`SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON='no seam' git commit -m 'wip'\` in my terminal now."; }
+c_fp_i_am_going() { expect_raise "$1" "I am going to run $ESC_X in a new terminal."; }
+c_fp_i_can() { expect_raise "$1" "I can run \`SOLO_PR_REVIEW_ATTESTED=1 SOLO_PR_REVIEW_ATTESTED_REASON='urgent' git push\` in the terminal for us."; }
+c_fp_curly() { expect_raise "$1" "I${RSQ}ll run $ESC_X in a new terminal myself."; }
+c_handoff_first_person() { expect_raise "$1" "Let me run it in shell mode: at the Claude Code prompt, I'll type \`! $FIN_LINE\` myself."; }
+c_wait_you() { expect_quiet "$1" "I'll wait while you run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='offline' claude\` in a new terminal." SOLO_MCP_ATTESTED; }
+
+# C30 — the backstop's long forms, anywhere on a line (here after `claude`, not
+# after git, where every long option but --message now has an arm of its own).
+ANY_PFX="run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='offline' claude"
+c_any_force()  { expect_raise "$1" "$ANY_PFX --force\` in a new terminal"; }
+c_any_amend()  { expect_raise "$1" "$ANY_PFX --amend\` in a new terminal"; }
+c_any_no_verify() { expect_tw_proposal "$1" "$ANY_PFX --no-verify\` in a new terminal"; }
+c_any_delete() { expect_raise "$1" "$ANY_PFX --delete\` in a new terminal"; }
+c_any_mirror() { expect_raise "$1" "$ANY_PFX --mirror\` in a new terminal"; }
+c_any_prune()  { expect_raise "$1" "$ANY_PFX --prune\` in a new terminal"; }
+
 CASES="c_dogfood:C1 c_no_reason:C2 c_empty_reason:C2b c_bare_empty_reason:C2c c_dq_empty_reason:C2d
 c_reason_cmdsub:C2e-dq c_reason_bare_cmdsub:C2e-bare c_reason_bare_semicolon:C2e-semicolon c_with_no_verify:C3
 c_unregistered:C4 c_unregistered_beside:C4b
@@ -460,7 +569,17 @@ c_push_force:C23-push-force c_push_f:C23-push-f c_push_plus:C23-push-plus-refspe
 c_push_delete:C23-push-delete c_push_d:C23-push-d c_push_mirror:C23-push-mirror c_push_prune:C23-push-prune
 c_commit_amend:C23-commit-amend c_commit_n:C23-commit-n c_commit_author:C23-commit-other-flag
 c_commit_trailing:C23-commit-after-message c_commit_cmdsub:C23-commit-message-expands c_commit_no_verify_long:C23-commit-no-verify
-c_unknown_grammar:C24 c_empty_table:C25"
+c_unknown_grammar:C24 c_empty_table:C25
+c_x01:C26-X01 c_x02:C26-X02 c_x03:C26-X03 c_x04:C26-X04 c_x05:C26-X05 c_x06:C26-X06 c_x07:C26-X07 c_x08:C26-X08 c_x09:C26-X09
+c_span_oneword:C26-one-word-span c_plain_command:C26-plain-command c_two_escapes:C26-two-escapes c_escape_finisher:C26-escape-and-finisher
+c_slash_path:C26-path-as-slash-command c_slash_terminal:C26-slash-command-names-terminal c_unpaired:C26-unpaired-backtick c_env_bare:C26-bare-assignment c_env_prefix_in_span:C26-assignment-before-escape
+c_handoff_escape:C26-escape-on-shell-mode-line
+c_commit_noveri_sq:C27-commit-no-veri c_commit_noveri_dq:C27-commit-no-veri-dq c_reason_dq_permmode:C27-reason-dq-permission-mode
+c_reason_sq_permmode:C27-reason-sq-permission-mode c_push_uf:C27-push-uf c_commit_an:C27-commit-an
+c_push_forc:C28-push-forc c_push_delet:C28-push-delet c_commit_amen:C28-commit-amen c_e_tdd_long:C28-commit-long-message
+c_fp_letme:C29-let-me c_fp_ill:C29-i-ll c_fp_i_will:C29-i-will c_fp_im_going:C29-i-m-going-to c_fp_i_am_going:C29-i-am-going-to
+c_fp_i_can:C29-i-can c_fp_curly:C29-i-ll-typographic c_handoff_first_person:C29-shell-mode-i-ll-type c_wait_you:C29-wait-while-you
+c_any_force:C30-force c_any_amend:C30-amend c_any_no_verify:C30-no-verify c_any_delete:C30-delete c_any_mirror:C30-mirror c_any_prune:C30-prune"
 
 echo "=== Cases: the real detector ==="
 for entry in $CASES; do
@@ -488,9 +607,13 @@ else
   fail_ "L0b" "SETUP: the widened tree did not derive"; LAYERS_OK=0
 fi
 GRAMMAR_PROBES="c_push_force c_push_f c_push_plus c_push_colon c_push_delete c_push_d c_push_mirror c_push_prune
-c_commit_amend c_commit_n c_commit_author c_commit_trailing c_commit_cmdsub c_commit_no_verify_long c_mcp_args c_args_ctl"
+c_commit_amend c_commit_n c_commit_author c_commit_trailing c_commit_cmdsub c_commit_no_verify_long c_mcp_args c_args_ctl
+c_commit_noveri_sq c_commit_noveri_dq c_reason_dq_permmode c_reason_sq_permmode c_push_uf c_commit_an
+c_push_forc c_push_delet c_commit_amen c_any_force c_any_amend c_any_no_verify c_any_delete c_any_mirror c_any_prune"
 BACKSTOP_PROBES="c_push_force c_push_f c_push_plus c_push_colon c_push_delete c_push_d c_push_mirror c_push_prune
-c_commit_amend c_commit_n c_commit_no_verify_long c_mcp_args"
+c_commit_amend c_commit_n c_commit_no_verify_long c_mcp_args
+c_commit_noveri_sq c_commit_noveri_dq c_push_uf c_commit_an c_push_forc c_push_delet c_commit_amen
+c_any_force c_any_amend c_any_no_verify c_any_delete c_any_mirror c_any_prune"
 # layer ID TREE PROBES — every probe holds on TREE.
 layer() {
   local id="$1" tree="$2" fn="" bad=""
@@ -503,6 +626,9 @@ if [ "$LAYERS_OK" = 1 ]; then
   WHY=""
   if c_e_tdd "$WIDE"; then pass "L3: the widened tree still relays a documented escape (the widening did not break the relay path)"
   else fail_ "L3" "$WHY"; fi
+  WHY=""
+  if c_e_tdd_long "$WIDE"; then pass "L3b: the widened tree still relays --message (the backstop's one documented long option)"
+  else fail_ "L3b" "$WHY"; fi
 else
   fail_ "L1-L3" "not run: a layer tree did not derive"
 fi
@@ -684,14 +810,14 @@ mutant M3b BL-311-RELAY-REASON-VALUE '[A-Za-z0-9_.,:/+-]+)"' '[A-Za-z0-9_.,:/+-]
 mutant M3c BL-311-RELAY-REASON-VALUE '\$\\\\!]+\"|' '\$\\\\!]*\"|' c_dq_empty_reason
 mutant M3d BL-311-RELAY-REASON-VALUE '\"[^\"${bt}\$\\\\!]+\"|' '\"[^\"${bt}]+\"|' c_reason_cmdsub
 mutant M3e BL-311-RELAY-REASON-VALUE '[A-Za-z0-9_.,:/+-]+)"' "[^[:space:]'\\\"\${bt}]+)\"" c_reason_bare_semicolon
-mutant M6  BL-311-RELAY-NO-OTHER-ENV '[[ $rest =~ $env_ere ]] && return 1' '[[ $rest =~ $env_ere ]] && true' c_unregistered_beside
+mutant M6  BL-311-RELAY-NO-OTHER-ENV '[[ $rest =~ $env_ere ]] && return 1' '[[ $rest =~ $env_ere ]] && true' c_env_bare
 mutant M7  BL-311-RELAY-NO-FLAGS '[[ $rest =~ $opt_ere ]] && return 1' '[[ $rest =~ $opt_ere ]] && true' c_flag
 mutant M7b BL-311-RELAY-NO-FLAGS 'opt_ere="(^|[[:space:](])--?[A-Za-z]"' 'opt_ere="(^|[[:space:](])--[A-Za-z]"' c_single_dash_flag
-mutant M8  BL-311-RELAY-PREFIX '[[ $low =~ $prefix_ere ]] && return 1' '[[ $low =~ $prefix_ere ]] && true' c_prefix
+mutant M8  BL-311-RELAY-SPANS-ONLY '[ -n "$kind" ] || return 1' '[ -n "$kind" ] || true' c_x01
 mutant M9  BL-311-RELAY-REMAINDER 'grep -qiE -e "$tw" && return 1' 'grep -qiE -e "$tw" && true' c_remainder
 mutant M10 BL-311-HANDOFF-BANG '[[ $low =~ $bang_ere ]] || return 1' '[[ $low =~ $bang_ere ]] || true' c_handoff_no_bang
 mutant M10b BL-311-HANDOFF-BANG 'prompt_ere="claude code[^[:space:]]* prompt"' 'prompt_ere="."' c_handoff_no_prompt_words
-mutant M11 BL-311-HANDOFF-COMMAND-VERBATIM 'case "$rest" in *"$bt"*) return 1 ;; esac' 'case "$rest" in *"@@never@@"*) return 1 ;; esac' c_handoff_code
+mutant M11 BL-311-HANDOFF-COMMAND-PINNED '[ -z "$att" ] || return 1' '[ -z "$att" ] || true' c_handoff_escape
 mutant M11b BL-311-HANDOFF-COMMAND-VERBATIM 'opt_ere="(^|[[:space:](])--?[A-Za-z]"' 'opt_ere="(^|[[:space:](])--[A-Za-z]"' c_handoff_single_dash
 mutant M12 BL-311-HANDOFF-ONLY-SHELL-MODE 'case "$low" in *terminal*|*shell*) return 1 ;; esac' 'case "$low" in *@@never@@*) return 1 ;; esac' c_handoff_terminal
 mutant M12b BL-311-HANDOFF-MODE-NAME '(mode|commands?)' '(mode|commands?|window)' c_handoff_shell_window
@@ -703,14 +829,33 @@ mutant M17 BL-311-RELAYED-QUESTION-PATTERN 'FIRST_PATTERN="$RAISE_PATTERN"' ': "
 mutant M18 BL-311-RELAY-ESCAPES-BEGIN "'SOLO_TDD_ATTESTED|SOLO_TDD_REASON|git commit|commit-message'" "'SOLO_TDD_ATTESTED_X|SOLO_TDD_REASON|git commit|commit-message'" c_e_tdd
 mutant M19 BL-311-RELAYED-ESCAPE-ROW '.user_response = "n/a"' '.user_response = "PENDING"' c_dogfood
 mutant M20 BL-311-RELAYED-ESCAPE-ROW '    RAISE_PATTERN="$PATTERN"' '    : "$PATTERN"' c_tp_terminal
-mutant M21 BL-311-HANDOFF-FINISHER-MATCH '[ "$(_soif_relay_sha256 "$body" || true)" = "$SOIF_RELAY_FINISHER_SHA256" ] && continue' '[ -n "$body" ] && continue' c_injected_prompt
-mutant M21b BL-311-HANDOFF-FINISHER-MATCH '[ "$c" = "!" ] && continue' '[ "$c" = "@@never@@" ] && continue' c_shell_bang_code
+mutant M21 BL-311-HANDOFF-FINISHER-MATCH '[ "$(_soif_relay_sha256 "$body" || true)" = "$SOIF_RELAY_FINISHER_SHA256" ]' '[ -n "$body" ]' c_injected_prompt
+mutant M21b BL-311-RELAY-SPAN-BANG 'if [ "$c" = "!" ]; then' 'if [ "$c" = "@@never@@" ]; then' c_shell_bang_code
 mutant M21c BL-311-HANDOFF-FINISHER-PIN "SOIF_RELAY_FINISHER_SHA256='6e3dddd3" "SOIF_RELAY_FINISHER_SHA256='0e3dddd3" c_shell_fin
-mutant M21d BL-311-HANDOFF-COMMAND-PINNED 'rest=$(_soif_relay_strip_handoff_code "$line")' 'rest="$line"' c_shell_fin
+mutant M21d BL-311-HANDOFF-FINISHER-MATCH 'kind="$SOIF_RELAY_TOK_FINISHER"' 'kind=""' c_shell_fin
 mutant M22 BL-311-RELAY-PHRASE 'while [[ $low =~ $phrase_ere ]]; do' 'while false; do' c_dogfood
 mutant M23 BL-311-HANDOFF-MODE-NAME 'while [[ $low =~ $mode_ere ]]; do' 'while false; do' c_shell4
-mutant M24 BL-311-RELAY-TOKEN-FORGE 'case "$low" in *"$tok"*) return 1 ;; esac' 'case "$low" in *"@@never@@"*) return 1 ;; esac' c_forged
+mutant M24 BL-311-RELAY-TOKEN-FORGE 'case "$low" in *"@@soif-"*) return 1 ;; esac' 'case "$low" in *"@@never@@"*) return 1 ;; esac' c_forged
 mutant M25 BL-311-RELAY-ARGS-UNKNOWN '*) return 1 ;;' '*) printf '"'%s'"' "" ;;' c_unknown_grammar 0
+# Review round 2. R2-1: the span rule — each allowed-span arm both removed (the
+# relay it serves goes RED) and widened (a rider it must refuse goes RED).
+mutant M44 BL-311-RELAY-SPANS-CALL '_soif_relay_spans "$line" || return 1' '_soif_relay_spans "$line" || true' c_x01
+mutant M45 BL-311-RELAY-SPANS-ONE '[ "$n" -le 1 ] || return 1' '[ "$n" -le 1 ] || true' c_two_escapes
+mutant M46 BL-311-RELAY-SPANS-PAIRED 'case "$t" in *"$bt"*) return 1 ;; esac' 'case "$t" in *"@@never@@"*) return 1 ;; esac' c_unpaired
+mutant M47 BL-311-RELAY-SPAN-SLASH '[a-z0-9-]*$' '[a-z0-9-]*' c_slash_path
+mutant M48 BL-311-RELAY-SPAN-BANG 'elif [[ $c =~ $slash_ere ]]; then' 'elif false; then' c_dogfood
+mutant M49 BL-311-RELAY-SPAN-BANG 'if [ "$c" = "!" ]; then' 'if [ -n "$c" ]; then' c_handoff_code
+mutant M50 BL-311-RELAY-SPAN-ESCAPE 'if [[ "$bt$c$bt" =~ $ere ]]; then' 'if false; then' c_dogfood
+mutant M51 BL-311-RELAY-REASON-REQUIRED '"${bt}${att}=1' '"${att}=1' c_env_prefix_in_span
+mutant M52 BL-311-RELAY-REASON-REQUIRED '[[:space:]]*${bt}"' '[[:space:]]*"' c_args_ctl
+# R2-4: the first-person refusal, on each kind, and the person-runs-it exception.
+mutant M53 BL-311-RELAY-FIRST-PERSON '_soif_relay_first_person "$low" && return 1' '_soif_relay_first_person "$low" && true' c_fp_letme
+mutant M54 BL-311-HANDOFF-FIRST-PERSON '_soif_relay_first_person "$low" && return 1' '_soif_relay_first_person "$low" && true' c_handoff_first_person
+mutant M55 BL-311-RELAY-YOU-RUN-IT 'case " $m " in *" you "*' 'case " $m " in *" @@never@@ "*' c_wait_you
+# R2-3: the backstop's one documented long option. R2-2: the reason's quote exclusions.
+mutant M56 BL-311-RELAY-BACKSTOP-MESSAGE '[ "$m" = "--message" ]' '[ "$m" = "--@@never@@" ]' c_e_tdd_long
+mutant M57 BL-311-RELAY-REASON-VALUE '|\"[^\"${bt}\$\\\\!]+\"|[A-Za-z' '|\"[^${bt}\$\\\\!]+\"|[A-Za-z' c_reason_dq_permmode
+mutant M58 BL-311-RELAY-REASON-VALUE "val=\"('[^'\${bt}]+'|" "val=\"('[^\${bt}]+'|" c_reason_sq_permmode
 
 # The argument grammars, on the no-backstop tree (the backstop would otherwise
 # catch every probe and no grammar mutant could die).
@@ -722,26 +867,38 @@ mutant M26 BL-311-RELAY-ARGS-PUSH 'name="[A-Za-z0-9_][A-Za-z0-9._/-]*"' 'name="[
 mutant M27 BL-311-RELAY-ARGS-COMMIT '(-m|--message)' '(-[A-Za-z-]+)' c_commit_author
 mutant M28 BL-311-RELAY-ARGS-COMMIT '\"))?" ;;' '\")([[:space:]]+[^${bt}]*)?)?" ;;' c_commit_trailing
 mutant M29 BL-311-RELAY-ARGS-COMMIT '\"[^\"${bt}\$\\\\!]+\"))?' '\"[^\"${bt}\\\\!]+\"))?' c_commit_cmdsub
+# R2-2 (OM3, OM4): the message's own quote, excluded from inside it.
+mutant M59 BL-311-RELAY-ARGS-COMMIT "[[:space:]]+('[^'\${bt}]+'|" "[[:space:]]+('[^\${bt}]+'|" c_commit_noveri_sq
+mutant M60 BL-311-RELAY-ARGS-COMMIT '|\"[^\"${bt}\$\\\\!]+\"))?' '|\"[^${bt}\$\\\\!]+\"))?' c_commit_noveri_dq
 
 # The backstop, on the widened tree (the grammars would otherwise refuse every
 # probe and no backstop mutant could die).
 MBASE="$WIDE"; MBASE_NAME="widened"
 mutant M30 BL-311-RELAY-BACKSTOP-CALL '_soif_relay_destructive "$line" && return 1' '_soif_relay_destructive "$line" && true' c_push_plus
-mutant M31 BL-311-RELAY-BACKSTOP-FLAGS '*--force*|' '' c_push_force
-mutant M32 BL-311-RELAY-BACKSTOP-FLAGS '*--amend*|' '' c_commit_amend
-mutant M33 BL-311-RELAY-BACKSTOP-FLAGS '*--no-verify*|' '' c_commit_no_verify_long
+# The long forms "anywhere": after git, LONGOPT refuses them too, so each dies
+# on a line where they follow `claude` (C30).
+mutant M31 BL-311-RELAY-BACKSTOP-FLAGS '*--force*|' '' c_any_force
+mutant M32 BL-311-RELAY-BACKSTOP-FLAGS '*--amend*|' '' c_any_amend
+mutant M33 BL-311-RELAY-BACKSTOP-FLAGS '*--no-verify*|' '' c_any_no_verify
 mutant M34 BL-311-RELAY-BACKSTOP-FLAGS '*--dangerously-skip-permissions*|' '' c_mcp_args
-mutant M35 BL-311-RELAY-BACKSTOP-FLAGS '*--delete*|' '' c_push_delete
-mutant M36 BL-311-RELAY-BACKSTOP-FLAGS '*--mirror*|' '' c_push_mirror
-mutant M37 BL-311-RELAY-BACKSTOP-FLAGS '|*--prune*)' ')' c_push_prune
+mutant M35 BL-311-RELAY-BACKSTOP-FLAGS '*--delete*|' '' c_any_delete
+mutant M36 BL-311-RELAY-BACKSTOP-FLAGS '*--mirror*|' '' c_any_mirror
+mutant M37 BL-311-RELAY-BACKSTOP-FLAGS '|*--prune*)' ')' c_any_prune
 mutant M38 BL-311-RELAY-BACKSTOP-PUSH '(-[a-z]*[fd]|' '(-[a-z]*[d]|' c_push_f
 mutant M39 BL-311-RELAY-BACKSTOP-PUSH '(-[a-z]*[fd]|' '(-[a-z]*[f]|' c_push_d
 mutant M40 BL-311-RELAY-BACKSTOP-PUSH '[+:][^[:space:]]' '[:][^[:space:]]' c_push_plus
 mutant M41 BL-311-RELAY-BACKSTOP-PUSH '[+:][^[:space:]]' '[+][^[:space:]]' c_push_colon
 mutant M42 BL-311-RELAY-BACKSTOP-PUSH 'push[[:space:]](.*[[:space:]])?(' 'push[[:space:]](' c_push_f
 mutant M43 BL-311-RELAY-BACKSTOP-COMMIT '-[a-z]*n"' '-[a-z]*@"' c_commit_n
+# R2-3: every long option after git commit/push but --message.
+mutant M61 BL-311-RELAY-BACKSTOP-LONGOPT '[ "$m" = "--message" ] || return 0' '[ "$m" = "--message" ] || true' c_commit_noveri_sq
+mutant M62 BL-311-RELAY-BACKSTOP-LONGOPT '(commit|push)([[:space:]].*)$' '(commit)([[:space:]].*)$' c_push_forc
+mutant M63 BL-311-RELAY-BACKSTOP-LONGOPT '(commit|push)([[:space:]].*)$' '(push)([[:space:]].*)$' c_commit_amen
+# R2-2 (OM5, OM6): a short flag inside a cluster.
+mutant M64 BL-311-RELAY-BACKSTOP-PUSH '(-[a-z]*[fd]|' '(-[fd]|' c_push_uf
+mutant M65 BL-311-RELAY-BACKSTOP-COMMIT '-[a-z]*n"' '-n"' c_commit_an
 else
-  fail_ "M4-M43" "not run: a layer tree did not derive"
+  fail_ "M4-M65 (layer-tree mutants)" "not run: a layer tree did not derive"
 fi
 
 echo ""

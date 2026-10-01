@@ -53,11 +53,18 @@ source "$SCRIPTS_DIR/lib/bypass-audit.sh"
 #
 # So, on the Stop arm only, a terminal_workaround match whose every matching
 # line RELAYS one of these is written as a `relayed_framework_escape` row: the
-# record is kept, and no pending-approval sentinel is raised for it. A line
-# relays when it is one of two kinds, each defined narrowly:
+# record is kept, and no pending-approval sentinel is raised for it.
+#
+# FIRST, THE SPANS (_soif_relay_spans). EVERY inline code span on the line must
+# be one a relay carries: (a) an escape span (kind 1 below), (b) the pinned
+# finisher, (c) `!` alone, or (d) a Claude Code slash command, /name (the
+# dogfood relay names `/session-resume`) — and at most one of them an escape or
+# the finisher. Any other span — a file, `reboot`, a second command, however
+# the words around it read — and the line is no relay. Then the line is one of
+# two kinds, each defined narrowly:
 #
 #   1. AN ATTESTED ESCAPE AS ITS CHECK DOCUMENTS IT (_soif_relay_escape_line).
-#      An inline code span that is exactly a row of the table below — the
+#      Exactly one inline code span that is a row of the table below — the
 #      attested variable set to 1, then its reason variable set to a non-empty
 #      value no shell expands (single-quoted; double-quoted with no $ ` \ !; or
 #      one plain word), then nothing or the documented command with only the
@@ -65,13 +72,14 @@ source "$SCRIPTS_DIR/lib/bypass-audit.sh"
 #      _soif_relay_args_ere: none at all for most; one quoted message for
 #      `git commit`; a plain remote and branch for `git push`) — inside a relay
 #      phrase: a verb right before the span, "in/from/on/at/… <up to four
-#      words> terminal|shell" right after it.
+#      words> terminal|shell" right after it, addressed to the person.
 #   2. THE DOCUMENTED HAND-TO-HUMAN STEP (_soif_relay_handoff_line). A line that
 #      names `!` and the Claude Code prompt, whose only terminal/shell words are
 #      Claude Code's name for that route ("shell mode", "shell command(s)"), and
-#      whose only inline code is `!` or the assessment's finisher, byte for byte
-#      (SOIF_RELAY_FINISHER_SHA256). No project file is read for it: the
-#      prompt the agent was given is a file the session can write.
+#      that carries no escape span: its one command, if it names one, is the
+#      assessment's finisher, byte for byte (SOIF_RELAY_FINISHER_SHA256). No
+#      project file is read for it: the prompt the agent was given is a file
+#      the session can write.
 #
 # THE THREAT: AN AGENT QUOTING A SANCTIONED ESCAPE AS COVER for a real proposal
 # in the same message. That is why the exemption is per pattern and per line,
@@ -80,21 +88,27 @@ source "$SCRIPTS_DIR/lib/bypass-audit.sh"
 # marking a step complete) that no documented escape contains, so it raises
 # whatever else the message says; EVERY line terminal_workaround matches must
 # qualify, or the pattern raises; and on a qualifying line nothing may ride
-# along — no other environment assignment (an invented variable, an attested
-# variable without its reason, an unregistered SOLO_*_ATTESTED), no option-like
-# token outside the escape, no argument inside it that its check does not
-# document, no second terminal route once the relay phrase is cut out, and no
-# other inline code introduced by run/do/execute earlier in the same sentence.
+# along — no inline code but the four span shapes above, no other environment
+# assignment (an invented variable, an attested variable without its reason, an
+# unregistered SOLO_*_ATTESTED), no option-like token outside the escape, no
+# argument inside it that its check does not document, no second terminal route
+# once the relay phrase is cut out, and no first-person announcement that the
+# AGENT will run the escape ("let me run `…`", "I'll run `…`"): an attestation
+# is the person's decision, and an agent that says it will make one is
+# proposing to.
 # BEHIND ALL OF THAT, A BACKSTOP (_soif_relay_destructive): a line that carries a
-# force, a history rewrite, a deleted remote ref or a skipped hook or permission
-# check anywhere is never a relay, whatever the table or the grammars say.
+# force, a history rewrite, a deleted remote ref, a skipped hook or permission
+# check, or any long option after `git commit`/`git push` but --message, is never
+# a relay, whatever the table or the grammars say.
 # tests/test-bl311-d-relayed-escape.sh pins each condition.
 #
 # LIMITS. Every condition fails CLOSED: a line that misses one raises the
 # sentinel exactly as before. Not separated, and recorded on `## BL-311:`: a
 # proposal in plain words (no code, no flag, no variable) that shares the relay
-# phrase's own terminal word; an escape relayed in a fenced block (fences are
-# stripped before the scan, so the lead-in line carries no escape and raises).
+# phrase's own terminal word, or that a slash command carries (any /name is
+# allowed, read no more closely than plain words); an escape relayed in a fenced
+# block (fences are stripped before the scan, so the lead-in line carries no
+# escape and raises).
 # The finisher is pinned as text: what it runs is resolved through
 # .claude/orchestrator-source.json when the person types it, and no pin here
 # can vouch for that file. The PostToolUse arm is untouched: `## BL-277:` owns it.
@@ -198,11 +212,12 @@ _soif_relay_span_ere() {
 }
 
 # _soif_relay_destructive LINE — rc 0 iff LINE carries, anywhere, a force, a
-# history rewrite, a deleted remote ref, or a skipped hook or permission check.
-# The backstop behind the grammars: such a line is never a relay, whatever the
-# table says, so a widened grammar cannot exempt one.
+# history rewrite, a deleted remote ref, or a skipped hook or permission check,
+# or any long option after `git commit`/`git push` but --message. The backstop
+# behind the grammars: such a line is never a relay, whatever the table says, so
+# a widened grammar cannot exempt one.
 _soif_relay_destructive() {
-  local low="" ere=""
+  local low="" ere="" after="" m=""
   low=$(printf '%s' "$1" | LC_ALL=C tr 'A-Z' 'a-z')
   # BL-311-RELAY-BACKSTOP-FLAGS — the long forms, anywhere on the line.
   case "$low" in
@@ -214,59 +229,122 @@ _soif_relay_destructive() {
   # BL-311-RELAY-BACKSTOP-COMMIT — after `git commit`: a short-flag cluster carrying -n (no-verify).
   ere="git[[:space:]]+commit[[:space:]](.*[[:space:]])?-[a-z]*n"
   [[ $low =~ $ere ]] && return 0
+  # BL-311-RELAY-BACKSTOP-LONGOPT — after `git commit` or `git push`, every long
+  # option but --message (or --message=…). git takes any unambiguous prefix of a
+  # long option — `--amen` is --amend, `--no-veri` is --no-verify, `--forc` is
+  # --force — so no list of names can hold; only the documented one passes.
+  ere="git[[:space:]]+(commit|push)([[:space:]].*)$"
+  if [[ $low =~ $ere ]]; then
+    after="${BASH_REMATCH[2]}"
+    ere="--[a-z0-9-]*"
+    while [[ $after =~ $ere ]]; do
+      m="${BASH_REMATCH[0]}"
+      [ "$m" = "--message" ] || return 0   # BL-311-RELAY-BACKSTOP-MESSAGE
+      after="${after#*"$m"}"
+    done
+  fi
   return 1
 }
 
-# _soif_relay_strip_handoff_code LINE — LINE without its `!` spans and without
-# each span that is the pinned finisher (bare, or after "! "). Any other inline
-# code stays in place for the caller to refuse. Split on the backtick rather than
-# ${var//pat/rep}: no replacement text for bash 5.2's `&` rule to reinterpret.
-_soif_relay_strip_handoff_code() {
-  local t="$1" bt='`' out="" c="" body=""
+# What an escape, the finisher or `!` becomes once _soif_relay_spans has
+# classified it: a printable token (a control byte is not safe: bash uses \001
+# internally and drops it from =~ patterns). All three share the prefix "@@soif-",
+# so a line that already carries it is refused rather than trusted. A slash
+# command keeps its own text (its backticks dropped), so every word check still
+# reads it: an opaque token there would hide a "terminal" or "shell" in its name
+# from the remainder check.
+SOIF_RELAY_TOK_ESCAPE='@@soif-relay@@'
+SOIF_RELAY_TOK_FINISHER='@@soif-finisher@@'
+SOIF_RELAY_TOK_BANG='@@soif-bang@@'
+
+# _soif_relay_spans LINE — rc 0 iff EVERY inline code span on LINE is one a relay
+# carries, at most one of them an escape or the finisher. On rc 0 it sets
+# SOIF_RELAY_REST (LINE with each span replaced by its kind's token, or a slash
+# command by its own text) and SOIF_RELAY_ATT (the escape span's attested
+# variable, or empty). Split on the backtick rather than ${var//pat/rep}: no
+# replacement text for bash 5.2's `&` rule to reinterpret.
+_soif_relay_spans() {
+  local t="$1" bt='`' out="" c="" body="" kind="" low="" row="" att="" reason="" cmd="" args="" ere="" n=0 slash_ere=""
+  SOIF_RELAY_REST=""
+  SOIF_RELAY_ATT=""
+  low=$(printf '%s' "$t" | LC_ALL=C tr 'A-Z' 'a-z')
+  # BL-311-RELAY-TOKEN-FORGE — a token the line already carries was not put there by this function.
+  case "$low" in *"@@soif-"*) return 1 ;; esac
+  # BL-311-RELAY-SPAN-SLASH — (d) a Claude Code slash command: /name, and nothing after it.
+  slash_ere='^/[a-z][a-z0-9-]*$'
   while :; do
     case "$t" in *"$bt"*"$bt"*) ;; *) break ;; esac
     out="$out${t%%"$bt"*}"
     t="${t#*"$bt"}"
     c="${t%%"$bt"*}"
     t="${t#*"$bt"}"
+    kind=""
     body="$c"
     case "$c" in "! "*) body="${c#"! "}" ;; esac
-    # BL-311-HANDOFF-FINISHER-MATCH — `!` alone, or the finisher byte for byte.
-    [ "$c" = "!" ] && continue
-    [ "$(_soif_relay_sha256 "$body" || true)" = "$SOIF_RELAY_FINISHER_SHA256" ] && continue
-    out="$out$bt$c$bt"
-  done
-  printf '%s' "$out$t"
-}
-
-# _soif_relay_escape_line LINE TW — rc 0, with the relayed variable names on
-# stdout, iff LINE relays a registered escape (kind 1 above) and nothing else on
-# it could be a proposal. TW is the live terminal_workaround regex. Each valid
-# span is replaced by a printable token before the phrase checks (a control
-# byte is not safe: bash uses \001 internally and drops it from =~ patterns),
-# so a line that already carries the token is refused rather than trusted.
-_soif_relay_escape_line() {
-  local line="$1" tw="$2" tok='@@soif-relay@@' bt='`' rest="" low="" found="" row="" att="" reason="" cmd="" args="" ere="" m=""
-  local env_ere="" opt_ere="" prefix_ere="" phrase_ere=""
-  low=$(printf '%s' "$line" | LC_ALL=C tr 'A-Z' 'a-z')
-  # BL-311-RELAY-TOKEN-FORGE — a token the line already carries was not put there by this function.
-  case "$low" in *"$tok"*) return 1 ;; esac
-  rest="$line"
-  # BL-311-RELAY-TABLE-NONEMPTY — an empty table relays nothing (and bash 3.2
-  # reads an empty array as unbound under set -u).
-  [ "${#SOIF_RELAY_ESCAPES[@]}" -gt 0 ] || return 1
-  for row in "${SOIF_RELAY_ESCAPES[@]}"; do
-    IFS='|' read -r att reason cmd args <<EOF
+    # BL-311-RELAY-SPAN-BANG — (c) `!` alone; then (d), the slash command.
+    if [ "$c" = "!" ]; then
+      kind="$SOIF_RELAY_TOK_BANG"
+    elif [[ $c =~ $slash_ere ]]; then
+      kind="$c"
+    else
+      # BL-311-RELAY-TABLE-NONEMPTY — an empty table names no escape (and bash 3.2
+      # reads an empty array as unbound under set -u).
+      if [ "${#SOIF_RELAY_ESCAPES[@]}" -gt 0 ]; then
+        for row in "${SOIF_RELAY_ESCAPES[@]}"; do
+          IFS='|' read -r att reason cmd args <<EOF
 $row
 EOF
-    ere=$(_soif_relay_span_ere "$att" "$reason" "$cmd" "$args") || continue
-    while [[ $rest =~ $ere ]]; do
-      m="${BASH_REMATCH[0]}"
-      rest="${rest%%"$m"*}${tok}${rest#*"$m"}"
-      case " $found " in *" $att "*) ;; *) found="${found:+$found }$att" ;; esac
-    done
+          ere=$(_soif_relay_span_ere "$att" "$reason" "$cmd" "$args") || continue
+          # BL-311-RELAY-SPAN-ESCAPE — (a) the whole span, backtick to backtick, is one row of the table.
+          if [[ "$bt$c$bt" =~ $ere ]]; then
+            kind="$SOIF_RELAY_TOK_ESCAPE"
+            SOIF_RELAY_ATT="$att"
+            break
+          fi
+        done
+      fi
+      # BL-311-HANDOFF-FINISHER-MATCH — (b) the finisher byte for byte, bare or after "! ".
+      if [ -z "$kind" ] && [ "$(_soif_relay_sha256 "$body" || true)" = "$SOIF_RELAY_FINISHER_SHA256" ]; then
+        kind="$SOIF_RELAY_TOK_FINISHER"
+      fi
+    fi
+    # BL-311-RELAY-SPANS-ONLY — any other span, and the line is no relay.
+    [ -n "$kind" ] || return 1
+    case "$kind" in "$SOIF_RELAY_TOK_ESCAPE"|"$SOIF_RELAY_TOK_FINISHER") n=$((n + 1)) ;; esac
+    out="$out$kind"
   done
-  [ -n "$found" ] || return 1
+  # BL-311-RELAY-SPANS-ONE — one escape or finisher on a line, never two.
+  [ "$n" -le 1 ] || return 1
+  # BL-311-RELAY-SPANS-PAIRED — an unpaired backtick opens code this rule cannot read.
+  case "$t" in *"$bt"*) return 1 ;; esac
+  SOIF_RELAY_REST="$out$t"
+}
+
+# _soif_relay_first_person LOW — rc 0 iff LOW (lowercased, its spans tokenized)
+# has the AGENT announcing that it will run the escape or the finisher itself:
+# "let me", "i'll", "i will", "i'm (going to)", "i am (going to)", "i can" … then
+# at most three words, then a relay verb right before the token. A match that
+# names the person ("i'll wait while you run …") is the person running it.
+_soif_relay_first_person() {
+  local low="$1" rsq="" fp_ere="" m=""
+  rsq=$(printf '\342\200\231')   # the typographic apostrophe, as bytes
+  fp_ere="(^|[^a-z])(let me|i('|${rsq})ll|i will|i('|${rsq})m|i am|i can|i could|i('|${rsq})d|i would|i shall)([[:space:]]+[a-z'-]+){0,3}[[:space:]]+(re-?run|run|execute|launch|start|type|paste|enter|use)[[:space:]]+(${SOIF_RELAY_TOK_ESCAPE}|${SOIF_RELAY_TOK_FINISHER})"
+  [[ $low =~ $fp_ere ]] || return 1
+  m="${BASH_REMATCH[0]}"
+  # BL-311-RELAY-YOU-RUN-IT — the person is the one who runs it.
+  case " $m " in *" you "*|*" your "*|*" yourself "*) return 1 ;; esac
+  return 0
+}
+
+# _soif_relay_escape_line REST ATT TW — rc 0, with ATT on stdout, iff the line
+# _soif_relay_spans tokenized into REST relays a registered escape (kind 1 above)
+# and nothing else on it could be a proposal. ATT is the escape span's attested
+# variable (empty when the line has none); TW is the live terminal_workaround regex.
+_soif_relay_escape_line() {
+  local rest="$1" att="$2" tw="$3" tok="$SOIF_RELAY_TOK_ESCAPE" bt='`' low="" m=""
+  local env_ere="" opt_ere="" phrase_ere=""
+  # BL-311-RELAY-ESCAPE-SPAN — an escape span is on the line (_soif_relay_spans allows one at most).
+  [ -n "$att" ] || return 1
   # BL-311-RELAY-NO-OTHER-ENV — no assignment survives outside the registered spans.
   env_ere="(^|[[:space:]${bt}\"'(])[A-Za-z_][A-Za-z0-9_]*="
   [[ $rest =~ $env_ere ]] && return 1
@@ -274,9 +352,8 @@ EOF
   opt_ere="(^|[[:space:](])--?[A-Za-z]"
   [[ $rest =~ $opt_ere ]] && return 1
   low=$(printf '%s' "$rest" | LC_ALL=C tr 'A-Z' 'a-z')
-  # BL-311-RELAY-PREFIX — no run/do/execute earlier in the sentence introduces other inline code.
-  prefix_ere="(^|[^a-z])(run|do|execute)[[:space:]][^.]*${bt}[^${bt}]*${bt}[^.]*${tok}"
-  [[ $low =~ $prefix_ere ]] && return 1
+  # BL-311-RELAY-FIRST-PERSON — the agent announcing it will run the escape itself is no relay.
+  _soif_relay_first_person "$low" && return 1
   # BL-311-RELAY-PHRASE — a verb right before the span, the place right after it;
   # each such phrase is cut out, leaving a sentence break.
   phrase_ere="(^|[^a-z])(re-?run|run|execute|launch|start|type|paste|enter|use|with)[[:space:]]+${tok}[[:space:],]+(in|from|on|at|inside|within|using|via|through)[[:space:]]+([a-z][a-z'-]*[[:space:]]+){0,4}(terminal|shell)([^a-z0-9_]|$)"
@@ -286,13 +363,14 @@ EOF
   done
   # BL-311-RELAY-REMAINDER — with each relay phrase cut out, no terminal route is left.
   printf '%s\n' "$low" | grep -qiE -e "$tw" && return 1
-  printf '%s' "$found"
+  printf '%s' "$att"
 }
 
-# _soif_relay_handoff_line LINE — rc 0 iff LINE relays the documented
+# _soif_relay_handoff_line LINE REST ATT — rc 0 iff LINE relays the documented
 # hand-to-human step (kind 2 above) and nothing else on it could be a proposal.
+# REST and ATT are what _soif_relay_spans made of LINE.
 _soif_relay_handoff_line() {
-  local line="$1" bt='`' rest="" low="" m=""
+  local line="$1" rest="$2" att="$3" bt='`' low="" m=""
   local bang_ere="" prompt_ere="" env_ere="" opt_ere="" mode_ere=""
   low=$(printf '%s' "$line" | LC_ALL=C tr 'A-Z' 'a-z')
   # BL-311-HANDOFF-BANG — it names Claude Code's `!` prefix and the Claude Code prompt.
@@ -300,16 +378,18 @@ _soif_relay_handoff_line() {
   prompt_ere="claude code[^[:space:]]* prompt"
   [[ $low =~ $bang_ere ]] || return 1
   [[ $low =~ $prompt_ere ]] || return 1
-  # BL-311-HANDOFF-COMMAND-PINNED — the one command it may carry is the pinned
-  # finisher; no project file is read (the session can write any of them).
-  rest=$(_soif_relay_strip_handoff_code "$line")
-  # BL-311-HANDOFF-COMMAND-VERBATIM — no other inline code, no variable, no flag.
-  case "$rest" in *"$bt"*) return 1 ;; esac
+  # BL-311-HANDOFF-COMMAND-PINNED — no escape span: the one command it may carry
+  # is the pinned finisher (_soif_relay_spans), and no project file is read for
+  # it (the session can write any of them).
+  [ -z "$att" ] || return 1
+  # BL-311-HANDOFF-COMMAND-VERBATIM — no variable, no flag outside the spans.
   env_ere="(^|[[:space:]\"'(])[A-Za-z_][A-Za-z0-9_]*="
   [[ $rest =~ $env_ere ]] && return 1
   opt_ere="(^|[[:space:](])--?[A-Za-z]"
   [[ $rest =~ $opt_ere ]] && return 1
   low=$(printf '%s' "$rest" | LC_ALL=C tr 'A-Z' 'a-z')
+  # BL-311-HANDOFF-FIRST-PERSON — the agent announcing it will type the finisher itself is no relay.
+  _soif_relay_first_person "$low" && return 1
   # BL-311-HANDOFF-MODE-NAME — Claude Code's own name for the `!` route.
   mode_ere="shell[[:space:]]+(mode|commands?)"
   while [[ $low =~ $mode_ere ]]; do
@@ -335,9 +415,11 @@ soif_relayed_escape() {
   while IFS= read -r line; do
     # BL-311-RELAY-BACKSTOP-CALL — a destructive shape anywhere on the line, and it is no relay.
     _soif_relay_destructive "$line" && return 1
-    if k=$(_soif_relay_escape_line "$line" "$tw"); then
+    # BL-311-RELAY-SPANS-CALL — every inline code span is one a relay carries, or the line is no relay.
+    _soif_relay_spans "$line" || return 1
+    if k=$(_soif_relay_escape_line "$SOIF_RELAY_REST" "$SOIF_RELAY_ATT" "$tw"); then
       :
-    elif _soif_relay_handoff_line "$line"; then
+    elif _soif_relay_handoff_line "$line" "$SOIF_RELAY_REST" "$SOIF_RELAY_ATT"; then
       k="shell_mode"
     else
       return 1   # BL-311-RELAY-EVERY-LINE — one line that is not a relay and the pattern raises.
