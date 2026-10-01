@@ -59,20 +59,19 @@ source "$SCRIPTS_DIR/lib/bypass-audit.sh"
 #   1. AN ATTESTED ESCAPE AS ITS CHECK DOCUMENTS IT (_soif_relay_escape_line).
 #      An inline code span that is exactly a row of the table below — the
 #      attested variable set to 1, then its reason variable set to a non-empty
-#      value, then nothing or the documented command (`claude` with no
-#      arguments for the MCP escape; the other commands' arguments carry no
-#      shell control operator) — inside a relay phrase: a verb right before the
-#      span, "in/from/on/at/… <up to four words> terminal|shell" right after it.
+#      value no shell expands (single-quoted; double-quoted with no $ ` \ !; or
+#      one plain word), then nothing or the documented command with only the
+#      arguments its check documents (the row's argument grammar,
+#      _soif_relay_args_ere: none at all for most; one quoted message for
+#      `git commit`; a plain remote and branch for `git push`) — inside a relay
+#      phrase: a verb right before the span, "in/from/on/at/… <up to four
+#      words> terminal|shell" right after it.
 #   2. THE DOCUMENTED HAND-TO-HUMAN STEP (_soif_relay_handoff_line). A line that
 #      names `!` and the Claude Code prompt, whose only terminal/shell words are
 #      Claude Code's name for that route ("shell mode", "shell command(s)"), and
-#      whose only inline code is `!` or a command exactly as this project's own
-#      .claude/adoption/assessment-prompt.md prints it (a line that begins
-#      `bash `: the finisher). The command is read from the prompt file,
-#      not written here: core may not name the adoption module
-#      (lint-module-dependencies.sh), and the prompt is what the agent was given.
-#      It is also a file the session can write, so editing it would widen what
-#      passes; recorded on `## BL-311:`.
+#      whose only inline code is `!` or the assessment's finisher, byte for byte
+#      (SOIF_RELAY_FINISHER_SHA256). No project file is read for it: the
+#      prompt the agent was given is a file the session can write.
 #
 # THE THREAT: AN AGENT QUOTING A SANCTIONED ESCAPE AS COVER for a real proposal
 # in the same message. That is why the exemption is per pattern and per line,
@@ -83,39 +82,54 @@ source "$SCRIPTS_DIR/lib/bypass-audit.sh"
 # qualify, or the pattern raises; and on a qualifying line nothing may ride
 # along — no other environment assignment (an invented variable, an attested
 # variable without its reason, an unregistered SOLO_*_ATTESTED), no option-like
-# token outside the escape, no second terminal route once the relay phrase is
-# cut out, and no other inline code introduced by run/do/execute earlier in the
-# same sentence. tests/test-bl311-d-relayed-escape.sh pins each condition.
+# token outside the escape, no argument inside it that its check does not
+# document, no second terminal route once the relay phrase is cut out, and no
+# other inline code introduced by run/do/execute earlier in the same sentence.
+# BEHIND ALL OF THAT, A BACKSTOP (_soif_relay_destructive): a line that carries a
+# force, a history rewrite, a deleted remote ref or a skipped hook or permission
+# check anywhere is never a relay, whatever the table or the grammars say.
+# tests/test-bl311-d-relayed-escape.sh pins each condition.
 #
 # LIMITS. Every condition fails CLOSED: a line that misses one raises the
 # sentinel exactly as before. Not separated, and recorded on `## BL-311:`: a
 # proposal in plain words (no code, no flag, no variable) that shares the relay
 # phrase's own terminal word; an escape relayed in a fenced block (fences are
 # stripped before the scan, so the lead-in line carries no escape and raises).
-# The PostToolUse arm is untouched: `## BL-277:` owns it.
+# The finisher is pinned as text: what it runs is resolved through
+# .claude/orchestrator-source.json when the person types it, and no pin here
+# can vouch for that file. The PostToolUse arm is untouched: `## BL-277:` owns it.
 #
 # THE ESCAPE TABLE is the single source of truth. One row per exempt escape:
-# attested variable | reason variable | documented command | "args" when that
-# command may take arguments. Every SOLO_*_ATTESTED variable that a script,
+# attested variable | reason variable | documented command | argument grammar
+# (_soif_relay_args_ere; empty = the command takes no argument). Each row's
+# command and grammar are the invocation its check prints, quoted in the
+# comment above it. Every SOLO_*_ATTESTED variable that a script,
 # init.sh or a template reads is either a row here or a name in
 # SOIF_RELAY_NOT_EXEMPT, with the reason; the suite's R1 fails otherwise, so a
 # check cannot add an escape without someone deciding which list it joins.
 # BL-311-RELAY-ESCAPES-BEGIN
 SOIF_RELAY_ESCAPES=(
-  # session-mcp-gate.sh's deny text; reason mandatory; recorded to process-state.json::mcp_attestations[] (or .claude/mcp-attestations.jsonl), refused if neither can be written.
+  # session-mcp-gate.sh's ESCAPE_HINT: "SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='<why>' claude" — claude, no argument.
+  # Reason mandatory; recorded to process-state.json::mcp_attestations[] (or .claude/mcp-attestations.jsonl), refused if neither can be written.
   'SOLO_MCP_ATTESTED|SOLO_MCP_REASON|claude|'
-  # check-phase-gate.sh's accumulation FAIL; reason mandatory; recorded to process-state.json, refused if it cannot be.
-  'SOLO_MCP_ACCUM_ATTESTED|SOLO_MCP_ACCUM_ATTESTED_REASON|bash scripts/check-phase-gate.sh|args'
-  # pre-commit-gate.sh's BL-072 FAIL block; recorded to process-state.json::tdd_attestations[], refused if it cannot be.
-  'SOLO_TDD_ATTESTED|SOLO_TDD_REASON|git commit|args'
-  # check-phase-gate.sh's Phase 3→4 review FAIL; reason mandatory; recorded to process-state.json::phase3.attestations.reviewers.
-  'SOLO_REVIEWERS_ATTESTED|SOLO_REVIEWERS_ATTESTED_REASON|bash scripts/check-phase-gate.sh|args'
-  # check-pr-review.sh's refusal; reason mandatory; recorded to process-state.json::pr_review_attestations[], refused if it cannot be.
-  'SOLO_PR_REVIEW_ATTESTED|SOLO_PR_REVIEW_ATTESTED_REASON|git push|args'
-  # process-checklist.sh's results_received hint; recorded to process-state.json::uat_session.solo_attestations[], refused if it cannot be.
-  'SOLO_UAT_SOLO_ATTESTED|SOLO_UAT_REASON|bash scripts/process-checklist.sh|args'
-  # run-phase3-validation.sh's license deny (docs/security-scan-guide.md); recorded to phase3.license_exceptions[], FAIL if it cannot be.
-  'SOLO_LICENSE_ATTESTED|SOLO_LICENSE_REASON|bash scripts/run-phase3-validation.sh|args'
+  # check-phase-gate.sh's accumulation FAIL: "… bash scripts/check-phase-gate.sh" — no argument.
+  # Reason mandatory; recorded to process-state.json, refused if it cannot be.
+  'SOLO_MCP_ACCUM_ATTESTED|SOLO_MCP_ACCUM_ATTESTED_REASON|bash scripts/check-phase-gate.sh|'
+  # pre-commit-gate.sh's BL-072 FAIL block: "SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON='<why …>' git commit ..." — a message, nothing else.
+  # Recorded to process-state.json::tdd_attestations[], refused if it cannot be.
+  'SOLO_TDD_ATTESTED|SOLO_TDD_REASON|git commit|commit-message'
+  # check-phase-gate.sh's Phase 3→4 review FAIL (and docs/builders-guide.md) print the pair alone; the gate's own command, no argument.
+  # Reason mandatory; recorded to process-state.json::phase3.attestations.reviewers.
+  'SOLO_REVIEWERS_ATTESTED|SOLO_REVIEWERS_ATTESTED_REASON|bash scripts/check-phase-gate.sh|'
+  # check-pr-review.sh's refusal: "SOLO_PR_REVIEW_ATTESTED_REASON=\"<why …>\" git push" — no argument, or a plain remote and branch.
+  # Reason mandatory; recorded to process-state.json::pr_review_attestations[], refused if it cannot be.
+  'SOLO_PR_REVIEW_ATTESTED|SOLO_PR_REVIEW_ATTESTED_REASON|git push|remote-branch'
+  # process-checklist.sh's results_received hint: "re-run with SOLO_UAT_SOLO_ATTESTED=1 [SOLO_UAT_REASON=\"...\"]" — the pair; the script, no argument.
+  # Recorded to process-state.json::uat_session.solo_attestations[], refused if it cannot be.
+  'SOLO_UAT_SOLO_ATTESTED|SOLO_UAT_REASON|bash scripts/process-checklist.sh|'
+  # docs/security-scan-guide.md (run-phase3-validation.sh's license deny): "… bash scripts/run-phase3-validation.sh" — no argument.
+  # Recorded to phase3.license_exceptions[], FAIL if it cannot be.
+  'SOLO_LICENSE_ATTESTED|SOLO_LICENSE_REASON|bash scripts/run-phase3-validation.sh|'
 )
 SOIF_RELAY_NOT_EXEMPT=(
   # check-gate.sh --repair: no reason variable, and the check's own hint names the flag --branch-protection-attested, not this variable.
@@ -128,31 +142,101 @@ SOIF_RELAY_NOT_EXEMPT=(
 # The first matched pattern that IS a proposal; set by the row loop below.
 RAISE_PATTERN=""
 
-# _soif_relay_strip TEXT LITERAL — TEXT with every occurrence of LITERAL removed.
-# Split on the literal rather than ${var//pat/rep}: no pattern characters, and no
-# replacement text for bash 5.2's `&` rule to reinterpret.
-_soif_relay_strip() {
-  local t="$1" lit="$2" out=""
-  while :; do
-    case "$t" in
-      *"$lit"*) out="$out${t%%"$lit"*}"; t="${t#*"$lit"}" ;;
-      *) break ;;
-    esac
-  done
-  printf '%s' "$out$t"
+# THE FINISHER, PINNED. The one command a shell-mode relay may carry is the line
+# step 10 of the assessment prompt prints (# BL-311-ASSESSMENT-AUTO-MODE):
+#   bash "$(jq -r .source_dir .claude/orchestrator-source.json)/scripts/adopt-project.sh" --act4 --root .
+# Core may not name the adoption module on an executed line
+# (lint-module-dependencies.sh T1, which no allowlist row can waive), so the
+# literal lives in the comment above and the code holds its SHA-256. The suite
+# generates the prompt with the module's own writer and fails when the two
+# drift apart (R7), so a change to the finisher must come here too.
+# BL-311-HANDOFF-FINISHER-PIN
+SOIF_RELAY_FINISHER_SHA256='6e3dddd3fb669270fdfa6810c980163aa51f5bfdd909e86a40947880b5ff9c56'
+
+# _soif_relay_sha256 TEXT — TEXT's SHA-256 in hex; rc 1 when no tool here computes one.
+_soif_relay_sha256() {
+  local h=""
+  h=$( { printf '%s' "$1" | sha256sum 2>/dev/null || printf '%s' "$1" | shasum -a 256 2>/dev/null; } | awk '{print $1; exit}' )
+  case "$h" in ''|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#h}" -eq 64 ] || return 1
+  printf '%s' "$h"
 }
 
-# _soif_relay_span_ere ATT REASON CMD ARGS — the ERE for one escape's inline code span.
+# _soif_relay_args_ere GRAMMAR — the ERE for what may follow an escape's command:
+# only the arguments its check documents. An unknown GRAMMAR is rc 1, so its row
+# matches nothing and the line raises.
+_soif_relay_args_ere() {
+  local bt='`' name=""
+  case "$1" in
+    # BL-311-RELAY-ARGS-NONE — the command exactly, with no argument.
+    '') printf '%s' "" ;;
+    # BL-311-RELAY-ARGS-COMMIT — `git commit`, or with -m/--message and ONE quoted
+    # message no shell expands; no other flag, and nothing after the message.
+    commit-message) printf '%s' "([[:space:]]+(-m|--message)[[:space:]]+('[^'${bt}]+'|\"[^\"${bt}\$\\\\!]+\"))?" ;;
+    # BL-311-RELAY-ARGS-PUSH — `git push`, or with a plain remote and a plain
+    # branch: neither starts with - or + (a flag, a forced refspec), no colon.
+    remote-branch)
+      name="[A-Za-z0-9_][A-Za-z0-9._/-]*"
+      printf '%s' "([[:space:]]+${name}[[:space:]]+${name})?" ;;
+    *) return 1 ;;   # BL-311-RELAY-ARGS-UNKNOWN
+  esac
+}
+
+# _soif_relay_span_ere ATT REASON CMD GRAMMAR — the ERE for one escape's inline
+# code span; rc 1 when GRAMMAR is not one _soif_relay_args_ere defines.
 _soif_relay_span_ere() {
   local att="$1" reason="$2" cmd="$3" args="$4" bt='`' val="" tail=""
-  # BL-311-RELAY-REASON-VALUE — non-empty: single- or double-quoted, or one bare word.
-  val="('[^'${bt}]+'|\"[^\"${bt}]+\"|[^[:space:]'\"${bt}]+)"
+  # BL-311-RELAY-REASON-VALUE — non-empty, and nothing a shell expands: single-quoted,
+  # double-quoted with no $ ` \ ! inside, or one plain word.
+  val="('[^'${bt}]+'|\"[^\"${bt}\$\\\\!]+\"|[A-Za-z0-9_.,:/+-]+)"
   cmd="${cmd//./[.]}"
   cmd="${cmd// /[[:space:]]+}"
-  # BL-311-RELAY-ARGS — where the command takes arguments, none is a shell control operator.
-  [ "$args" = "args" ] && tail="([[:space:]]+[^;&|<>\$\\${bt}]*)?"
+  # BL-311-RELAY-ARGS-GRAMMAR — after the command, only the arguments its check documents.
+  tail=$(_soif_relay_args_ere "$args") || return 1
   # BL-311-RELAY-REASON-REQUIRED — the attested variable AND its reason variable, in the documented order.
   printf '%s' "${bt}${att}=1[[:space:]]+${reason}=${val}([[:space:]]+${cmd}${tail})?[[:space:]]*${bt}"
+}
+
+# _soif_relay_destructive LINE — rc 0 iff LINE carries, anywhere, a force, a
+# history rewrite, a deleted remote ref, or a skipped hook or permission check.
+# The backstop behind the grammars: such a line is never a relay, whatever the
+# table says, so a widened grammar cannot exempt one.
+_soif_relay_destructive() {
+  local low="" ere=""
+  low=$(printf '%s' "$1" | LC_ALL=C tr 'A-Z' 'a-z')
+  # BL-311-RELAY-BACKSTOP-FLAGS — the long forms, anywhere on the line.
+  case "$low" in
+    *--force*|*--amend*|*--no-verify*|*--dangerously-skip-permissions*|*--delete*|*--mirror*|*--prune*) return 0 ;;
+  esac
+  # BL-311-RELAY-BACKSTOP-PUSH — after `git push`: a short -f/-d, a +refspec (forced) or a :refspec (deleted).
+  ere="git[[:space:]]+push[[:space:]](.*[[:space:]])?(-[a-z]*[fd]|[+:][^[:space:]])"
+  [[ $low =~ $ere ]] && return 0
+  # BL-311-RELAY-BACKSTOP-COMMIT — after `git commit`: a short-flag cluster carrying -n (no-verify).
+  ere="git[[:space:]]+commit[[:space:]](.*[[:space:]])?-[a-z]*n"
+  [[ $low =~ $ere ]] && return 0
+  return 1
+}
+
+# _soif_relay_strip_handoff_code LINE — LINE without its `!` spans and without
+# each span that is the pinned finisher (bare, or after "! "). Any other inline
+# code stays in place for the caller to refuse. Split on the backtick rather than
+# ${var//pat/rep}: no replacement text for bash 5.2's `&` rule to reinterpret.
+_soif_relay_strip_handoff_code() {
+  local t="$1" bt='`' out="" c="" body=""
+  while :; do
+    case "$t" in *"$bt"*"$bt"*) ;; *) break ;; esac
+    out="$out${t%%"$bt"*}"
+    t="${t#*"$bt"}"
+    c="${t%%"$bt"*}"
+    t="${t#*"$bt"}"
+    body="$c"
+    case "$c" in "! "*) body="${c#"! "}" ;; esac
+    # BL-311-HANDOFF-FINISHER-MATCH — `!` alone, or the finisher byte for byte.
+    [ "$c" = "!" ] && continue
+    [ "$(_soif_relay_sha256 "$body" || true)" = "$SOIF_RELAY_FINISHER_SHA256" ] && continue
+    out="$out$bt$c$bt"
+  done
+  printf '%s' "$out$t"
 }
 
 # _soif_relay_escape_line LINE TW — rc 0, with the relayed variable names on
@@ -168,11 +252,14 @@ _soif_relay_escape_line() {
   # BL-311-RELAY-TOKEN-FORGE — a token the line already carries was not put there by this function.
   case "$low" in *"$tok"*) return 1 ;; esac
   rest="$line"
+  # BL-311-RELAY-TABLE-NONEMPTY — an empty table relays nothing (and bash 3.2
+  # reads an empty array as unbound under set -u).
+  [ "${#SOIF_RELAY_ESCAPES[@]}" -gt 0 ] || return 1
   for row in "${SOIF_RELAY_ESCAPES[@]}"; do
     IFS='|' read -r att reason cmd args <<EOF
 $row
 EOF
-    ere=$(_soif_relay_span_ere "$att" "$reason" "$cmd" "$args")
+    ere=$(_soif_relay_span_ere "$att" "$reason" "$cmd" "$args") || continue
     while [[ $rest =~ $ere ]]; do
       m="${BASH_REMATCH[0]}"
       rest="${rest%%"$m"*}${tok}${rest#*"$m"}"
@@ -205,28 +292,17 @@ EOF
 # _soif_relay_handoff_line LINE — rc 0 iff LINE relays the documented
 # hand-to-human step (kind 2 above) and nothing else on it could be a proposal.
 _soif_relay_handoff_line() {
-  local line="$1" bt='`' rest="" low="" cmd="" m="" pl=""
+  local line="$1" bt='`' rest="" low="" m=""
   local bang_ere="" prompt_ere="" env_ere="" opt_ere="" mode_ere=""
-  local prompt_file="${PROJECT_ROOT:-}/.claude/adoption/assessment-prompt.md"
   low=$(printf '%s' "$line" | LC_ALL=C tr 'A-Z' 'a-z')
   # BL-311-HANDOFF-BANG — it names Claude Code's `!` prefix and the Claude Code prompt.
   bang_ere="(^|[[:space:](${bt}\"'])!([[:space:])${bt}\"',.:]|$)"
   prompt_ere="claude code[^[:space:]]* prompt"
   [[ $low =~ $bang_ere ]] || return 1
   [[ $low =~ $prompt_ere ]] || return 1
-  rest="$line"
-  # BL-311-HANDOFF-COMMAND-FROM-PROMPT — the commands this project's assessment
-  # prompt prints, verbatim: its lines that begin `bash ` once trimmed.
-  if [ -f "$prompt_file" ]; then
-    while IFS= read -r pl || [ -n "$pl" ]; do
-      cmd="${pl#"${pl%%[![:space:]]*}"}"
-      cmd="${cmd%"${cmd##*[![:space:]]}"}"
-      case "$cmd" in "bash "*) ;; *) continue ;; esac
-      rest=$(_soif_relay_strip "$rest" "${bt}! ${cmd}${bt}")
-      rest=$(_soif_relay_strip "$rest" "${bt}${cmd}${bt}")
-    done < "$prompt_file"
-  fi
-  rest=$(_soif_relay_strip "$rest" "${bt}!${bt}")
+  # BL-311-HANDOFF-COMMAND-PINNED — the one command it may carry is the pinned
+  # finisher; no project file is read (the session can write any of them).
+  rest=$(_soif_relay_strip_handoff_code "$line")
   # BL-311-HANDOFF-COMMAND-VERBATIM — no other inline code, no variable, no flag.
   case "$rest" in *"$bt"*) return 1 ;; esac
   env_ere="(^|[[:space:]\"'(])[A-Za-z_][A-Za-z0-9_]*="
@@ -257,6 +333,8 @@ soif_relayed_escape() {
   [ -n "$tw" ] || return 1
   matches=$(printf '%s\n' "$text" | grep -iE -e "$tw") || return 1
   while IFS= read -r line; do
+    # BL-311-RELAY-BACKSTOP-CALL — a destructive shape anywhere on the line, and it is no relay.
+    _soif_relay_destructive "$line" && return 1
     if k=$(_soif_relay_escape_line "$line" "$tw"); then
       :
     elif _soif_relay_handoff_line "$line"; then
