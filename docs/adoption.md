@@ -148,7 +148,7 @@ It prints your line. Nothing printed means it is not loaded: with a JSON
 mistake in the file, this command prints the built-in lines and no error
 (measured on Claude Code 2.1.285), and `jq empty ~/.claude/settings.json` names
 the line with the mistake. Inside a session, `/permissions` → **Recently
-denied** lists each action auto mode refused, with its reason.
+denied** lists each action auto mode refused.
 
 **If Claude is still refused, run the command yourself** — in your own
 terminal, or typed after `!` at the session's prompt, which Claude Code runs
@@ -157,9 +157,9 @@ lands in the conversation. A script that asks you questions — adoption,
 `--re-add` — belongs in your own terminal: Claude Code's documentation does not
 say a `!` command can take your answers. Or press `Shift+Tab` once to leave auto
 mode for that step: the session then asks you, instead of the classifier, before
-it runs a command; keep pressing it until the status bar shows `⏵⏵ auto mode on` to go
-back. In `/permissions` → **Recently denied** you can also press `r` on the
-refused action to let Claude retry it with your approval.
+it runs a command; keep pressing it until the status bar shows
+`⏵⏵ auto mode on` to go back. In `/permissions` → **Recently denied** you can
+also press `r` on the refused action to let Claude retry it with your approval.
 
 ### 3. Look first — Scout writes nothing
 
