@@ -385,6 +385,7 @@ if [ -z "$r3_bad" ]; then pass "R3: each row's command is the check that reads i
 
 r4_bad=""
 r4_n=$(sed -n '/<<PROMPT/,/^PROMPT$/p' "$ACT4" | grep -cE '^[[:space:]]*bash ' || true)
+case "$r4_n" in ''|*[!0-9]*) r4_n=0 ;; esac
 [ "$r4_n" = 1 ] || r4_bad="$r4_bad [the prompt prints $r4_n bash lines, want 1]"
 case "$FIN_LINE" in *'bash "$(jq -r .source_dir'*'--act4 --root .') ;; *) r4_bad="$r4_bad [the finisher line did not extract: $FIN_LINE]" ;; esac
 grep -qF 'after ! at the Claude Code prompt' "$ACT4" || r4_bad="$r4_bad [step 10 no longer says 'after ! at the Claude Code prompt']"
@@ -451,6 +452,7 @@ mutant() {
   # diff exits 1 when the files differ, which pipefail would carry; capture it first.
   dd=$(diff "$src" "$dst" || true)
   changed=$(printf '%s\n' "$dd" | grep -c '^>' || true)
+  case "$changed" in ''|*[!0-9]*) changed=0 ;; esac
   if [ "$changed" != 1 ] || ! printf '%s\n' "$dd" | grep '^>' | grep -qF -- "$new" || ! bash -n "$dst" 2>/dev/null; then
     fail_ "$id" "SETUP: the mutation did not land as one changed line carrying '$new' (changed=$changed)"; return
   fi
