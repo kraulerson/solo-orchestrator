@@ -379,7 +379,7 @@ tracked files alone without a flag. What each may create is untracked:
 
 | Manager | Scout runs | Rewrites a tracked file by default? | Flag Scout passes | May create (untracked) |
 |---|---|---|---|---|
-| uv | `uv run --frozen pytest` | **yes** — `uv.lock`, when it is behind `pyproject.toml` | `--frozen`: "use the lockfile without checking if it is up-to-date"; its twin `UV_FROZEN`: "uv will run without updating the `uv.lock` file" | `.venv/`, which uv writes with its own `.gitignore` of `*`, so `git status` stays clean |
+| uv | `uv run --frozen pytest` | **yes** — `uv.lock`, when it is behind `pyproject.toml` | `--frozen`: "use the lockfile without checking if it is up-to-date"; its twin `UV_FROZEN`: "uv will run without updating the `uv.lock` file" | `.venv/`, which uv writes with its own `.gitignore` of `*`; and, when the project is built with setuptools, **`<name>.egg-info/`** from uv's editable install of the project (`src/<name>.egg-info/` in a src layout), which shows in `git status` as untracked unless your `.gitignore` names it |
 | poetry | `poetry run pytest` | no | none | a virtualenv under Poetry's cache directory, outside the project (in `.venv` instead when `virtualenvs.in-project` is set or a `.venv` exists) |
 | pdm | `pdm run pytest` | no | none | `.venv/` (ignored by its own `.gitignore`) and **`.pdm-python`**, the interpreter path, which PDM's docs say not to commit — it shows in `git status` as untracked unless your `.gitignore` names it |
 | pipenv | `pipenv run pytest` | no | none | a virtualenv under `~/.local/share/virtualenvs/`, outside the project (in `.venv` when one exists or `PIPENV_VENV_IN_PROJECT` is set); and **a new `Pipfile`** when the project has a `Pipfile.lock` but no `Pipfile` |
