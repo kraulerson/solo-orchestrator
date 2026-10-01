@@ -71,7 +71,7 @@ git clone https://github.com/kraulerson/solo-orchestrator.git ~/solo-orchestrato
 
 That location is the one every command on this page, the README and the User
 Guide uses. Clone it somewhere else and change each `~/solo-orchestrator` you
-copy, including in the rules of step 2.
+copy, including in the settings line of step 2.
 
 ### 2. Before you start: let Claude Code run the framework's scripts
 
@@ -80,85 +80,86 @@ step** — Claude Code is not involved. It is for when you ask a Claude Code
 session in your project to run them, and **you have to do it, not the agent.**
 
 Claude Code's auto mode — the mode a session starts in by default since
-Claude Code 2.1.283 — trusts only the folder the session started in and that
-repository's own remotes. `~/solo-orchestrator` is neither, so the first
-framework script the session tries is refused before it starts. Measured on Scout in the 2026-09-27
-dogfood run (`## BL-311:` row 6); the first line of the refusal:
+Claude Code 2.1.283 — has a classifier judge each command before it runs, and
+out of the box that classifier trusts only the folder the session started in
+and that repository's own remotes. `~/solo-orchestrator` is neither, so a
+framework script run from it can be refused before it starts. It was in the
+2026-09-27 dogfood run (`## BL-311:` row 6), where the agent had cloned the
+framework itself in that same session; the first line of the refusal, on Scout:
 
 ```text
 Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Code from External].
 ```
 
-The agent cannot clear that itself. When it then tried to work out the settings
+The agent cannot clear that itself. When it then tried to work out a settings
 change on its own, that was refused too — `Reason: [Auto-Mode Bypass]` — because
 an agent widening its own permissions to get past a refusal is what that rule
-stops. The refusal names who can: *"the user can add a Bash permission rule to
-their settings."* So add these rules yourself, in a text editor, **before you
-start the session**:
+stops. So **you** tell auto mode the clone is yours. Add this to your settings
+in a text editor, **before you start the session**:
 
 ```json
 {
-  "permissions": {
-    "allow": [
-      "Bash(bash ~/solo-orchestrator/scripts/scout.sh *)",
-      "Bash(bash ~/solo-orchestrator/scripts/adopt-project.sh *)",
-      "Bash(bash ~/solo-orchestrator/scripts/lib/adopt/adopt-test-debt.sh *)",
-      "Bash(bash ~/solo-orchestrator/scripts/upgrade-project.sh *)"
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "Source control: also github.com/kraulerson/solo-orchestrator and its clone at ~/solo-orchestrator — the user's own install of the Solo Orchestrator framework"
     ]
   }
 }
 ```
 
+- **What it does, and what it does not.** It adds one line to what the
+  classifier is told about your setup: this repository and this clone are
+  trusted, not external. It approves nothing in advance. Every command Claude
+  runs from the clone still goes to the classifier, which still judges what that
+  command does, with which arguments, to which folder. `"$defaults"` keeps
+  Claude Code's built-in lines; leave it out and your one line replaces all of
+  them (measured on Claude Code 2.1.285: 21 lines become 1).
 - **Where: your user settings, `~/.claude/settings.json`** (or
   `$CLAUDE_CONFIG_DIR/settings.json` if you set `CLAUDE_CONFIG_DIR`). No file
-  there yet: save the block above as it is. A file already there: add the rule
-  lines to its `permissions.allow` list. Not the project's
-  `.claude/settings.json`: that file is committed, so your home-folder path
-  would reach everyone who clones the project, and adoption composes its own
-  settings into it. In your user settings the rules cover every project you
-  adopt or upgrade from this one clone.
-- **What they cover:** one rule for each script these guides have you run from
-  the clone — Scout and adoption (this page), the test-debt check
-  ([below](#the-two-arms-and-the-tier-they-sit-on)), and the upgrade a generated
-  project uses
-  ([`--sync-framework`](user-guide.md#keeping-your-project-current---sync-framework)).
-  Scripts inside your project, such as `bash scripts/resume.sh`, need nothing:
-  the project is the folder auto mode already trusts.
-- **Why not one broad rule:** `Bash(bash *)` or `Bash(*)` would let Claude run
-  any script at all. Auto mode drops rules like that when it starts — Claude
-  Code's documentation names blanket `Bash(*)` and wildcarded interpreters such
-  as `Bash(python*)` — and outside auto mode they would be unsafe anyway. A rule
-  that names one script is the narrow kind the same documentation says auto
-  mode keeps, applied before the classifier runs. That is also its cost:
-  Claude can run these scripts, with any arguments, without asking you and
-  without the classifier seeing the call.
-- **A rule matches the command as Claude writes it.**
-  `bash ~/solo-orchestrator/scripts/scout.sh --out /tmp/scout --run-tests`
-  matches. The same script written as `bash "$HOME/solo-orchestrator/…"`, or
-  with your full home path, does not, and goes to the classifier instead. Start
-  the session in your project, so no `cd` is needed, and ask for the commands
-  exactly as this page writes them.
-- **If `autoMode.classifyAllShell` is `true`** — in your user settings, or in
-  settings your organization manages — auto mode suspends every shell allow
-  rule, these included. Run the scripts in your own terminal, or press
-  `Shift+Tab` to leave auto mode for that step: in the other modes your allow
-  rules apply as usual. An organization's policy can also ignore your own rules
-  altogether (`allowManagedPermissionRulesOnly`); then ask whoever manages
-  Claude Code for you.
+  there yet: save the block above as it is. A file already there: add the
+  `autoMode` block beside its other keys — or, if it already has an
+  `autoMode.environment` list, add the one line to that list. Not the project's
+  `.claude/settings.json`: Claude Code does not read `autoMode` from a
+  project's settings at all, so a repository cannot vouch for itself (measured:
+  the same block there does not show in the check below). In your user settings
+  the line covers every project you adopt or upgrade from this one clone. Lines
+  from settings your organization manages are combined with yours, not swapped
+  for them.
+- **Why not a permission rule,** as the refusal itself suggests (*"the user can
+  add a Bash permission rule to their settings"*)? A rule such as
+  `Bash(bash ~/solo-orchestrator/scripts/scout.sh *)` is applied before the
+  classifier runs, so Claude could then run that script with any arguments and
+  nothing would judge the call — Scout's `--run-tests` pointed at any folder,
+  which runs that folder's test code, or answers piped into the adoption
+  questions only you should answer — and in your user settings that holds for
+  every project on this machine.
+- **Not measured yet:** whether this line clears the `[Code from External]`
+  refusal. The clean rerun of the dogfood run (`## BL-311:`) measures it. Until
+  then, keep the fallback below at hand.
 
-Check the file before you start the session:
+Check that Claude Code reads the line:
 
 ```bash
-claude doctor
+claude auto-mode config | grep -F '~/solo-orchestrator'
 ```
 
-A rule it cannot read is listed under `Invalid settings`, with the file and the
-reason — with a `)` missing, `Invalid permission rule "…" was skipped: Malformed
-Tool(content) rule` — and so is a file that is not valid JSON. With the
-rules above, nothing is listed there (measured on Claude Code 2.1.285). Inside a
-session, `/permissions` lists every rule and the settings file it came from.
-`claude auto-mode config` is not this check: it prints the classifier's own
-rules, not your allow list.
+It prints your line. Nothing printed means it is not loaded: with a JSON
+mistake in the file, this command prints the built-in lines and no error
+(measured on Claude Code 2.1.285), and `jq empty ~/.claude/settings.json` names
+the line with the mistake. Inside a session, `/permissions` → **Recently
+denied** lists each action auto mode refused, with its reason.
+
+**If Claude is still refused, run the command yourself** — in your own
+terminal, or typed after `!` at the session's prompt, which Claude Code runs
+"directly without Claude's prior approval or interpretation" and whose output
+lands in the conversation. A script that asks you questions — adoption,
+`--re-add` — belongs in your own terminal: Claude Code's documentation does not
+say a `!` command can take your answers. Or press `Shift+Tab` once to leave auto
+mode for that step: the session then asks you, instead of the classifier, before
+it runs a command; keep pressing it until the status bar shows `⏵⏵ auto mode on` to go
+back. In `/permissions` → **Recently denied** you can also press `r` on the
+refused action to let Claude retry it with your approval.
 
 ### 3. Look first — Scout writes nothing
 
@@ -246,8 +247,8 @@ a stop, or a halt); `2` bad usage.
   it. If git cannot name the rule, the block says so and gives the command to
   ask it: `git check-ignore -v --no-index -- <path>`.
 - **Your own pre-commit hook refused the adoption commit**: fix or bypass that
-  hook, then run `adopt-project.sh --finish`. It commits exactly the files the
-  first run wrote.
+  hook, then run `bash ~/solo-orchestrator/scripts/adopt-project.sh --finish`
+  from the project. It commits exactly the files the first run wrote.
 - **Anything else** prints a `[REFUSED]` or `[BLOCKED]` line naming the cause, and
   says whether anything was written.
 
@@ -577,8 +578,8 @@ when none of those holds. When Docker is not running, the inspect fails or its
 answer cannot be parsed, every `docker start` hint says the bindings could not
 be read and how to check them. Recorded with a stand-in
 `docker` shaped like a real container on the `qdrant_storage` volume with no
-API key in its environment; `/path/to/solo-orchestrator` stands for the
-framework checkout:
+API key in its environment; `~/solo-orchestrator` stands for the framework
+checkout, printed as its full path:
 
 ```text
    Your existing qdrant container's ports name no host address, which Docker
@@ -591,7 +592,7 @@ framework checkout:
    can reach even ports published on 127.0.0.1 — moby/moby#45610.)
    Adoption changed nothing about this container, and prints no commands to recreate
    it. How to do that without losing its data:
-   "Recreating an exposed Qdrant container" in /path/to/solo-orchestrator/docs/adoption.md.
+   "Recreating an exposed Qdrant container" in ~/solo-orchestrator/docs/adoption.md.
 ```
 
 **It prints no command to recreate the container — for any container.**

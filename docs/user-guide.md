@@ -1268,10 +1268,13 @@ bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework
 Always run `--dry-run` first. It prints one line per file it *would* change and
 touches nothing on disk — no tmp files, no CDF calls, no manifest writes.
 
-**Asking Claude Code to run it for you?** Allow the script first. The clone is
-outside your project, so Claude Code's auto mode refuses the command
-(`[Code from External]`), and the agent cannot change its own permissions to
-get past that — you add the rule, before the session starts:
+**Asking Claude Code to run it for you?** The clone is outside your project, so
+Claude Code's auto mode can refuse the command (`[Code from External]`) — it was
+in the 2026-09-27 test run, where the agent had cloned the framework itself in that
+same session — and the agent cannot change its own permissions to get past that.
+Before the session starts, you add one line to your user settings that names
+the clone as trusted, and if Claude is still refused, you run the command
+yourself:
 [Before you start: let Claude Code run the framework's scripts](https://github.com/kraulerson/solo-orchestrator/blob/main/docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts)
 (also in your clone, `~/solo-orchestrator/docs/adoption.md`).
 

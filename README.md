@@ -67,8 +67,12 @@ inside it, or another copy of solo-orchestrator.
 > **Claude Code and the framework's scripts.** You run `./init.sh` in your own
 > terminal, so Claude Code is not involved. Later, if you ask a Claude Code
 > session to run a script from `~/solo-orchestrator` — Scout, adoption, or an
-> upgrade — its auto mode refuses it until **you** allow those scripts; the
-> agent cannot allow them itself. The rules, and where you add them before the session:
+> upgrade — its auto mode can refuse it as code from outside your project. It
+> was in the 2026-09-27 test run, where the agent had cloned the framework itself in
+> that same session, and the agent cannot change its own permissions to get past
+> that. Before the session, **you** add one line to your user settings that
+> names the clone as trusted — and if Claude is still refused, you run the
+> command yourself:
 > [docs/adoption.md → Before you start](docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts).
 
 The init script will:
@@ -159,8 +163,7 @@ overwrites.
 ### Scout — look before you leap
 
 ```bash
-cd ~/solo-orchestrator
-bash scripts/scout.sh --root /path/to/their-app --markdown
+bash ~/solo-orchestrator/scripts/scout.sh --root /path/to/their-app --markdown
 ```
 
 Seven sections: what it is built with, how far along it looks, what is already
@@ -187,9 +190,11 @@ touches source code runs that suite and is refused if it fails. Prerequisites
 (`git`, `jq`, `gitleaks`, optionally `semgrep`), what to do when a run stops,
 and how to put a replaced file back are in
 [docs/adoption.md → Quick start](docs/adoption.md#quick-start-install-and-use).
-**Asking Claude Code to run these for you?** Allow the scripts first — Claude
-Code's auto mode refuses scripts from a clone outside the project, and the agent
-cannot allow them itself:
+**Asking Claude Code to run these for you?** Claude Code's auto mode can refuse
+scripts from a clone outside the project — it was in the 2026-09-27 test run, where
+the agent had cloned the framework itself in that same session — and the agent
+cannot change its own permissions to get past that. Before the session, add the
+one settings line that names the clone as trusted:
 [docs/adoption.md → Before you start](docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts).
 
 It shows you what the scan found as *evidence that decides nothing*, asks the
