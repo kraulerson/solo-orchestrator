@@ -69,7 +69,98 @@ what your project needs into it.
 git clone https://github.com/kraulerson/solo-orchestrator.git ~/solo-orchestrator
 ```
 
-### 2. Look first — Scout writes nothing
+That location is the one every command on this page, the README and the User
+Guide uses. Clone it somewhere else and change each `~/solo-orchestrator` you
+copy, including in the rules of step 2.
+
+### 2. Before you start: let Claude Code run the framework's scripts
+
+**If you type the commands on this page into a terminal yourself, skip this
+step** — Claude Code is not involved. It is for when you ask a Claude Code
+session in your project to run them, and **you have to do it, not the agent.**
+
+Claude Code's auto mode — the mode a session starts in by default since
+Claude Code 2.1.283 — trusts only the folder the session started in and that
+repository's own remotes. `~/solo-orchestrator` is neither, so the first
+framework script the session tries is refused before it starts. Measured on Scout in the 2026-09-27
+dogfood run (`## BL-311:` row 6); the first line of the refusal:
+
+```text
+Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Code from External].
+```
+
+The agent cannot clear that itself. When it then tried to work out the settings
+change on its own, that was refused too — `Reason: [Auto-Mode Bypass]` — because
+an agent widening its own permissions to get past a refusal is what that rule
+stops. The refusal names who can: *"the user can add a Bash permission rule to
+their settings."* So add these rules yourself, in a text editor, **before you
+start the session**:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash ~/solo-orchestrator/scripts/scout.sh *)",
+      "Bash(bash ~/solo-orchestrator/scripts/adopt-project.sh *)",
+      "Bash(bash ~/solo-orchestrator/scripts/lib/adopt/adopt-test-debt.sh *)",
+      "Bash(bash ~/solo-orchestrator/scripts/upgrade-project.sh *)"
+    ]
+  }
+}
+```
+
+- **Where: your user settings, `~/.claude/settings.json`** (or
+  `$CLAUDE_CONFIG_DIR/settings.json` if you set `CLAUDE_CONFIG_DIR`). No file
+  there yet: save the block above as it is. A file already there: add the rule
+  lines to its `permissions.allow` list. Not the project's
+  `.claude/settings.json`: that file is committed, so your home-folder path
+  would reach everyone who clones the project, and adoption composes its own
+  settings into it. In your user settings the rules cover every project you
+  adopt or upgrade from this one clone.
+- **What they cover:** one rule for each script these guides have you run from
+  the clone — Scout and adoption (this page), the test-debt check
+  ([below](#the-two-arms-and-the-tier-they-sit-on)), and the upgrade a generated
+  project uses
+  ([`--sync-framework`](user-guide.md#keeping-your-project-current---sync-framework)).
+  Scripts inside your project, such as `bash scripts/resume.sh`, need nothing:
+  the project is the folder auto mode already trusts.
+- **Why not one broad rule:** `Bash(bash *)` or `Bash(*)` would let Claude run
+  any script at all. Auto mode drops rules like that when it starts — Claude
+  Code's documentation names blanket `Bash(*)` and wildcarded interpreters such
+  as `Bash(python*)` — and outside auto mode they would be unsafe anyway. A rule
+  that names one script is the narrow kind the same documentation says auto
+  mode keeps, applied before the classifier runs. That is also its cost:
+  Claude can run these scripts, with any arguments, without asking you and
+  without the classifier seeing the call.
+- **A rule matches the command as Claude writes it.**
+  `bash ~/solo-orchestrator/scripts/scout.sh --out /tmp/scout --run-tests`
+  matches. The same script written as `bash "$HOME/solo-orchestrator/…"`, or
+  with your full home path, does not, and goes to the classifier instead. Start
+  the session in your project, so no `cd` is needed, and ask for the commands
+  exactly as this page writes them.
+- **If `autoMode.classifyAllShell` is `true`** — in your user settings, or in
+  settings your organization manages — auto mode suspends every shell allow
+  rule, these included. Run the scripts in your own terminal, or press
+  `Shift+Tab` to leave auto mode for that step: in the other modes your allow
+  rules apply as usual. An organization's policy can also ignore your own rules
+  altogether (`allowManagedPermissionRulesOnly`); then ask whoever manages
+  Claude Code for you.
+
+Check the file before you start the session:
+
+```bash
+claude doctor
+```
+
+A rule it cannot read is listed under `Invalid settings`, with the file and the
+reason — with a `)` missing, `Invalid permission rule "…" was skipped: Malformed
+Tool(content) rule` — and so is a file that is not valid JSON. With the
+rules above, nothing is listed there (measured on Claude Code 2.1.285). Inside a
+session, `/permissions` lists every rule and the settings file it came from.
+`claude auto-mode config` is not this check: it prints the classifier's own
+rules, not your allow list.
+
+### 3. Look first — Scout writes nothing
 
 ```bash
 cd /path/to/your-project
@@ -89,7 +180,7 @@ and Scout passes the flags that keep uv and pnpm from rewriting your lockfile
 ([what it can change](scout.md#what---run-tests-can-change)). See
 [Before you adopt: run Scout](#before-you-adopt-run-scout).
 
-### 3. Adopt
+### 4. Adopt
 
 ```bash
 cd /path/to/your-project
@@ -114,7 +205,7 @@ and commits. **Your uncommitted work is never staged**; the commit contains only
 files adoption wrote. Exit codes: `0` adopted; `1` did not complete (a refusal,
 a stop, or a halt); `2` bad usage.
 
-### 4. If it stops
+### 5. If it stops
 
 - **Credential findings in your history** (organizational): the run lists them —
   rule, file and line, never the value — and prints a dispositions file **already
@@ -160,7 +251,7 @@ a stop, or a halt); `2` bad usage.
 - **Anything else** prints a `[REFUSED]` or `[BLOCKED]` line naming the cause, and
   says whether anything was written.
 
-### 5. Afterwards
+### 6. Afterwards
 
 **First, if a Claude Code session is open in this project, close it and start a
 new one.** The checks, and the memory and documentation servers, that adoption
@@ -217,8 +308,8 @@ bash ~/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre-commit
 consume its report instead of re-scanning:
 
 ```bash
-bash /path/to/solo-orchestrator/scripts/scout.sh --out ./scan
-bash /path/to/solo-orchestrator/scripts/adopt-project.sh --scan-report ./scan/scout-report.json
+bash ~/solo-orchestrator/scripts/scout.sh --out ./scan
+bash ~/solo-orchestrator/scripts/adopt-project.sh --scan-report ./scan/scout-report.json
 ```
 
 Run it first. It is the cheapest way to find out that this project has an AWS key
@@ -1354,7 +1445,7 @@ the adoption:
 Run it against a staged commit:
 
 ```text
-bash <framework>/scripts/lib/adopt/adopt-test-debt.sh --check --root .
+bash ~/solo-orchestrator/scripts/lib/adopt/adopt-test-debt.sh --check --root .
 ```
 
 At `strict`, adding a file with no test:
@@ -1710,7 +1801,7 @@ For the Development Guardrails' manifest the last line is two others
 #### Your files are yours — `--re-add`
 
 ```bash
-bash /path/to/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre-commit
+bash ~/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre-commit
 ```
 
 It prints the warning, asks you to confirm (there is no default and no skip),
@@ -2173,7 +2264,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Being asked what the project is for, and told whether the stack fits | ✅ [The assessment](#the-assessment--act-3-and-act-4--ships-wp12a) — a Claude Code conversation, then the finisher |
 | A fitness verdict, a plan, and the reasoning behind both | ✅ Written by the assessment conversation; checked (two halves, a reason) and recorded by the finisher |
 | The required secrets scanner resolved before anything reads the scan — installed where the host has a recipe, named for you where it does not — and the scan re-run after an install | ✅ Tool resolution — ships (WP10a). When the scanner still cannot be resolved, the tier-scoped stop below decides |
-| Adoption that can *fail* on a serious finding | ✅ The secrets stop — ships (WP10b): an organizational adoption stops on a finding, an unscanned tree or a partial scan; a personal one continues only on a recorded acknowledgement. [If it stops](#4-if-it-stops) |
+| Adoption that can *fail* on a serious finding | ✅ The secrets stop — ships (WP10b): an organizational adoption stops on a finding, an unscanned tree or a partial scan; a personal one continues only on a recorded acknowledgement. [If it stops](#5-if-it-stops) |
 | A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works; the commit-time hook that would invoke the ratchet automatically now exists, and wiring the ratchet INTO it is still unbuilt |
 | Your colliding hooks/settings archived with a restore path | ✅ Collision archive — ships |
 | Plain disclosure of what was archived, path by path | ✅ Ships |

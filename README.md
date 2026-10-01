@@ -40,16 +40,21 @@ Three further pages cover what happens outside the five-phase build — [The Del
 ## Quick Start
 
 ```bash
-git clone https://github.com/kraulerson/solo-orchestrator.git
-cd solo-orchestrator
+git clone https://github.com/kraulerson/solo-orchestrator.git ~/solo-orchestrator
+cd ~/solo-orchestrator
 chmod +x init.sh
 ./init.sh --project-dir my-project
 ```
 
+**Where the framework lives:** `~/solo-orchestrator`.
+[docs/adoption.md](docs/adoption.md#quick-start-install-and-use) and the
+[User Guide](docs/user-guide.md) clone to the same place, and their commands
+that run a script from the clone assume it.
+
 **Where your project lands.** `--project-dir my-project` — a bare folder name —
 creates the project **next to the clone**, as a sibling of `solo-orchestrator/`,
-not inside it. Clone into `~/Code` and you get `~/Code/my-project/` alongside
-`~/Code/solo-orchestrator/`. Give an **absolute path** instead
+not inside it: with the clone at `~/solo-orchestrator`, you get
+`~/my-project/`. Give an **absolute path** instead
 (`./init.sh --project-dir ~/work/my-project`) and it is used exactly as written,
 anywhere outside the framework. Running plain `./init.sh` with no flags still
 works and prompts you interactively — the directory question defaults to that
@@ -58,6 +63,13 @@ is a target that would write onto the framework itself: the clone, anything
 inside it, or another copy of solo-orchestrator.
 
 > **Preview first?** Run `./init.sh --dry-run` to see what will be installed and created without making any changes.
+
+> **Claude Code and the framework's scripts.** You run `./init.sh` in your own
+> terminal, so Claude Code is not involved. Later, if you ask a Claude Code
+> session to run a script from `~/solo-orchestrator` — Scout, adoption, or an
+> upgrade — its auto mode refuses it until **you** allow those scripts; the
+> agent cannot allow them itself. The rules, and where you add them before the session:
+> [docs/adoption.md → Before you start](docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts).
 
 The init script will:
 1. Check prerequisites — offers to auto-install Git, Node.js, and your language runtime if missing
@@ -75,7 +87,7 @@ The init script will:
 4. Start Claude Code **from inside your generated project directory** — and let
    your project print its own first message rather than composing one by hand:
    ```bash
-   cd ../my-project         # the SIBLING init created, not the framework clone
+   cd ~/my-project          # the SIBLING init created, not the framework clone
    bash scripts/resume.sh   # prints the exact first message — copy it
    claude                   # paste it as your very first message
    ```
@@ -147,7 +159,7 @@ overwrites.
 ### Scout — look before you leap
 
 ```bash
-cd solo-orchestrator
+cd ~/solo-orchestrator
 bash scripts/scout.sh --root /path/to/their-app --markdown
 ```
 
@@ -164,8 +176,8 @@ once, and it is off unless you ask.
 
 ```bash
 cd /path/to/their-project
-bash /path/to/solo-orchestrator/scripts/scout.sh --out /tmp/scout --run-tests
-bash /path/to/solo-orchestrator/scripts/adopt-project.sh --scan-report /tmp/scout/scout-report.json
+bash ~/solo-orchestrator/scripts/scout.sh --out /tmp/scout --run-tests
+bash ~/solo-orchestrator/scripts/adopt-project.sh --scan-report /tmp/scout/scout-report.json
 ```
 
 Keep Scout's output **outside** the project, so the survey never lands in the
@@ -175,6 +187,10 @@ touches source code runs that suite and is refused if it fails. Prerequisites
 (`git`, `jq`, `gitleaks`, optionally `semgrep`), what to do when a run stops,
 and how to put a replaced file back are in
 [docs/adoption.md → Quick start](docs/adoption.md#quick-start-install-and-use).
+**Asking Claude Code to run these for you?** Allow the scripts first — Claude
+Code's auto mode refuses scripts from a clone outside the project, and the agent
+cannot allow them itself:
+[docs/adoption.md → Before you start](docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts).
 
 It shows you what the scan found as *evidence that decides nothing*, asks the
 two questions no amount of reading your code can answer — **who the project is
