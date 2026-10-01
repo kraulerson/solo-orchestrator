@@ -22289,6 +22289,16 @@ recorded, not fixed:
 - **Unmeasured:** whether the `autoMode.environment` line in `docs/adoption.md` step 2 clears the
   `[Code from External]` refusal. The clean dogfood rerun measures it.
 
+**Group E residuals (review round 4, not fixed).** One line each:
+- **R-BL311E4-1** — an agent relaying the assessment prompt's step-10 `!` route
+  (`# BL-311-ASSESSMENT-AUTO-MODE`) by its documented name ("shell mode", "run shell commands directly
+  with the ! prefix") matches `terminal_workaround` and raises the pending-approval sentinel (3 of 4
+  relays the review measured), which blocks commits mid-adoption. Handed to group D (row 3), which
+  must exempt a relay of the framework's own documented hand-to-human instruction.
+- **R-BL311E4-5** — commit `b2c9ed5` is red on its own (`tests/test-bl311-e-clone-path.sh`: 33 passed,
+  1 failed — M19's mutation does not land; its literal arrives in `ee89a1d`). Harmless in a repo that
+  merges by merge commit.
+
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
   .claude/manifest.json` now refuses (`# BL-311-MANIFEST-READD-REFUSE`) and says so.
