@@ -22275,6 +22275,20 @@ recorded, not fixed:
   `yarn.lock`), the flag note (`# BL-311-SCOUT-FLAG-WHY-UV` / `# BL-311-SCOUT-FLAG-WHY-PNPM`) states a
   definite everyday command right after "confirm which one this project uses".
 
+**Group E residuals (review round 1, not fixed).** One line each:
+- **R-BL311E-6** — `docs/cli-setup-addendum.md` § 2 still calls Auto Mode "a research preview available
+  to Claude Teams users"; since Claude Code 2.1.283 it is the built-in starting mode of an interactive
+  terminal session. Group E adds only a one-line pointer from § 2 to `docs/adoption.md` step 2; the
+  rewrite of § 2 is open.
+- **Runtime hints still print placeholders.** `/path/to/solo-orchestrator` in `scripts/check-updates.sh`,
+  the `--sync-framework` and `--plan` hints of `scripts/upgrade-project.sh`, the re-add lines of
+  `scripts/lib/adopt/adopt-record.sh` and `scripts/lib/adopt/adopt-archive.sh`, and
+  `scripts/adopt-project.sh --help` (quoted in `docs/adoption.md`, which
+  `tests/test-bl311-e-clone-path.sh` C6 holds to the script's text); `<framework>` in
+  `scripts/lib/adopt/adopt-test-debt.sh`'s "Write one:" line and `scripts/upgrade-project.sh --help`.
+- **Unmeasured:** whether the `autoMode.environment` line in `docs/adoption.md` step 2 clears the
+  `[Code from External]` refusal. The clean dogfood rerun measures it.
+
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
   .claude/manifest.json` now refuses (`# BL-311-MANIFEST-READD-REFUSE`) and says so.
