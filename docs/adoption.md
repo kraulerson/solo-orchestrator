@@ -78,7 +78,7 @@ copy, including in the settings line of step 2.
 **If you type the commands on this page into a terminal yourself, skip this
 step** — Claude Code is not involved. It is for when you ask a Claude Code
 session in your project to run them, and **you have to do it, not the agent.**
-**One exception: the assessment's finisher is always run by the session**
+**One exception: the assessment's finisher is run by the session**
 ([Act 4](#the-assessment--act-3-and-act-4--ships-wp12a)), so if you will run the
 assessment, do this step too. Its command finds the clone through
 `.claude/orchestrator-source.json` instead of naming `~/solo-orchestrator`, and
@@ -170,15 +170,16 @@ missing comma at the end of line 2 is reported at line 3). Inside a session,
 `/permissions` → **Recently denied** lists each action auto mode refused.
 
 **If Claude is still refused, run the command yourself** — in your own
-terminal, or typed after `!` at the session's prompt, which Claude Code runs
-"directly without Claude's prior approval or interpretation" and whose output
-lands in the conversation. A script that asks you questions — adoption,
-`--re-add` — belongs in your own terminal: Claude Code's documentation does not
-say a `!` command can take your answers. Or press `Shift+Tab` once to leave auto
-mode for that step: the session then asks you, instead of the classifier, before
-it runs a command; keep pressing it until the status bar shows
-`⏵⏵ auto mode on` to go back. In `/permissions` → **Recently denied** you can
-also press `r` on the refused action to let Claude retry it with your approval.
+terminal from the project's folder, or typed after `!` at the session's
+prompt, which Claude Code runs "directly without Claude's prior approval or
+interpretation" and whose output lands in the conversation. A script that
+asks you questions — adoption, `--re-add` — belongs in your own terminal:
+Claude Code's documentation does not say a `!` command can take your answers.
+Or press `Shift+Tab` once to leave auto mode for that step: the session then
+asks you, instead of the classifier, before it runs a command; keep pressing it
+until the status bar shows `⏵⏵ auto mode on` to go back. In `/permissions` →
+**Recently denied** you can also press `r` on the refused action to let Claude
+retry it with your approval.
 
 ### 3. Look first — Scout writes nothing
 
@@ -1724,9 +1725,10 @@ answers. It is split in two, because half of it is judgement and half is fact:
    `PRODUCT_MANIFESTO.md`, and it does not commit: it prints what to commit.
 
    **If Claude Code's auto mode refuses the finisher** — a permission denial,
-   not the finisher's own `[REFUSED]` line — run it yourself from the project,
-   in your own terminal or typed after `!` at the session's prompt: it asks you
-   nothing, so either works. See
+   not the finisher's own `[REFUSED]` line — run it yourself, typed after `!`
+   at the session's prompt or in your own terminal from the project's folder
+   (its `jq` lookup reads `.claude/orchestrator-source.json` from where you
+   are): it asks you nothing, so either works. See
    [step 2](#2-before-you-start-let-claude-code-run-the-frameworks-scripts).
 
 **If the project is in production, a live incident does not wait for phase 4.**
