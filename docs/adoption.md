@@ -81,9 +81,12 @@ bash ~/solo-orchestrator/scripts/scout.sh --out /tmp/scout --run-tests
 to learn **before adopting** whether your test suite passes today, and that
 matters: once adopted, a commit that touches source code runs your tests and is
 refused if they fail. Scout runs the command through your package manager —
-`uv run pytest`, `poetry run pytest`, `pnpm test`, `npm test` and so on — because
+`uv run --frozen pytest`, `poetry run pytest`, `npm test` and so on — because
 a bare `pytest` cannot see a tool installed in the project's own environment
-([how Scout picks it](scout.md#stack--what-this-project-is-built-with)). See
+([how Scout picks it](scout.md#stack--what-this-project-is-built-with)). It runs
+in your real tree: the manager may create untracked files of its own (a `.venv`),
+and Scout passes the flags that keep uv and pnpm from rewriting your lockfile
+([what it can change](scout.md#what---run-tests-can-change)). See
 [Before you adopt: run Scout](#before-you-adopt-run-scout).
 
 ### 3. Adopt
@@ -145,10 +148,12 @@ a stop, or a halt); `2` bad usage.
   ```
 
   Whether the rule meant *every* `lib/` is your call; adoption never edits your
-  ignore files. A rule from your personal excludes file (`core.excludesFile`) or
-  from `.git/info/exclude` is named as such — it is not in the repository, so
-  nobody else has it. If git cannot name the rule, the block says so and gives
-  the command to ask it: `git check-ignore -v --no-index -- <path>`.
+  ignore files. A rule from a personal excludes file (`core.excludesFile`, or
+  git's default `$XDG_CONFIG_HOME/git/ignore` — usually `~/.config/git/ignore` —
+  when that is not set) or from `.git/info/exclude` is named as such, with which
+  of your repositories read it: it is not in the repository, so nobody else has
+  it. If git cannot name the rule, the block says so and gives the command to
+  ask it: `git check-ignore -v --no-index -- <path>`.
 - **Your own pre-commit hook refused the adoption commit**: fix or bypass that
   hook, then run `adopt-project.sh --finish`. It commits exactly the files the
   first run wrote.
