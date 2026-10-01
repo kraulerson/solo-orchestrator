@@ -37,10 +37,11 @@
 #       It scopes the trust: "trusted as code to run" and "never as a
 #       destination for any project's code or data" — the classifier reads the
 #       environment list as the trust boundary for data too, and the repository
-#       is public. And the step holding the snippet has exactly one json-family
-#       fence (info string json, jsonc, …), and no fence in it other than
-#       ```text names a "permissions" or "allow" key — so a second block
-#       carrying an allow list beside the snippet is red.
+#       is public. And the step holding the snippet has exactly one fence whose
+#       info string starts "json" (json, jsonc, …), and no line inside any fence
+#       of it other than ```text names a permissions or allow key — quoted
+#       ("permissions", "allow") or as a jq path (.permissions, .allow) — so a
+#       second block beside the snippet that writes an allow list is red.
 #   C4  Every `adoption.md#<anchor>` link in README.md and docs/user-guide.md
 #       resolves to a heading of docs/adoption.md (GitHub's slug rule, the one
 #       scripts/lint-doc-anchors.sh uses for same-file links — that lint checks
@@ -72,12 +73,21 @@
 #   C8  The assessment prompt (`adopt_write_assessment_prompt`,
 #       scripts/lib/adopt/adopt-act4.sh) tells the agent what to do when
 #       Claude Code's auto mode refuses the finisher: not work around it, change
-#       no setting, and ask the human to type the exact command after `!` or in
-#       a terminal of their own (`# BL-311-ASSESSMENT-AUTO-MODE`). And the
-#       bypass detector's patterns (scripts/lib/bypass-patterns.sh) match none of
-#       the prompt line by line — how its PostToolUse arm reads resume.sh
-#       printing it — nor that instruction's paragraph joined into one line —
-#       how its Stop arm reads an agent relaying it.
+#       no setting, and ask the human to type the exact command after `!` at
+#       the Claude Code prompt (`# BL-311-ASSESSMENT-AUTO-MODE`). That paragraph
+#       names no terminal and no shell: the agent relays it in its own words,
+#       and review round 3 measured a paraphrase of its old terminal route
+#       matching terminal_workaround, whose sentinel blocks `git commit` at
+#       Act 4. And the bypass detector's patterns (scripts/lib/bypass-patterns.sh)
+#       match none of the prompt line by line — how its PostToolUse arm reads
+#       resume.sh printing it — nor that instruction's paragraph joined into one
+#       line — how its Stop arm reads an agent relaying it. The word check and
+#       the detector check both report; neither masks the other.
+#   C9  The finisher's own fallback, in docs/adoption.md: step 2 carries
+#       "**One exception: the assessment's finisher", and the "### The
+#       assessment — Act 3 and Act 4" section carries "If Claude Code's auto
+#       mode refuses the finisher" and "typed after `!`". Its terminal route's
+#       "from the project's folder" is not pinned.
 #
 # The clone target is DERIVED from docs/adoption.md's clone command, not pinned
 # here: moving the framework is a deliberate edit to every doc and the settings
@@ -119,6 +129,8 @@
 #   M18 a second ```json block in the step carries a permissions.allow list
 #       (review round 2's X2)                                -> C3 red, count
 #   M18b the same list in a bare ``` block beside the snippet -> C3 red, key
+#   M18c a ```bash block that writes it with jq (.permissions.allow += […]),
+#       no quoted key (review round 3's OWN-A)               -> C3 red, key
 #   M19 the fallback paragraph loses its `!` route — the sentence from "or
 #       typed after `!`" to "lands in the conversation." (X3a); the paragraph
 #       still names `!` once                                 -> C5 red
@@ -127,9 +139,15 @@
 #       destination …"                                       -> C3 red
 #   M21 "Where" names the project's .claude/settings.json (X8) -> C7 red
 #   M22 the prompt loses its auto-mode instruction           -> C8 red
-#   M23 the instruction loses the full stop between "do not change any
-#       setting" and "Ask me to type", so relayed as one line the detector's
+#   M23 the instruction regains a terminal route and loses the full stop
+#       before "Ask me to type", so relayed as one line the detector's
 #       terminal_workaround pattern matches it (no line does) -> C8 red, detector
+#   M23b the instruction regains its round-2 terminal route, full stop kept —
+#       the detector finds nothing in it, a paraphrase did (R-E3-3) -> C8 red, word
+#   M24 step 2 loses its "One exception: the assessment's finisher" sentence
+#       (review round 3's OWN-B)                               -> C9 red
+#   M25 the Act 3/4 section loses its auto-mode refusal paragraph -> C9 red
+#   M25b that paragraph loses its `!` route, keeping the terminal one -> C9 red
 #
 # Hermetic: reads three docs and the scripts/ tree (sourcing only
 # scripts/lib/bypass-patterns.sh, in a subshell), writes only under its own
@@ -482,7 +500,7 @@ c3_snippet_shape() {
       if (info ~ /^json/) n++
       next
     }
-    open && info != "text" && (index($0, "\"permissions\"") > 0 || index($0, "\"allow\"") > 0) {
+    open && info != "text" && (index($0, "\"permissions\"") > 0 || index($0, "\"allow\"") > 0 || $0 ~ /\.(permissions|allow)([^A-Za-z0-9_]|$)/) {
       print "KEY\t" (info == "" ? "bare" : info)
     }
     END { print "N\t" n + 0 }
@@ -493,7 +511,7 @@ c3_snippet_shape() {
     return 1
   fi
   if grep -q '^KEY' "$fences"; then
-    echo "a $(awk -F '\t' '$1 == "KEY" { print $2; exit }' "$fences") block in the settings step names a \"permissions\" or \"allow\" key"
+    echo "a $(awk -F '\t' '$1 == "KEY" { print $2; exit }' "$fences") block in the settings step names a permissions or allow key"
     return 1
   fi
   return 0
@@ -661,7 +679,7 @@ EOF_CAND
 
 # c8_assessment_prompt <adopt-act4.sh> <bypass-patterns.sh>
 c8_assessment_prompt() {
-  local src="$1" pats="$2" body="$TMP/.c8.body" para="$TMP/.c8.para" flat="" want="" bad=0 hit=""
+  local src="$1" pats="$2" body="$TMP/.c8.body" para="$TMP/.c8.para" flat="" want="" bad=0 hit="" word=""
   # The heredoc adopt_write_assessment_prompt writes: what resume.sh prints.
   awk '
     /^adopt_write_assessment_prompt\(\)/ { on = 1 }
@@ -676,7 +694,7 @@ c8_assessment_prompt() {
   flat="$(tr '\n' ' ' < "$body" | tr -s ' ')"
   for want in 'auto mode refuses the command itself' 'do not work around it' \
               'do not change any setting' \
-              'Ask me to type that exact command after ! at the Claude Code prompt, or in a terminal window of my own'; do
+              'Ask me to type that exact command after ! at the Claude Code prompt'; do
     case "$flat" in
       *"$want"*) ;;
       *) echo "the assessment prompt does not tell the agent: '$want'"; bad=1 ;;
@@ -687,15 +705,66 @@ c8_assessment_prompt() {
   awk 'index($0, "auto mode refuses the command itself") > 0 { on = 1 }
        on && /^[[:space:]]*$/ { exit }
        on { print }' "$body" | tr '\n' ' ' | tr -s ' ' > "$para"
+  # The agent relays this in its own words, so the detector reading the
+  # sentence as written is not enough: a word it needs must not be there.
+  word="$(grep -oiE 'terminal|shell' "$para" | head -1)"
+  if [ -n "$word" ]; then
+    echo "the auto-mode instruction names a '$word' route; a relay of it in other words can match terminal_workaround"
+    bad=1
+  fi
   hit="$( ( . "$pats"
             scan_bypass_patterns_all "$(cat "$body")" | sed 's/$/ (a line of the prompt)/'
             scan_bypass_patterns_all "$(cat "$para")" | sed 's/$/ (the instruction, relayed as one line)/'
           ) 2>/dev/null | tr '\n' ';' | sed 's/;$//')"
   if [ -n "$hit" ]; then
     echo "the bypass detector flags the assessment prompt: $hit"
+    bad=1
+  fi
+  [ "$bad" -eq 0 ]
+}
+
+# heading_section <doc> <heading-prefix> — the section whose heading (outside
+# fences) starts with the literal prefix, to the next heading of the same or a
+# higher level.
+heading_section() {
+  SOIF_BL311E_HEAD="$2" awk '
+    BEGIN { want = ENVIRON["SOIF_BL311E_HEAD"] }
+    /^[[:space:]]*(```|~~~)/ { fence = !fence; if (on) print; next }
+    !fence && /^#+[[:space:]]/ {
+      match($0, /^#+/)
+      if (on && RLENGTH <= lvl) exit
+      if (!on && index($0, want) == 1) { on = 1; lvl = RLENGTH }
+    }
+    on { print }
+  ' "$1"
+}
+
+# c9_finisher_fallback <adoption>
+c9_finisher_fallback() {
+  local sec="$TMP/.c9.sec" flat="" want="" bad=0
+  local act='### The assessment — Act 3 and Act 4'
+  if ! snippet_section "$1" > "$sec" || [ ! -s "$sec" ]; then
+    echo "found no section holding the settings snippet in docs/adoption.md"
     return 1
   fi
-  return 0
+  flat="$(tr '\n' ' ' < "$sec" | tr -s ' ')"
+  case "$flat" in
+    *"**One exception: the assessment's finisher"*) ;;
+    *) echo "step 2 does not say: **One exception: the assessment's finisher"; bad=1 ;;
+  esac
+  heading_section "$1" "$act" > "$sec"
+  if [ ! -s "$sec" ]; then
+    echo "found no section headed '$act' in docs/adoption.md"
+    return 1
+  fi
+  flat="$(tr '\n' ' ' < "$sec" | tr -s ' ')"
+  for want in "If Claude Code's auto mode refuses the finisher" 'typed after `!`'; do
+    case "$flat" in
+      *"$want"*) ;;
+      *) echo "the '$act' section does not say: $want"; bad=1 ;;
+    esac
+  done
+  [ "$bad" -eq 0 ]
 }
 
 # --- The repo's own docs ------------------------------------------------------
@@ -751,9 +820,15 @@ else
 fi
 
 if out=$(c8_assessment_prompt "$ACT4" "$BYPASS_PATTERNS"); then
-  pass "C8: the assessment prompt sends an auto-mode refusal of the finisher to the human, in words the bypass detector does not flag"
+  pass "C8: the assessment prompt sends an auto-mode refusal of the finisher to the human, by !, naming no terminal or shell, in words the bypass detector does not flag"
 else
   fail_ "C8" "$out"
+fi
+
+if out=$(c9_finisher_fallback "$ADOPT"); then
+  pass "C9: adoption.md says the session runs the finisher, and what to do when auto mode refuses it (typed after !)"
+else
+  fail_ "C9" "$out"
 fi
 
 # --- Mutation harness -----------------------------------------------------------
@@ -956,11 +1031,22 @@ else
   fail_ M18b "mutation did not land in docs/adoption.md"
 fi
 
+# OWN-A: no quoted key anywhere — the allow list is a jq path.
+if mutate "$ADOPT" "$M/adoption.m18c.md" "Check that Claude Code reads the line:" "\`\`\`bash
+jq '.permissions.allow += [\"Bash(bash $TARGET/scripts/scout.sh *)\"]' ~/.claude/settings.json > ~/.claude/s.tmp && mv ~/.claude/s.tmp ~/.claude/settings.json
+\`\`\`
+
+Check that Claude Code reads the line:"; then
+  expect_red M18c "a bash block beside the snippet writes a permissions.allow list with jq" "a bash block in the settings step names" c3_snippet_shape "$M/adoption.m18c.md" "$TARGET"
+else
+  fail_ M18c "mutation did not land in docs/adoption.md"
+fi
+
 # X3a: the `!` sentence goes, the paragraph stays one paragraph, and its other
 # `!` (a `!` command cannot take your answers) is still there.
-if mutate "$ADOPT" "$M/adoption.m19a.md" "terminal, or typed after \`!\` at the session's prompt, which Claude Code runs" "terminal." \
-  && drop_lines "$M/adoption.m19a.md" "$M/adoption.m19b.md" "\"directly without Claude's prior approval or interpretation\" and whose output" "\"directly without Claude's prior approval or interpretation\" and whose output" \
-  && mutate "$M/adoption.m19b.md" "$M/adoption.m19.md" "lands in the conversation. A script that asks you questions" "A script that asks you questions" \
+if mutate "$ADOPT" "$M/adoption.m19a.md" "terminal from the project's folder, or typed after \`!\` at the session's" "terminal from the project's folder." \
+  && drop_lines "$M/adoption.m19a.md" "$M/adoption.m19b.md" "prompt, which Claude Code runs \"directly without Claude's prior approval or" "prompt, which Claude Code runs \"directly without Claude's prior approval or" \
+  && mutate "$M/adoption.m19b.md" "$M/adoption.m19.md" "interpretation\" and whose output lands in the conversation. A script that" "A script that" \
   && grep -Fq -- 'a `!` command' "$M/adoption.m19.md"; then
   expect_red M19 "the fallback paragraph loses its \`!\` route, keeping another \`!\`" "no fallback text 'typed after \`!\`'" c5_fallback "$M/adoption.m19.md"
 else
@@ -987,16 +1073,46 @@ else
   fail_ M21 "mutation did not land in docs/adoption.md"
 fi
 
-if drop_lines "$ACT4" "$M/adopt-act4.m22.sh" "auto mode refuses the command itself" "either works."; then
+if drop_lines "$ACT4" "$M/adopt-act4.m22.sh" "auto mode refuses the command itself" "questions, so it works there."; then
   expect_red M22 "the assessment prompt loses its auto-mode instruction" "does not tell the agent" c8_assessment_prompt "$M/adopt-act4.m22.sh" "$BYPASS_PATTERNS"
 else
   fail_ M22 "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
 fi
 
-if mutate "$ACT4" "$M/adopt-act4.m23.sh" "do not change any setting. Ask me to type" "do not change any setting — Ask me to type"; then
+TERM_ROUTE_OLD="command after ! at the Claude Code prompt and wait for its output"
+TERM_ROUTE_NEW="command after ! at the Claude Code prompt, or in a terminal window of my own, and wait for its output"
+if mutate "$ACT4" "$M/adopt-act4.m23a.sh" "do not change any setting. Ask me to type" "do not change any setting — Ask me to type" \
+  && mutate "$M/adopt-act4.m23a.sh" "$M/adopt-act4.m23.sh" "$TERM_ROUTE_OLD" "$TERM_ROUTE_NEW"; then
   expect_red M23 "the instruction, relayed as one line, reads as a terminal workaround" "terminal_workaround (the instruction, relayed as one line)" c8_assessment_prompt "$M/adopt-act4.m23.sh" "$BYPASS_PATTERNS"
 else
   fail_ M23 "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
+fi
+
+# R-E3-3: the round-2 sentence, which the detector passes as written.
+if mutate "$ACT4" "$M/adopt-act4.m23b.sh" "$TERM_ROUTE_OLD" "$TERM_ROUTE_NEW"; then
+  expect_red M23b "the instruction regains its terminal route, full stop kept" "names a 'terminal' route" c8_assessment_prompt "$M/adopt-act4.m23b.sh" "$BYPASS_PATTERNS"
+else
+  fail_ M23b "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
+fi
+
+# OWN-B: the finisher's fallback, in step 2 and in the Act 3/4 section.
+if drop_lines "$ADOPT" "$M/adoption.m24.md" "**One exception: the assessment's finisher" "use the fallback at the end of this step."; then
+  expect_red M24 "step 2 loses its finisher exception" "step 2 does not say: **One exception" c9_finisher_fallback "$M/adoption.m24.md"
+else
+  fail_ M24 "mutation did not land in docs/adoption.md"
+fi
+
+if drop_para "$ADOPT" "$M/adoption.m25.md" "**If Claude Code's auto mode refuses the finisher**"; then
+  expect_red M25 "the Act 3/4 section loses its auto-mode refusal paragraph" "does not say: If Claude Code's auto mode refuses the finisher" c9_finisher_fallback "$M/adoption.m25.md"
+else
+  fail_ M25 "mutation did not land in docs/adoption.md"
+fi
+
+if mutate "$ADOPT" "$M/adoption.m25a.md" "run it yourself, typed after \`!\`" "run it yourself," \
+  && mutate "$M/adoption.m25a.md" "$M/adoption.m25b.md" "at the session's prompt or in your own terminal from the project's folder" "in your own terminal from the project's folder"; then
+  expect_red M25b "the Act 3/4 paragraph loses its \`!\` route" "does not say: typed after \`!\`" c9_finisher_fallback "$M/adoption.m25b.md"
+else
+  fail_ M25b "mutation did not land in docs/adoption.md"
 fi
 
 echo ""

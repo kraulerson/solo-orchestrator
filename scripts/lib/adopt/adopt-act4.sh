@@ -256,7 +256,10 @@ _adopt_act4_merge() {
 # never to work around the refusal. resume.sh prints this file and the agent
 # relays it, so the bypass detector reads the sentence both ways: its wording
 # is checked against scripts/lib/bypass-patterns.sh, line by line and joined,
-# by tests/test-bl311-e-clone-path.sh (C8).
+# by tests/test-bl311-e-clone-path.sh (C8). It offers only the `!` route and
+# names no terminal or shell: an agent's paraphrase of a terminal route matched
+# terminal_workaround (measured), and the sentinel that raises blocks
+# `git commit` at Act 4. C8 forbids both words in the paragraph.
 adopt_write_assessment_prompt() {                      # BL-242-ASSESSMENT-PROMPT
   local root="$1" commit
   commit="$(jq -r '.adoption.adoptedAtCommit // ""' "$root/.claude/manifest.json" 2>/dev/null)"
@@ -324,8 +327,8 @@ Then, WITH ME — ask, do not infer:
     If it refuses, fix what it names and run it again. Nothing is written until the record passes.
     If Claude Code's auto mode refuses the command itself (a permission denial, not the finisher's own
     [REFUSED] line), do not work around it, and do not change any setting. Ask me to type that exact
-    command after ! at the Claude Code prompt, or in a terminal window of my own, and wait for its
-    output: the finisher asks no questions, so either works.
+    command after ! at the Claude Code prompt and wait for its output: the finisher asks no
+    questions, so it works there.
 
 Do not write PRODUCT_MANIFESTO.md — Phase 0 produces it. Do not change .claude/phase-state.json —
 the project stays at phase 0.
