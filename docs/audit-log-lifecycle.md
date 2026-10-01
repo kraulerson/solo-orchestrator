@@ -123,15 +123,45 @@ The three "no emitter yet" rows are named because the vocabulary is closed and a
 
 **A `collision_re_add` row is the operator overriding the framework, on purpose.** §7.3 permits re-adds — *"the framework's premise is opinionated enforcement, not confiscation"* — and asks only that the choice be legible to whoever reads the ledger next. A project with re-add rows is not a misconfigured project; it is one whose owner made a decision you can now go and read.
 
+### `relayed_framework_escape`
+
+The Claude session passed on, to you, a way past a check that **the check itself documents**, and the bypass detector recorded it without asking you to approve or decline a "proposal". Before BL-311 row 3 the same text was a `claude_bypass_proposal` and raised the pending-approval sentinel, recommending "decline": an agent relaying `session-mcp-gate.sh`'s own instruction, restart Claude Code with `SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='<why>'`, was reported as a workaround of that same check.
+
+- **Writer:** the bypass detector's Stop arm only (`scripts/hooks/bypass-detector.sh`, the block marked `# BL-311-RELAYED-ESCAPE-ROW`). Text that comes back through a tool (the PostToolUse arm) is never classified this way.
+- **Lifecycle:** terminal on write. `user_response: "n/a"`, `final_outcome: "recorded_only"`. No sentinel is raised for it.
+- **`actor`:** `claude` (the session wrote the text).
+- **`details`:** the `claude_bypass_proposal` fields (`pattern`, always `terminal_workaround`; `event`, always `Stop`; `excerpt`; `severity`) plus `relayed`: the attested variable(s) relayed, or `shell_mode`.
+
+**What counts as a relay — narrowly.** Only the `terminal_workaround` pattern can be exempt, and only when **every** line it matched is one of two things:
+
+1. **An attested escape, as its check documents it.** An inline code span that is exactly a registered escape: the attested variable set to `1`, then its reason variable set to a non-empty value, then nothing or the documented command, in a phrase like ``run `…` in a new terminal``. The registered escapes are the table marked `# BL-311-RELAY-ESCAPES-BEGIN` in the detector — each is printed or documented by its check, takes a reason, and is recorded when used:
+
+   | Attested variable | Reason variable | Check | Recorded to |
+   | - | - | - | - |
+   | `SOLO_MCP_ATTESTED` | `SOLO_MCP_REASON` | `session-mcp-gate.sh` (launch: `… claude`) | `process-state.json::mcp_attestations[]` or `.claude/mcp-attestations.jsonl` |
+   | `SOLO_MCP_ACCUM_ATTESTED` | `SOLO_MCP_ACCUM_ATTESTED_REASON` | `check-phase-gate.sh` (accumulation) | `process-state.json` |
+   | `SOLO_TDD_ATTESTED` | `SOLO_TDD_REASON` | `pre-commit-gate.sh` (BL-072, `… git commit`) | `process-state.json::tdd_attestations[]` |
+   | `SOLO_REVIEWERS_ATTESTED` | `SOLO_REVIEWERS_ATTESTED_REASON` | `check-phase-gate.sh` (Phase 3→4 reviews) | `process-state.json::phase3.attestations.reviewers` |
+   | `SOLO_PR_REVIEW_ATTESTED` | `SOLO_PR_REVIEW_ATTESTED_REASON` | `check-pr-review.sh` (`… git push`) | `process-state.json::pr_review_attestations[]` |
+   | `SOLO_UAT_SOLO_ATTESTED` | `SOLO_UAT_REASON` | `process-checklist.sh` (`results_received`) | `process-state.json::uat_session.solo_attestations[]` |
+   | `SOLO_LICENSE_ATTESTED` | `SOLO_LICENSE_REASON` | `run-phase3-validation.sh` (license deny) | `phase-state.json::phase3.license_exceptions[]` |
+
+   `SOLO_BP_ATTESTED` and `SOLO_APPROVALS_ATTESTED` are deliberately **not** exempt: neither takes a reason, and no check prints either variable as the way past a block. `tests/test-bl311-d-relayed-escape.sh` fails if a check starts reading a new `SOLO_*_ATTESTED` variable that is in neither list.
+2. **The assessment's hand-to-human step.** Step 10 of the assessment prompt tells the session, when Claude Code's auto mode refuses the finisher, to ask you to type that exact command after `!` at the Claude Code prompt; Claude Code calls that route "shell mode". A line that names `!` and the Claude Code prompt, uses no "terminal" and no "shell" except "shell mode" / "shell command(s)", and carries no inline code except `!` and the finisher command exactly as this project's own `.claude/adoption/assessment-prompt.md` prints it (the detector reads it from that file: core code may not name the adoption module), is a relay.
+
+**What still raises the sentinel, by design.** An agent could quote a sanctioned escape as cover for a real proposal, so the exemption is per line and per pattern, never per message. Every other pattern (`--no-verify`, `SOIF_FORCE_STEP=`, a force push, marking a step complete) raises whatever else the message says. On a relay line, any of these makes the line a proposal again: an attested variable without its reason, or with an empty one; an unregistered `SOLO_*_ATTESTED`, or any other environment assignment; a flag outside the escape (for example `--dangerously-skip-permissions`); an argument to `claude`, or a shell control operator in another escape's arguments; a second terminal route ("…, or run it in your own shell"); another command in inline code introduced earlier in the same sentence; and, on a shell-mode line, the word "terminal" or any other inline code.
+
+**Limits.** The rule fails closed: a relay worded differently (the escape split across lines, the reason before the attested variable, the command after a `cd`) is treated exactly as before — a `claude_bypass_proposal`, with the sentinel. These are not separated, and are recorded on `## BL-311:` in `solo-orchestrator-backlog.md`: a proposal in plain words, with no code, flag or variable, that shares the relay's own "in a new terminal" phrase; and an escape relayed inside a fenced code block — fences are stripped before the scan, so the lead-in line carries no escape and still raises; and the assessment prompt is a file the session can write, so a session that edits it widens which command a shell-mode relay may carry. "Start a new Claude Code session" — adoption's own closing advice — matches nothing as written; "run `claude` again in your terminal" matches `terminal_workaround` and is not a relay under this rule.
+
 ## Lifecycle per enforcement level
 
 The user-guide table gives you the high-level matrix. The audit log's *content* is what concretely differs across levels:
 
 | Level | Rows written | Notes |
 | - | - | - |
-| `strict` | `claude_bypass_proposal`, `terminal_commit_blocked`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is installed; a user-terminal commit the gate BLOCKS produces a `terminal_commit_blocked` row, while a clean pass writes **no** ledger row — only a non-tracked `.claude/last-gate-pass.txt` receipt (BL-161), so the tracked ledger records real events only. `--no-verify` skips the hook but the next SessionStart writes `out_of_band_commit` for the same SHA. (`terminal_commit_passed` is a legacy type — no longer written, still recognized in historical ledgers.) |
-| `light` | `claude_bypass_proposal`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is NOT installed, so no `terminal_commit_blocked` / `terminal_commit_passed` rows. The SessionStart detector still runs and records every new SHA as `out_of_band_commit` (since none are blocked or passed by the gate). |
-| `no` | `claude_bypass_proposal`, `enforcement_level_set`, `escalation` | Only Claude-side events are recorded. The SessionStart detector exits early. A successor reading the log can see the level transition that disabled the user-terminal audit. |
+| `strict` | `claude_bypass_proposal`, `relayed_framework_escape`, `terminal_commit_blocked`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is installed; a user-terminal commit the gate BLOCKS produces a `terminal_commit_blocked` row, while a clean pass writes **no** ledger row — only a non-tracked `.claude/last-gate-pass.txt` receipt (BL-161), so the tracked ledger records real events only. `--no-verify` skips the hook but the next SessionStart writes `out_of_band_commit` for the same SHA. (`terminal_commit_passed` is a legacy type — no longer written, still recognized in historical ledgers.) |
+| `light` | `claude_bypass_proposal`, `relayed_framework_escape`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is NOT installed, so no `terminal_commit_blocked` / `terminal_commit_passed` rows. The SessionStart detector still runs and records every new SHA as `out_of_band_commit` (since none are blocked or passed by the gate). |
+| `no` | `claude_bypass_proposal`, `relayed_framework_escape`, `enforcement_level_set`, `escalation` | Only Claude-side events are recorded. The SessionStart detector exits early. A successor reading the log can see the level transition that disabled the user-terminal audit. |
 
 `enforcement_level_set` is written on every level transition regardless of source level — even `strict → no` records the transition before silencing the detector, so the timeline is intact.
 
@@ -157,6 +187,9 @@ jq '[.[] | select(.type == "detector_error")] | .[] | {ts: .timestamp, level: .e
 
 # 6. Brownfield adoption: what the archive took, and what the operator took back.
 jq '[.[] | select(.type == "adoption_event")] | sort_by(.timestamp) | .[] | {ts: .timestamp, event: .details.event, path: (.details.path // .details.archiveDir // "n/a"), details: .details}' .claude/bypass-audit.json
+
+# 6b. Escapes the session relayed from a check's own text (BL-311 row 3) — recorded, never a proposal.
+jq '[.[] | select(.type == "relayed_framework_escape")] | .[] | {ts: .timestamp, relayed: .details.relayed, excerpt: .details.excerpt}' .claude/bypass-audit.json
 
 # 7. Quick health summary — counts by type, by actor.
 jq 'group_by(.type) | map({type: .[0].type, count: length})' .claude/bypass-audit.json

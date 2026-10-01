@@ -22299,6 +22299,36 @@ recorded, not fixed:
   1 failed — M19's mutation does not land; its literal arrives in `ee89a1d`). Harmless in a repo that
   merges by merge commit.
 
+**Group D (row 3, and R-BL311E4-1), built on branch `fix/bl311-d-relayed-escape`.** The dogfood row
+was raised by this framework's own detector — the Stop arm of `scripts/hooks/bypass-detector.sh`, as
+registered in k-pdf's `.claude/settings.json`; the Guardrails' `stop-checklist.sh` only reads the
+sentinel. The Stop arm now writes a `terminal_workaround` match as a `relayed_framework_escape` row
+(no decision awaited, no sentinel) when every line it matched relays either a registered attested
+escape with its reason variable, as its check prints it, or the assessment's `!` hand-to-human step
+(with no inline code but `!` and the finisher as the project's own assessment prompt prints it);
+the table, the rule and the threat (an escape quoted as cover) are in the detector's comment block
+(`# BL-311-RELAY-ESCAPES-BEGIN`, `# BL-311-RELAYED-ESCAPE-ROW`), and `docs/audit-log-lifecycle.md`
+documents the row type and its limits. `tests/test-bl311-d-relayed-escape.sh` drives the real
+detector: the dogfood message verbatim, the three relays round 4 measured, the cover cases that must
+still raise, the registry cross-check against every `SOLO_*_ATTESTED` reader, and 24 mutation proofs.
+PR #482's narrower `terminal_workaround` alone already clears the three measured shell-mode relays
+(none matches it), but not the dogfood relay, an attested-escape relay, or "Run it yourself in shell
+mode: …". Residuals, not fixed:
+- **R-BL311D-1** — a proposal in plain words (no inline code, flag or variable) that shares the relay
+  phrase's own terminal word ("run the cleanup and run `<escape>` in a new terminal"), or that sits on
+  a shell-mode line ("type ! then <command in prose> at the Claude Code prompt"), is not separated.
+- **R-BL311D-2** — an escape relayed inside a fenced block still raises: fences are stripped before
+  the scan, so the lead-in line ("run this in a new terminal:") carries no escape.
+- **R-BL311D-3** — adoption's own closing advice ("close it and start a new one",
+  `# BL-311-ACT2-RESTART`) matches nothing, but a relay of it as "run `claude` again in your terminal"
+  matches `terminal_workaround`, on `main` and under PR #482, and is not a relay under this rule.
+- **R-BL311D-4** — the rule is per line: a shell-mode relay whose line also carries other inline code
+  (a file name, say) raises.
+- **R-BL311D-5** — the one command a shell-mode relay may carry is read from the project's own
+  `.claude/adoption/assessment-prompt.md` (core may not name the adoption module), a file the session
+  can write: a session that edits it widens what passes. Whether the Guardrails' guards cover that
+  path was not measured.
+
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
   .claude/manifest.json` now refuses (`# BL-311-MANIFEST-READD-REFUSE`) and says so.
