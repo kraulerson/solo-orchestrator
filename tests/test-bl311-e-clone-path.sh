@@ -34,14 +34,25 @@
 #       "$defaults" or a second entry is red. The one string names the clone's
 #       GitHub repository (from the clone URL) and the clone path, and every
 #       other solo-orchestrator path in it is that same path: the C1 target.
+#       It scopes the trust: "trusted as code to run" and "never as a
+#       destination for any project's code or data" — the classifier reads the
+#       environment list as the trust boundary for data too, and the repository
+#       is public. And the step holding the snippet has exactly one json-family
+#       fence (info string json, jsonc, …), and no fence in it other than
+#       ```text names a "permissions" or "allow" key — so a second block
+#       carrying an allow list beside the snippet is red.
 #   C4  Every `adoption.md#<anchor>` link in README.md and docs/user-guide.md
 #       resolves to a heading of docs/adoption.md (GitHub's slug rule, the one
 #       scripts/lint-doc-anchors.sh uses for same-file links — that lint checks
 #       only the FILE half of a cross-file link), and both docs link to the
 #       heading the snippet sits under.
 #   C5  The section holding the snippet carries the fallback for when Claude is
-#       still refused: run the command yourself — in your own terminal or after
-#       `!` — or leave auto mode with `Shift+Tab`.
+#       still refused, in ONE paragraph (the one opening "**If Claude is still
+#       refused"): run the command yourself — in your own terminal or typed
+#       after `!` — or leave auto mode with `Shift+Tab`. Read as that
+#       paragraph, not the section, and as the phrase "typed after `!`" rather
+#       than a bare `!`: the paragraph names `!` twice, so deleting the `!`
+#       route left the other `!` behind and a section-wide check green.
 #   C6  Every script a user runs from the clone, in all three docs — any fenced
 #       block or prose — is spelled `bash <target>/scripts/…` or with the
 #       documented `"$(jq -r .source_dir .claude/orchestrator-source.json)` form:
@@ -54,6 +65,10 @@
 #           line of a script under scripts/: the docs quoting what a script
 #           prints (adopt-project.sh's --help). That exemption ends by itself
 #           when the script's text changes, which forces the doc to follow.
+#   C7  The step says where the line goes — "**Where: your user settings,
+#       `~/.claude/settings.json`**" — and that Claude Code "does not read
+#       `autoMode` from a project's settings" (measured in round 1: the same
+#       block in a project's .claude/settings.json does not load).
 #   C8  The assessment prompt (`adopt_write_assessment_prompt`,
 #       scripts/lib/adopt/adopt-act4.sh) tells the agent what to do when
 #       Claude Code's auto mode refuses the finisher: not work around it, change
@@ -101,6 +116,16 @@
 #   M15 adoption.md's test-debt check says `<framework>`     -> C6 red
 #   M16 the --help quote no longer matches what the driver prints -> C6 red
 #   M17 user-guide.md spells the clone "$HOME/solo-orchestrator" -> C6 red
+#   M18 a second ```json block in the step carries a permissions.allow list
+#       (review round 2's X2)                                -> C3 red, count
+#   M18b the same list in a bare ``` block beside the snippet -> C3 red, key
+#   M19 the fallback paragraph loses its `!` route — the sentence from "or
+#       typed after `!`" to "lands in the conversation." (X3a); the paragraph
+#       still names `!` once                                 -> C5 red
+#   M20 the entry loses its scoping clause                   -> C3 red
+#   M20b the entry keeps "trusted as code to run" but loses "never as a
+#       destination …"                                       -> C3 red
+#   M21 "Where" names the project's .claude/settings.json (X8) -> C7 red
 #   M22 the prompt loses its auto-mode instruction           -> C8 red
 #   M23 the instruction loses the full stop between "do not change any
 #       setting" and "Ask me to type", so relayed as one line the detector's
@@ -387,6 +412,7 @@ c2_clone_path_tokens() {
 # c3_snippet_shape <adoption> <target>
 c3_snippet_shape() {
   local adopt="$1" target="$2" json="$TMP/.c3.json" entry="" paths="$TMP/.c3.paths"
+  local sec="$TMP/.c3.sec" fences="$TMP/.c3.fences" want="" n=""
   if ! snippet_json "$adopt" > "$json"; then
     echo "docs/adoption.md does not hold exactly one json block naming \"autoMode\""
     return 1
@@ -431,6 +457,45 @@ c3_snippet_shape() {
     echo "the entry names the clone somewhere other than $target: $(grep -Fxv -- "$target" "$paths" | tr '\n' ' ')"
     return 1
   fi
+  for want in 'trusted as code to run' "never as a destination for any project's code or data"; do
+    case "$entry" in
+      *"$want"*) ;;
+      *) echo "the entry does not scope the trust — no '$want': $entry"; return 1 ;;
+    esac
+  done
+  # The step's fences: one json-family block, and no allow list in any other.
+  if ! snippet_section "$adopt" > "$sec" || [ ! -s "$sec" ]; then
+    echo "found no section holding the settings snippet in docs/adoption.md"
+    return 1
+  fi
+  awk '
+    /^[[:space:]]*(```|~~~)/ {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      ch = substr(line, 1, 1)
+      if (open) { if (ch == opench) open = 0; next }
+      open = 1
+      opench = ch
+      info = line
+      sub(/^(```+|~~~+)[[:space:]]*/, "", info)
+      sub(/[[:space:]]+$/, "", info)
+      if (info ~ /^json/) n++
+      next
+    }
+    open && info != "text" && (index($0, "\"permissions\"") > 0 || index($0, "\"allow\"") > 0) {
+      print "KEY\t" (info == "" ? "bare" : info)
+    }
+    END { print "N\t" n + 0 }
+  ' "$sec" > "$fences"
+  n=$(awk -F '\t' '$1 == "N" { print $2 }' "$fences")
+  if [ "$n" != 1 ]; then
+    echo "the settings step holds $n json blocks, not one"
+    return 1
+  fi
+  if grep -q '^KEY' "$fences"; then
+    echo "a $(awk -F '\t' '$1 == "KEY" { print $2; exit }' "$fences") block in the settings step names a \"permissions\" or \"allow\" key"
+    return 1
+  fi
   return 0
 }
 
@@ -464,16 +529,38 @@ c4_links_resolve() {
 
 # c5_fallback <adoption>
 c5_fallback() {
-  local sec="$TMP/.c5.sec" want="" bad=0
+  local sec="$TMP/.c5.sec" flat="" want="" bad=0
   if ! snippet_section "$1" > "$sec" || [ ! -s "$sec" ]; then
     echo "found no section holding the settings snippet in docs/adoption.md"
     return 1
   fi
-  for want in 'run the command yourself' 'your own terminal' '`!`' '`Shift+Tab`'; do
-    if ! grep -Fq -- "$want" "$sec"; then
-      echo "the settings step has no fallback text '$want'"
-      bad=1
-    fi
+  # The fallback paragraph, joined: its phrases wrap across lines.
+  flat="$(awk 'index($0, "**If Claude is still refused") > 0 { on = 1 }
+               on && /^[[:space:]]*$/ { exit }
+               on { print }' "$sec" | tr '\n' ' ' | tr -s ' ')"
+  for want in 'run the command yourself' 'your own terminal' 'typed after `!`' '`Shift+Tab`'; do
+    case "$flat" in
+      *"$want"*) ;;
+      *) echo "the settings step has no fallback text '$want' in its \"If Claude is still refused\" paragraph"; bad=1 ;;
+    esac
+  done
+  [ "$bad" -eq 0 ]
+}
+
+# c7_location <adoption>
+c7_location() {
+  local sec="$TMP/.c7.sec" flat="" want="" bad=0
+  if ! snippet_section "$1" > "$sec" || [ ! -s "$sec" ]; then
+    echo "found no section holding the settings snippet in docs/adoption.md"
+    return 1
+  fi
+  flat="$(tr '\n' ' ' < "$sec" | tr -s ' ')"
+  for want in '**Where: your user settings, `~/.claude/settings.json`**' \
+              "does not read \`autoMode\` from a project's settings"; do
+    case "$flat" in
+      *"$want"*) ;;
+      *) echo "the settings step does not say: $want"; bad=1 ;;
+    esac
   done
   [ "$bad" -eq 0 ]
 }
@@ -655,6 +742,12 @@ if out=$(c6_clone_invocations "$TARGET" "$README" "$ADOPT" "$GUIDE"); then
   pass "C6: every clone script in the three docs is run as bash $TARGET/scripts/… or the source_dir form${out:+ ($out)}"
 else
   fail_ "C6" "$out"
+fi
+
+if out=$(c7_location "$ADOPT"); then
+  pass "C7: the settings step puts the line in user settings and says a project's settings are not read for autoMode"
+else
+  fail_ "C7" "$out"
 fi
 
 if out=$(c8_assessment_prompt "$ACT4" "$BYPASS_PATTERNS"); then
@@ -841,6 +934,57 @@ if mutate "$GUIDE" "$M/user-guide.m17.md" "bash $TARGET/scripts/upgrade-project.
   expect_red M17 "user-guide.md spells the clone \"\$HOME/solo-orchestrator\"" "runs a clone script as bash \"\$HOME/solo-orchestrator/scripts/upgrade-project.sh" c6_clone_invocations "$TARGET" "$README" "$ADOPT" "$M/user-guide.m17.md"
 else
   fail_ M17 "mutation did not land in docs/user-guide.md"
+fi
+
+if mutate "$ADOPT" "$M/adoption.m18.md" "- **What it does, and what it does not.**" "\`\`\`json
+{ \"permissions\": { \"allow\": [\"Bash(bash $TARGET/scripts/scout.sh *)\"] } }
+\`\`\`
+
+- **What it does, and what it does not.**"; then
+  expect_red M18 "a second json block in the step carries a permissions.allow list" "json blocks, not one" c3_snippet_shape "$M/adoption.m18.md" "$TARGET"
+else
+  fail_ M18 "mutation did not land in docs/adoption.md"
+fi
+
+if mutate "$ADOPT" "$M/adoption.m18b.md" "- **What it does, and what it does not.**" "\`\`\`
+{ \"permissions\": { \"allow\": [\"Bash(bash $TARGET/scripts/scout.sh *)\"] } }
+\`\`\`
+
+- **What it does, and what it does not.**"; then
+  expect_red M18b "a bare block beside the snippet carries a permissions.allow list" "a bare block in the settings step names" c3_snippet_shape "$M/adoption.m18b.md" "$TARGET"
+else
+  fail_ M18b "mutation did not land in docs/adoption.md"
+fi
+
+# X3a: the `!` sentence goes, the paragraph stays one paragraph, and its other
+# `!` (a `!` command cannot take your answers) is still there.
+if mutate "$ADOPT" "$M/adoption.m19a.md" "terminal, or typed after \`!\` at the session's prompt, which Claude Code runs" "terminal." \
+  && drop_lines "$M/adoption.m19a.md" "$M/adoption.m19b.md" "\"directly without Claude's prior approval or interpretation\" and whose output" "\"directly without Claude's prior approval or interpretation\" and whose output" \
+  && mutate "$M/adoption.m19b.md" "$M/adoption.m19.md" "lands in the conversation. A script that asks you questions" "A script that asks you questions" \
+  && grep -Fq -- 'a `!` command' "$M/adoption.m19.md"; then
+  expect_red M19 "the fallback paragraph loses its \`!\` route, keeping another \`!\`" "no fallback text 'typed after \`!\`'" c5_fallback "$M/adoption.m19.md"
+else
+  fail_ M19 "mutation did not land in docs/adoption.md"
+fi
+
+SCOPE=": trusted as code to run, never as a destination for any project's code or data"
+if [ -n "$ENTRY" ] && case "$ENTRY" in *"$SCOPE"*) true ;; *) false ;; esac \
+  && mutate "$ADOPT" "$M/adoption.m20.md" "$ENTRY" "${ENTRY%%"$SCOPE"*}${ENTRY#*"$SCOPE"}"; then
+  expect_red M20 "the entry loses its scoping clause" "does not scope the trust" c3_snippet_shape "$M/adoption.m20.md" "$TARGET"
+else
+  fail_ M20 "mutation did not land in docs/adoption.md (entry: '$ENTRY')"
+fi
+
+if mutate "$ADOPT" "$M/adoption.m20b.md" ", never as a destination for any project's code or data\"" "\""; then
+  expect_red M20b "the entry keeps 'trusted as code to run' but loses 'never as a destination'" "no 'never as a destination" c3_snippet_shape "$M/adoption.m20b.md" "$TARGET"
+else
+  fail_ M20b "mutation did not land in docs/adoption.md"
+fi
+
+if mutate "$ADOPT" "$M/adoption.m21.md" "**Where: your user settings, \`~/.claude/settings.json\`**" "**Where: the project's settings, \`.claude/settings.json\`**"; then
+  expect_red M21 "'Where' names the project's .claude/settings.json" "does not say: **Where: your user settings" c7_location "$M/adoption.m21.md"
+else
+  fail_ M21 "mutation did not land in docs/adoption.md"
 fi
 
 if drop_lines "$ACT4" "$M/adopt-act4.m22.sh" "auto mode refuses the command itself" "either works."; then
