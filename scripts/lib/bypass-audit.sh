@@ -11,7 +11,18 @@
 #     "type":                      "claude_bypass_proposal" | "terminal_commit_blocked" |
 #                                  "terminal_commit_passed" | "out_of_band_commit" |
 #                                  "enforcement_level_set" | "detector_error" | "escalation" |
-#                                  "sast_suppression" | "adoption_event",
+#                                  "sast_suppression" | "adoption_event" |
+#                                  "relayed_framework_escape",
+#                                  (BL-311 row 3: "relayed_framework_escape" is a
+#                                  bypass-detector Stop-arm match on text that
+#                                  relays a check's own documented escape — a
+#                                  registered attested variable with its reason,
+#                                  or the `!` hand-to-human step. actor "claude",
+#                                  user_response "n/a", final_outcome
+#                                  "recorded_only", details.relayed names what was
+#                                  relayed; it raises no pending-approval sentinel.
+#                                  The table and the rule live in
+#                                  scripts/hooks/bypass-detector.sh.)
 #                                  (Brownfield §8.9: "adoption_event" records a
 #                                  brownfield ADOPTION event, discriminated by
 #                                  details.event rather than by a type of its
