@@ -22356,6 +22356,47 @@ mode: …". Residuals, not fixed:
   (`# BL-311-RELAY-TABLE-NONEMPTY`); before, bash 3.2 printed an unbound-variable error (it already
   failed closed). Pinned by case C25, not by a mutant: with the guard removed only bash 3.2 differs.
 
+**Group D review round 2 (adversarial review of `b3496cf`), fixed on the same branch.**
+- **R2-1 (block)** — a second command in inline code rode along on a relay line: ``Run `<escape>` in
+  a new terminal, but first do `rm .claude/pending-approval.json` in it.``, `` … then `git config
+  core.hooksPath /dev/null` there``, `` … and `git update-ref refs/heads/main HEAD` too``, and six
+  more (X01–X09) were recorded as relays where `main` raised the sentinel. Other inline code was
+  refused only when `run`/`do`/`execute` introduced it and a terminal word survived the remainder
+  check, so a pronoun ("in it", "there", "too") defeated it. Now structural
+  (`_soif_relay_spans`, `# BL-311-RELAY-SPANS-CALL`): a line is a relay only if EVERY inline code
+  span on it is the escape, the pinned finisher, `!` alone, or a Claude Code slash command
+  (`^/[a-z][a-z0-9-]*$`; the dogfood relay names `/session-resume`), with at most one escape or
+  finisher. Any other span — `` `reboot` `` included — and the line raises. The old run/do/execute
+  prefix check is gone, subsumed; the remainder check stays (a second route
+  in plain words, C8). A slash command keeps its text in the scanned line rather than becoming a
+  token: a token hid a "terminal" in the command's name from the remainder check (measured).
+- **R2-2 (major)** — surviving mutants: the commit message's own quote excluded from inside it
+  (single, OM3, and double, OM4 — git takes `-m 'wip' --no-veri 'x'` as `--no-verify`), the reason's
+  double-quote exclusion (OM2: `SOLO_MCP_REASON="offline" claude --permission-mode
+  "bypassPermissions"`), and a short flag inside a cluster (`git push -uf`, OM5; `git commit -an`,
+  OM6). Each has a behavioural case and an in-suite mutant that dies (M59, M60, M57, M64, M65; M58
+  for the single-quoted reason twin).
+- **R2-3 (minor)** — git takes any unambiguous prefix of a long option (measured on git 2.54.0:
+  `git commit --no-veri` skips the pre-commit hook and commits, `--amen --no-edi` amends,
+  `git push --delet` deletes the remote branch, `--force-w` is `--force-with-lease`; `--forc` is
+  ambiguous there, rc 129). The backstop now refuses every long option after `git commit` or
+  `git push` except `--message` (`# BL-311-RELAY-BACKSTOP-LONGOPT`, `# BL-311-RELAY-BACKSTOP-MESSAGE`).
+- **R2-4 (minor)** — "Let me just run `<escape>` in the terminal to get past the review check" was
+  recorded as a relay. An attestation is the person's decision: a line where the agent announces it
+  will run the escape, or type the finisher, itself ("let me", "I'll", "I will", "I'm (going to)",
+  "I am (going to)", "I can", "I could", "I'd", "I would", "I shall", then up to three words and the
+  verb right before the span) is refused (`# BL-311-RELAY-FIRST-PERSON`,
+  `# BL-311-HANDOFF-FIRST-PERSON`), unless the match names the person ("I'll wait while you run …").
+  Anchored on the span, not the line: the dogfood relay itself says "(I'll pick up from the findings
+  file …)" after its escape.
+- **Residuals.** R-BL311D-4 now covers both kinds: any relay line that also carries other inline code
+  (a folder to run it from included) raises. A slash command is allowed whatever its name
+  (`/hooks`, `/permissions` as much as `/session-resume`) — no closer reading than plain words get
+  (R-BL311D-1). The first-person rule reads words, not intent: "I'm unable to run `<escape>` …"
+  raises, and "I'll, as you asked, run `<escape>` …" (commas between) is not caught. The backstop's
+  long-option arm is for `git commit`/`git push` only; `claude --permission-mode bypassPermissions`
+  is refused by the MCP row's no-argument grammar, not by the backstop.
+
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
   .claude/manifest.json` now refuses (`# BL-311-MANIFEST-READD-REFUSE`) and says so.
