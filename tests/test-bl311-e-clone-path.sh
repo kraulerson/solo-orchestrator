@@ -54,6 +54,15 @@
 #           line of a script under scripts/: the docs quoting what a script
 #           prints (adopt-project.sh's --help). That exemption ends by itself
 #           when the script's text changes, which forces the doc to follow.
+#   C8  The assessment prompt (`adopt_write_assessment_prompt`,
+#       scripts/lib/adopt/adopt-act4.sh) tells the agent what to do when
+#       Claude Code's auto mode refuses the finisher: not work around it, change
+#       no setting, and ask the human to type the exact command after `!` or in
+#       a terminal of their own (`# BL-311-ASSESSMENT-AUTO-MODE`). And the
+#       bypass detector's patterns (scripts/lib/bypass-patterns.sh) match none of
+#       the prompt line by line — how its PostToolUse arm reads resume.sh
+#       printing it — nor that instruction's paragraph joined into one line —
+#       how its Stop arm reads an agent relaying it.
 #
 # The clone target is DERIVED from docs/adoption.md's clone command, not pinned
 # here: moving the framework is a deliberate edit to every doc and the settings
@@ -92,8 +101,13 @@
 #   M15 adoption.md's test-debt check says `<framework>`     -> C6 red
 #   M16 the --help quote no longer matches what the driver prints -> C6 red
 #   M17 user-guide.md spells the clone "$HOME/solo-orchestrator" -> C6 red
+#   M22 the prompt loses its auto-mode instruction           -> C8 red
+#   M23 the instruction loses the full stop between "do not change any
+#       setting" and "Ask me to type", so relayed as one line the detector's
+#       terminal_workaround pattern matches it (no line does) -> C8 red, detector
 #
-# Hermetic: reads three docs and the scripts/ tree, writes only under its own
+# Hermetic: reads three docs and the scripts/ tree (sourcing only
+# scripts/lib/bypass-patterns.sh, in a subshell), writes only under its own
 # mktemp -d. No network, no remote creation, no `claude`.
 #
 # Self-verify: bash tests/test-bl311-e-clone-path.sh
@@ -105,6 +119,8 @@ REPO_ROOT="$(cd "$SUITE_DIR/.." && pwd)"
 README="$REPO_ROOT/README.md"
 ADOPT="$REPO_ROOT/docs/adoption.md"
 GUIDE="$REPO_ROOT/docs/user-guide.md"
+ACT4="$REPO_ROOT/scripts/lib/adopt/adopt-act4.sh"
+BYPASS_PATTERNS="$REPO_ROOT/scripts/lib/bypass-patterns.sh"
 CLONE_URL='https://github.com/kraulerson/solo-orchestrator.git'
 # The clone's GitHub repository as the entry names it: no scheme, no .git.
 REMOTE="${CLONE_URL#https://}"
@@ -124,7 +140,7 @@ trap cleanup EXIT
 
 echo "== tests/test-bl311-e-clone-path.sh =="
 
-for f in "$README" "$ADOPT" "$GUIDE"; do
+for f in "$README" "$ADOPT" "$GUIDE" "$ACT4" "$BYPASS_PATTERNS"; do
   if [ ! -f "$f" ]; then
     echo "  [FAIL] fixture — $f not found"
     echo ""
@@ -556,6 +572,45 @@ EOF_CAND
   return 0
 }
 
+# c8_assessment_prompt <adopt-act4.sh> <bypass-patterns.sh>
+c8_assessment_prompt() {
+  local src="$1" pats="$2" body="$TMP/.c8.body" para="$TMP/.c8.para" flat="" want="" bad=0 hit=""
+  # The heredoc adopt_write_assessment_prompt writes: what resume.sh prints.
+  awk '
+    /^adopt_write_assessment_prompt\(\)/ { on = 1 }
+    on && /<<PROMPT/ { inb = 1; next }
+    inb && /^PROMPT$/ { exit }
+    inb { print }
+  ' "$src" > "$body"
+  if [ ! -s "$body" ]; then
+    echo "found no assessment prompt in $(basename "$src")"
+    return 1
+  fi
+  flat="$(tr '\n' ' ' < "$body" | tr -s ' ')"
+  for want in 'auto mode refuses the command itself' 'do not work around it' \
+              'do not change any setting' \
+              'Ask me to type that exact command after ! at the Claude Code prompt, or in a terminal window of my own'; do
+    case "$flat" in
+      *"$want"*) ;;
+      *) echo "the assessment prompt does not tell the agent: '$want'"; bad=1 ;;
+    esac
+  done
+  [ "$bad" -eq 0 ] || return 1
+  # The instruction's paragraph, joined: an agent relays it as one line.
+  awk 'index($0, "auto mode refuses the command itself") > 0 { on = 1 }
+       on && /^[[:space:]]*$/ { exit }
+       on { print }' "$body" | tr '\n' ' ' | tr -s ' ' > "$para"
+  hit="$( ( . "$pats"
+            scan_bypass_patterns_all "$(cat "$body")" | sed 's/$/ (a line of the prompt)/'
+            scan_bypass_patterns_all "$(cat "$para")" | sed 's/$/ (the instruction, relayed as one line)/'
+          ) 2>/dev/null | tr '\n' ';' | sed 's/;$//')"
+  if [ -n "$hit" ]; then
+    echo "the bypass detector flags the assessment prompt: $hit"
+    return 1
+  fi
+  return 0
+}
+
 # --- The repo's own docs ------------------------------------------------------
 
 TARGET="$(clone_target "$ADOPT")"
@@ -602,6 +657,12 @@ else
   fail_ "C6" "$out"
 fi
 
+if out=$(c8_assessment_prompt "$ACT4" "$BYPASS_PATTERNS"); then
+  pass "C8: the assessment prompt sends an auto-mode refusal of the finisher to the human, in words the bypass detector does not flag"
+else
+  fail_ "C8" "$out"
+fi
+
 # --- Mutation harness -----------------------------------------------------------
 
 # mutate <src> <dst> <old-literal> <new-literal> — replace the FIRST occurrence,
@@ -627,6 +688,18 @@ drop_para() {
     !done && !on && index($0, old) > 0 { on = 1; done = 1; next }
     on && /^[[:space:]]*$/ { on = 0; print; next }
     on { next }
+    { print }
+    END { exit(done ? 0 : 1) }' "$1" > "$2" || return 1
+  ! cmp -s "$1" "$2"
+}
+
+# drop_lines <src> <dst> <from-literal> <to-literal> — delete from the first
+# line containing <from-literal> through the next line containing <to-literal>.
+drop_lines() {
+  SOIF_BL311E_FROM="$3" SOIF_BL311E_TO="$4" awk '
+    BEGIN { from = ENVIRON["SOIF_BL311E_FROM"]; to = ENVIRON["SOIF_BL311E_TO"] }
+    !done && !on && index($0, from) > 0 { on = 1 }
+    on { if (index($0, to) > 0) { on = 0; done = 1 }; next }
     { print }
     END { exit(done ? 0 : 1) }' "$1" > "$2" || return 1
   ! cmp -s "$1" "$2"
@@ -768,6 +841,18 @@ if mutate "$GUIDE" "$M/user-guide.m17.md" "bash $TARGET/scripts/upgrade-project.
   expect_red M17 "user-guide.md spells the clone \"\$HOME/solo-orchestrator\"" "runs a clone script as bash \"\$HOME/solo-orchestrator/scripts/upgrade-project.sh" c6_clone_invocations "$TARGET" "$README" "$ADOPT" "$M/user-guide.m17.md"
 else
   fail_ M17 "mutation did not land in docs/user-guide.md"
+fi
+
+if drop_lines "$ACT4" "$M/adopt-act4.m22.sh" "auto mode refuses the command itself" "either works."; then
+  expect_red M22 "the assessment prompt loses its auto-mode instruction" "does not tell the agent" c8_assessment_prompt "$M/adopt-act4.m22.sh" "$BYPASS_PATTERNS"
+else
+  fail_ M22 "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
+fi
+
+if mutate "$ACT4" "$M/adopt-act4.m23.sh" "do not change any setting. Ask me to type" "do not change any setting — Ask me to type"; then
+  expect_red M23 "the instruction, relayed as one line, reads as a terminal workaround" "terminal_workaround (the instruction, relayed as one line)" c8_assessment_prompt "$M/adopt-act4.m23.sh" "$BYPASS_PATTERNS"
+else
+  fail_ M23 "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
 fi
 
 echo ""
