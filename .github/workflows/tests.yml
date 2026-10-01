@@ -621,6 +621,7 @@ jobs:
             tests/test-bl311-adopt-mcp.sh
             tests/test-bl311-adopt-mcp-mutants.sh
             tests/test-bl311-mcp-add-order.sh
+            tests/test-bl313-ci-before-manifest.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

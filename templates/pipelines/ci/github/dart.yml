@@ -16,17 +16,36 @@ jobs:
         with:
           fetch-depth: 0
 
+      # BL-313-MANIFEST-GUARD: a Phase 0/1 project has no pubspec.yaml yet, and
+      # `flutter pub get` fails without one. Every step that needs the manifest
+      # is guarded on it; this notice says what was skipped. Once pubspec.yaml
+      # exists every guard is true and nothing is weakened. Past Phase 1 a
+      # missing manifest FAILS this step: a check that cannot run must not pass.
+      - name: Toolchain skipped - no pubspec.yaml yet (Phase 0/1)
+        if: hashFiles('pubspec.yaml') == ''
+        run: |
+          phase=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*[0-9]*' .claude/phase-state.json 2>/dev/null | grep -o '[0-9]*$' || true)
+          if [ "${phase:-0}" -ge 2 ]; then
+            echo "::error::current_phase is ${phase} and there is no pubspec.yaml in this tree - the toolchain steps cannot run, and a check that cannot run must not pass. Commit the manifest this workflow expects, or change its guards to the manifest this project uses."
+            exit 1
+          fi
+          echo "::notice::No pubspec.yaml in this tree - install, lint, test and dependency-audit steps are skipped until Phase 2 scaffolding commits one. Secret detection and governance checks still run."
+
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2 (v2.23.0)
+        if: hashFiles('pubspec.yaml') != ''
         with:
           channel: 'stable'
 
       - name: Install dependencies
+        if: hashFiles('pubspec.yaml') != ''
         run: flutter pub get
 
       - name: Lint
+        if: hashFiles('pubspec.yaml') != ''
         run: flutter analyze --fatal-infos
 
       - name: Test
+        if: hashFiles('pubspec.yaml') != ''
         run: flutter test
 
       - name: Security - Secret detection (gitleaks)
@@ -42,11 +61,13 @@ jobs:
           ./gitleaks git --redact --exit-code 1
 
       - name: Security - Dependency audit
+        if: hashFiles('pubspec.yaml') != ''
         uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: --lockfile=pubspec.lock
 
       - name: Security - License check
+        if: hashFiles('pubspec.yaml') != ''
         run: |
           dart pub global activate dart_license_checker
           dart pub global run dart_license_checker --fail-on "GPL-2.0,GPL-3.0,AGPL-3.0,LGPL-2.0,LGPL-2.1,LGPL-3.0,SSPL-1.0,EUPL-1.1,EUPL-1.2"

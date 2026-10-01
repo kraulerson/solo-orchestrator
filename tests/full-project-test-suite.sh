@@ -1018,6 +1018,12 @@ run_child_suite "tests/test-bl287-reconfigure-ci-host.sh" \
 run_child_suite "tests/test-bl288-scout-shallow-history-claim.sh" \
   "BL-288: a shallow clone must not be reported as a full-history secrets scan" \
   "BL-288 shallow-history-claim tests FAILED (run tests/test-bl288-scout-shallow-history-claim.sh for details)"
+# BL-313: every GitHub CI template guards its toolchain on the language
+# manifest, so a Phase 0/1 project's first pull request is green; the secret
+# scan and governance steps stay unconditional.
+run_child_suite "tests/test-bl313-ci-before-manifest.sh" \
+  "BL-313: generated GitHub CI is green before the manifest exists and unweakened after" \
+  "BL-313 ci-before-manifest tests FAILED (run tests/test-bl313-ci-before-manifest.sh for details)"
 # BL-278: the pending-approval sentinel is read from the repo the commit
 # targets, not only from the session's project directory.
 run_child_suite "tests/test-bl278-sentinel-root.sh" \
