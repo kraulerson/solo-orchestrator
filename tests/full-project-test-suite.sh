@@ -848,6 +848,16 @@ run_child_suite "tests/test-bl311-b-adopt-guardrails-track.sh" \
 run_child_suite "tests/test-bl311-c-scout-runner-ignore-rule.sh" \
   "BL-311 rows 4 and 5: the test runner is prefixed; the ignoring rule is named" \
   "BL-311 runner/ignore-rule tests FAILED (run tests/test-bl311-c-scout-runner-ignore-rule.sh for details)"
+# BL-311 rows 6 and 7: README, adoption.md and user-guide.md clone the framework
+# to one place and run its scripts from there; adoption.md step 2's settings
+# snippet is exactly one user-settings autoMode.environment line, scoped to code
+# to run and never a destination for data, with no allow list beside it, plus
+# the fallback for when Claude is still refused; and the assessment prompt sends
+# an auto-mode refusal of the finisher to the human in words the bypass
+# detector does not flag.
+run_child_suite "tests/test-bl311-e-clone-path.sh" \
+  "BL-311 rows 6 and 7: one clone path; one scoped autoMode.environment line; the fallback" \
+  "BL-311 clone-path/auto-mode settings tests FAILED (run tests/test-bl311-e-clone-path.sh for details)"
 
 # BL-254: a generated CI pipeline may only call scripts the scaffold ships,
 # and a governance check may not swallow its own failure; plus the lint that

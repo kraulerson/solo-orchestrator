@@ -170,6 +170,8 @@ claude --permission-mode auto
 alias claude="claude --permission-mode auto"
 ```
 
+**Running the framework's own scripts from its clone** (Scout, adoption, `--sync-framework`): auto mode can refuse them as code from outside your project. The one user-settings line that names the clone as trusted code to run, and what to do if Claude is still refused: [Before you start: let Claude Code run the framework's scripts](https://github.com/kraulerson/solo-orchestrator/blob/main/docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts) (also in your clone, `~/solo-orchestrator/docs/adoption.md`).
+
 **Note on availability:** As of late March 2026, Auto Mode is a research preview available to Claude Teams users, with Enterprise and API rollout in progress. Check current availability for your subscription tier. If Auto Mode is not available on your plan, configure granular permissions in your `settings.json` to allow common development operations:
 
 ```json

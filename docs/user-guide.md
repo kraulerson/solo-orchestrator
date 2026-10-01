@@ -306,13 +306,13 @@ These are not framework-specific issues — they apply to any AI-assisted develo
 ### What the Script Asks You
 
 ```bash
-git clone https://github.com/kraulerson/solo-orchestrator.git
-cd solo-orchestrator
+git clone https://github.com/kraulerson/solo-orchestrator.git ~/solo-orchestrator
+cd ~/solo-orchestrator
 chmod +x init.sh
 ./init.sh --project-dir my-project
 ```
 
-Running init.sh from inside the clone is the supported flow. `--project-dir my-project` — a bare folder name — creates the project **beside** the clone, as a sibling of `solo-orchestrator/`, and skips the directory prompt below. Pass an absolute path instead and it is used exactly as given. Plain `./init.sh` with no flags still works and asks you interactively. Either way init refuses a target that would write onto the framework itself — the clone, anything inside it, or another copy of solo-orchestrator.
+The framework lives at `~/solo-orchestrator` — the README and the adoption guide clone to the same place, and the commands later in this guide that run a script from the clone (`--sync-framework`, below) assume it. Running init.sh from inside the clone is the supported flow. `--project-dir my-project` — a bare folder name — creates the project **beside** the clone, as a sibling of `solo-orchestrator/` (here `~/my-project`), and skips the directory prompt below. Pass an absolute path instead and it is used exactly as given. Plain `./init.sh` with no flags still works and asks you interactively. Either way init refuses a target that would write onto the framework itself — the clone, anything inside it, or another copy of solo-orchestrator.
 
 The script prompts for 7 inputs (6 if you passed `--project-dir`):
 
@@ -1268,6 +1268,16 @@ bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework
 Always run `--dry-run` first. It prints one line per file it *would* change and
 touches nothing on disk — no tmp files, no CDF calls, no manifest writes.
 
+**Asking Claude Code to run it for you?** The clone is outside your project, so
+Claude Code's auto mode can refuse the command (`[Code from External]`) — it was
+in the 2026-09-27 test run, where the agent had cloned the framework itself in that
+same session — and the agent cannot change its own permissions to get past that.
+Before the session starts, you add one line to your user settings that names
+the clone as trusted code to run, and if Claude is still refused, you run the
+command yourself:
+[Before you start: let Claude Code run the framework's scripts](https://github.com/kraulerson/solo-orchestrator/blob/main/docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts)
+(also in your clone, `~/solo-orchestrator/docs/adoption.md`).
+
 **What it syncs (applies for you):**
 
 - **Vendored scripts + helper libs** — every script `init.sh` ships is compared
@@ -1383,7 +1393,7 @@ The framework ships with two categories of evaluation prompts that provide indep
 
 ```bash
 # From the solo-orchestrator repository root — run all reviews
-cd /path/to/solo-orchestrator
+cd ~/solo-orchestrator
 chmod +x evaluation-prompts/Framework/run-reviews.sh
 ./evaluation-prompts/Framework/run-reviews.sh
 

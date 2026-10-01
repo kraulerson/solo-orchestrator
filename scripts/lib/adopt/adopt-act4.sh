@@ -248,6 +248,18 @@ _adopt_act4_merge() {
 # the "in-core arms read an adopted flag and never source module code" rule
 # (§3.1), applied. It departs from v2.2's A6, which dropped the Act-2-written
 # brief; the reason is this lint, and `## BL-242:` records it.
+#
+# Step 10's auto-mode sentence (# BL-311-ASSESSMENT-AUTO-MODE): Claude Code's
+# auto-mode classifier reads the finisher's command, not the clone path its
+# `jq` lookup resolves to, so the user-settings line in docs/adoption.md step 2
+# may not clear it. The agent is told to hand the exact command to the human,
+# never to work around the refusal. resume.sh prints this file and the agent
+# relays it, so the bypass detector reads the sentence both ways: its wording
+# is checked against scripts/lib/bypass-patterns.sh, line by line and joined,
+# by tests/test-bl311-e-clone-path.sh (C8). It offers only the `!` route and
+# names no terminal or shell: an agent's paraphrase of a terminal route matched
+# terminal_workaround (measured), and the sentinel that raises blocks
+# `git commit` at Act 4. C8 forbids both words in the paragraph.
 adopt_write_assessment_prompt() {                      # BL-242-ASSESSMENT-PROMPT
   local root="$1" commit
   commit="$(jq -r '.adoption.adoptedAtCommit // ""' "$root/.claude/manifest.json" 2>/dev/null)"
@@ -313,6 +325,10 @@ Then, WITH ME — ask, do not infer:
     bash "\$(jq -r .source_dir .claude/orchestrator-source.json)/scripts/adopt-project.sh" --act4 --root .
 
     If it refuses, fix what it names and run it again. Nothing is written until the record passes.
+    If Claude Code's auto mode refuses the command itself (a permission denial, not the finisher's own
+    [REFUSED] line), do not work around it, and do not change any setting. Ask me to type that exact
+    command after ! at the Claude Code prompt and wait for its output: the finisher asks no
+    questions, so it works there.
 
 Do not write PRODUCT_MANIFESTO.md — Phase 0 produces it. Do not change .claude/phase-state.json —
 the project stays at phase 0.

@@ -22217,8 +22217,8 @@ adoption replaces them (`## BL-242:`, "Karl's ruling on hook managers").
 by its own PR; the entry closes when the rerun passes.
 
 **Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). Group B (rows 2 and 8)
-merged as PR #490 (merge commit `3e737f6`, 2026-09-30). The entry stays Open until the clean rerun
-passes.
+merged as PR #490 (merge commit `3e737f6`, 2026-09-30). Group C (rows 4 and 5) merged as PR #491
+(merge commit `a8f64f4`, 2026-09-30). The entry stays Open until the clean rerun passes.
 
 **What ran.** A fresh Claude Code session (Sonnet, a clean `CLAUDE_CONFIG_DIR`) played a systems
 technician with one to two years of experience — not a developer — installing Solo Orchestrator from
@@ -22266,6 +22266,38 @@ recorded, not fixed:
 - **R-BL311-15** — the `[::]` → `[::1]` rewrite of `docker port` output does not answer on Docker
   Desktop for an IPv6-only publish (measured on Docker Desktop 29.2.1: `[::1]` → 000, `127.0.0.1` →
   200). It stops safely.
+
+**Group C residuals (review round 3, not fixed).** One line each:
+- **R-BL311C3-1** — Scout's markdown report line for `--run-tests` (`# BL-311-SCOUT-REPORT-RAN-CMD`)
+  calls the command Scout ran (`uv run --frozen pytest`) "the project's own test command", while the
+  same report says the flag in it is Scout's.
+- **R-BL311C3-2** — with two lockfiles (e.g. `uv.lock` + `poetry.lock`, or `pnpm-lock.yaml` +
+  `yarn.lock`), the flag note (`# BL-311-SCOUT-FLAG-WHY-UV` / `# BL-311-SCOUT-FLAG-WHY-PNPM`) states a
+  definite everyday command right after "confirm which one this project uses".
+
+**Group E residuals (review round 1, not fixed).** One line each:
+- **R-BL311E-6** — `docs/cli-setup-addendum.md` § 2 still calls Auto Mode "a research preview available
+  to Claude Teams users"; since Claude Code 2.1.283 it is the built-in starting mode of an interactive
+  terminal session. Group E adds only a one-line pointer from § 2 to `docs/adoption.md` step 2; the
+  rewrite of § 2 is open.
+- **Runtime hints still print placeholders.** `/path/to/solo-orchestrator` in `scripts/check-updates.sh`,
+  the `--sync-framework` and `--plan` hints of `scripts/upgrade-project.sh`, the re-add lines of
+  `scripts/lib/adopt/adopt-record.sh` and `scripts/lib/adopt/adopt-archive.sh`, and
+  `scripts/adopt-project.sh --help` (quoted in `docs/adoption.md`, which
+  `tests/test-bl311-e-clone-path.sh` C6 holds to the script's text); `<framework>` in
+  `scripts/lib/adopt/adopt-test-debt.sh`'s "Write one:" line and `scripts/upgrade-project.sh --help`.
+- **Unmeasured:** whether the `autoMode.environment` line in `docs/adoption.md` step 2 clears the
+  `[Code from External]` refusal. The clean dogfood rerun measures it.
+
+**Group E residuals (review round 4, not fixed).** One line each:
+- **R-BL311E4-1** — an agent relaying the assessment prompt's step-10 `!` route
+  (`# BL-311-ASSESSMENT-AUTO-MODE`) by its documented name ("shell mode", "run shell commands directly
+  with the ! prefix") matches `terminal_workaround` and raises the pending-approval sentinel (3 of 4
+  relays the review measured), which blocks commits mid-adoption. Handed to group D (row 3), which
+  must exempt a relay of the framework's own documented hand-to-human instruction.
+- **R-BL311E4-5** — commit `b2c9ed5` is red on its own (`tests/test-bl311-e-clone-path.sh`: 33 passed,
+  1 failed — M19's mutation does not land; its literal arrives in `ee89a1d`). Harmless in a repo that
+  merges by merge commit.
 
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
