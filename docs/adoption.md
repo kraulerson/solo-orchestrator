@@ -78,6 +78,12 @@ copy, including in the settings line of step 2.
 **If you type the commands on this page into a terminal yourself, skip this
 step** — Claude Code is not involved. It is for when you ask a Claude Code
 session in your project to run them, and **you have to do it, not the agent.**
+**One exception: the assessment's finisher is always run by the session**
+([Act 4](#the-assessment--act-3-and-act-4--ships-wp12a)), so if you will run the
+assessment, do this step too. Its command finds the clone through
+`.claude/orchestrator-source.json` instead of naming `~/solo-orchestrator`, and
+the classifier reads commands, not what they print, so this step may not clear
+it; if auto mode refuses it, use the fallback at the end of this step.
 
 Claude Code's auto mode — the mode a session starts in by default since
 Claude Code 2.1.283 — has a classifier judge each command before it runs, and
@@ -102,19 +108,27 @@ in a text editor, **before you start the session**:
   "autoMode": {
     "environment": [
       "$defaults",
-      "Source control: also github.com/kraulerson/solo-orchestrator and its clone at ~/solo-orchestrator — the user's own install of the Solo Orchestrator framework"
+      "Source control: also github.com/kraulerson/solo-orchestrator and its clone at ~/solo-orchestrator — the user's own install of the Solo Orchestrator framework: trusted as code to run, never as a destination for any project's code or data"
     ]
   }
 }
 ```
 
 - **What it does, and what it does not.** It adds one line to what the
-  classifier is told about your setup: this repository and this clone are
-  trusted, not external. It approves nothing in advance. Every command Claude
-  runs from the clone still goes to the classifier, which still judges what that
-  command does, with which arguments, to which folder. `"$defaults"` keeps
-  Claude Code's built-in lines; leave it out and your one line replaces all of
-  them (measured on Claude Code 2.1.285: 21 lines become 1).
+  classifier is told about your setup: the clone is trusted **as code to run**,
+  not as someone else's code fetched into your project — and **not** as a place
+  to send anything. That second half matters. The classifier reads this same
+  list as the boundary for your data (Claude Code's documentation: *"any
+  destination not listed is a potential exfiltration target"*, so a listed one
+  counts as inside), and `github.com/kraulerson/solo-orchestrator` is a public
+  repository that belongs to the framework's author, not to you. So the line
+  itself says the clone and the repository are never a destination for any
+  project's code or data; keep that clause if you reword it. It approves
+  nothing in advance. Every command Claude runs from the clone
+  still goes to the classifier, which still judges what that command does, with
+  which arguments, to which folder. `"$defaults"` keeps Claude Code's built-in
+  lines; leave it out and your one line replaces all of them (measured on Claude
+  Code 2.1.285: 21 lines become 1).
 - **Where: your user settings, `~/.claude/settings.json`** (or
   `$CLAUDE_CONFIG_DIR/settings.json` if you set `CLAUDE_CONFIG_DIR`). No file
   there yet: save the block above as it is. A file already there: add the
@@ -123,9 +137,9 @@ in a text editor, **before you start the session**:
   `.claude/settings.json`: Claude Code does not read `autoMode` from a
   project's settings at all, so a repository cannot vouch for itself (measured:
   the same block there does not show in the check below). In your user settings
-  the line covers every project you adopt or upgrade from this one clone. Lines
-  from settings your organization manages are combined with yours, not swapped
-  for them.
+  the line applies to every Claude Code session on this machine. Lines from
+  settings your organization manages are combined with yours, not swapped for
+  them.
 - **Why not a permission rule,** as the refusal itself suggests (*"the user can
   add a Bash permission rule to their settings"*)? A rule such as
   `Bash(bash ~/solo-orchestrator/scripts/scout.sh *)` is applied before the
@@ -135,8 +149,11 @@ in a text editor, **before you start the session**:
   questions only you should answer — and in your user settings that holds for
   every project on this machine.
 - **Not measured yet:** whether this line clears the `[Code from External]`
-  refusal. The clean rerun of the dogfood run (`## BL-311:`) measures it. Until
-  then, keep the fallback below at hand.
+  refusal, and whether the classifier honours the scoping — trusting the clone
+  as code to run while still treating the repository as outside your boundary
+  for data. The clean rerun of the dogfood run (`## BL-311:`) measures the
+  first; nothing measures the second yet. Until then, keep the fallback below
+  at hand.
 
 Check that Claude Code reads the line:
 
@@ -146,9 +163,11 @@ claude auto-mode config | grep -F '~/solo-orchestrator'
 
 It prints your line. Nothing printed means it is not loaded: with a JSON
 mistake in the file, this command prints the built-in lines and no error
-(measured on Claude Code 2.1.285), and `jq empty ~/.claude/settings.json` names
-the line with the mistake. Inside a session, `/permissions` → **Recently
-denied** lists each action auto mode refused.
+(measured on Claude Code 2.1.285), and
+`jq empty "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"` names where it
+stopped reading — the mistake is on that line or the one before (measured: a
+missing comma at the end of line 2 is reported at line 3). Inside a session,
+`/permissions` → **Recently denied** lists each action auto mode refused.
 
 **If Claude is still refused, run the command yourself** — in your own
 terminal, or typed after `!` at the session's prompt, which Claude Code runs
@@ -1703,6 +1722,12 @@ answers. It is split in two, because half of it is judgement and half is fact:
    wizard's own keys, and merges the assessment into `.claude/manifest.json` —
    **once**; a second run is refused. It never moves the phase and never writes
    `PRODUCT_MANIFESTO.md`, and it does not commit: it prints what to commit.
+
+   **If Claude Code's auto mode refuses the finisher** — a permission denial,
+   not the finisher's own `[REFUSED]` line — run it yourself from the project,
+   in your own terminal or typed after `!` at the session's prompt: it asks you
+   nothing, so either works. See
+   [step 2](#2-before-you-start-let-claude-code-run-the-frameworks-scripts).
 
 **If the project is in production, a live incident does not wait for phase 4.**
 The assessment records the answer, and an adopted project recorded as in

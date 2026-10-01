@@ -71,8 +71,8 @@ inside it, or another copy of solo-orchestrator.
 > was in the 2026-09-27 test run, where the agent had cloned the framework itself in
 > that same session, and the agent cannot change its own permissions to get past
 > that. Before the session, **you** add one line to your user settings that
-> names the clone as trusted — and if Claude is still refused, you run the
-> command yourself:
+> names the clone as trusted code to run — and if Claude is still refused, you
+> run the command yourself:
 > [docs/adoption.md → Before you start](docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts).
 
 The init script will:
@@ -194,7 +194,7 @@ and how to put a replaced file back are in
 scripts from a clone outside the project — it was in the 2026-09-27 test run, where
 the agent had cloned the framework itself in that same session — and the agent
 cannot change its own permissions to get past that. Before the session, add the
-one settings line that names the clone as trusted:
+one settings line that names the clone as trusted code to run:
 [docs/adoption.md → Before you start](docs/adoption.md#2-before-you-start-let-claude-code-run-the-frameworks-scripts).
 
 It shows you what the scan found as *evidence that decides nothing*, asks the
