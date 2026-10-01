@@ -848,6 +848,12 @@ run_child_suite "tests/test-bl311-b-adopt-guardrails-track.sh" \
 run_child_suite "tests/test-bl311-c-scout-runner-ignore-rule.sh" \
   "BL-311 rows 4 and 5: the test runner is prefixed; the ignoring rule is named" \
   "BL-311 runner/ignore-rule tests FAILED (run tests/test-bl311-c-scout-runner-ignore-rule.sh for details)"
+# BL-311 rows 6 and 7: README, adoption.md and user-guide.md clone the framework
+# to one place, and adoption.md's Claude Code allow rules name exactly the
+# scripts those docs run from the clone.
+run_child_suite "tests/test-bl311-e-clone-path.sh" \
+  "BL-311 rows 6 and 7: one clone path; one allow rule per clone script" \
+  "BL-311 clone-path/allow-rule tests FAILED (run tests/test-bl311-e-clone-path.sh for details)"
 
 # BL-254: a generated CI pipeline may only call scripts the scaffold ships,
 # and a governance check may not swallow its own failure; plus the lint that
