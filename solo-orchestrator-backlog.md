@@ -22304,13 +22304,14 @@ was raised by this framework's own detector — the Stop arm of `scripts/hooks/b
 registered in k-pdf's `.claude/settings.json`; the Guardrails' `stop-checklist.sh` only reads the
 sentinel. The Stop arm now writes a `terminal_workaround` match as a `relayed_framework_escape` row
 (no decision awaited, no sentinel) when every line it matched relays either a registered attested
-escape with its reason variable, as its check prints it, or the assessment's `!` hand-to-human step
-(with no inline code but `!` and the finisher as the project's own assessment prompt prints it);
+escape with its reason variable and only the arguments its check prints, or the assessment's `!`
+hand-to-human step (with no inline code but `!` and the finisher, pinned in the detector by its
+SHA-256, `# BL-311-HANDOFF-FINISHER-PIN`);
 the table, the rule and the threat (an escape quoted as cover) are in the detector's comment block
 (`# BL-311-RELAY-ESCAPES-BEGIN`, `# BL-311-RELAYED-ESCAPE-ROW`), and `docs/audit-log-lifecycle.md`
 documents the row type and its limits. `tests/test-bl311-d-relayed-escape.sh` drives the real
 detector: the dogfood message verbatim, the three relays round 4 measured, the cover cases that must
-still raise, the registry cross-check against every `SOLO_*_ATTESTED` reader, and 24 mutation proofs.
+still raise, the registry cross-check against every `SOLO_*_ATTESTED` reader, and 54 mutation proofs.
 PR #482's narrower `terminal_workaround` alone already clears the three measured shell-mode relays
 (none matches it), but not the dogfood relay, an attested-escape relay, or "Run it yourself in shell
 mode: …". Residuals, not fixed:
@@ -22324,10 +22325,36 @@ mode: …". Residuals, not fixed:
   matches `terminal_workaround`, on `main` and under PR #482, and is not a relay under this rule.
 - **R-BL311D-4** — the rule is per line: a shell-mode relay whose line also carries other inline code
   (a file name, say) raises.
-- **R-BL311D-5** — the one command a shell-mode relay may carry is read from the project's own
-  `.claude/adoption/assessment-prompt.md` (core may not name the adoption module), a file the session
-  can write: a session that edits it widens what passes. Whether the Guardrails' guards cover that
-  path was not measured.
+- **R-BL311D-5** — resolved in review round 1 (below): the prompt file is no longer read. What is
+  left is narrower: the finisher, when the person types it, resolves the script it runs through
+  `.claude/orchestrator-source.json`, a file the session can write; the pin covers the command's text,
+  not that file.
+
+**Group D review round 1 (adversarial review of `a7c0e01`), fixed on the same branch.**
+- **R1-1 (block)** — the command slot after an attested escape admitted any argument but a shell
+  control operator, so `… git push origin main --force`, `… git push origin +main`,
+  `… git push --delete origin release`, `… git commit --amend --no-edit` and `… git commit -m wip -n`
+  were each recorded as a relay with no sentinel, where `main` raised one. Each row now carries the
+  argument grammar its check prints (`_soif_relay_args_ere`): none for `claude` and the three
+  `bash scripts/…` checks; `git commit` with at most one `-m`/`--message` and one quoted message;
+  `git push` with at most a plain remote and branch (no `-`, `+` or `:`). A backstop behind the
+  grammars (`_soif_relay_destructive`) refuses any line carrying `--force`, `--amend`, `--no-verify`,
+  `--dangerously-skip-permissions`, `--delete`, `--mirror`, `--prune`, a `-f`/`-d` or `+`/`:` refspec
+  after `git push`, or `-n` after `git commit`. Found while fixing it, same class: the reason slot
+  admitted `"$(…)"`, `$(…)` and a bare `x;cmd;` — now refused (single-quoted, double-quoted with no
+  `$` `` ` `` `\` `!`, or one plain word).
+- **R1-2 (major)** — the shell-mode exemption trusted the agent-writable assessment prompt; a prompt
+  carrying `bash -c "git push origin +main"` made that command relay silently. The finisher is now
+  pinned by its SHA-256, the literal sits in a comment beside it, and the suite generates the prompt
+  with `adopt_write_assessment_prompt` and fails when the two drift (R7, proved RED by R8). The pin is
+  a hash, not the literal string, because `lint-module-dependencies.sh` T1 fails a core file that names
+  `adopt-project.sh` on any executed line, a string literal included, and no allowlist row can waive
+  T1 (measured: the literal planted in the detector fails the lint, rc 1).
+- **R1-3 (major)** — six guard atoms the reviewer's mutants left alive now each have a case and an
+  in-suite mutant that dies (M3b, M3c, M7b, M11b, M12b, M10b).
+- **R1-4 (minor)** — an empty escape table now returns before the loop
+  (`# BL-311-RELAY-TABLE-NONEMPTY`); before, bash 3.2 printed an unbound-variable error (it already
+  failed closed). Pinned by case C25, not by a mutant: with the guard removed only bash 3.2 differs.
 
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
