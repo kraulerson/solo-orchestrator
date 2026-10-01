@@ -142,6 +142,23 @@ command -v gitleaks >/dev/null 2>&1 && HAVE_GITLEAKS=1
 GITLEAKS_ABSENT_IS_FATAL=0
 [ -n "${CI:-}" ] && GITLEAKS_ABSENT_IS_FATAL=1
 
+# npm IS DETECTED TOO (`## BL-311:` row 4, review R-BL311C-5). Scout runs
+# `scripts.test` through the project's package manager, so T2, T3, T7, T8 and
+# R3 run the real `npm test`. Without npm, T3 and T7 would fail for the host's
+# missing tool and T8 and R3 would pass VACUOUSLY (a command that exits 127 at
+# once never sleeps, never writes), so all five skip — locally. The runner
+# image ships npm, so CI runs them, and a CI run without npm FAILS, by the
+# same rule as gitleaks above.
+HAVE_NPM=0
+command -v npm >/dev/null 2>&1 && HAVE_NPM=1
+NPM_SKIPPED=0
+# Read `CI` HERE, as GITLEAKS_ABSENT_IS_FATAL does: the C section below reuses
+# the name `CI` for a fixture directory, so `${CI:-}` at the T section is a
+# path, set on every host.
+NPM_ABSENT_IS_FATAL=0
+[ -n "${CI:-}" ] && NPM_ABSENT_IS_FATAL=1
+npm_skip_() { skip_ "$1" "npm is not on PATH, and Scout runs this fixture's scripts.test through npm"; NPM_SKIPPED=$((NPM_SKIPPED + 1)); }
+
 TMPS=""
 cleanup() { [ -n "$TMPS" ] && rm -rf $TMPS; return 0; }
 trap cleanup EXIT
@@ -967,6 +984,9 @@ echo "=== T — testsBaseline: the one place Scout may execute project code ==="
 # ════════════════════════════════════════════════════════════════════════════
 
 TST=$(newtmp); mk_tests_fixture "$TST"
+if [ "$HAVE_NPM" -eq 0 ] && [ "$NPM_ABSENT_IS_FATAL" -eq 1 ]; then
+  fail_ "NPM MISSING IN CI" "T2, T3, T7, T8 and R3 run scripts.test through npm, and a green check that skipped them would credit proofs that never ran"
+fi
 
 # ── T1: BY DEFAULT Scout does not run anything, and says why ───────────────
 # A scanner that executes arbitrary project code by default is a trap. The
@@ -984,26 +1004,34 @@ else
 fi
 
 # ── T2: --run-tests is the opt-in, and it really runs ──────────────────────
-tr_out=$(bash "$SCOUT" --root "$TST" --run-tests </dev/null 2>/dev/null); rc=$?
-tr_ran=$(jqv "$tr_out" '.testsBaseline.commandRan')
-tr_ec=$(jqv "$tr_out" '.testsBaseline.exitCode')
-tr_dur=$(jqv "$tr_out" '.testsBaseline.durationSeconds')
-if [ "$rc" -eq 0 ] && [ "$tr_ran" = "true" ] && [ "$tr_ec" = "0" ] \
-   && printf '%s' "$tr_dur" | grep -Eq '^[0-9]+$'; then
-  pass "T2: --run-tests runs the detected command: commandRan=true, exitCode=0, durationSeconds=$tr_dur"
+if [ "$HAVE_NPM" -eq 1 ]; then
+  tr_out=$(bash "$SCOUT" --root "$TST" --run-tests </dev/null 2>/dev/null); rc=$?
+  tr_ran=$(jqv "$tr_out" '.testsBaseline.commandRan')
+  tr_ec=$(jqv "$tr_out" '.testsBaseline.exitCode')
+  tr_dur=$(jqv "$tr_out" '.testsBaseline.durationSeconds')
+  if [ "$rc" -eq 0 ] && [ "$tr_ran" = "true" ] && [ "$tr_ec" = "0" ] \
+     && printf '%s' "$tr_dur" | grep -Eq '^[0-9]+$'; then
+    pass "T2: --run-tests runs the detected command: commandRan=true, exitCode=0, durationSeconds=$tr_dur"
+  else
+    fail_ "T2" "scout rc=$rc commandRan='$tr_ran' exitCode='$tr_ec' durationSeconds='$tr_dur'"
+  fi
 else
-  fail_ "T2" "scout rc=$rc commandRan='$tr_ran' exitCode='$tr_ec' durationSeconds='$tr_dur'"
+  npm_skip_ "T2"
 fi
 
 # ── T3: a FAILING test suite is data, not a Scout error ────────────────────
-RED=$(newtmp); mk_failing_tests_fixture "$RED"
-rd=$(bash "$SCOUT" --root "$RED" --run-tests </dev/null 2>/dev/null); rc=$?
-rd_ec=$(jqv "$rd" '.testsBaseline.exitCode')
-rd_ran=$(jqv "$rd" '.testsBaseline.commandRan')
-if [ "$rc" -eq 0 ] && [ "$rd_ran" = "true" ] && [ "$rd_ec" = "3" ]; then
-  pass "T3: a test command that exits 3 is recorded as exitCode=3 and Scout still exits 0 — a red baseline is a finding, not a scanner failure"
+if [ "$HAVE_NPM" -eq 1 ]; then
+  RED=$(newtmp); mk_failing_tests_fixture "$RED"
+  rd=$(bash "$SCOUT" --root "$RED" --run-tests </dev/null 2>/dev/null); rc=$?
+  rd_ec=$(jqv "$rd" '.testsBaseline.exitCode')
+  rd_ran=$(jqv "$rd" '.testsBaseline.commandRan')
+  if [ "$rc" -eq 0 ] && [ "$rd_ran" = "true" ] && [ "$rd_ec" = "3" ]; then
+    pass "T3: a test command that exits 3 is recorded as exitCode=3 and Scout still exits 0 — a red baseline is a finding, not a scanner failure"
+  else
+    fail_ "T3" "scout rc=$rc (want 0) commandRan='$rd_ran' exitCode='$rd_ec' (want 3)"
+  fi
 else
-  fail_ "T3" "scout rc=$rc (want 0) commandRan='$rd_ran' exitCode='$rd_ec' (want 3)"
+  npm_skip_ "T3"
 fi
 
 # ── T4: --run-tests with NO detected command runs nothing ──────────────────
@@ -1049,21 +1077,25 @@ else
 fi
 
 # ── T7: the execution bound is real ────────────────────────────────────────
-SLOW=$(newtmp)
-mkdir -p "$SLOW/src"
-cat > "$SLOW/package.json" <<'EOF'
+if [ "$HAVE_NPM" -eq 1 ]; then
+  SLOW=$(newtmp)
+  mkdir -p "$SLOW/src"
+  cat > "$SLOW/package.json" <<'EOF'
 { "name": "acme-slow", "scripts": { "test": "sleep 45" } }
 EOF
-printf 'export const v = 1;\n' > "$SLOW/src/mod.ts"
-sl=$(SCOUT_TEST_TIMEOUT=2 bash "$SCOUT" --root "$SLOW" --run-tests </dev/null 2>/dev/null); rc=$?
-sl_to=$(jqv "$sl" '.testsBaseline.timedOut')
-sl_ran=$(jqv "$sl" '.testsBaseline.commandRan')
-sl_dur=$(jqv "$sl" '.testsBaseline.durationSeconds')
-if [ "$rc" -eq 0 ] && [ "$sl_to" = "true" ] && [ "$sl_ran" = "true" ] \
-   && printf '%s' "$sl_dur" | grep -Eq '^[0-9]+$' && [ "${sl_dur:-99}" -le 10 ]; then
-  pass "T7: a test command that would run for 45s is bounded at SCOUT_TEST_TIMEOUT=2 and reported timedOut=true after ${sl_dur}s"
+  printf 'export const v = 1;\n' > "$SLOW/src/mod.ts"
+  sl=$(SCOUT_TEST_TIMEOUT=2 bash "$SCOUT" --root "$SLOW" --run-tests </dev/null 2>/dev/null); rc=$?
+  sl_to=$(jqv "$sl" '.testsBaseline.timedOut')
+  sl_ran=$(jqv "$sl" '.testsBaseline.commandRan')
+  sl_dur=$(jqv "$sl" '.testsBaseline.durationSeconds')
+  if [ "$rc" -eq 0 ] && [ "$sl_to" = "true" ] && [ "$sl_ran" = "true" ] \
+     && printf '%s' "$sl_dur" | grep -Eq '^[0-9]+$' && [ "${sl_dur:-99}" -le 10 ]; then
+    pass "T7: a test command that would run for 45s is bounded at SCOUT_TEST_TIMEOUT=2 and reported timedOut=true after ${sl_dur}s"
+  else
+    fail_ "T7" "scout rc=$rc timedOut='$sl_to' commandRan='$sl_ran' durationSeconds='$sl_dur' (want <=10)"
+  fi
 else
-  fail_ "T7" "scout rc=$rc timedOut='$sl_to' commandRan='$sl_ran' durationSeconds='$sl_dur' (want <=10)"
+  npm_skip_ "T7"
 fi
 
 # ── T8: the bound actually KILLS the command, and kills it QUIETLY ─────────
@@ -1080,19 +1112,23 @@ fi
 #       process group, and job control is exactly the bash feature that
 #       announces itself on stderr ("Terminated"). Scout's contract is an empty
 #       stderr on a successful scan, and A2's loop does not reach this path.
-T8=$(newtmp)
-T8M=$(newtmp)
-mkdir -p "$T8/src"
-printf 'export const v = 1;\n' > "$T8/src/mod.ts"
-cat > "$T8/package.json" <<EOF
+if [ "$HAVE_NPM" -eq 1 ]; then
+  T8=$(newtmp)
+  T8M=$(newtmp)
+  mkdir -p "$T8/src"
+  printf 'export const v = 1;\n' > "$T8/src/mod.ts"
+  cat > "$T8/package.json" <<EOF
 { "name": "acme-survivor", "scripts": { "test": "sleep 3; touch $T8M/survived" } }
 EOF
-t8err=$(SCOUT_TEST_TIMEOUT=1 bash "$SCOUT" --root "$T8" --run-tests </dev/null 2>&1 >/dev/null); rc=$?
-sleep 4
-if [ "$rc" -eq 0 ] && [ -z "$t8err" ] && [ ! -f "$T8M/survived" ]; then
-  pass "T8: the stopped command's descendant really died (its delayed marker never appeared) and the kill wrote nothing to stderr"
+  t8err=$(SCOUT_TEST_TIMEOUT=1 bash "$SCOUT" --root "$T8" --run-tests </dev/null 2>&1 >/dev/null); rc=$?
+  sleep 4
+  if [ "$rc" -eq 0 ] && [ -z "$t8err" ] && [ ! -f "$T8M/survived" ]; then
+    pass "T8: the stopped command's descendant really died (its delayed marker never appeared) and the kill wrote nothing to stderr"
+  else
+    fail_ "T8" "rc=$rc stderr='$(printf '%s' "$t8err" | head -2)' survivor_marker_exists=$( [ -f "$T8M/survived" ] && echo yes || echo no ) (want no)"
+  fi
 else
-  fail_ "T8" "rc=$rc stderr='$(printf '%s' "$t8err" | head -2)' survivor_marker_exists=$( [ -f "$T8M/survived" ] && echo yes || echo no ) (want no)"
+  npm_skip_ "T8"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1231,19 +1267,23 @@ fi
 # unchanged. That is the honest scope of this proof: it shows SCOUT writes
 # nothing under --run-tests. It cannot show that somebody else's test suite
 # writes nothing, and no test could — running `npm test` on a real project
-# creates coverage output, caches and lockfile touches by design. The report
+# creates coverage output and caches by design. The report
 # says so in the section itself; the flag is opt-in for this reason.
-R3F=$(newtmp); mk_tests_fixture "$R3F"
-( cd "$R3F" && unset GITHUB_BASE_REF && git init -q . && git config user.email t@t.local \
-  && git config user.name T && git add -A && git commit -q -m init ) >/dev/null 2>&1
-r3_before=$(_tree_hash "$R3F")
-bash "$SCOUT" --root "$R3F" --run-tests </dev/null >/dev/null 2>&1
-bash "$SCOUT" --root "$R3F" --run-tests </dev/null >/dev/null 2>&1
-r3_after=$(_tree_hash "$R3F")
-if [ "$r3_before" = "$r3_after" ]; then
-  pass "R3: --run-tests with a no-write test command leaves the whole tree (.git/ included) identical — Scout itself writes nothing even on its one executing path"
+if [ "$HAVE_NPM" -eq 1 ]; then
+  R3F=$(newtmp); mk_tests_fixture "$R3F"
+  ( cd "$R3F" && unset GITHUB_BASE_REF && git init -q . && git config user.email t@t.local \
+    && git config user.name T && git add -A && git commit -q -m init ) >/dev/null 2>&1
+  r3_before=$(_tree_hash "$R3F")
+  bash "$SCOUT" --root "$R3F" --run-tests </dev/null >/dev/null 2>&1
+  bash "$SCOUT" --root "$R3F" --run-tests </dev/null >/dev/null 2>&1
+  r3_after=$(_tree_hash "$R3F")
+  if [ "$r3_before" = "$r3_after" ]; then
+    pass "R3: --run-tests with a no-write test command leaves the whole tree (.git/ included) identical — Scout itself writes nothing even on its one executing path"
+  else
+    fail_ "R3" "tree hash changed under --run-tests: $r3_before -> $r3_after"
+  fi
 else
-  fail_ "R3" "tree hash changed under --run-tests: $r3_before -> $r3_after"
+  npm_skip_ "R3"
 fi
 
 # ── R4: the instrument is live (non-vacuity control) ──────────────────────
@@ -1474,8 +1514,12 @@ fi
 
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
-if [ "$SKIPPED" -gt 0 ]; then
-  echo "!! $SKIPPED case(s) SKIPPED because gitleaks is not installed — the"
+if [ "$NPM_SKIPPED" -gt 0 ]; then
+  echo "!! $NPM_SKIPPED case(s) SKIPPED because npm is not on PATH (T2, T3, T7,"
+  echo "!! T8, R3): Scout runs this fixture's scripts.test through npm."
+fi
+if [ "$HAVE_GITLEAKS" -eq 0 ]; then
+  echo "!! $((SKIPPED - NPM_SKIPPED)) case(s) SKIPPED because gitleaks is not installed — the"
   echo "!! planted-secret proof (§6.5) DID NOT RUN. This build is not certified"
   echo "!! against the defect WP2 exists to prevent. Install gitleaks and re-run."
   if [ "$GITLEAKS_ABSENT_IS_FATAL" -eq 1 ]; then

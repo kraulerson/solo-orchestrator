@@ -1050,7 +1050,7 @@ jobs:
           pin_mcp=(                                       # 314s on PR #490's run, of 720s
             tests/test-bl311-adopt-mcp.sh                 # ~230s local — the 57 cases, no mutant
             tests/test-bl311-b-adopt-guardrails-track.sh  # 42s local, measured — one real adoption, four cases halted at the intake, 12 direct writer calls
-            tests/test-bl311-c-scout-runner-ignore-rule.sh  # ~17s local (Scout suites run ~2x that in CI) — one real adoption, two Scout --run-tests, 22 mutants; here, not in `rest`, which measured 577s of 720s on PR #490
+            tests/test-bl311-c-scout-runner-ignore-rule.sh  # 26s local without uv, as the runner has none (31s with uv, measured); Scout suites run ~2x local in CI — one real adoption, stubbed and real --run-tests, 30 mutants (M25 needs uv); here, not in `rest`, which measured 577s of 720s on PR #490
           )
           pin_mcp_mutants=(                               # 400s on PR #490's run, of 720s
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs

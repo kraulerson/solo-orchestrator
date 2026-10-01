@@ -231,7 +231,7 @@ _scout_runner_file() {
   local root="$1" work="$2" want="$3" f="" m=""
   while read -r f m; do
     [ "$m" = "$want" ] || continue
-    if [ -e "$root/$f" ]; then printf '%s\n' "$f"; return 0; fi
+    if [ -e "$root/$f" ]; then printf '%s\n' "$f"; return 0; fi   # BL-311-SCOUT-RUNNER-FILE
   done < "$work/pmtable"
   return 1
 }
@@ -273,13 +273,26 @@ _scout_pick_runner() {
 # 127. Each tool's run syntax is from its own documentation (uv, poetry, pdm,
 # pipenv — `<tool> run pytest`). Plain pip and setuptools keep the bare
 # command: there the operator's activated environment IS the PATH.
+#
+# THE RUNNER MUST NOT REWRITE A TRACKED FILE (review R-BL311C-1). `--run-tests`
+# runs in the real project, and `uv run` locks before it runs: "when `uv run` is
+# used, the project is locked and synced before invoking the requested command"
+# (uv docs). Measured, uv 0.11.3: a committed uv.lock behind its pyproject.toml
+# came back ` M uv.lock` after one Scout run. `--frozen` is uv's documented way
+# "to use the lockfile without checking if it is up-to-date" (`UV_FROZEN`: "uv
+# will run without updating the `uv.lock` file"); it still syncs `.venv`, which
+# uv creates with its own `.gitignore` of `*`, so nothing shows in `git status`.
+# poetry, pdm and pipenv `run` do not lock (measured on stale lockfiles,
+# poetry 2.5.1, pdm 2.29.2, pipenv 2026.8.0, tracked bytes identical); what
+# each may create instead is listed in docs/scout.md, and no flag of theirs is
+# needed or used.
 _scout_python_test() {
   local root="$1" work="$2" src="$3" pick="" m="" cmd="pytest"
   pick="$(_scout_pick_runner "$root" "$work" uv poetry pdm pipenv)" || pick=""   # BL-311-SCOUT-PY-PRECEDENCE
   if [ -n "$pick" ]; then
     m="$(printf '%s\n' "$pick" | sed -n 1p)"
     case "$m" in
-      uv)     cmd="uv run pytest" ;;       # BL-311-SCOUT-RUN-UV
+      uv)     cmd="uv run --frozen pytest" ;;   # BL-311-SCOUT-RUN-UV
       poetry) cmd="poetry run pytest" ;;   # BL-311-SCOUT-RUN-POETRY
       pdm)    cmd="pdm run pytest" ;;      # BL-311-SCOUT-RUN-PDM
       pipenv) cmd="pipenv run pytest" ;;   # BL-311-SCOUT-RUN-PIPENV
@@ -300,6 +313,18 @@ _scout_python_test() {
 # falls back to package.json scripts. With no lockfile, npm: it ships with Node
 # and `npm test` runs the script whatever installed node_modules. The body stays
 # in the evidence, so the operator still sees what the script is.
+#
+# PNPM INSTALLS BEFORE IT RUNS, BY DEFAULT (review R-BL311C-1). pnpm 11's
+# `verifyDepsBeforeRun` defaults to `install` — "Automatically runs install if
+# `node_modules` is not up to date" — on `pnpm run`, which `pnpm test` is.
+# Measured, pnpm 11.28.3, package.json ahead of its lockfile: ` M pnpm-lock.yaml`
+# and a new node_modules after one `pnpm test`; with
+# `--config.verify-deps-before-run=false` ("`false` - Disables dependency
+# checks"), nothing changed and the script ran. The `--config.` prefix is
+# pnpm's way to set any setting on the command line and must precede the
+# script name; pnpm 8, 9 and 10 accepted it and ran the script too (measured).
+# npm 11.12.1, yarn 1.22.22 and 4.18.1, bun 1.4.2 and deno 2.9.7 left a stale
+# lockfile byte-identical with no flag (measured; docs/scout.md has the table).
 _scout_node_test() {
   local root="$1" work="$2" body="$3" pick="" m="" why="" cmd=""
   pick="$(_scout_pick_runner "$root" "$work" pnpm yarn npm bun deno)" || pick=""   # BL-311-SCOUT-NODE-PRECEDENCE
@@ -310,7 +335,7 @@ _scout_node_test() {
     m="npm"; why="run through npm because no lockfile names a package manager, and npm ships with Node"   # BL-311-SCOUT-RUN-NPM-DEFAULT
   fi
   case "$m" in
-    pnpm) cmd="pnpm test" ;;         # BL-311-SCOUT-RUN-PNPM
+    pnpm) cmd="pnpm --config.verify-deps-before-run=false test" ;;   # BL-311-SCOUT-RUN-PNPM
     yarn) cmd="yarn test" ;;         # BL-311-SCOUT-RUN-YARN
     npm)  cmd="npm test" ;;          # BL-311-SCOUT-RUN-NPM
     bun)  cmd="bun run test" ;;      # BL-311-SCOUT-RUN-BUN

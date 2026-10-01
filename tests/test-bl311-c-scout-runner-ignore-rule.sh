@@ -30,9 +30,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIBROOT="$REPO_ROOT/scripts/lib"   # the mutation proofs point this at a mirror
 
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIP=0
 ok()  { PASS=$((PASS+1)); echo "  [PASS] $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  [FAIL] $1"; }
+skip_() { SKIP=$((SKIP+1)); echo "  [SKIP] $1"; }
 chk() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (want '$3', got '$2')"; fi; }
 # Here-strings, not `printf | grep -q`: under pipefail an early-exiting grep
 # can SIGPIPE the writer and read as a miss (the class main fixed in #422).
@@ -110,6 +111,20 @@ _tc() {
 _val() { printf '%s' "${1%%|*}"; }
 _src() { printf '%s' "${1#*|}"; }
 
+# _scout_bin — a scout.sh that runs LIBROOT's scout lib: the real entry point,
+# or, under a mutation proof, a copy beside the mirror (scout.sh finds its lib
+# at `<its own dir>/lib/scout`), so the end-to-end cases see the mutant too.
+_scout_bin() {
+  if [ "$LIBROOT" = "$REPO_ROOT/scripts/lib" ]; then
+    printf '%s\n' "$REPO_ROOT/scripts/scout.sh"; return 0
+  fi
+  if [ ! -f "$LIBROOT/sb/scout.sh" ]; then
+    mkdir -p "$LIBROOT/sb/lib" && cp "$REPO_ROOT/scripts/scout.sh" "$LIBROOT/sb/" \
+      && cp -R "$LIBROOT/scout" "$LIBROOT/sb/lib/" || return 1
+  fi
+  printf '%s\n' "$LIBROOT/sb/scout.sh"
+}
+
 # _adoptee DIR [ignore-line...] — a real git repo with its own history.
 _adoptee() {
   local d="$1"; shift
@@ -134,6 +149,19 @@ mkdir -p "$A_EXC/.git/info" && printf '# local\n.claude/\n' > "$A_EXC/.git/info/
 A_SUB="$WORK/ad/nested";    _adoptee "$A_SUB"
 ( cd "$A_SUB" && mkdir -p sub && printf 'lib/\n' > sub/.gitignore && git add sub/.gitignore \
   && git commit -q -m 'chore: nested rule' ) >/dev/null 2>&1
+# A nested rule ANCHORING CANNOT HELP: `scripts/.gitignore` says `lib/`, and the
+# adoption needs `scripts/lib/…` — directly under the rule's own directory, so
+# `/lib/` there still matches (review R-BL311C-2).
+A_NST="$WORK/ad/nested-noanchor"; _adoptee "$A_NST"
+( cd "$A_NST" && mkdir -p scripts && printf 'lib/\n' > scripts/.gitignore && git add scripts/.gitignore \
+  && git commit -q -m 'chore: nested rule' ) >/dev/null 2>&1
+# Personal excludes from the two places git reads one (review R-BL311C-4): a
+# GLOBAL core.excludesFile, and git's XDG default when no config sets one. Each
+# case points git at its own config, so neither leaks into the other fixtures.
+A_GLB="$WORK/ad/global";    _adoptee "$A_GLB"
+printf '[core]\n\texcludesFile = %s\n' "$WORK/elsewhere/ignore" > "$WORK/global.gitconfig"
+A_XDG="$WORK/ad/xdg";       _adoptee "$A_XDG"
+mkdir -p "$WORK/xdg-default/git" && printf '.claude/\n' > "$WORK/xdg-default/git/ignore"
 # A TRACKED file under the ignored directory: the decision asks about the
 # DIRECTORY for a tracked path, and the rule named must be the one it asked.
 A_TRK="$WORK/ad/tracked";   _adoptee "$A_TRK"   'lib/'
@@ -166,6 +194,8 @@ _prewrite() {
 # that exit 128 with nothing on stdout, NEG makes it name a NEGATED pattern —
 # git's own answer for a path a `!` rule re-includes, which contradicts the
 # decision. Either way the rule cannot be named, and the block must fall back.
+# ODD names a real-looking rule in an absolute file that is neither
+# core.excludesFile nor git's default — the block must name it plainly.
 STUBG="$WORK/stub-git"; mkdir -p "$STUBG"
 cat > "$STUBG/git" <<EOF
 #!/bin/bash
@@ -177,6 +207,11 @@ case " \$* " in
     if [ "\${STUB_GIT_MODE:-}" = NEG ]; then
       IFS= read -r -d '' p
       printf '%s\0%s\0%s\0%s\0' .gitignore 2 '!lib/' "\$p"
+      exit 0
+    fi
+    if [ "\${STUB_GIT_MODE:-}" = ODD ]; then
+      IFS= read -r -d '' p
+      printf '%s\0%s\0%s\0%s\0' /nowhere/excludes 1 '.claude/' "\$p"
       exit 0
     fi
     cat >/dev/null; exit 128 ;;
@@ -192,7 +227,7 @@ chmod +x "$STUBG/git"
 case_S_python() {
   local r=""
   r="$(_tc py-uv)"
-  chk "S1 uv: a uv project's pytest runs as 'uv run pytest'" "$(_val "$r")" "uv run pytest"
+  chk "S1 uv: a uv project's pytest runs as 'uv run --frozen pytest'" "$(_val "$r")" "uv run --frozen pytest"
   has "S1 uv: the evidence keeps the arm that found pytest" "$(_src "$r")" "pyproject.toml [tool.pytest]"
   has "S1 uv: and says uv.lock is why it goes through uv" "$(_src "$r")" "run through uv because uv.lock is present"
   r="$(_tc py-poetry)"
@@ -206,6 +241,10 @@ case_S_python() {
   has "S4 pipenv: evidence names the LOCKFILE, ahead of the Pipfile that generated it" "$(_src "$r")" "because Pipfile.lock is present"
   r="$(_tc py-pipfile)"
   chk "S4 pipenv: a Pipfile alone is pipenv too" "$(_val "$r")" "pipenv run pytest"
+  # The evidence names the file that EXISTS, not the first row naming pipenv
+  # (review R-BL311C-3: `Pipfile.lock` was named for a project without one).
+  has "S4 pipenv: a Pipfile alone: the evidence names Pipfile" "$(_src "$r")" "because Pipfile is present"
+  hasnt "S4 pipenv: a Pipfile alone: and never a Pipfile.lock it does not have" "$(_src "$r")" "Pipfile.lock"
   r="$(_tc py-pip)"
   chk "S5 pip: a requirements.txt project keeps bare 'pytest'" "$(_val "$r")" "pytest"
   chk "S5 pip: and its evidence is unchanged" "$(_src "$r")" "pytest.ini present"
@@ -218,7 +257,7 @@ case_S_python() {
 case_S_node() {
   local r=""
   r="$(_tc js-pnpm)"
-  chk "N1 pnpm: scripts.test runs as 'pnpm test'" "$(_val "$r")" "pnpm test"
+  chk "N1 pnpm: scripts.test runs as 'pnpm --config.verify-deps-before-run=false test'" "$(_val "$r")" "pnpm --config.verify-deps-before-run=false test"
   has "N1 pnpm: the evidence keeps the script body" "$(_src "$r")" 'package.json scripts.test (`vitest run`)'
   has "N1 pnpm: and says pnpm-lock.yaml is why" "$(_src "$r")" "run through pnpm because pnpm-lock.yaml is present"
   r="$(_tc js-yarn)"
@@ -232,6 +271,8 @@ case_S_node() {
   chk "N4 bun: 'bun run test', not 'bun test'" "$(_val "$r")" "bun run test"
   r="$(_tc js-bunb)"
   chk "N4 bun: the pre-1.2 bun.lockb too" "$(_val "$r")" "bun run test"
+  has "N4 bun: bun.lockb alone: the evidence names bun.lockb" "$(_src "$r")" "because bun.lockb is present"
+  hasnt "N4 bun: bun.lockb alone: and never a bun.lock it does not have" "$(_src "$r")" "because bun.lock is present"
   r="$(_tc js-deno)"
   chk "N5 deno: 'deno task test' (deno task falls back to package.json scripts)" "$(_val "$r")" "deno task test"
   r="$(_tc js-none)"
@@ -244,7 +285,7 @@ case_S_node() {
 case_S_precedence() {
   local r=""
   r="$(_tc pp-all)"
-  chk "P1 uv.lock + poetry.lock + Pipfile: uv wins" "$(_val "$r")" "uv run pytest"
+  chk "P1 uv.lock + poetry.lock + Pipfile: uv wins" "$(_val "$r")" "uv run --frozen pytest"
   has "P1 the evidence names the losers" "$(_src "$r")" "also present: poetry.lock, Pipfile"
   has "P1 and the order Scout used" "$(_src "$r")" "Scout prefers uv, then poetry, then pdm, then pipenv"
   has "P1 and asks the operator to confirm" "$(_src "$r")" "confirm which one this project uses"
@@ -253,7 +294,7 @@ case_S_precedence() {
   r="$(_tc pp-pdm-pipe)"
   chk "P3 pdm.lock + Pipfile.lock: pdm wins" "$(_val "$r")" "pdm run pytest"
   r="$(_tc jp-pn-yarn)"
-  chk "P4 pnpm-lock.yaml + yarn.lock: pnpm wins" "$(_val "$r")" "pnpm test"
+  chk "P4 pnpm-lock.yaml + yarn.lock: pnpm wins" "$(_val "$r")" "pnpm --config.verify-deps-before-run=false test"
   r="$(_tc jp-yarn-npm)"
   chk "P5 yarn.lock + package-lock.json: yarn wins" "$(_val "$r")" "yarn test"
   r="$(_tc jp-npm-bun)"
@@ -265,20 +306,26 @@ case_S_precedence() {
 # S8/S9 — THE DOGFOOD DEFECT, END TO END. Stubs stand in for uv and pnpm the
 # way the real tools behave — the project's environment (`.venv/bin`,
 # `node_modules/.bin`) is on PATH only through them — so a bare `pytest` or
-# `vitest run` exits 127 exactly as it did on k-pdf.
+# `vitest run` exits 127 exactly as it did on k-pdf. Each stub skips the
+# tool's own leading flags, as the tool does (`uv run --frozen pytest`), and
+# logs them, so the flags Scout passes are asserted end to end too. S10 reads
+# the markdown report's opening line on the same run.
 case_S_e2e() {
-  local st="$WORK/stubs" lg="$WORK/stub.log" d="" out=""
+  local st="$WORK/stubs" lg="$WORK/stub.log" d="" out="" sb=""
+  sb="$(_scout_bin)" || { bad "S8 setup — no scout.sh for this lib"; return; }
   mkdir -p "$st"
   cat > "$st/uv" <<'EOF'
 #!/bin/sh
 printf 'uv %s\n' "$*" >> "$STUB_LOG"
 [ "$1" = run ] || exit 2
 shift
+while [ "$#" -gt 0 ]; do case "$1" in -*) shift ;; *) break ;; esac; done
 PATH="$PWD/.venv/bin:$PATH" exec "$@"
 EOF
   cat > "$st/pnpm" <<'EOF'
 #!/bin/sh
 printf 'pnpm %s\n' "$*" >> "$STUB_LOG"
+while [ "$#" -gt 0 ]; do case "$1" in -*) shift ;; *) break ;; esac; done
 [ "$1" = test ] || exit 2
 PATH="$PWD/node_modules/.bin:$PATH" exec sh -c "$(jq -r '.scripts.test' package.json)"
 EOF
@@ -291,15 +338,21 @@ EOF
   printf '#!/bin/sh\necho "pytest (the .venv one) ran" >> "$STUB_LOG"\nexit 0\n' > "$d/.venv/bin/pytest"
   chmod +x "$d/.venv/bin/pytest"
   : > "$lg"
-  out="$(STUB_LOG="$lg" PATH="$st:$PATH" bash "$REPO_ROOT/scripts/scout.sh" --root "$d" --run-tests </dev/null 2>/dev/null)"
+  out="$(STUB_LOG="$lg" PATH="$st:$PATH" bash "$sb" --root "$d" --run-tests </dev/null 2>/dev/null)"
   chk "S8 uv project under --run-tests: the suite that passes is reported as passing (exitCode 0, not 127)" \
     "$(printf '%s' "$out" | jq -r '.testsBaseline.exitCode')" "0"
-  has "S8 and it really went through uv" "$(cat "$lg")" "uv run pytest"
+  has "S8 and it really went through uv, frozen" "$(cat "$lg")" "uv run --frozen pytest"
   has "S8 and uv ran the project's own pytest" "$(cat "$lg")" "pytest (the .venv one) ran"
   chk "S8 the JSON contract keeps its shape: stack.testCommand is {source, value}" \
     "$(printf '%s' "$out" | jq -c '.stack.testCommand | keys')" '["source","value"]'
   chk "S8 and testsBaseline.testCommand is the same object" \
     "$(printf '%s' "$out" | jq -c '.testsBaseline.testCommand == .stack.testCommand')" "true"
+  out="$(STUB_LOG="$lg" PATH="$st:$PATH" bash "$sb" --root "$d" --run-tests --markdown </dev/null 2>/dev/null)"
+  has "S10 under --run-tests the report says the project's own command ran there" "$out" \
+    "Scout itself wrote nothing into it, but \`--run-tests\` ran the project's own test command there once"
+  hasnt "S10 and no longer promises that Scout changed nothing" "$out" "Scout changed nothing"
+  out="$(PATH="$st:$PATH" bash "$sb" --root "$d" --markdown </dev/null 2>/dev/null)"
+  has "S10 without --run-tests the report still says Scout changed nothing" "$out" "Scout changed nothing — it only read."
 
   d="$WORK/e2e/pnpm"; mkdir -p "$d/node_modules/.bin" "$d/src"
   printf '{ "name": "w", "scripts": { "test": "vitest run" } }\n' > "$d/package.json"
@@ -308,11 +361,52 @@ EOF
   printf '#!/bin/sh\necho "vitest (node_modules) ran" >> "$STUB_LOG"\nexit 0\n' > "$d/node_modules/.bin/vitest"
   chmod +x "$d/node_modules/.bin/vitest"
   : > "$lg"
-  out="$(STUB_LOG="$lg" PATH="$st:$PATH" bash "$REPO_ROOT/scripts/scout.sh" --root "$d" --run-tests </dev/null 2>/dev/null)"
+  out="$(STUB_LOG="$lg" PATH="$st:$PATH" bash "$sb" --root "$d" --run-tests </dev/null 2>/dev/null)"
   chk "S9 pnpm project under --run-tests: exitCode 0, not 127 — the Node twin of the same defect" \
     "$(printf '%s' "$out" | jq -r '.testsBaseline.exitCode')" "0"
-  has "S9 and it really went through pnpm" "$(cat "$lg")" "pnpm test"
+  has "S9 and it really went through pnpm, with its install check off" "$(cat "$lg")" "pnpm --config.verify-deps-before-run=false test"
   has "S9 and pnpm ran the project's own vitest" "$(cat "$lg")" "vitest (node_modules) ran"
+}
+
+# U1 — REAL uv, REAL lockfile (review R-BL311C-1). `uv run` locks before it
+# runs, so Scout's `--run-tests` rewrote a committed uv.lock that was behind its
+# pyproject.toml (measured, uv 0.11.3: ` M uv.lock`). A stub cannot show that —
+# only uv can — so this case runs uv itself, offline and with no Python
+# download, on exactly that shape, and requires the lock byte-identical and no
+# tracked change. A `pytest` stub on PATH stands in for the tool (uv puts
+# `.venv/bin` first and the rest of PATH after), so the run really completes
+# and the case is not vacuous. SKIPS where uv is absent: the CI runner image
+# does not ship it, and S1 still pins `--frozen` in the command there.
+case_U_realuv() {
+  local d="" sb="" out="" lg=""
+  if ! command -v uv >/dev/null 2>&1; then
+    skip_ "U1 real uv: uv is not on PATH (S1 still pins the command)"; return 0
+  fi
+  sb="$(_scout_bin)" || { bad "U1 setup — no scout.sh for this lib"; return; }
+  d="$(mktemp -d "$WORK/uv.XXXXXX")" && lg="$d.log" && : > "$lg" && mkdir -p "$d/p/tests" "$d/bin" \
+    || { bad "U1 setup — could not make the fixture"; return; }
+  printf '#!/bin/sh\necho "pytest ran" >> "%s"\nexit 0\n' "$lg" > "$d/bin/pytest" && chmod +x "$d/bin/pytest"
+  printf '[project]\nname = "k"\nversion = "0.1.0"\nrequires-python = ">=3.8"\ndependencies = []\n\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n' \
+    > "$d/p/pyproject.toml"
+  printf 'def test_x():\n    pass\n' > "$d/p/tests/test_x.py"
+  if ! ( export UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never UV_CACHE_DIR="$WORK/uv-cache"
+         cd "$d/p" && git init -q . && git config user.email t@example.com && git config user.name T \
+         && uv lock -q && git add pyproject.toml uv.lock tests/test_x.py && git commit -q -m 'chore: locked' \
+         && sed -e 's/^version = "0.1.0"$/version = "0.2.0"/' pyproject.toml > pyproject.toml.new \
+         && mv pyproject.toml.new pyproject.toml && git commit -q -am 'chore: bump without re-locking' ) >/dev/null 2>&1; then
+    bad "U1 setup — uv could not lock the fixture offline"; return
+  fi
+  ( export UV_OFFLINE=1 UV_CACHE_DIR="$WORK/uv-cache"; cd "$d/p" && uv lock --check ) >/dev/null 2>&1 \
+    && { bad "U1 control — the committed uv.lock is not stale, so this case would prove nothing"; return; }
+  ok "U1 control: the committed uv.lock is stale (uv lock --check fails)"
+  cp "$d/p/uv.lock" "$d/uv.lock.before"
+  out="$( export UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never UV_CACHE_DIR="$WORK/uv-cache"
+         PATH="$d/bin:$PATH" bash "$sb" --root "$d/p" --run-tests </dev/null 2>/dev/null )"
+  chk "U1 real uv: the command ran and passed through uv" "$(printf '%s' "$out" | jq -r '.testsBaseline.exitCode')" "0"
+  has "U1 and uv ran pytest (the stub on PATH)" "$(cat "$lg")" "pytest ran"
+  chk "U1 real uv: a stale tracked uv.lock is byte-identical after --run-tests" \
+    "$(cmp -s "$d/p/uv.lock" "$d/uv.lock.before" && echo identical || echo REWRITTEN)" "identical"
+  chk "U1 and git sees no tracked change" "$(cd "$d/p" && git status --porcelain --untracked-files=no)" ""
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -345,15 +439,49 @@ case_I_grouping() {
   has "I2 a glob gets the plain advice" "$e" "Narrow or remove that line"
 }
 
+# I3 — WHO ELSE READS AN OUTSIDE RULE depends on which config named the file
+# (review R-BL311C-4): a repository-local core.excludesFile is read by this
+# repository alone, a global one by every repository of the user's, and git's
+# XDG default only where no config sets core.excludesFile. A file that is
+# neither is named plainly (the ODD stub), never with a claim about readers.
 case_I_sources() {
   local ef="$WORK/err.src" e=""
   _prewrite "$A_OUT" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
   has "I3 a core.excludesFile rule is named by its path" "$e" "$WORK/elsewhere/ignore"
-  has "I3 and as OUTSIDE this repository" "$e" "(outside this repository: your personal git excludes file (core.excludesFile)"
+  has "I3 local: OUTSIDE this repository, and read by this repository alone" "$e" \
+    "(outside this repository: core.excludesFile in this repository's own git config names it, so only this repository reads it)"
+  hasnt "I3 local: never 'every repository' for a repository-local setting" "$e" "every repository"
+  GIT_CONFIG_GLOBAL="$WORK/global.gitconfig" _prewrite "$A_GLB" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
+  has "I3b global: named as the global setting every repository of yours reads" "$e" \
+    "$WORK/elsewhere/ignore (outside this repository: core.excludesFile in your global git config names it, so every repository of yours reads it unless one sets its own), line 1"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="$WORK/xdg-default" \
+    _prewrite "$A_XDG" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
+  has "I3c XDG default: named as git's default, not as core.excludesFile" "$e" \
+    "$WORK/xdg-default/git/ignore (outside this repository: git's default personal excludes file, read because no git config sets core.excludesFile"
+  hasnt "I3c XDG default: and never credited to a core.excludesFile setting" "$e" "core.excludesFile in"
+  STUB_GIT_MODE=ODD PATH="$STUBG:$PATH" _prewrite "$A_TOP" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
+  has "I3d a source that is neither is named plainly" "$e" \
+    "/nowhere/excludes (outside this repository: a git excludes file, not part of the project), line 1"
   _prewrite "$A_EXC" "$ef" .claude/manifest.json >/dev/null; e="$(cat "$ef")"
   has "I4 a .git/info/exclude rule is named as this clone's, and uncommitted" "$e" '.git/info/exclude (this clone only, never committed), line 2: `.claude/`'
   _prewrite "$A_SUB" "$ef" sub/pkg/lib/x.sh >/dev/null; e="$(cat "$ef")"
   has "I5 a nested .gitignore is named, and the anchor is relative to it" "$e" 'change line 1 of sub/.gitignore to `/lib/`'
+  has "I5 and the match is described relative to sub/, with the real path" "$e" 'not only directly in sub/: here it matched sub/pkg/lib'
+  has "I5 and the fix is for sub/lib/, not a top-level lib/" "$e" 'if the rule was meant for sub/lib/ only'
+}
+
+# I10 — A NESTED RULE ANCHORING CANNOT HELP (review R-BL311C-2). The paths are
+# compared with the rule's own directory stripped; without that strip
+# `scripts/lib/x` never starts with `lib`, the block offers `/lib/` — which
+# still refuses them — and names `scripts/scripts/lib`.
+case_I_nested() {
+  local ef="$WORK/err.nst" e=""
+  _prewrite "$A_NST" "$ef" scripts/lib/adopt/adopt-core.sh scripts/lib/helpers-core.sh >/dev/null; e="$(cat "$ef")"
+  has "I10 the nested rule is named, with its count" "$e" 'scripts/.gitignore, line 1: `lib/` refuses 2 of them'
+  has "I10 nested, anchoring cannot help: said so" "$e" "Anchoring it would not help"
+  has "I10 and the real directory is named: scripts/lib" "$e" 'sit under scripts/lib, where `/lib/` in scripts/.gitignore still matches'
+  hasnt "I10 so no one-line fix is offered" "$e" "One-line fix"
+  hasnt "I10 and no doubled path" "$e" "scripts/scripts/lib"
 }
 
 case_I_noanchor() {
@@ -361,6 +489,7 @@ case_I_noanchor() {
   _prewrite "$A_TOP" "$ef" .claude/manifest.json PROJECT_INTAKE.md >/dev/null; e="$(cat "$ef")"
   has "I6 a top-level rule is named" "$e" '.gitignore, line 1: `.claude/` refuses 1 of them'
   has "I6 anchoring it is said NOT to help" "$e" "Anchoring it would not help"
+  has "I6 and the top-level directory is named" "$e" 'sit under the top-level .claude, where `/.claude/` in .gitignore still matches'
   hasnt "I6 so no one-line anchor fix is offered" "$e" "One-line fix"
 }
 
@@ -415,10 +544,12 @@ case_S_python
 case_S_node
 case_S_precedence
 case_S_e2e
+case_U_realuv
 echo "=== I — the ignore block names its rule (row 5) ==="
 case_I_dogfood
 case_I_grouping
 case_I_sources
+case_I_nested
 case_I_noanchor
 case_I_tracked
 case_I_failclosed
@@ -474,12 +605,12 @@ mut() {   # LABEL REL-FILE MARKER FROM TO CASE-FN WANT
   rm -rf "$m"
 }
 
-SS=scout/scout-stack.sh; AS=adopt/adopt-state.sh
-mut "M1 uv arm"      "$SS" '# BL-311-SCOUT-RUN-UV'     'cmd="uv run pytest"'     'cmd="pytest"'  case_S_python "S1 uv: a uv project's pytest runs as 'uv run pytest'"
+SS=scout/scout-stack.sh; AS=adopt/adopt-state.sh; SS_REPORT=scout/scout-report.sh
+mut "M1 uv arm"      "$SS" '# BL-311-SCOUT-RUN-UV'     'cmd="uv run --frozen pytest"' 'cmd="pytest"' case_S_python "S1 uv: a uv project's pytest runs as 'uv run --frozen pytest'"
 mut "M2 poetry arm"  "$SS" '# BL-311-SCOUT-RUN-POETRY' 'cmd="poetry run pytest"' 'cmd="pytest"'  case_S_python "S2 poetry: 'poetry run pytest'"
 mut "M3 pdm arm"     "$SS" '# BL-311-SCOUT-RUN-PDM'    'cmd="pdm run pytest"'    'cmd="pytest"'  case_S_python "S3 pdm: 'pdm run pytest'"
 mut "M4 pipenv arm"  "$SS" '# BL-311-SCOUT-RUN-PIPENV' 'cmd="pipenv run pytest"' 'cmd="pytest"'  case_S_python "S4 pipenv: 'pipenv run pytest'"
-mut "M5 pnpm arm"    "$SS" '# BL-311-SCOUT-RUN-PNPM'   'cmd="pnpm test"'         'cmd="$body"'   case_S_node   "N1 pnpm: scripts.test runs as 'pnpm test'"
+mut "M5 pnpm arm"    "$SS" '# BL-311-SCOUT-RUN-PNPM'   'cmd="pnpm --config.verify-deps-before-run=false test"' 'cmd="$body"' case_S_node "N1 pnpm: scripts.test runs as 'pnpm --config.verify-deps-before-run=false test'"
 mut "M6 yarn arm"    "$SS" '# BL-311-SCOUT-RUN-YARN'   'cmd="yarn test"'         'cmd="$body"'   case_S_node   "N2 yarn: 'yarn test'"
 mut "M7 npm arm"     "$SS" '# BL-311-SCOUT-RUN-NPM'    'cmd="npm test"'          'cmd="$body"'   case_S_node   "N3 npm: 'npm test'"
 mut "M8 bun arm"     "$SS" '# BL-311-SCOUT-RUN-BUN'    'cmd="bun run test"'      'cmd="bun test"' case_S_node  "N4 bun: 'bun run test', not 'bun test'"
@@ -490,15 +621,29 @@ mut "M12 Node precedence"   "$SS" '# BL-311-SCOUT-NODE-PRECEDENCE' 'pnpm yarn np
 mut "M13 the evidence names its file" "$SS" '# BL-311-SCOUT-RUN-WHY' ' because ' ' ' case_S_python "S1 uv: and says uv.lock is why it goes through uv"
 mut "M14 the rule text reaches the block"   "$AS" '# BL-225-PREWRITE-REFUSE' '$ignored$_why"' '$ignored"' case_I_dogfood "I1 names the file, the line and the pattern"
 mut "M15 grouped by rule, not by path"      "$AS" '# BL-311-IGNORE-RULE-GROUP' 'FS $3' 'FS $3 FS $4' case_I_dogfood "I1 grouped: one rule refusing three paths is printed ONCE"
-mut "M16 outside-repo source named"         "$AS" '# BL-311-IGNORE-RULE-OUTSIDE' 'where = s " (outside' 'where = s; x = s " (outside' case_I_sources "I3 and as OUTSIDE this repository"
+mut "M16 an unknown outside source is named plainly" "$AS" '# BL-311-IGNORE-RULE-OUTSIDE' 'where = s " (outside' 'where = s; x = s " (outside' case_I_sources "I3d a source that is neither is named plainly"
 mut "M17 info/exclude named"                "$AS" '# BL-311-IGNORE-RULE-EXCLUDE' 'where = s " (this' 'where = s; x = s " (this' case_I_sources "I4 a .git/info/exclude rule is named"
 mut "M18 the anchor fix"                    "$AS" '# BL-311-IGNORE-RULE-ANCHOR' '`/%s`' '`%s`' case_I_dogfood "I1 suggests the one-line fix"
 mut "M19 anchoring said not to help"        "$AS" '# BL-311-IGNORE-RULE-NO-ANCHOR' 'if (!helps)' 'if (0)' case_I_noanchor "I6 anchoring it is said NOT to help"
 mut "M20 fail-closed: -v failing is not silence" "$AS" '# BL-311-IGNORE-RULE-EXPLAIN' '|| _why=""' '|| return 1' case_I_failclosed "I8 (FAIL) and the block is not silent: the paths are there"
 mut "M21 fail-closed: the fallback says so" "$AS" '# BL-311-IGNORE-RULE-FALLBACK' '_why="' '_why=""; : "' case_I_failclosed "I8 (FAIL) and says git could not name the rule"
 mut "M22 a negated answer is not a rule"    "$AS" '# BL-311-IGNORE-RULE-NEGATED' 'return 1' ':' case_I_failclosed "I8 (NEG) and says git could not name the rule"
+# Review round 1 (R-BL311C-1..4).
+mut "M23 a nested rule's own directory is stripped" "$AS" '# BL-311-IGNORE-RULE-BASE-STRIP' \
+  'if (base != "" && index(q, base) == 1) q = substr(q, length(base) + 1)' 'q = q' case_I_nested "I10 nested, anchoring cannot help: said so"
+mut "M24 the evidence names a file that exists" "$SS" '# BL-311-SCOUT-RUNNER-FILE' '[ -e "$root/$f" ]' '[ -n "$f" ]' case_S_python "S4 pipenv: a Pipfile alone: the evidence names Pipfile"
+if command -v uv >/dev/null 2>&1; then
+  mut "M25 uv runs --frozen (real uv)" "$SS" '# BL-311-SCOUT-RUN-UV' 'uv run --frozen pytest' 'uv run pytest' case_U_realuv "U1 real uv: a stale tracked uv.lock is byte-identical after --run-tests"
+else
+  skip_ "M25 uv runs --frozen (real uv): uv is not on PATH — M1 and S1 still pin the command"
+fi
+mut "M26 pnpm's install check is off" "$SS" '# BL-311-SCOUT-RUN-PNPM' 'pnpm --config.verify-deps-before-run=false test' 'pnpm test' case_S_node "N1 pnpm: scripts.test runs as"
+mut "M27 the configured excludes file is recognised" "$AS" '# BL-311-IGNORE-RULE-XSOURCE' 'if (s == ENVIRON["XPATH"])' 'if (0)' case_I_sources "I3 local: OUTSIDE this repository, and read by this repository alone"
+mut "M28 a local core.excludesFile is this repository's alone" "$AS" '# BL-311-IGNORE-RULE-XSCOPE' 'local|worktree)' 'nolocal)' case_I_sources "I3 local: OUTSIDE this repository, and read by this repository alone"
+mut "M29 git's default honours XDG_CONFIG_HOME" "$AS" '# BL-311-IGNORE-RULE-XDG' '${XDG_CONFIG_HOME:-${HOME:-}/.config}' '${HOME:-}/.config' case_I_sources "I3c XDG default: named as git's default"
+mut "M30 the report stops promising 'changed nothing' after --run-tests" "$SS_REPORT" '# BL-311-SCOUT-REPORT-RAN' '= "1"' '= "x"' case_S_e2e "S10 under --run-tests the report says the project's own command ran there"
 
 echo ""
-echo "Results: $PASS passed, $FAIL failed"
+echo "Results: $PASS passed, $FAIL failed, $SKIP skipped"
 [ "$FAIL" -eq 0 ] && exit 0
 exit 1

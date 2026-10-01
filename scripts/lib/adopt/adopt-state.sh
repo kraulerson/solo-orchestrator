@@ -1935,9 +1935,14 @@ STATE_ORDER
 #
 # WHERE A RULE LIVES. A relative `.gitignore` is in the project, and nested
 # ones anchor relative to their own directory. `info/exclude` belongs to this
-# clone alone and is never committed. Anything else is the operator's personal
-# excludes file (`core.excludesFile`, or git's default under XDG_CONFIG_HOME):
-# outside the repository, read by every repository on the machine.
+# clone alone and is never committed. Anything else is outside the repository,
+# and WHO ELSE READS IT depends on where it came from: git reads ONE personal
+# excludes file — `core.excludesFile` when any config sets it, otherwise its
+# default `${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore` — so the block asks git
+# which config set it (`git config --show-scope`, read-only) and words it by
+# that scope: a repository-local setting is read by this repository alone, a
+# global one by every repository of this user's, a system one by every
+# repository on the machine. A source matching neither path is named plainly.
 #
 # THE FIX IS SUGGESTED, NEVER MADE. A rule with no slash but a trailing one
 # (`lib/`) matches at any depth; anchoring it (`/lib/`) is the one-line fix when
@@ -1965,7 +1970,23 @@ adopt_ignore_rules_explain() {
 $rows
 ROWS
   [ -n "$table" ] || return 1
-  printf '%s' "$table" | awk -F'\t' '
+  # `--type=path` expands `~/` the way git does, so the value compares equal to
+  # the source `-v` printed (measured, git 2.54.0: both give the expanded path).
+  local xs="" xscope="" xpath="" xword=""
+  xs="$( cd "$root" 2>/dev/null && git config --show-scope --type=path --get core.excludesFile 2>/dev/null )" || xs=""
+  if [ -n "$xs" ]; then
+    xscope="${xs%%"$tab"*}"; xpath="${xs#*"$tab"}"
+    case "$xscope" in
+      local|worktree) xword="core.excludesFile in this repository's own git config names it, so only this repository reads it" ;;   # BL-311-IGNORE-RULE-XSCOPE
+      global) xword="core.excludesFile in your global git config names it, so every repository of yours reads it unless one sets its own" ;;
+      system) xword="core.excludesFile in this machine's system git config names it, so every repository on this machine reads it unless one sets its own" ;;
+      *) xword="core.excludesFile names it, set in $xscope config" ;;
+    esac
+  else
+    xpath="${XDG_CONFIG_HOME:-${HOME:-}/.config}/git/ignore"   # BL-311-IGNORE-RULE-XDG
+    xword="git's default personal excludes file, read because no git config sets core.excludesFile, so every repository of yours that sets none reads it"
+  fi
+  printf '%s' "$table" | XPATH="$xpath" XWORD="$xword" awk -F'\t' '
     {
       key = $1 FS $2 FS $3   # BL-311-IGNORE-RULE-GROUP
       if (!(key in n)) { k++; order[k] = key; src[key] = $1; ln[key] = $2; pat[key] = $3; ex[key] = $4 }
@@ -1975,10 +1996,14 @@ ROWS
     END {
       for (i = 1; i <= k; i++) {
         key = order[i]; s = src[key]; p = pat[key]; l = ln[key]
-        where = s " (outside this repository: your personal git excludes file (core.excludesFile), which every repository on this machine reads)"   # BL-311-IGNORE-RULE-OUTSIDE
+        where = s " (outside this repository: a git excludes file, not part of the project)"   # BL-311-IGNORE-RULE-OUTSIDE
+        if (s == ENVIRON["XPATH"]) where = s " (outside this repository: " ENVIRON["XWORD"] ")"   # BL-311-IGNORE-RULE-XSOURCE
         if (s !~ /^\// && s ~ /(^|\/)\.gitignore$/) where = s
         if (s ~ /(^|\/)info\/exclude$/) where = s " (this clone only, never committed)"   # BL-311-IGNORE-RULE-EXCLUDE
         printf "  %s, line %s: `%s` refuses %d of them (for example %s)\n", where, l, p, n[key], ex[key]
+        # A nested .gitignore anchors to its own directory, so its paths are
+        # compared with that directory stripped, and the block names the
+        # directory a path really sits under (`scripts/lib`, not "lib").
         base = ""
         if (s !~ /^\// && s ~ /\/\.gitignore$/) base = substr(s, 1, length(s) - 10)
         stem = p; sub(/\/$/, "", stem)
@@ -1987,7 +2012,7 @@ ROWS
         nq = split(qs[key], arr, "\n")
         for (j = 1; j <= nq; j++) {
           q = arr[j]; if (q == "") continue
-          if (base != "" && index(q, base) == 1) q = substr(q, length(base) + 1)
+          if (base != "" && index(q, base) == 1) q = substr(q, length(base) + 1)   # BL-311-IGNORE-RULE-BASE-STRIP
           c = split(q, comp, "/")
           if (comp[1] == stem) helps = 0
           if (hit == "") {
@@ -1995,11 +2020,12 @@ ROWS
             for (t = 1; t <= c; t++) { acc = acc (t > 1 ? "/" : "") comp[t]; if (comp[t] == stem) { hit = base acc; break } }
           }
         }
+        top = (base == "" ? "at the top" : "directly in " base)
         if (!floating) printf "    Narrow or remove that line; which is right is your call. Adoption never edits your ignore files.\n"
-        else if (!helps) printf "    Anchoring it would not help: the paths this adoption needs sit under the top-level %s, where `/%s` still matches. Narrowing or removing the rule is your call. Adoption never edits your ignore files.\n", stem, p   # BL-311-IGNORE-RULE-NO-ANCHOR
+        else if (!helps) printf "    Anchoring it would not help: the paths this adoption needs sit under %s, where `/%s` in %s still matches. Narrowing or removing the rule is your call. Adoption never edits your ignore files.\n", (base == "" ? "the top-level " stem : base stem), p, s   # BL-311-IGNORE-RULE-NO-ANCHOR
         else {
-          printf "    It has no leading slash, so it matches `%s` at any depth, not only at the top%s.\n", stem, (hit == "" ? "" : ": here it matched " hit)
-          printf "    One-line fix, if the rule was meant for the top-level %s only: change line %s of %s to `/%s`.\n", p, l, s, p   # BL-311-IGNORE-RULE-ANCHOR
+          printf "    It has no leading slash, so it matches `%s` at any depth, not only %s%s.\n", stem, top, (hit == "" ? "" : ": here it matched " hit)
+          printf "    One-line fix, if the rule was meant for %s only: change line %s of %s to `/%s`.\n", (base == "" ? "the top-level " p : base p), l, s, p   # BL-311-IGNORE-RULE-ANCHOR
           printf "    Whether it was is your judgement: if it is meant to ignore every %s at any depth, anchoring it is wrong, and these files stay refused until the rule changes. Adoption never edits your ignore files.\n", p
         }
       }
