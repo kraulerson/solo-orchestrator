@@ -465,8 +465,13 @@ _adopt_rec_render() {
     printf '%s\n' "    |---|---|"
     _adopt_rec_row "Archive" "$archive"
     printf '\n'
-    printf '%s\n' "Nothing of yours was deleted. Every archived file carries a restore line in that"
-    printf '%s\n' "directory's MANIFEST.md, and any one of them can be put back with:"
+    # NOT EVERY FILE GOES BACK (`## BL-311:`). The archived copy of a
+    # Guardrails-only project's `.claude/manifest.json` predates the adoption
+    # stamp, and `--re-add` refuses it (`# BL-311-MANIFEST-READD-REFUSE`), so the
+    # sentence is the disclosure's own formula rather than a promise for all.
+    printf '%s\n' "Nothing of yours was deleted. That directory's MANIFEST.md gives, for each"
+    printf '%s\n' "archived file, how to put it back or why not to. One that can go back comes"
+    printf '%s\n' "back with:"
     printf '\n'
     printf '%s\n' '    bash /path/to/solo-orchestrator/scripts/adopt-project.sh --re-add <your path>'
     printf '\n'

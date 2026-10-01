@@ -363,8 +363,18 @@ scout_emit_markdown() {
   highest=$(_scout_meta "$work" highest)
 
   printf '# Scout report\n\n'
-  printf 'A read-only look at **%s**. Scout changed nothing — it only read.\n\n' \
-    "$(_scout_meta "$work" repoRoot)"
+  # `--run-tests` ran the project's own tools in its tree, so "changed nothing"
+  # is no longer Scout's to promise (`## BL-311:`, review R-BL311C-1). The
+  # command is named HERE: this report has no testsBaseline heading to point
+  # at, and its tests section does not repeat it (review R-BL311C2-3). A run
+  # implies a command — tbran is 1 only after a non-empty testcmd ran.
+  if [ "$(_scout_meta "$work" tbran)" = "1" ]; then   # BL-311-SCOUT-REPORT-RAN
+    printf 'A look at **%s**. Scout itself wrote nothing into it, but `--run-tests` ran the project'"'"'s own test command, `%s`, there once, and anything that command or its package manager created is theirs, not Scout'"'"'s.\n\n' \
+      "$(_scout_meta "$work" repoRoot)" "$(cut -f1 < "$work/testcmd")"   # BL-311-SCOUT-REPORT-RAN-CMD
+  else
+    printf 'A read-only look at **%s**. Scout changed nothing — it only read.\n\n' \
+      "$(_scout_meta "$work" repoRoot)"
+  fi
   printf '| | |\n|---|---|\n'
   printf '| Looked at | %s |\n' "$(_scout_meta "$work" scannedAt)"
   printf '| Scout version | %s |\n' "$(scout_module_version)"

@@ -219,7 +219,21 @@ a7() {
   grep -F '| `.claude/settings.json` |' "$PA/$arc/MANIFEST.md" | grep -q 'cp ' || bad="$bad [control: MANIFEST.md lost settings.json's restore line]"
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
-a1; a2; a3; a4; a5; a6; a7
+# A8 — the Adoption Record and PROJECT_INTAKE.md §13 promised that every
+# archived file can be put back, and A6 shows the manifest cannot. Both now
+# carry the disclosure's own formula: the MANIFEST gives, for each file, how to
+# put it back or why not to.
+a8() {
+  local label="A8 the Adoption Record and §13 no longer promise every archived file goes back — the MANIFEST gives, for each, how to put it back or why not to" bad=""
+  [ "$PARC" -eq 0 ] || { fail_ "$label" "adoption did not complete (A1)"; return; }
+  grep -q 'any one of them can be put back with' "$PA/APPROVAL_LOG.md" && bad="$bad [the Record still promises every file goes back]"
+  grep -qF "archived file, how to put it back or why not to." "$PA/APPROVAL_LOG.md" || bad="$bad [the Record does not carry the formula]"
+  grep -qF -- '--re-add <your path>' "$PA/APPROVAL_LOG.md" || bad="$bad [control: the Record lost the --re-add line]"
+  grep -q 'a restore line for each' "$PA/PROJECT_INTAKE.md" && bad="$bad [§13 still promises a restore line for each]"
+  grep -qF 'and a MANIFEST that gives, for each file, how to put it back' "$PA/PROJECT_INTAKE.md" || bad="$bad [§13 does not carry the formula]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+a1; a2; a3; a4; a5; a6; a7; a8
 
 echo
 echo "=== K — the Solo key list, derived from its writers ==="

@@ -80,7 +80,14 @@ bash ~/solo-orchestrator/scripts/scout.sh --out /tmp/scout --run-tests
 `--run-tests` if you do not want Scout to run your code — but it is the one way
 to learn **before adopting** whether your test suite passes today, and that
 matters: once adopted, a commit that touches source code runs your tests and is
-refused if they fail. See [Before you adopt: run Scout](#before-you-adopt-run-scout).
+refused if they fail. Scout runs the command through your package manager —
+`uv run --frozen pytest`, `poetry run pytest`, `npm test` and so on — because
+a bare `pytest` cannot see a tool installed in the project's own environment
+([how Scout picks it](scout.md#stack--what-this-project-is-built-with)). It runs
+in your real tree: the manager may create untracked files of its own (a `.venv`),
+and Scout passes the flags that keep uv and pnpm from rewriting your lockfile
+([what it can change](scout.md#what---run-tests-can-change)). See
+[Before you adopt: run Scout](#before-you-adopt-run-scout).
 
 ### 3. Adopt
 
@@ -128,6 +135,25 @@ a stop, or a halt); `2` bad usage.
   install `gitleaks` and run again.
 - **Every `date` must be a real calendar day written `YYYY-MM-DD`.** "tomorrow",
   "0000-00-00" and 2026-02-30 are refused.
+- **Your ignore rules refuse files adoption must write**: nothing is written. The
+  block lists the refused paths and, under them, each rule that refuses them as
+  `git check-ignore -v` reports it — file, line and pattern, once per rule with
+  its count — and the one-line fix where there is one. The common case:
+
+  ```text
+  The rule(s) that refuse them, as `git check-ignore -v` names each:
+    .gitignore, line 2: `lib/` refuses 24 of them (for example scripts/lib/accumulation.sh)
+      It has no leading slash, so it matches `lib` at any depth, not only at the top: here it matched scripts/lib.
+      One-line fix, if the rule was meant for the top-level lib/ only: change line 2 of .gitignore to `/lib/`.
+  ```
+
+  Whether the rule meant *every* `lib/` is your call; adoption never edits your
+  ignore files. A rule from a personal excludes file (`core.excludesFile`, or
+  git's default `$XDG_CONFIG_HOME/git/ignore` — usually `~/.config/git/ignore` —
+  when that is not set) or from `.git/info/exclude` is named as such, with which
+  of your repositories read it: it is not in the repository, so nobody else has
+  it. If git cannot name the rule, the block says so and gives the command to
+  ask it: `git check-ignore -v --no-index -- <path>`.
 - **Your own pre-commit hook refused the adoption commit**: fix or bypass that
   hook, then run `adopt-project.sh --finish`. It commits exactly the files the
   first run wrote.
