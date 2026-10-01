@@ -131,6 +131,12 @@
 #   M18b the same list in a bare ``` block beside the snippet -> C3 red, key
 #   M18c a ```bash block that writes it with jq (.permissions.allow += […]),
 #       no quoted key (review round 3's OWN-A)               -> C3 red, key
+#   M18d a ```bash block writing .autoMode.allow with jq — `.allow` and no
+#       `.permissions`, so narrowing the jq-path arm to `.permissions` is red
+#       (R-E4-3)                                             -> C3 red, key
+#   M18e a ```bash block setting .permissions.defaultMode to
+#       bypassPermissions with jq — `.permissions` and no `.allow` (R-E4-3)
+#                                                            -> C3 red, key
 #   M19 the fallback paragraph loses its `!` route — the sentence from "or
 #       typed after `!`" to "lands in the conversation." (X3a); the paragraph
 #       still names `!` once                                 -> C5 red
@@ -144,10 +150,20 @@
 #       terminal_workaround pattern matches it (no line does) -> C8 red, detector
 #   M23b the instruction regains its round-2 terminal route, full stop kept —
 #       the detector finds nothing in it, a paraphrase did (R-E3-3) -> C8 red, word
+#   M23c step 10's "run it again." becomes "run it again with git commit
+#       --no-verify." — a line above the instruction's paragraph, no terminal
+#       or shell word, so only the detector's line-by-line scan sees it
+#       (R-E4-2)                                       -> C8 red, detector
+#   M23d the instruction regains a route "or in a shell of my own" (R-E4-3)
+#                                                      -> C8 red, word 'shell'
+#   M23e the instruction regains a route "or in a Terminal window of my own":
+#       the word check is case-insensitive (R-E4-3)    -> C8 red, word 'Terminal'
 #   M24 step 2 loses its "One exception: the assessment's finisher" sentence
 #       (review round 3's OWN-B)                               -> C9 red
 #   M25 the Act 3/4 section loses its auto-mode refusal paragraph -> C9 red
 #   M25b that paragraph loses its `!` route, keeping the terminal one -> C9 red
+#   M25c that paragraph moves into the next ### section: the Act 3/4 section
+#       ends at that heading (R-E4-4)                          -> C9 red
 #
 # Hermetic: reads three docs and the scripts/ tree (sourcing only
 # scripts/lib/bypass-patterns.sh, in a subshell), writes only under its own
@@ -1042,6 +1058,28 @@ else
   fail_ M18c "mutation did not land in docs/adoption.md"
 fi
 
+# R-E4-3: M18c names both jq paths, so each half of the jq-path arm needs a
+# mutant that names only the other.
+if mutate "$ADOPT" "$M/adoption.m18d.md" "Check that Claude Code reads the line:" "\`\`\`bash
+jq '.autoMode.allow += [\"x\"]' ~/.claude/settings.json > ~/.claude/s.tmp && mv ~/.claude/s.tmp ~/.claude/settings.json
+\`\`\`
+
+Check that Claude Code reads the line:"; then
+  expect_red M18d "a bash block beside the snippet writes an autoMode.allow list with jq" "a bash block in the settings step names" c3_snippet_shape "$M/adoption.m18d.md" "$TARGET"
+else
+  fail_ M18d "mutation did not land in docs/adoption.md"
+fi
+
+if mutate "$ADOPT" "$M/adoption.m18e.md" "Check that Claude Code reads the line:" "\`\`\`bash
+jq '.permissions.defaultMode = \"bypassPermissions\"' ~/.claude/settings.json > ~/.claude/s.tmp && mv ~/.claude/s.tmp ~/.claude/settings.json
+\`\`\`
+
+Check that Claude Code reads the line:"; then
+  expect_red M18e "a bash block beside the snippet sets permissions.defaultMode with jq" "a bash block in the settings step names" c3_snippet_shape "$M/adoption.m18e.md" "$TARGET"
+else
+  fail_ M18e "mutation did not land in docs/adoption.md"
+fi
+
 # X3a: the `!` sentence goes, the paragraph stays one paragraph, and its other
 # `!` (a `!` command cannot take your answers) is still there.
 if mutate "$ADOPT" "$M/adoption.m19a.md" "terminal from the project's folder, or typed after \`!\` at the session's" "terminal from the project's folder." \
@@ -1095,6 +1133,29 @@ else
   fail_ M23b "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
 fi
 
+# R-E4-2: M23 trips the word check too, so it cannot tell whether the detector
+# arm still fails C8. This line sits above the instruction's paragraph and
+# names no terminal or shell: only the line-by-line scan sees it.
+if mutate "$ACT4" "$M/adopt-act4.m23c.sh" "If it refuses, fix what it names and run it again." "If it refuses, fix what it names and run it again with git commit --no-verify."; then
+  expect_red M23c "step 10 tells the agent to run it again with git commit --no-verify" "no_verify (a line of the prompt)" c8_assessment_prompt "$M/adopt-act4.m23c.sh" "$BYPASS_PATTERNS"
+else
+  fail_ M23c "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
+fi
+
+# R-E4-3: M23 and M23b name only a lower-case "terminal"; the word check's
+# other word and its case-insensitivity each need a mutant of their own.
+if mutate "$ACT4" "$M/adopt-act4.m23d.sh" "$TERM_ROUTE_OLD" "command after ! at the Claude Code prompt, or in a shell of my own, and wait for its output"; then
+  expect_red M23d "the instruction regains a shell route" "names a 'shell' route" c8_assessment_prompt "$M/adopt-act4.m23d.sh" "$BYPASS_PATTERNS"
+else
+  fail_ M23d "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
+fi
+
+if mutate "$ACT4" "$M/adopt-act4.m23e.sh" "$TERM_ROUTE_OLD" "command after ! at the Claude Code prompt, or in a Terminal window of my own, and wait for its output"; then
+  expect_red M23e "the instruction regains a Terminal route, capitalised" "names a 'Terminal' route" c8_assessment_prompt "$M/adopt-act4.m23e.sh" "$BYPASS_PATTERNS"
+else
+  fail_ M23e "mutation did not land in scripts/lib/adopt/adopt-act4.sh"
+fi
+
 # OWN-B: the finisher's fallback, in step 2 and in the Act 3/4 section.
 if drop_lines "$ADOPT" "$M/adoption.m24.md" "**One exception: the assessment's finisher" "use the fallback at the end of this step."; then
   expect_red M24 "step 2 loses its finisher exception" "step 2 does not say: **One exception" c9_finisher_fallback "$M/adoption.m24.md"
@@ -1113,6 +1174,23 @@ if mutate "$ADOPT" "$M/adoption.m25a.md" "run it yourself, typed after \`!\`" "r
   expect_red M25b "the Act 3/4 paragraph loses its \`!\` route" "does not say: typed after \`!\`" c9_finisher_fallback "$M/adoption.m25b.md"
 else
   fail_ M25b "mutation did not land in docs/adoption.md"
+fi
+
+# R-E4-4: the same paragraph, moved under the next ### heading. Nothing after
+# the Act 3/4 section says it, so only the section's end keeps this red.
+PARA25="$(awk 'index($0, "**If Claude Code'\''s auto mode refuses the finisher**") > 0 { on = 1 }
+               on && /^[[:space:]]*$/ { exit }
+               on { print }' "$ADOPT")"
+NEXT25='### The certification pass — RETIRED, not deferred'
+if [ -n "$PARA25" ] \
+  && drop_para "$ADOPT" "$M/adoption.m25c1.md" "**If Claude Code's auto mode refuses the finisher**" \
+  && mutate "$M/adoption.m25c1.md" "$M/adoption.m25c.md" "$NEXT25" "$NEXT25
+
+$PARA25" \
+  && grep -Fq -- "**If Claude Code's auto mode refuses the finisher**" "$M/adoption.m25c.md"; then
+  expect_red M25c "the Act 3/4 paragraph moves into the next section" "does not say: If Claude Code's auto mode refuses the finisher" c9_finisher_fallback "$M/adoption.m25c.md"
+else
+  fail_ M25c "mutation did not land in docs/adoption.md"
 fi
 
 echo ""
