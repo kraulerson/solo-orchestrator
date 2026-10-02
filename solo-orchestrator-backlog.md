@@ -22480,6 +22480,74 @@ nothing — plus every command they must run, in a fenced block, never named in 
 `CLAUDE.md` both read); the hook's check (which parts it can verify mechanically, and how it avoids
 re-prompting forever on a reply it cannot parse); and how it coexists with the Guardrails' own Stop hooks.
 
+**Rulings (Karl, 2026-10-01) — the three open questions are decided.**
+1. **Where it is recorded:** `tldr_mode: true|false` in `.claude/manifest.json`, beside `host`, `mode`,
+   `deployment`, `enforcement_level`. It is on the Solo key list (`# BL-311-SOLO-KEYS`) so a
+   Guardrails-only manifest stays distinguishable. init.sh, adoption, `upgrade-project.sh` and
+   `reconfigure-project.sh` all keep it; an absent key reads as off.
+2. **The hook:** a Stop hook mirroring the TL;DR arm of Karl's own workflow check (`stop-checks.sh` +
+   `_stopcheck.awk`) and nothing else of it: reads only `last_assistant_message`; exits at once on
+   `stop_hook_active` (blocks at most once a turn, cannot loop); exits when `tldr_mode` is not true
+   (absent, false or an unreadable manifest = off — failing open is right for a reply-format
+   preference, and says why); otherwise blocks when no TL;DR line exists outside code fences, with a
+   reason listing all eight parts and the fenced-command rule. No per-part parsing. Wired the way the
+   framework's other Stop hooks are; fails open on a missing jq with one stderr line.
+3. **Default:** opt-in. End of input, non-interactive runs and `init.sh --config` without the key are
+   off. Asked interactively in init.sh's setup and in adoption, where — unlike the track — end of input
+   means no.
+
+**Progress (2026-10-02) — built on `feat/bl312-tldr-mode`, not yet merged.**
+- `scripts/hooks/tldr-check.sh` (markers `# BL-312-TLDR-ONCE`, `# BL-312-TLDR-OFF`,
+  `# BL-312-TLDR-FENCE`, `# BL-312-TLDR-TOKEN`, `# BL-312-TLDR-BLOCK`, `# BL-312-TLDR-NOJQ`,
+  `# BL-312-TLDR-ROOT`) and `scripts/lib/tldr-mode.sh` — the question, the [y/N] reader, the CLAUDE.md
+  section (between `<!-- tldr-mode:begin -->` / `<!-- tldr-mode:end -->`, so `off` restores the bytes),
+  and the Stop-hook registration, spelled once and used by the shared roster
+  (`# BL-312-TLDR-ROSTER`, in `scripts/lib/claude-settings.sh`) and by reconfigure. Both ship
+  (`# BL-312-SHIP-HOOK`, `# BL-312-SHIP-LIB`), so adoption and `--sync-framework` carry them too.
+- **Wiring, measured on a real scaffold:** one Stop group holding, in order, the Guardrails'
+  `stop-checklist.sh`, `session-end-qdrant-reminder.sh`, `bypass-detector.sh`, `tldr-check.sh`.
+  Registered unconditionally (it reads the key), so switching the mode never edits `settings.json`.
+- **init.sh:** the interactive question after the language (`[y/N]`, read by `soif_tldr_yes`), asked
+  only at a terminal (`# BL-312-INIT-TTY-ONLY` — a piped run is off, as `prompt_yes_no` is); a
+  `tldr_mode` --config key that must be a JSON boolean (`# BL-312-INIT-CONFIG`; anything else is
+  refused in the uniform `[FAIL]` shape) and is in `--help-non-interactive`; all four manifest seed
+  writes carry it; the CLAUDE.md section is appended AFTER the render base is captured
+  (`# BL-312-INIT-CLAUDE-MD`), and the Currency System's plan-time render adds it to both merge legs
+  when the mode is on (`# BL-312-PLAN-TLDR-LEGS`) so a change to the template's last lines merges clean.
+- **Adoption asks it LAST** — after the intake confirmations, before the pre-write preflight
+  (`# BL-312-ADOPT-TLDR-CALL`) — because that is the only position where the fixed answer sequences
+  the adoption suites pipe cannot shift: an exact sequence reaches it at end of input (off), and a
+  padding `1` is the number offered for "no", listed first (`# BL-312-ADOPT-TLDR-OFFER-ORDER`,
+  `# BL-312-ADOPT-TLDR-RESOLVE-ORDER`). No existing suite's answer sequence was changed. Empty or end
+  of input is no (`# BL-312-ADOPT-TLDR-EOF`); an unoffered answer refuses. The manifest gets
+  `tldr_mode` true or false by one edit after either arm (`# BL-312-ADOPT-TLDR-MANIFEST`), so the
+  arms the BL-221 and BL-268 suites pin are unchanged; the section goes into the rendered CLAUDE.md
+  before it is put (`# BL-312-ADOPT-TLDR-DOCS`).
+- **`reconfigure-project.sh --tldr-mode on|off`** sets the key, adds or removes the section, and
+  registers the hook (on); checks all three files first, puts all three back if a write fails, refuses
+  `on` without the hook script, and commits nothing (`# BL-312-RECONF-*`).
+- **Tests:** `tests/test-bl312-tldr-mode.sh` (unit lane, pinned to `mcp-mutants`) and
+  `tests/test-bl312-tldr-mode-init.sh` (runs init.sh, full lane), each with mutation proofs of every
+  marked line above.
+
+**Residuals (measured, not fixed here).**
+- **The reply that answers a TL;DR block is never scanned by the bypass detector.** The detector
+  skips every `stop_hook_active` pass (measured: a `git commit --no-verify` reply raises `no_verify`
+  with the flag false and nothing with it true). The Guardrails' `stop-checklist.sh` already blocks, so
+  the gap predates this entry; TL;DR mode makes the second pass more frequent. Changing the
+  detector's re-entrancy guard (reworked in PR #493) is its own decision.
+- **The detector's `terminal_workaround` pattern can flag a compliant TL;DR.** "If you do nothing: the
+  shell script stays as it is." raised a row and the pending-approval sentinel (measured), because
+  part 8 says "do" and the line says "shell". The CLAUDE.md section tells the agent to keep "terminal"
+  and "shell" out of any sentence with "run", "do" or "execute"; the pattern is unchanged.
+- **Presence, not content, by ruling:** a TL;DR that skips parts passes the hook.
+- **A project scaffolded before this entry** gets the hook script from `--sync-framework` but not its
+  registration (`upgrade-project.sh` never edits `settings.json`); `reconfigure-project.sh --tldr-mode
+  on` registers it. `verify-install.sh` does not check the registration.
+- **init.sh's interactive question runs over a real terminal only in the full lane**
+  (`tests/test-bl312-tldr-mode-init.sh` I8, with `expect`, `--dry-run`); the unit lane pins it by
+  structure (S1) and the [y/N] reader (C3).
+
 ## BL-316: two installers that could never run — the tool matrix's Superpowers command uses a verb Claude Code does not have, and its Linux gitleaks install is a pipeline verify-install.sh refuses
 
 **Status:** Closed — shipped 2026-10-01 on `fix/bl316-broken-installers` (PR pending), fix commit

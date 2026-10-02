@@ -320,3 +320,52 @@ where the reader is deciding whether to spend money or accept a risk.
 **When the reader is another agent**, the plain-English half is still written.
 It costs little, and the next reader is frequently a human who arrived mid-thread
 with none of the context.
+
+---
+
+## Part 6 — TL;DR mode: the same format on every reply (opt-in)
+
+A project's user can ask for more than Part 1 does. In **TL;DR mode** — `tldr_mode:
+true` in the project's `.claude/manifest.json`, chosen once with one plain question
+at `init.sh` or adoption, and switched with `scripts/reconfigure-project.sh
+--tldr-mode on|off` — **every reply** the agent gives, not only every summary, ends
+with exactly one plain-English section headed **TL;DR**, written for someone who is
+not a programmer and restated in full every time (never "as above"). It carries
+eight parts:
+
+1. what happened; 2. what it means for them; 3. next steps; 4. what is waiting on
+them; 5. the options; 6. the pros and cons of each option; 7. a recommendation with
+its reasoning; 8. what happens if they do nothing —
+
+plus every command they must run, in a fenced code block, never named in prose. It
+is **off unless the user says yes**: an unanswered question, a scripted run without
+the key, and an absent key are all off.
+
+**How it layers on Part 1.** It is Part 1's plain-English half extended two ways:
+from summaries to every reply, and from five parts to eight — next steps (3), what
+is waiting on them (4) and the pros and cons as a part of their own (6) are added,
+with the command rule. Everything else here still governs it: the technical account
+above it stays in full, Part 2's vocabulary fixes its words, and the two rules that
+outrank brevity outrank it too — a block still goes in its first sentence.
+
+**What is enforced, and what is not.** A Stop hook, `scripts/hooks/tldr-check.sh`,
+sends a reply back when it has no TL;DR outside a code block — at most once per
+turn, so it cannot loop. It checks that a TL;DR is **there**; it does not judge the
+parts, because whether a sentence says "what it means for them" is a judgment no
+script makes honestly. The generated `CLAUDE.md` carries a short "TL;DR Mode"
+section while the mode is on, stating the content the hook does not check.
+
+**It fails open by design, and Part 2 says that design is the finding.** With no
+`jq`, a manifest it cannot read, or a `tldr_mode` that is absent or not exactly
+`true`, the hook does nothing. That is the right direction for this check — it
+holds a reply format the person opted into, not a safety property, and a format
+check that sent back every reply in a project whose manifest it could not read
+would be noise — but it is a check that fails open, and this paragraph is where
+that is written down. A missing `jq` is said in one line rather than skipped
+silently.
+
+**Why commands go in a fence.** A command in a fenced block is one a reader who is
+not a developer can copy exactly. And prose that says where to run something —
+"run it in your terminal" — is what the framework's bypass detector reads as a
+proposed workaround, so the fence also keeps a compliant TL;DR from being recorded
+as one.
