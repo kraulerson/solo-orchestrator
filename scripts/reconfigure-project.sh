@@ -9,6 +9,7 @@ set -euo pipefail
 #   scripts/reconfigure-project.sh --field <field> --old <old_value> --new <new_value>
 #   scripts/reconfigure-project.sh --field language --old python --new typescript
 #   scripts/reconfigure-project.sh --field platform --old web --new desktop
+#   scripts/reconfigure-project.sh --tldr-mode on|off
 #   scripts/reconfigure-project.sh --help
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,6 +51,7 @@ RECONF_REASON=""
 RECONF_LEVEL=""
 RECONF_CONFIRM=0
 RECONF_RESET_BASELINE=0
+RECONF_TLDR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --field) FIELD="$2"; shift 2 ;;
@@ -62,10 +64,22 @@ while [ $# -gt 0 ]; do
     --enforcement-level=*) RECONF_LEVEL="${1#*=}"; shift ;;
     --confirm-pitfalls) RECONF_CONFIRM=1; shift ;;
     --reset-detection-baseline) RECONF_RESET_BASELINE=1; shift ;;
+    # `## BL-312:` TL;DR mode. `-` stands for "no value given", which the
+    # check below refuses with the same sentence as any other wrong value.
+    --tldr-mode) RECONF_TLDR="${2:--}"; [ $# -ge 2 ] && shift 2 || shift ;;
+    --tldr-mode=*) RECONF_TLDR="${1#*=}"; [ -n "$RECONF_TLDR" ] || RECONF_TLDR="-"; shift ;;
     --help|-h)
       echo "Usage: scripts/reconfigure-project.sh --field <field> --old <old> --new <new>"
       echo "       scripts/reconfigure-project.sh --enforcement-level <no|light|strict> [--confirm-pitfalls]"
       echo "       scripts/reconfigure-project.sh --reset-detection-baseline"
+      echo "       scripts/reconfigure-project.sh --tldr-mode <on|off>"
+      echo ""
+      echo "--tldr-mode on|off — TL;DR mode: every reply the agent gives ends with one plain-English"
+      echo "    summary (what happened, what it means for you, next steps, what is waiting on you, the"
+      echo "    options with their pros and cons, a recommendation with its reasoning, what happens if"
+      echo "    you do nothing, and every command to run in a fenced block). Sets tldr_mode in"
+      echo "    .claude/manifest.json, adds or removes CLAUDE.md's TL;DR Mode section, and makes sure"
+      echo "    the Stop hook that checks it is registered. Nothing is committed."
       echo ""
       echo "Supported fields:"
       echo "  test_interval     — enforced testing interval (delegates to test-gate.sh --set-interval; BL-203)"
@@ -111,6 +125,162 @@ finalize_reconfigure_commit() {
       && git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt \
   ) || return 1
 }
+
+# ── `## BL-312:` --tldr-mode on|off ─────────────────────────────────────────
+# Three files say the same thing and move together: `tldr_mode` in the
+# manifest (what the hook reads), CLAUDE.md's TL;DR Mode section (what the agent
+# reads), and the hook's registration in .claude/settings.json. Everything is
+# checked before anything is written, and a write that fails puts back all
+# three (a file that cannot be put back is named, and its copy kept). It is a
+# change of its own: beside any other option it refuses rather than doing one
+# and dropping the other. NOT COMMITTED, unlike --enforcement-level: these are three
+# documentation/config files the person can review, and committing them here
+# would sweep in whatever else is uncommitted (`git add -A`).
+if [ -n "$RECONF_TLDR" ]; then
+  # shellcheck source=/dev/null
+  source "$SCRIPT_DIR/lib/tldr-mode.sh"
+  # The block below ends in `exit`, so any other change asked for in the same run
+  # would be dropped without a word — refuse instead.
+  tl_also=""
+  [ -z "$FIELD$OLD_VALUE$NEW_VALUE" ] || tl_also="$tl_also --field/--old/--new"
+  [ -z "$RECONF_REASON" ] || tl_also="$tl_also --reason"
+  [ -z "$RECONF_LEVEL" ] || tl_also="$tl_also --enforcement-level"
+  [ "$RECONF_CONFIRM" != 1 ] || tl_also="$tl_also --confirm-pitfalls"
+  [ "$RECONF_RESET_BASELINE" != 1 ] || tl_also="$tl_also --reset-detection-baseline"
+  if [ -n "$tl_also" ]; then   # BL-312-RECONF-ALONE
+    print_fail "--tldr-mode is a change of its own and cannot be combined with:$tl_also. Nothing was changed; run each change on its own."
+    exit 1
+  fi
+  _tl=""
+  case "$RECONF_TLDR" in
+    on)  _tl=true ;;
+    off) _tl=false ;;
+    *)   _tl="" ;;   # BL-312-RECONF-VALUE
+  esac
+  if [ -z "$_tl" ]; then
+    print_fail "--tldr-mode takes on or off, not '$RECONF_TLDR'. Nothing was changed."
+    exit 1
+  fi
+  # Everything below reads _tl (and the word made from it), never the raw value.
+  tl_word="off"
+  [ "$_tl" = true ] && tl_word="on"
+  command -v jq >/dev/null 2>&1 || { print_fail "jq is required to change TL;DR mode. Nothing was changed."; exit 1; }
+  TL_MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
+  TL_SETTINGS="$PROJECT_ROOT/.claude/settings.json"
+  TL_CLAUDE="$PROJECT_ROOT/CLAUDE.md"
+  TL_HOOK="$PROJECT_ROOT/scripts/hooks/tldr-check.sh"
+  if [ -L "$TL_MANIFEST" ] || ! jq -e 'type == "object"' "$TL_MANIFEST" >/dev/null 2>&1; then
+    print_fail "$TL_MANIFEST is missing, a symlink, or not a JSON object, so TL;DR mode has nowhere to be recorded. Nothing was changed."
+    exit 1
+  fi
+  if [ "$_tl" = true ] && [ ! -f "$TL_HOOK" ]; then   # BL-312-RECONF-HOOK-REQUIRED
+    print_fail "scripts/hooks/tldr-check.sh is not in this project, so nothing would check TL;DR mode. Nothing was changed."
+    # --sync-framework runs the FRAMEWORK CLONE's copy, from inside the project
+    # (the project's own copy refuses to sync onto itself).
+    tl_src="$(jq -r '.source_dir // empty' "$PROJECT_ROOT/.claude/orchestrator-source.json" 2>/dev/null || true)"
+    echo "  Bring the framework's scripts up to date first, from this project's folder:" >&2
+    echo "    bash \"${tl_src:-/path/to/your/solo-orchestrator/clone}/scripts/upgrade-project.sh\" --sync-framework" >&2
+    exit 1
+  fi
+  if [ "$_tl" = true ] && { [ -L "$TL_SETTINGS" ] || { [ -e "$TL_SETTINGS" ] && ! jq -e 'type == "object" and ((.hooks == null) or ((.hooks | type) == "object"))' "$TL_SETTINGS" >/dev/null 2>&1; }; }; then
+    print_fail "$TL_SETTINGS is a symlink or not a JSON object whose hooks are an object, so the hook cannot be registered in it. Nothing was changed."
+    exit 1
+  fi
+  tl_md_state="absent-file"
+  if [ -L "$TL_CLAUDE" ]; then
+    print_fail "CLAUDE.md is a symlink; editing it would write through to another file. Nothing was changed."
+    exit 1
+  elif [ -f "$TL_CLAUDE" ]; then
+    tl_md_state="$(soif_tldr_claude_md_state "$TL_CLAUDE")" || tl_md_state="unreadable"
+    case "$tl_md_state" in
+      absent|present) : ;;
+      *)
+        print_fail "CLAUDE.md's TL;DR Mode section markers are $tl_md_state (an opening line without its closing line, or two sections). Fix them by hand, then run this again. Nothing was changed."
+        echo "  The markers are the lines '$SOIF_TLDR_BEGIN' and '$SOIF_TLDR_END'." >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  tl_before="$(jq -r 'if .tldr_mode == true then "on" else "off" end' "$TL_MANIFEST")"
+  # A template, so TMPDIR places it on every platform: a bare `mktemp -d` on
+  # macOS does not read TMPDIR.
+  tl_bak="$(mktemp -d "${TMPDIR:-/tmp}/soif-tldr-mode.XXXXXX")"
+  cp -p "$TL_MANIFEST" "$tl_bak/manifest.json"
+  [ -f "$TL_SETTINGS" ] && cp -p "$TL_SETTINGS" "$tl_bak/settings.json"
+  [ -f "$TL_CLAUDE" ] && cp -p "$TL_CLAUDE" "$tl_bak/CLAUDE.md"
+  # _tl_put_back COPY FILE — FILE from its COPY, only when the two differ: a file
+  # this run never changed is left alone, so a read-only one cannot fail the
+  # rollback.
+  _tl_put_back() { cmp -s "$1" "$2" && return 0; cp -p "$1" "$2"; }   # BL-312-RECONF-PUT-BACK
+  # The rollback runs under `set -e`, so no step in it may end the script: each
+  # is checked, and the failure is always said. A file that could not be put
+  # back is named, and then the backup is KEPT and named too — it is the only
+  # copy of what was there. Otherwise the backup is removed.
+  tl_rollback() {
+    local why="$1" left=""
+    rm -f "$TL_MANIFEST.tmp" || left="$left .claude/manifest.json.tmp"
+    _tl_put_back "$tl_bak/manifest.json" "$TL_MANIFEST" || left="$left .claude/manifest.json"   # BL-312-RECONF-ROLLBACK
+    if [ -f "$tl_bak/settings.json" ]; then
+      _tl_put_back "$tl_bak/settings.json" "$TL_SETTINGS" || left="$left .claude/settings.json"
+    elif [ -e "$TL_SETTINGS" ]; then
+      rm -f "$TL_SETTINGS" || left="$left .claude/settings.json"
+    fi
+    if [ -f "$tl_bak/CLAUDE.md" ]; then
+      _tl_put_back "$tl_bak/CLAUDE.md" "$TL_CLAUDE" || left="$left CLAUDE.md"
+    fi
+    if [ -z "$left" ]; then
+      print_fail "TL;DR mode was not changed: $why. The manifest, settings.json and CLAUDE.md are as they were."
+      rm -rf "$tl_bak"
+    else
+      print_fail "TL;DR mode was not changed: $why — and these could not be put back:$left."
+      echo "  What was in them before this run is kept in $tl_bak; copy it back by hand." >&2
+    fi
+    exit 1
+  }
+
+  if ! { jq --argjson v "$_tl" '.tldr_mode = $v' "$TL_MANIFEST" > "$TL_MANIFEST.tmp" && mv "$TL_MANIFEST.tmp" "$TL_MANIFEST"; }; then tl_rollback "the manifest could not be written"; fi   # BL-312-RECONF-MANIFEST
+  tl_wired="already registered"
+  if [ "$_tl" = true ]; then
+    [ -f "$TL_SETTINGS" ] || printf '{}\n' > "$TL_SETTINGS" || tl_rollback "settings.json could not be created"
+    tl_rc=0
+    soif_tldr_register_hook "$TL_SETTINGS" || tl_rc=$?   # BL-312-RECONF-WIRE
+    case "$tl_rc" in
+      0) tl_wired="registered now" ;;
+      1) : ;;
+      *) tl_rollback "the Stop hook could not be registered in settings.json" ;;
+    esac
+  fi
+  if [ "$tl_md_state" = "absent-file" ]; then
+    tl_md_note="there is no CLAUDE.md, so no section was written"
+  else
+    soif_tldr_apply_claude_md "$TL_CLAUDE" "$tl_word" || tl_rollback "CLAUDE.md could not be edited"   # BL-312-RECONF-CLAUDE-MD
+    # Said as what happened. `on` over a section already there writes it again
+    # with the current wording, at the end of the file — the way a project picks
+    # up a wording change after an upgrade — so an edit between its markers goes.
+    if cmp -s "$tl_bak/CLAUDE.md" "$TL_CLAUDE"; then
+      if [ "$_tl" = true ]; then tl_md_note="the TL;DR Mode section is already there, as current"; else tl_md_note="there is no TL;DR Mode section"; fi
+    elif [ "$_tl" = false ]; then
+      tl_md_note="the TL;DR Mode section was removed"
+    elif [ "$tl_md_state" = "present" ]; then
+      tl_md_note="the TL;DR Mode section was rewritten with the current wording, at the end of the file; anything edited between its markers was replaced"   # BL-312-RECONF-REWRITTEN
+    else
+      tl_md_note="the TL;DR Mode section was added"
+    fi
+  fi
+  rm -rf "$tl_bak"
+
+  print_ok "TL;DR mode: $tl_before -> $tl_word"
+  echo "  .claude/manifest.json: tldr_mode = $_tl"
+  echo "  CLAUDE.md: $tl_md_note"
+  if [ "$_tl" = true ]; then
+    echo "  .claude/settings.json: the Stop hook scripts/hooks/tldr-check.sh is $tl_wired"
+  else
+    echo "  .claude/settings.json: unchanged — the hook stays registered and does nothing while tldr_mode is false"
+  fi
+  echo "  Nothing was committed. It takes effect from the next reply in Claude Code."
+  exit 0
+fi
 
 # BL-030 Task 8: --enforcement-level <no|light|strict> transition.
 if [ -n "$RECONF_LEVEL" ]; then
@@ -234,7 +404,7 @@ if [ "$RECONF_RESET_BASELINE" = "1" ]; then
 fi
 
 if [ -z "$FIELD" ] || [ -z "$NEW_VALUE" ]; then
-  print_fail "Required: --field and --new (or use --enforcement-level / --reset-detection-baseline)"
+  print_fail "Required: --field and --new (or use --enforcement-level / --reset-detection-baseline / --tldr-mode)"
   exit 1
 fi
 

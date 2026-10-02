@@ -624,6 +624,7 @@ jobs:
             tests/test-bl311-adopt-mcp-mutants.sh
             tests/test-bl311-mcp-add-order.sh
             tests/test-bl316-installers.sh
+            tests/test-bl312-tldr-mode.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1056,8 +1057,9 @@ jobs:
             tests/test-bl311-c-scout-runner-ignore-rule.sh  # 36s local without uv, as the runner has none (39s with uv, measured); Scout suites run ~2x local in CI — one real adoption, stubbed and real --run-tests, 35 mutants (M25 needs uv); here, not in `rest`, which measured 577s of 720s on PR #490
             tests/test-bl316-installers.sh                  # 15s local, measured — two real adoptions, seven resolver runs, 11 mutants; here, not in `rest` (612s of 720s on PR #493)
           )
-          pin_mcp_mutants=(                               # 400s on PR #490's run, of 720s
+          pin_mcp_mutants=(                               # 400s on PR #490's run, 355s on PR #494's, of 720s
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
+            tests/test-bl312-tldr-mode.sh                 # ~100s local, measured (100s and 105s after review round 1) — five completed adoptions and two refused, eight adoption mutants, 34 mutants in all; here, not in `rest` (518s of 720s on PR #494) or `mcp` (349s, four files)
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the

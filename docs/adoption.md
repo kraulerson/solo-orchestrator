@@ -221,8 +221,10 @@ Who is this project for?
 If the Qdrant or Context7 server is missing and this machine can set it up, it
 also offers to — an **optional** question; no answer means skip it
 ([The memory and documentation servers](#the-memory-and-documentation-servers)).
-Then it confirms what the survey found, writes the project's state at phase 0,
-and commits. **Your uncommitted work is never staged**; the commit contains only
+Then it confirms what the survey found, asks — last, and optional: no answer
+means **no** — whether every reply the agent gives should end with a
+plain-English TL;DR ([TL;DR mode](#last-tldr-mode)), writes the project's state
+at phase 0, and commits. **Your uncommitted work is never staged**; the commit contains only
 files adoption wrote. Exit codes: `0` adopted; `1` did not complete (a refusal,
 a stop, or a halt); `2` bad usage.
 
@@ -363,8 +365,10 @@ would un-adopt the project.
 
 What it does, in order: reads the survey, offers what the survey found as
 EVIDENCE, asks who the project is for and which track it is on, confirms the
-answers the survey already derived, writes the project's state at phase 0,
-records the adoption, and commits exactly the files it wrote.
+answers the survey already derived, asks whether every reply the agent gives
+should end with a plain-English TL;DR (no answer means no), writes the
+project's state at phase 0, records the adoption, and commits exactly the files
+it wrote.
 
 Your project starts at phase 0 whatever the survey found. Nothing is marked as
 already done and no shortcut is taken past any gate — the questions about what
@@ -485,6 +489,50 @@ track`). The answer is recorded once, in both `.claude/phase-state.json` and
 `.claude/intake-progress.json`, and the `CLAUDE.md` adoption writes carries it.
 A script answers it on standard input like every other question — the option's
 number or its words, one per line.
+
+### Last, TL;DR mode
+
+After the survey's confirmations and before anything is written, adoption asks
+one more question (`## BL-312:`) — whether every reply the agent gives should end
+with a plain-English TL;DR. Observed, answering `yes`:
+
+```text
+══ How the agent replies to you
+   TL;DR mode ends every reply with one plain-English summary: what happened, what it
+   means for you, next steps, what is waiting on you, your options with their pros and
+   cons, a recommendation with its reasoning, and what happens if you do nothing.
+   You can switch it later: bash scripts/reconfigure-project.sh --tldr-mode on (or off).
+
+Do you want every reply to end with a plain-English summary of what happened, your options and a recommendation? (No answer means no.)
+   1) no
+   2) yes
+   Answer with the number or the words:
+   TL;DR mode: on
+```
+
+**Like the server question, it is optional, and no answer means no** — unlike
+the tier and the track. An empty answer or the end of your input turns it off
+and says so (`No answer — TL;DR
+mode is off.`); `1` or `no` is off; `2` or `yes` is on; anything else stops the
+run before anything is written, as every question does (`'maybe' is not one of
+the answers offered for: TL;DR mode`).
+
+**Why it is last.** A script that pipes its answers — and the framework's own
+tests do — was written for the questions before it. Asked anywhere earlier,
+this question would take an answer meant for a later one and shift the rest.
+Last, a script's answers run out before it (no) or reach it with a spare `1`
+(also no — "no" is listed first for that reason), so a stray answer can never
+turn it on.
+
+The answer is written to `.claude/manifest.json` as `tldr_mode: true` or
+`false` — always, so the choice is on record either way. On, `CLAUDE.md` gets a
+short "TL;DR Mode" section stating the eight parts, and the Stop hook
+`scripts/hooks/tldr-check.sh` sends back, once per turn, any reply with no
+TL;DR outside a code block. The hook is registered in `.claude/settings.json`
+either way — beside your Development Guardrails' `stop-checklist.sh`, if you
+have them, and the framework's own Stop hooks — and does nothing while the
+mode is off. `bash scripts/reconfigure-project.sh --tldr-mode on|off` switches
+it; the user guide's TL;DR mode section has the rest.
 
 ---
 

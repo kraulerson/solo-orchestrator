@@ -314,7 +314,7 @@ chmod +x init.sh
 
 The framework lives at `~/solo-orchestrator` — the README and the adoption guide clone to the same place, and the commands later in this guide that run a script from the clone (`--sync-framework`, below) assume it. Running init.sh from inside the clone is the supported flow. `--project-dir my-project` — a bare folder name — creates the project **beside** the clone, as a sibling of `solo-orchestrator/` (here `~/my-project`), and skips the directory prompt below. Pass an absolute path instead and it is used exactly as given. Plain `./init.sh` with no flags still works and asks you interactively. Either way init refuses a target that would write onto the framework itself — the clone, anything inside it, or another copy of solo-orchestrator.
 
-The script prompts for 7 inputs (6 if you passed `--project-dir`):
+The script prompts for the inputs below (it skips the directory prompt if you passed `--project-dir`):
 
 | Prompt | What You Enter | Guidance |
 |---|---|---|
@@ -324,6 +324,7 @@ The script prompts for 7 inputs (6 if you passed `--project-dir`):
 | **Project track** | Light / Standard / Full | **Light:** internal tools, <10 users, skip market audit. **Standard:** external users, moderate complexity. **Full:** enterprise buyers, sensitive data, pen testing mandatory. |
 | **Personal or Organizational** | Personal / Organizational | Organizational adds governance pre-flight requirements and approval authority structures. |
 | **Primary language** | TypeScript, Python, Rust, C#, Kotlin, Java, Go, Dart, Swift, Other | Determines the CI pipeline template (testing, linting, SAST, dependency audit). |
+| **TL;DR mode** — *"Do you want every reply to end with a plain-English summary of what happened, your options and a recommendation? [y/N]"* | `y` for yes; Enter (or anything else) for no | Off unless you say yes. On, every reply the agent gives you ends with one plain-English TL;DR: what happened, what it means for you, next steps, what is waiting on you, your options with their pros and cons, a recommendation with its reasoning, what happens if you do nothing, and every command you must run in a fenced block. See [TL;DR mode](#tldr-mode) below. |
 | **Project directory** | Path — press Enter to accept the default | Where the project is created. The default is the **clone's parent directory** plus your project name, i.e. a sibling of `solo-orchestrator/` (it falls back to `~/projects/` only if that parent cannot be resolved). Typing a bare name here resolves against that same parent, so it also lands beside the clone; type an absolute path to put it anywhere else. Skipped entirely when you pass `--project-dir`. |
 
 ### What Gets Generated
@@ -386,6 +387,7 @@ The manifest is a JSON file maintained jointly by CDF (for framework version pin
 - `host` — git host type: `github` | `gitlab` | `bitbucket` | `other`. Written at init time; consumed by host-aware scripts to route calls through the correct driver.
 - `mode` — project mode: `personal` | `org`. Controls protection bar and some governance paths.
 - `remote_url` — HTTPS clone URL of the remote created at init.
+- `tldr_mode` — `true` or `false`: whether every reply ends with a plain-English TL;DR ([TL;DR mode](#tldr-mode)). Absent reads as `false`.
 
 Scripts should always read these via `jq` (e.g., `jq -r '.host' .claude/manifest.json`) rather than parsing manually.
 
@@ -561,6 +563,20 @@ Section 13 of the Intake contains a ready-to-use initialization prompt. `bash sc
 - Blank fields must be flagged immediately
 
 You also provide the Builder's Guide (`docs/reference/builders-guide.md`) and the relevant Platform Module.
+
+### TL;DR mode
+
+An opt-in reply format, chosen once — at the `init.sh` question above, or by adoption's last question — and switched whenever you like:
+
+```bash
+bash scripts/reconfigure-project.sh --tldr-mode on    # or: off
+```
+
+When it is on, every reply the agent gives you ends with exactly one plain-English **TL;DR**, written for someone who is not a programmer and restated in full every time (never "as above"). It carries eight parts: what happened; what it means for you; next steps; what is waiting on you; the options; the pros and cons of each; a recommendation with its reasoning; and what happens if you do nothing — plus every command you must run, in a fenced block. It sits on top of the [Messaging Standard](messaging-standard.md), which already asks for five of those parts in every *summary*; TL;DR mode asks for all eight in every *reply*.
+
+**How it is kept.** The choice is `tldr_mode` in `.claude/manifest.json`. While it is on, your `CLAUDE.md` carries a short "TL;DR Mode" section telling the agent what the TL;DR contains, and a Stop hook (`scripts/hooks/tldr-check.sh`) sends back — at most once per turn — any reply with no TL;DR outside a code block. The hook checks that a TL;DR is *there*, not what it says. It is registered in every project `init.sh` or adoption creates, whether the mode is on or off, and does nothing while it is off; a project created before it existed gets the script from `--sync-framework` and the registration from `reconfigure-project.sh --tldr-mode on`. `reconfigure-project.sh --tldr-mode` changes the manifest key and the `CLAUDE.md` section together and makes sure the hook is registered; it commits nothing, and it is a change of its own — beside another option it refuses. Running `--tldr-mode on` while it is already on writes the section again with the current wording, which is how a project picks up a wording change after an upgrade; anything edited inside the section is replaced, and the run says so. A non-interactive `init.sh` reads it from `"tldr_mode": true` in its `--config` file and leaves it off without that key.
+
+**If it cannot tell, it stays out of the way.** No `jq`, a manifest it cannot read, or a key that is not exactly `true` all count as off. That is deliberate — it is a format you asked for, not a safety check — and a missing `jq` is said in one line rather than silently skipped.
 
 ### The Agent's Operating Model
 
@@ -1498,7 +1514,7 @@ All scripts live in `scripts/` and can be run with `bash scripts/<name>.sh`. Scr
 | `check-updates.sh` | Framework update availability check | `bash scripts/check-updates.sh` | Any |
 | `intake-wizard.sh` | Interactive project intake questionnaire | `bash scripts/intake-wizard.sh` | Pre-0 |
 | `upgrade-project.sh` | Track/deployment upgrade (Light→Standard, personal→org) | `bash scripts/upgrade-project.sh --help` | Any |
-| `reconfigure-project.sh` | Regenerate CLAUDE.md, APPROVAL_LOG header, intake-progress, CI/release pipelines on name/platform/language change (track/deployment use upgrade-project.sh) | `bash scripts/reconfigure-project.sh --help` | Any |
+| `reconfigure-project.sh` | Regenerate CLAUDE.md, APPROVAL_LOG header, intake-progress, CI/release pipelines on name/platform/language change (track/deployment use upgrade-project.sh); switch TL;DR mode (`--tldr-mode on\|off`) | `bash scripts/reconfigure-project.sh --help` | Any |
 | `resolve-tools.sh` | Tool matrix resolution by platform/language/track/phase | `bash scripts/resolve-tools.sh --dev-os <os> --platform <p> --language <l> --track <t> --phase <n>` (no `--help` handler) | Any |
 | `resume.sh` | Generate session resume context for copy/paste | `bash scripts/resume.sh` | Any |
 | `check-gate.sh` | Host-aware remediation helper for gate failures (branch protection and friends) | `bash scripts/check-gate.sh --help` | Any |

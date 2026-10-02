@@ -977,6 +977,15 @@ run_child_suite "tests/test-bl284-verify-install-context.sh" \
 run_child_suite "tests/test-bl316-installers.sh" \
   "BL-316: Superpowers installs with the BL-284 command everywhere; gitleaks on Linux is pinned and checksum-verified" \
   "BL-316 installer tests FAILED (run tests/test-bl316-installers.sh for details)"
+# BL-312: opt-in TL;DR mode — the Stop hook, its wiring beside the bypass
+# detector, the CLAUDE.md section, adoption's last question, reconfigure's
+# --tldr-mode, an upgrade keeping the key. The -init file runs init.sh itself.
+run_child_suite "tests/test-bl312-tldr-mode.sh" \
+  "BL-312: TL;DR mode — hook, wiring, CLAUDE.md section, adoption question, reconfigure, upgrade" \
+  "BL-312 TL;DR mode tests FAILED (run tests/test-bl312-tldr-mode.sh for details)"
+run_child_suite "tests/test-bl312-tldr-mode-init.sh" \
+  "BL-312: TL;DR mode through init.sh — --config key, real scaffolds on and off" \
+  "BL-312 TL;DR mode init tests FAILED (run tests/test-bl312-tldr-mode-init.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

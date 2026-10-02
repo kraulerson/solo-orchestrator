@@ -200,7 +200,9 @@ one settings line that names the clone as trusted code to run:
 It shows you what the scan found as *evidence that decides nothing*, asks the
 two questions no amount of reading your code can answer — **who the project is
 for**, which sets its enforcement tier, and **which track it is on** (Light,
-Standard or Full) — and lands it at **phase 0**, writing
+Standard or Full) — then one optional one, whether every reply the agent gives
+should end with a plain-English **TL;DR** (off unless you say yes; `init.sh`
+asks it too), and lands it at **phase 0**, writing
 state in a fail-safe order, laying down the framework's `CLAUDE.md` and
 documents, and committing exactly the files it wrote.
 

@@ -126,7 +126,7 @@ ADOPT_LIB_DIR="$ADOPT_SELF_DIR/lib/adopt"
 ADOPT_CORE_LIB_DIR="$ADOPT_SELF_DIR/lib"
 
 # ── Core libs (M2's declared set) ───────────────────────────────────────────
-for _core in helpers-core.sh render-project-docs.sh claude-settings.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh bypass-audit.sh; do
+for _core in helpers-core.sh render-project-docs.sh tldr-mode.sh claude-settings.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh bypass-audit.sh; do
   if [ ! -f "$ADOPT_CORE_LIB_DIR/$_core" ]; then
     echo "adopt-project: missing $ADOPT_CORE_LIB_DIR/$_core — run this from a complete framework clone." >&2
     exit 2
@@ -182,8 +182,10 @@ would un-adopt the project.
 
 What it does, in order: reads the survey, offers what the survey found as
 EVIDENCE, asks who the project is for and which track it is on, confirms the
-answers the survey already derived, writes the project's state at phase 0,
-records the adoption, and commits exactly the files it wrote.
+answers the survey already derived, asks whether every reply the agent gives
+should end with a plain-English TL;DR (no answer means no), writes the
+project's state at phase 0, records the adoption, and commits exactly the files
+it wrote.
 
 Your project starts at phase 0 whatever the survey found. Nothing is marked as
 already done and no shortcut is taken past any gate — the questions about what
