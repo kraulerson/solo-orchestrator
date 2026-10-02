@@ -1756,8 +1756,8 @@ _tool_install_dispatch_structured() {
   #   * gitleaks on Linux: a framework-owned installer that pins the version and
   #     checks the download's SHA-256 before installing. It is run from beside
   #     THIS script, never from a path the matrix supplies.
-  #   * Superpowers: the same command `# BL-284-PLUGIN-VERB` runs, so the matrix
-  #     row and fix_superpowers have one owner of that argv.
+  #   * Superpowers: the same command `## BL-284:`'s fix_superpowers runs, so the
+  #     matrix row and that fixer have one owner of the argv.
   local _vetted=""
   case "$cmd" in
     'bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"') _vetted="install-gitleaks.sh" ;;   # BL-316-VETTED-INSTALLER
