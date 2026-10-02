@@ -1748,6 +1748,35 @@ _tool_install_valid_package() {
 # payload already proved hostile intent).
 _tool_install_dispatch_structured() {
   local cmd="$1"
+
+  # `## BL-316:` two matrix rows that are not `<pkg-mgr> install <pkg>` and must
+  # not go through the legacy `bash -c` path. Matched EXACTLY, whole string: a
+  # lookalike (an extra argument, a chained command, another path) falls through
+  # to Layer 2, where `bash` is not an allowed head and it is refused.
+  #   * gitleaks on Linux: a framework-owned installer that pins the version and
+  #     checks the download's SHA-256 before installing. It is run from beside
+  #     THIS script, never from a path the matrix supplies.
+  #   * Superpowers: the same command `# BL-284-PLUGIN-VERB` runs, so the matrix
+  #     row and fix_superpowers have one owner of that argv.
+  local _vetted=""
+  case "$cmd" in
+    'bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"') _vetted="install-gitleaks.sh" ;;   # BL-316-VETTED-INSTALLER
+    'claude plugin install --scope user superpowers@claude-plugins-official') _vetted="fix_superpowers" ;;   # BL-316-SUPERPOWERS-ROUTE
+  esac
+  if [ "$_vetted" = "fix_superpowers" ]; then
+    print_info "fix_tool_install [structured]: fix_superpowers" >&2
+    fix_superpowers
+    return $?
+  elif [ -n "$_vetted" ]; then
+    if [ ! -f "${SCRIPT_DIR:-}/$_vetted" ]; then
+      _tool_install_refuse "$cmd" "the framework's installer is not beside verify-install.sh (${SCRIPT_DIR:-}/$_vetted); refresh it with: bash scripts/upgrade-project.sh --sync-framework"
+      return 2
+    fi
+    print_info "fix_tool_install [structured]: bash ${SCRIPT_DIR:-}/$_vetted" >&2
+    bash -- "${SCRIPT_DIR:-}/$_vetted"
+    return $?
+  fi
+
   # Tokenize via read -a (split on $IFS = space/tab/newline). This
   # rejects multi-line input by design — we want any newline in the
   # install_cmd to land us off the structured path (the legacy

@@ -971,6 +971,12 @@ run_child_suite "tests/test-bl311-mcp-add-order.sh" \
 run_child_suite "tests/test-bl284-verify-install-context.sh" \
   "BL-284: an adopted project's recorded context reaches has_context(); fix_superpowers uses a real CLI verb" \
   "BL-284 verify-install context/plugin-verb tests FAILED (run tests/test-bl284-verify-install-context.sh for details)"
+# BL-316: the tool matrix's Superpowers command used a CLI verb that does not
+# exist, and its Linux gitleaks install was a pipeline verify-install.sh refuses;
+# now one BL-284 command, and a pinned, checksum-verified installer.
+run_child_suite "tests/test-bl316-installers.sh" \
+  "BL-316: Superpowers installs with the BL-284 command everywhere; gitleaks on Linux is pinned and checksum-verified" \
+  "BL-316 installer tests FAILED (run tests/test-bl316-installers.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

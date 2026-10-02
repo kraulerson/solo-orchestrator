@@ -437,7 +437,7 @@ The init script installs these tools globally on your machine. Each installation
 
 | Tool | Purpose | How to Install |
 |---|---|---|
-| **Superpowers** | Agentic skills plugin for Claude Code (TDD, subagents, debugging) | `claude plugins add superpowers` |
+| **Superpowers** | Agentic skills plugin for Claude Code (TDD, subagents, debugging) | `claude plugin install --scope user superpowers@claude-plugins-official` |
 | **Context7 MCP** | Live library documentation for the AI agent | `claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp` |
 | **Qdrant MCP** | Persistent semantic memory across sessions | Docker container + MCP server config |
 

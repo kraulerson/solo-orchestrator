@@ -331,7 +331,11 @@ adopt_resolve_tools() {
       # `npm init playwright@latest`, named in this file already, is one.
       # Detaching stdin also means an interactive installer fails fast instead
       # of hanging on a prompt this run has redirected to /dev/null.
-      if ( cd "$ADOPT_WORK" 2>/dev/null && eval "$cmd" ) </dev/null >/dev/null 2>&1; then   # BL-242-RESOLVER-INSTALL
+      # `## BL-316:` the Linux recipe names "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh";
+      # from the work dir above, a bare `scripts/` would be a path that does not exist.
+      if ( cd "$ADOPT_WORK" 2>/dev/null || exit 1
+           export SOLO_SCRIPTS_DIR="${SOLO_SCRIPTS_DIR:-$ADOPT_FRAMEWORK_ROOT/scripts}"   # BL-316-SCRIPTS-DIR
+           eval "$cmd" ) </dev/null >/dev/null 2>&1; then   # BL-242-RESOLVER-INSTALL
         :
       fi
       _bl225_fp_after="$(adopt_tree_fingerprint "${root:-}")" || _bl225_fp_after=""

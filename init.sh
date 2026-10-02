@@ -797,6 +797,10 @@ collect_project_info() {
 # ================================================================
 resolve_and_install_tools() {
   print_step "Resolving tool installation plan..."
+  # `## BL-316:` matrix install rows can name a framework script as
+  # "${SOLO_SCRIPTS_DIR:-scripts}/…" (gitleaks on Linux). This runs before any
+  # `cd`, so without it that path would resolve against the operator's shell.
+  export SOLO_SCRIPTS_DIR="${SOLO_SCRIPTS_DIR:-$SCRIPT_DIR/scripts}"   # BL-316-SCRIPTS-DIR
   local os_type="$OS_TYPE"
   local dev_os
   case "$os_type" in
@@ -1416,6 +1420,10 @@ create_project() {
   # in every generated project — correct, but useless — so it ships with them.
   cp "$SCRIPT_DIR/scripts/probe-tool.sh" scripts/
   chmod +x scripts/probe-tool.sh 2>/dev/null || true
+  # `## BL-316:` the tool matrix's Linux gitleaks rows run this installer, and it
+  # checks its download with the verifier beside it; both ship with the matrix.
+  cp "$SCRIPT_DIR/scripts/install-gitleaks.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/ci-verify-sha256.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-version-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-freshness-check.sh" scripts/   # BL-109 S2 (Currency System, Layer 1)
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/
