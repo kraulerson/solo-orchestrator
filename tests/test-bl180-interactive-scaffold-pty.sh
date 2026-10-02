@@ -270,6 +270,8 @@ expect {
     -re {Project name}                  { send -- "$projname\r";  exp_continue }
     -re {One-sentence description}      { send -- "bl180 pty fixture\r"; exp_continue }
     -re {Project directory}             { send -- "$projdir\r";   exp_continue }
+    # `## BL-312:` the TL;DR-mode question, asked only at a terminal — Enter is no.
+    -re {plain-English summary of what happened} { send -- "\r"; exp_continue }
     -re {Platform type:}                { set ans $pidx;          exp_continue }
     -re {Project track:}                { set ans 2;              exp_continue }
     -re {Personal or organizational\?}  { set ans 1;              exp_continue }
@@ -344,6 +346,7 @@ $PLATFORM_IDX
 1
 2
 $LANGUAGE_IDX
+
 $PROJ
 y
 y

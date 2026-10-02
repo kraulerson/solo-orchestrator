@@ -74,7 +74,8 @@ GR_LOCAL='{"permissions":{"allow":["Bash(cd *)"]}}'
 #   currency              soif_currency_stamp (# BL-109-CURRENCY)
 #   mcp                   `.mcp.qdrant_required`, init.sh and adoption's session layer
 #   adoption              the adoption stamp
-SOLO_KEYS="host mode remote_url deployment poc_mode enforcement_level soloFrameworkCommit currency adoption mcp"
+#   tldr_mode             `## BL-312:` TL;DR mode — init.sh's seed and `adopt_write_manifest`
+SOLO_KEYS="host mode remote_url deployment poc_mode enforcement_level soloFrameworkCommit currency adoption mcp tldr_mode"
 
 _base() {
   local p="$1"
