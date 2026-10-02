@@ -22529,6 +22529,18 @@ re-prompting forever on a reply it cannot parse); and how it coexists with the G
 - **Tests:** `tests/test-bl312-tldr-mode.sh` (unit lane, pinned to `mcp-mutants`) and
   `tests/test-bl312-tldr-mode-init.sh` (runs init.sh, full lane), each with mutation proofs of every
   marked line above.
+- **Review round 1 (2026-10-02).** The CLAUDE.md section's command rule is replaced (residual below).
+  init.sh's default carries `# BL-312-INIT-DEFAULT`: a `--non-interactive` run with flags and no
+  `--config` reaches neither the question nor the config key, so that line alone keeps it off (init
+  suite I9, unit S3). Reconfigure's rollback puts a file back only when it differs and checks every
+  step (`# BL-312-RECONF-PUT-BACK`, `# BL-312-RECONF-ROLLBACK`): with CLAUDE.md read-only, the old
+  rollback's own `cp` ended the script under `set -e` before its `[FAIL]` line and before removing its
+  backup; now the failure is always said, and the backup is removed unless a file could not be put
+  back, when it is kept and named (R5). `--tldr-mode on` over a section already there rewrites it with
+  the current wording and says so (`# BL-312-RECONF-REWRITTEN`, R6) — the way a project picks up a
+  wording change like this one. `--tldr-mode` beside another option refuses (`# BL-312-RECONF-ALONE`,
+  R7); it used to do the TL;DR change and drop the other one with rc 0. The hook's fence rule is
+  pinned for a fence indented under a list item (H3).
 
 **Residuals (measured, not fixed here).**
 - **The reply that answers a TL;DR block is never scanned by the bypass detector.** The detector
@@ -22538,8 +22550,30 @@ re-prompting forever on a reply it cannot parse); and how it coexists with the G
   detector's re-entrancy guard (reworked in PR #493) is its own decision.
 - **The detector's `terminal_workaround` pattern can flag a compliant TL;DR.** "If you do nothing: the
   shell script stays as it is." raised a row and the pending-approval sentinel (measured), because
-  part 8 says "do" and the line says "shell". The CLAUDE.md section tells the agent to keep "terminal"
-  and "shell" out of any sentence with "run", "do" or "execute"; the pattern is unchanged.
+  part 8 says "do" and the line says "shell". The first rule — keep "terminal" and "shell" out of any
+  sentence with "run", "do" or "execute" — was refuted in review round 1: the pattern,
+  `(run|do|execute) [^.]*(terminal|shell)`, is a case-insensitive substring match per line that stops
+  only at a full stop, so sample TL;DR lines that obeyed it still raised the sentinel — six, by the
+  review's count ("do (a) — in a nutshell", "now run shellcheck", "do nothing: every payment
+  terminal"). **The rule is
+  now** (the generated CLAUDE.md section and `docs/messaging-standard.md` Part 6): never write
+  "terminal" or "shell", or any word containing either (PowerShell, shellcheck, nutshell), anywhere in
+  the TL;DR outside its code blocks — "the command line" instead — and open every code block with
+  three backticks, because the detector strips those fences and not `~~~`. Measured through the real
+  detector (Stop envelope, a scratch project): the fifteen samples raised 12 of 15 as written and 0 of
+  15 reworded; three of the pairs are case B3 of `tests/test-bl312-tldr-mode.sh`, and C4 reads the
+  words from the detector's own pattern, so a word added there fails it. **Not changed here:** a
+  word-bounded `terminal_workaround` would stop flagging "nutshell" and "shellcheck", but the
+  pattern is the detector's own decision — it was reworked in PR #493 — and this entry does not
+  change it. The rule above holds whichever way that goes.
+- **The TL;DR hook sends a reply back as a hook ERROR.** Claude Code's hooks reference (context7
+  `/websites/code_claude`, "Stop decision control") gives a Stop hook a second way to continue the
+  conversation: `hookSpecificOutput.additionalContext` is "non-error feedback for Claude … unlike
+  `decision: "block"` it is shown in the transcript as hook feedback rather than a hook error", under
+  the same `stop_hook_active` loop protection. `# BL-312-TLDR-BLOCK` uses `decision: "block"`, which
+  Karl ruled on 2026-10-01 (block once), so every reply missing its TL;DR shows the person a hook
+  error. Worth reconsidering once the oldest Claude Code version the framework supports is checked
+  for `additionalContext` on Stop; the hook is unchanged here.
 - **Presence, not content, by ruling:** a TL;DR that skips parts passes the hook.
 - **A project scaffolded before this entry** gets the hook script from `--sync-framework` but not its
   registration (`upgrade-project.sh` never edits `settings.json`); `reconfigure-project.sh --tldr-mode

@@ -364,8 +364,20 @@ would be noise — but it is a check that fails open, and this paragraph is wher
 that is written down. A missing `jq` is said in one line rather than skipped
 silently.
 
-**Why commands go in a fence.** A command in a fenced block is one a reader who is
-not a developer can copy exactly. And prose that says where to run something —
-"run it in your terminal" — is what the framework's bypass detector reads as a
-proposed workaround, so the fence also keeps a compliant TL;DR from being recorded
-as one.
+**Why commands go in a fence, and two words stay out.** A command in a fenced block
+is one a reader who is not a developer can copy exactly. The rest of the rule is
+for the framework's bypass detector, which records a proposed workaround — and
+raises a question the person must answer — wherever "run", "do" or "execute" is
+followed later on the same line by "terminal" or "shell". It matches inside other
+words and stops only at a full stop, so plain sentences trip it. Both of these
+were recorded as workarounds:
+
+```
+7. Recommendation: do (a) — in a nutshell, it is the smaller risk.
+8. If you do nothing: every payment terminal on the new firmware keeps crashing.
+```
+
+So the TL;DR **never writes "terminal" or "shell", or any word that contains
+either (PowerShell, shellcheck, nutshell), anywhere outside its code blocks** — it
+says "the command line" instead — and it opens every code block with three
+backticks, not `~~~`, because the detector skips only backtick fences.
