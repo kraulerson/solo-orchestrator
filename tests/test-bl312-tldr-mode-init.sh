@@ -14,6 +14,7 @@
 # init.sh's question and seed BY STRUCTURE.
 #
 # I1-I4  --validate-only: true, absent, false, a string.
+# I9     --validate-only with flags only, no --config: off.
 # I5     a real scaffold, on — end to end, including the shipped hook and the
 #        project's own reconfigure-project.sh switching it off.
 # I6     a real scaffold, no key.
@@ -22,7 +23,7 @@
 #        asked, so it takes no line meant for a later prompt, and it is off.
 # I8     the interactive setup over a real pty (expect; skipped loudly without
 #        it), --dry-run: `y` is on; Enter and a stray `1` are off.
-# MI1-3  mutants of the three init.sh marked lines (MI2 scaffolds from a mirror).
+# MI1-4  mutants of the four init.sh marked lines (MI2 scaffolds from a mirror).
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -72,6 +73,15 @@ case_I2() {   # no key → false
 case_I3() {   # false → false
   local d; d="$(newtmp)"; _cfg "$d" '. + {tldr_mode: false}'; _validate "$1" "$d"
   CASE_DETAIL="rc=$VRC tldr_mode=$(printf '%s' "$VJSON" | jq -c .tldr_mode 2>/dev/null)"
+  [ "$VRC" -eq 0 ] && [ "$(printf '%s' "$VJSON" | jq -c .tldr_mode)" = "false" ]
+}
+case_I9() {   # flags only, no --config at all → false: nothing but init.sh's own default decides it
+  local d; d="$(newtmp)"
+  ( cd "$d" && bash "$1/init.sh" --non-interactive --project tl-probe --platform web --deployment personal \
+      --language typescript --git-host github --project-dir "$d/proj" --validate-only ) > "$d/v.out" 2> "$d/v.err"
+  VRC=$?
+  VJSON="$(sed -n '/^{/,/^}/p' "$d/v.out")"
+  CASE_DETAIL="rc=$VRC tldr_mode=$(printf '%s' "$VJSON" | jq -c .tldr_mode 2>/dev/null) err=$(tail -2 "$d/v.err" | tr '\n' '|')"
   [ "$VRC" -eq 0 ] && [ "$(printf '%s' "$VJSON" | jq -c .tldr_mode)" = "false" ]
 }
 case_I4() {   # a string is refused in the uniform shape, naming the field
@@ -204,6 +214,7 @@ check "I1 --config tldr_mode true: resolved true, and init.sh no longer calls th
 check "I2 --config without tldr_mode: resolved false (off)" case_I2 "$REPO_ROOT"
 check "I3 --config tldr_mode false: resolved false" case_I3 "$REPO_ROOT"
 check "I4 --config tldr_mode \"yes\": refused in init.sh's [FAIL] shape, naming the field and the type found" case_I4 "$REPO_ROOT"
+check "I9 --non-interactive with flags only (no --config): resolved false (off) — init.sh's own default" case_I9 "$REPO_ROOT"
 check "I5 a real scaffold with tldr_mode true: key, section at the end of CLAUDE.md, hook + lib shipped, one registration after the bypass detector; the shipped hook blocks and allows; reconfigure turns it off" case_I5 "$REPO_ROOT"
 check "I6 a real scaffold without the key: tldr_mode false written, no section, the hook still registered once" case_I6 "$REPO_ROOT"
 check "I7 the interactive setup with piped stdin: the question is not asked and takes no line — the fed sequence still reaches Continue, strict, web/standard/typescript — and it is off, said on stderr" case_I7 "$REPO_ROOT"
@@ -247,6 +258,7 @@ mutant() {   # mutant ID MARKER REPLACEMENT KILLER WHAT
 mutant MI1 '# BL-312-INIT-CONFIG' '      boolean) TLDR_MODE=false ;;' case_I1 "a true tldr_mode in --config is read as false"
 mutant MI2 '# BL-312-INIT-CLAUDE-MD' '    :' case_I5 "the CLAUDE.md section is not added at birth"
 mutant MI3 '# BL-312-INIT-TTY-ONLY' '  if true; then' case_I7 "the question reads piped stdin"
+mutant MI4 '# BL-312-INIT-DEFAULT' 'TLDR_MODE=true' case_I9 "the default is on, so a flags-only non-interactive run turns it on (review round 1's X4)"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

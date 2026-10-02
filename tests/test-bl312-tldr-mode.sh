@@ -14,16 +14,19 @@
 #   H  the hook — block, allow, the fence rule, never twice a turn, off/absent/
 #      unreadable = off, no jq = off with one stderr line, its own project root.
 #   B  the bypass detector beside it: a compliant TL;DR raises nothing, and a
-#      control proves the detector was live in the same fixture.
+#      control proves the detector was live in the same fixture; three TL;DRs
+#      it flagged, reworded under the section's rule, raise nothing.
 #   W  the wiring: the shared roster registers it in the Stop group the
 #      framework's other Stop hooks use, once, in both modes, beside theirs; and
 #      init.sh's copy list ships the hook and its lib.
 #   C  the CLAUDE.md section: on, again, off restores the bytes, damaged
-#      markers are refused; the [y/N] reader.
+#      markers are refused; the [y/N] reader; its command rule names the
+#      detector's own words.
 #   S  init.sh by structure (its behaviour is the init suite's).
 #   A  adoption: yes, no, end of input, a stray `1`, the number `2`, an answer
 #      that is not offered — and where the question sits.
-#   R  reconfigure-project.sh --tldr-mode on|off, run from an adopted project.
+#   R  reconfigure-project.sh --tldr-mode on|off, run from an adopted project:
+#      the switch, its refusals, its rollback, a section rewritten and said.
 #   U  an upgrade keeps the key.
 #   G  a Guardrails-only manifest carrying `tldr_mode` is not Guardrails-only.
 #   P  the Currency System's three-way merge of CLAUDE.md: with the mode on,
@@ -68,6 +71,9 @@ check() {
 MSG_NONE=$'Fixed the parser and added a test.\n\n```\n$ bash tests/test-parser.sh\nResults: 12 passed, 0 failed\n```'
 MSG_IN_BACKTICK_FENCE=$'Fixed it.\n\n```\nTL;DR: the parser is fixed\n```'
 MSG_IN_TILDE_FENCE=$'Fixed it.\n\n~~~\nTL;DR: the parser is fixed\n~~~'
+# A fence nested in a list item is indented — the shape a TL;DR's own part 4
+# gives a command. Its opening line does not start in column 0.
+MSG_IN_NESTED_FENCE=$'Fixed it.\n\n4. Waiting on you:\n   ```\n   TL;DR: run it\n   ```'
 MSG_FILENAME_ONLY=$'Notes are in tl;dr.md and docs/tldr.txt now.'
 MSG_AFTER_FENCE=$'Fixed it.\n\n```\nbash tests/test-parser.sh\n```\n\nTL;DR: the parser is fixed; nothing waits on you.'
 # Each spelling a reply might use for the label, outside any fence.
@@ -119,13 +125,14 @@ SPELLINGS
   CASE_DETAIL="${bad:-}"
   [ -z "$bad" ]
 }
-case_H3() {   # on + "TL;DR" only inside a fence (``` or ~~~) → block
-  local h="$1/scripts/hooks/tldr-check.sh" d a="" b=""
+case_H3() {   # on + "TL;DR" only inside a fence (``` or ~~~, at column 0 or indented in a list) → block
+  local h="$1/scripts/hooks/tldr-check.sh" d a="" b="" c=""
   d="$(newtmp)"; _proj "$d" "$ON"
   _hook "$h" "$d" "$(_env "$MSG_IN_BACKTICK_FENCE")"; _blocked && a=1
   _hook "$h" "$d" "$(_env "$MSG_IN_TILDE_FENCE")"; _blocked && b=1
-  CASE_DETAIL="backtick-fence blocked=${a:-0} tilde-fence blocked=${b:-0}"
-  [ "$a" = "1" ] && [ "$b" = "1" ]
+  _hook "$h" "$d" "$(_env "$MSG_IN_NESTED_FENCE")"; _blocked && c=1
+  CASE_DETAIL="backtick-fence blocked=${a:-0} tilde-fence blocked=${b:-0} list-nested-fence blocked=${c:-0}"
+  [ "$a" = "1" ] && [ "$b" = "1" ] && [ "$c" = "1" ]
 }
 case_H4() {   # a filename that contains the token is not a TL;DR
   local h="$1/scripts/hooks/tldr-check.sh" d
@@ -182,7 +189,7 @@ echo
 echo "=== H — the TL;DR-mode Stop hook ==="
 check "H1 on, no TL;DR: one block, whose reason names all eight parts, the full-restatement rule and the fenced-command rule" case_H1 "$REPO_ROOT"
 check "H2 on, a TL;DR outside every fence (five spellings, and after a closed fence): allowed" case_H2 "$REPO_ROOT"
-check "H3 on, TL;DR only inside a \`\`\` or ~~~ fence: blocked" case_H3 "$REPO_ROOT"
+check "H3 on, TL;DR only inside a \`\`\` or ~~~ fence — at column 0, or indented under a list item: blocked" case_H3 "$REPO_ROOT"
 check "H4 on, the token only inside a filename (tl;dr.md, tldr.txt): blocked" case_H4 "$REPO_ROOT"
 check "H5 stop_hook_active true: allowed at once, so it sends a reply back at most once a turn" case_H5 "$REPO_ROOT"
 check "H6 off, key absent, the string \"true\", not JSON, not an object, no manifest: all allowed" case_H6 "$REPO_ROOT"
@@ -218,10 +225,47 @@ case_B2() {   # the control: the same reply plus a prose escape → the detector
   jq -e '[.[].details.pattern] | index("no_verify") != null' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
     && [ -f "$d/.claude/pending-approval.json" ]
 }
+# THREE TL;DRs THE OLD WORDING RULE ALLOWED AND THE DETECTOR STILL FLAGGED (BL-312
+# review round 1). terminal_workaround is `(run|do|execute) [^.]*(terminal|shell)`:
+# a substring match, per line, that stops only at a full stop — so "do (a) — in a
+# nutshell", "now run shellcheck" and "do nothing: every payment terminal" all
+# match. Each pair is the flagged line and the same line under the CLAUDE.md
+# section's rule (neither word, nor any word holding one, anywhere in the TL;DR).
+B3_BODY=$'**TL;DR**\n1. What happened: the nightly backup job now retries twice before giving up.\n2. What it means for you: fewer false alarms in the morning.\n3. Next steps: none from me on this.\n4. What is waiting on you: nothing.\n5. Options: (a) keep it; (b) roll it back.\n6. Pros and cons: (a) fewer alarms, slightly slower failure reports; (b) the old noise.'
+B3_OLD_1="$B3_BODY"$'\n7. Recommendation: do (a) — in a nutshell, it is the smaller risk.\n8. If you do nothing: it stays as it is now, which is fine.'
+B3_NEW_1="$B3_BODY"$'\n7. Recommendation: do (a) — in short, it is the smaller risk.\n8. If you do nothing: it stays as it is now, which is fine.'
+B3_OLD_2=$'**TL;DR**\n1. What happened: the commit checks now run shellcheck, so script mistakes are caught early.\n8. If you do nothing: nothing changes.'
+B3_NEW_2=$'**TL;DR**\n1. What happened: the commit checks now run a script linter, so script mistakes are caught early.\n8. If you do nothing: nothing changes.'
+B3_OLD_3="$B3_BODY"$'\n7. Recommendation: (a), so a real shop proves it first.\n8. If you do nothing: every payment terminal on the new firmware keeps crashing at start-up.'
+B3_NEW_3="$B3_BODY"$'\n7. Recommendation: (a), so a real shop proves it first.\n8. If you do nothing: every payment card reader on the new firmware keeps crashing at start-up.'
+case_B3() {   # each reworded TL;DR: allowed by the TL;DR hook, no row and no sentinel; its original raises terminal_workaround
+  local i="" old="" new="" d="" bad=""
+  for i in 1 2 3; do
+    case "$i" in
+      1) old="$B3_OLD_1"; new="$B3_NEW_1" ;;
+      2) old="$B3_OLD_2"; new="$B3_NEW_2" ;;
+      *) old="$B3_OLD_3"; new="$B3_NEW_3" ;;
+    esac
+    d="$(newtmp)"; _proj "$d" "$ON"
+    _detect "$1" "$d" "$old"
+    { [ -f "$d/.claude/pending-approval.json" ] \
+        && jq -e '[.[].details.pattern] | index("terminal_workaround") != null' "$d/.claude/bypass-audit.json" >/dev/null 2>&1; } \
+      || bad="$bad [pair $i: the original did not raise terminal_workaround, so this pair proves nothing]"
+    d="$(newtmp)"; _proj "$d" "$ON"
+    _hook "$1/scripts/hooks/tldr-check.sh" "$d" "$(_env "$new")"
+    { [ "$HRC" -eq 0 ] && [ -z "$HOUT" ]; } || bad="$bad [pair $i: the TL;DR hook sent the reworded reply back]"
+    _detect "$1" "$d" "$new"
+    { [ ! -f "$d/.claude/pending-approval.json" ] && [ ! -s "$d/.claude/bypass-audit.json" ]; } \
+      || bad="$bad [pair $i: the reworded TL;DR raised $(jq -r '[.[].details.pattern] | join(",")' "$d/.claude/bypass-audit.json" 2>/dev/null)]"
+  done
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
 echo
 echo "=== B — beside the bypass detector ==="
 check "B1 a compliant TL;DR (options naming checks, commands fenced): the TL;DR hook allows it; the bypass detector writes no row and no sentinel" case_B1 "$REPO_ROOT"
 check "B2 control: the same reply plus 'run \`git commit --no-verify\` in your terminal' — the detector records it and raises the sentinel" case_B2 "$REPO_ROOT"
+check "B3 three TL;DRs the detector flagged ('in a nutshell', 'run shellcheck', 'payment terminal'), reworded with neither word: the TL;DR hook allows them; no row, no sentinel" case_B3 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
 # W — the wiring
@@ -312,11 +356,32 @@ case_C3() {   # init.sh's [y/N] reader: y / Y / yes are yes; empty, n, no, 1, 2,
   CASE_DETAIL="${bad:-}"
   [ -z "$bad" ]
 }
+case_C4() {   # the section's wording rule matches the detector: neither of ITS words anywhere, ``` fences only, and the section itself trips nothing
+  local sec="" words="" w="" miss="" hits=""
+  sec="$(_lib "$1" soif_tldr_claude_md_section)" || { CASE_DETAIL="no section"; return 1; }
+  # The words come from the detector's own pattern — its last group — so a word
+  # added there and not here is a failure, not a quiet gap.
+  words="$( . "$1/scripts/lib/bypass-patterns.sh" >/dev/null 2>&1 && pattern_regex_for terminal_workaround \
+    | sed -n 's/.*(\([a-z|]*\))$/\1/p' | tr '|' '\n' )"
+  [ -n "$words" ] || { CASE_DETAIL="could not read the words from terminal_workaround"; return 1; }
+  for w in $words; do
+    printf '%s' "$sec" | command grep -qF "\"$w\"" || miss="$miss [\"$w\" not named]"
+  done
+  for w in "PowerShell" "shellcheck" "nutshell" 'say "the command line" instead' "anywhere in the TL;DR" \
+           'opened with ``` (not ~~~)' "it skips only \`\`\` blocks"; do
+    printf '%s' "$sec" | command grep -qF -- "$w" || miss="$miss [$w]"
+  done
+  printf '%s' "$sec" | command grep -qF 'out of any sentence' && miss="$miss [the old sentence-scoped rule is still there]"
+  hits="$( . "$1/scripts/lib/bypass-patterns.sh" >/dev/null 2>&1 && scan_bypass_patterns_all "$sec" | tr '\n' ' ' )"
+  CASE_DETAIL="words=[$(printf '%s' "$words" | tr '\n' ' ')] missing:${miss:-none} the section itself matches:[${hits:-nothing}]"
+  [ -z "$miss" ] && [ -z "$hits" ]
+}
 echo
 echo "=== C — the CLAUDE.md section and the reader ==="
 check "C1 'on' adds the section once (eight parts, the command rule, the way off); 'on' again changes nothing; 'off' restores the exact bytes" case_C1 "$REPO_ROOT"
 check "C2 damaged markers — an opener alone, or two sections — are refused, and CLAUDE.md is left as it was" case_C2 "$REPO_ROOT"
 check "C3 the [y/N] reader: y, Y, yes, Yes are yes; empty, n, N, no, 1, 2, 'sure' are no" case_C3 "$REPO_ROOT"
+check "C4 the section's command rule: never the detector's own words (read from terminal_workaround) nor PowerShell/shellcheck/nutshell anywhere in the TL;DR, 'the command line' instead, \`\`\` fences not ~~~; the section trips no detector pattern" case_C4 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
 # S — init.sh, by structure (tests/test-bl312-tldr-mode-init.sh runs it)
@@ -335,10 +400,18 @@ case_S2() {   # all four manifest seed writes carry tldr_mode, and the config ke
   CASE_DETAIL="seed-writes-with-tldr_mode=$n known-field=$(command grep -c 'known_fields=.* tldr_mode' "$1/init.sh") help=$(command grep -c '"tldr_mode": false' "$1/init.sh")"
   [ "$n" = "4" ] && command grep -q 'known_fields=.* tldr_mode' "$1/init.sh" && command grep -q '"tldr_mode": false' "$1/init.sh"
 }
+case_S3() {   # the one top-level default is false: a flags-only non-interactive run (no --config) reads nothing else
+  local lines
+  lines="$(command grep -nE '^TLDR_MODE=' "$1/init.sh")"
+  CASE_DETAIL="top-level assignments: [$(printf '%s' "$lines" | tr '\n' '|')]"
+  [ "$(printf '%s\n' "$lines" | awk 'NF' | wc -l | tr -d ' ')" = "1" ] \
+    && printf '%s' "$lines" | command grep -qE '^[0-9]+:TLDR_MODE=false[[:space:]]+# BL-312-INIT-DEFAULT$'
+}
 echo
 echo "=== S — init.sh, by structure ==="
 check "S1 init.sh's interactive setup asks the TL;DR question with [y/N] and reads the answer with soif_tldr_yes" case_S1 "$REPO_ROOT"
 check "S2 all four manifest seed writes carry tldr_mode; the --config key is known and in the --help-non-interactive example" case_S2 "$REPO_ROOT"
+check "S3 init.sh has one top-level TLDR_MODE assignment, and it is false (# BL-312-INIT-DEFAULT) — the only thing that keeps a flags-only --non-interactive run off" case_S3 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
 # A — adoption
@@ -520,6 +593,56 @@ case_R4() {   # --help names the option
   CASE_DETAIL="rc=$RC_RC"
   [ "$RC_RC" -eq 0 ] && command grep -qF -- '--tldr-mode <on|off>' "$WORK/reconf.out"
 }
+case_R5() {   # a write that fails part-way (CLAUDE.md read-only): rc 1, the [FAIL] said, every file as before, no backup left
+  local d="$1" bad="" t="" left=""
+  t="$(newtmp)"
+  cp -p "$d/.claude/manifest.json" "$d/../m.before"; cp -p "$d/.claude/settings.json" "$d/../s.before"; cp -p "$d/CLAUDE.md" "$d/../c.before"
+  chmod 444 "$d/CLAUDE.md"
+  ( cd "$d" && TMPDIR="$t" bash scripts/reconfigure-project.sh --tldr-mode on ) > "$WORK/reconf.out" 2>&1; RC_RC=$?
+  chmod 644 "$d/CLAUDE.md"
+  [ "$RC_RC" -eq 1 ] || bad="$bad [rc $RC_RC]"
+  command grep -F '[FAIL]' "$WORK/reconf.out" | command grep -qF 'TL;DR mode was not changed: CLAUDE.md could not be edited' \
+    || bad="$bad [no [FAIL] line naming CLAUDE.md: $(tail -2 "$WORK/reconf.out" | tr '\n' '|')]"
+  cmp -s "$d/../m.before" "$d/.claude/manifest.json" || bad="$bad [the manifest was not put back: tldr_mode=$(_mode "$d")]"
+  cmp -s "$d/../s.before" "$d/.claude/settings.json" || bad="$bad [settings.json was not put back]"
+  cmp -s "$d/../c.before" "$d/CLAUDE.md" || bad="$bad [CLAUDE.md changed]"
+  left="$(ls -A "$t"; ls -A "$d" "$d/.claude" | command grep -E 'tldr-mode\.|\.tmp$')"
+  [ -z "$left" ] || bad="$bad [left behind: $(printf '%s' "$left" | tr '\n' ' ')]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+case_R6() {   # 'on' when already on rewrites a hand-edited section to the current wording, and says so; a current one is said to be current
+  local d="$1" bad=""
+  _reconf "$d" --tldr-mode on
+  [ "$RC_RC" -eq 0 ] || { CASE_DETAIL="first on: rc $RC_RC"; return 1; }
+  command grep -qF 'CLAUDE.md: the TL;DR Mode section was added' "$WORK/reconf.out" || bad="$bad [first on: not said to be added: $(command grep -F 'CLAUDE.md:' "$WORK/reconf.out")]"
+  cp "$d/CLAUDE.md" "$d/../c.current"
+  awk '{ print } $0 == "<!-- tldr-mode:begin -->" { print "My own note, inside the markers." }' "$d/../c.current" > "$d/CLAUDE.md"
+  _reconf "$d" --tldr-mode on
+  [ "$RC_RC" -eq 0 ] || bad="$bad [second on: rc $RC_RC]"
+  command grep -qF 'CLAUDE.md: the TL;DR Mode section was rewritten with the current wording' "$WORK/reconf.out" \
+    || bad="$bad [second on: not said to be rewritten: $(command grep -F 'CLAUDE.md:' "$WORK/reconf.out")]"
+  cmp -s "$d/CLAUDE.md" "$d/../c.current" || bad="$bad [second on: the section is not the current wording]"
+  _reconf "$d" --tldr-mode on
+  command grep -qF 'CLAUDE.md: the TL;DR Mode section is already there, as current' "$WORK/reconf.out" \
+    || bad="$bad [third on: not said to be current: $(command grep -F 'CLAUDE.md:' "$WORK/reconf.out")]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+case_R7() {   # --tldr-mode with another change (either order) is refused, naming it; nothing changed
+  local d="$1" bad="" m=""
+  m="$(cat "$d/.claude/manifest.json")"
+  _reconf "$d" --tldr-mode off --enforcement-level light --confirm-pitfalls
+  [ "$RC_RC" -eq 1 ] || bad="$bad [tldr first: rc $RC_RC]"
+  command grep -F '[FAIL]' "$WORK/reconf.out" | command grep -F 'cannot be combined with' | command grep -qF -- '--enforcement-level' \
+    || bad="$bad [tldr first: no refusal naming --enforcement-level: $(tail -2 "$WORK/reconf.out" | tr '\n' '|')]"
+  _reconf "$d" --enforcement-level light --confirm-pitfalls --tldr-mode on
+  [ "$RC_RC" -eq 1 ] || bad="$bad [tldr last: rc $RC_RC]"
+  command grep -F '[FAIL]' "$WORK/reconf.out" | command grep -qF 'cannot be combined with' || bad="$bad [tldr last: no refusal]"
+  [ "$m" = "$(cat "$d/.claude/manifest.json")" ] || bad="$bad [the manifest changed]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
 echo
 echo "=== R — reconfigure-project.sh --tldr-mode ==="
 if [ -f "$AN_P/.claude/manifest.json" ] && [ -f "$AN_P/scripts/reconfigure-project.sh" ]; then
@@ -527,8 +650,15 @@ if [ -f "$AN_P/.claude/manifest.json" ] && [ -f "$AN_P/scripts/reconfigure-proje
   check "R2 --tldr-mode maybe: refused (rc 1); manifest, CLAUDE.md and settings untouched" case_R2 "$(_rproj)"
   check "R3 'on' with scripts/hooks/tldr-check.sh missing: refused, naming the hook; nothing changed" case_R3 "$(_rproj)"
   check "R4 --help lists --tldr-mode <on|off>" case_R4 "$(_rproj)"
+  if [ "$(id -u)" = "0" ]; then
+    skip "R5" "running as root, which writes a read-only CLAUDE.md anyway, so the failed write cannot be staged"
+  else
+    check "R5 'on' with CLAUDE.md read-only: rc 1, the [FAIL] line printed, manifest, settings.json and CLAUDE.md byte-identical to before, no backup or temp file left" case_R5 "$(_rproj)"
+  fi
+  check "R6 'on' when already on: a hand edit between the markers is rewritten to the current wording and the run says so; a current section is said to be current" case_R6 "$(_rproj)"
+  check "R7 --tldr-mode with --enforcement-level (either order): refused, naming the other option; the manifest unchanged" case_R7 "$(_rproj)"
 else
-  fail_ "R1-R4" "no adopted project to run reconfigure in (AN did not complete)"
+  fail_ "R1-R7" "no adopted project to run reconfigure in (AN did not complete)"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -670,6 +800,7 @@ AS=scripts/lib/adopt/adopt-state.sh
 mutant MH1 "$H" '# BL-312-TLDR-ONCE' ':' case_H5 "the stop_hook_active exit is gone"
 mutant MH2 "$H" '# BL-312-TLDR-OFF' ':' case_H6 "the off/absent/unreadable exit is gone"
 mutant MH3 "$H" '# BL-312-TLDR-FENCE' '  l ~ /^[[:space:]]*```/ { fence = !fence; next }' case_H3 "only \`\`\` fences are skipped"
+mutant MH8 "$H" '# BL-312-TLDR-FENCE' '  l ~ /^(```|~~~)/ { fence = !fence; next }' case_H3 "a fence indented under a list item is not a fence (review round 1's X2c)"
 mutant MH4 "$H" '# BL-312-TLDR-TOKEN' '    tlre = "(^|[^a-z0-9_/.-])tl;dr([^a-z0-9_.-]|$)"' case_H2 "the token no longer accepts TLDR without the semicolon"
 mutant MH5 "$H" '# BL-312-TLDR-BLOCK' ':' case_H1 "the block is never printed"
 mutant MH6 "$H" '# BL-312-TLDR-NOJQ' ':' case_H7 "no jq is no longer said"
@@ -677,6 +808,7 @@ mutant MH7 "$H" '# BL-312-TLDR-ROOT' ':' case_H9 "the project root is not derive
 mutant ML1 scripts/lib/claude-settings.sh '# BL-312-TLDR-ROSTER' ':' case_W1 "the roster does not register the hook"
 mutant MS1 init.sh '# BL-312-SHIP-HOOK' ':' case_W3 "init.sh does not ship the hook"
 mutant MS2 init.sh '# BL-312-SHIP-LIB' ':' case_W3 "init.sh does not ship the lib"
+mutant MS3 init.sh '# BL-312-INIT-DEFAULT' 'TLDR_MODE=true' case_S3 "the default is on (review round 1's X4; tests/test-bl312-tldr-mode-init.sh MI4 runs it)"
 mutant MP1 scripts/lib/plan-staging.sh '# BL-312-PLAN-TLDR-LEGS' '        :' case_P1 "the render legs carry no section"
 mutant ML2 "$L" '# BL-312-TLDR-HELD-BLANK' '      $0 == b { skip = 1; next }' case_C1 "'off' leaves the blank line 'on' added"
 mutant ML3 "$L" '# BL-312-TLDR-DAMAGED' ':' case_C2 "damaged markers are no longer refused"
@@ -696,8 +828,16 @@ if [ -f "$AN_P/scripts/reconfigure-project.sh" ]; then
   rmutant MR3 '# BL-312-RECONF-CLAUDE-MD' ':' case_R1 "reconfigure does not edit CLAUDE.md"
   rmutant MR4 '# BL-312-RECONF-HOOK-REQUIRED' '  if false; then' case_R3 "reconfigure turns it on with no hook script"
   rmutant MR5 '# BL-312-RECONF-VALUE' '    *)   _tl=true ;;' case_R2 "a value that is not on/off is accepted"
+  if [ "$(id -u)" = "0" ]; then
+    skip "MR6-MR7" "running as root (R5 cannot stage a failed write)"
+  else
+    rmutant MR6 '# BL-312-RECONF-ROLLBACK' '    :' case_R5 "the rollback does not put the manifest back (review round 1's X1)"
+    rmutant MR7 '# BL-312-RECONF-PUT-BACK' '  _tl_put_back() { cp -p "$1" "$2"; }' case_R5 "the rollback copies over a file this run never changed"
+  fi
+  rmutant MR8 '# BL-312-RECONF-REWRITTEN' '      tl_md_note="the TL;DR Mode section is already there, as current"' case_R6 "a rewritten section is reported as current"
+  rmutant MR9 '# BL-312-RECONF-ALONE' '  if false; then' case_R7 "--tldr-mode beside another change is not refused"
 else
-  fail_ "MR1-MR5" "no adopted project (AN did not complete)"
+  fail_ "MR1-MR9" "no adopted project (AN did not complete)"
 fi
 
 echo
