@@ -22472,3 +22472,68 @@ nothing — plus every command they must run, in a fenced block, never named in 
 `CLAUDE.md` both read); the hook's check (which parts it can verify mechanically, and how it avoids
 re-prompting forever on a reply it cannot parse); and how it coexists with the Guardrails' own Stop hooks.
 
+## BL-316: two installers that could never run — the tool matrix's Superpowers command uses a verb Claude Code does not have, and its Linux gitleaks install is a pipeline verify-install.sh refuses
+
+**Status:** Closed — shipped 2026-10-01 on `fix/bl316-broken-installers` (PR pending), fix commit
+`1ae8332`. Karl's ruling (2026-10-01, from an external review): fix both before `## BL-311:`'s clean
+dogfood rerun, as a new entry citing `## BL-284:` and `## BL-069:` rather than reopening them.
+
+**What `## BL-284:` fixed, and what it left.** `# BL-284-PLUGIN-VERB` corrected verify-install.sh's own
+fixer, `fix_superpowers`, to `claude plugin install --scope user superpowers@claude-plugins-official`.
+It left the tool matrix (`templates/tool-matrix/common.json`, keys `darwin_brew`, `linux_apt`,
+`linux_pacman`) and README's tools table at `claude plugins add superpowers`. The matrix row is what
+`init.sh` (`resolve_and_install_tools`, an `eval`), `upgrade-project.sh`
+(`upgrade_auto_install_from_resolver`) and verify-install's `fix_tool_install` run — the last as a
+second Superpowers row from `check_tools`, through the deprecated `bash -c` path, because `claude` is
+an allowed legacy head. Measured on Claude Code 2.1.285: `claude plugins add` exits 1 with
+`error: unknown command 'add'`; `claude plugin --help` lists `install|i` and no `add`.
+
+**What `## BL-069:` fixed, and what it left.** PR #140 made the three readers iterate `install_cmds`
+and turned gitleaks' Linux string into a two-stage array (`GITLEAKS_VERSION=$(curl … | jq …)`, then
+`curl … | sudo tar …`). Its tests pinned the array's join and dispatched only `brew install` shapes
+through verify-install. There each stage is a separate call and stage 1 carries `$(` and `|`:
+measured at `646bb0b`, `fix_tool_install` on the `linux_apt` row prints `REFUSED — post-allowlist
+payload contains shell-chaining metacharacters` at stage 1/2 and runs nothing — and unrefused, stage 2
+would run in a fresh `bash -c` without `GITLEAKS_VERSION`. The eval readers (init.sh, upgrade,
+adoption) did run it: `latest`, unverified, and always the x64 asset, so an arm64 Linux host got a
+binary it cannot execute.
+
+**Fix.**
+- **Superpowers.** All three matrix values and the README row carry the BL-284 command (from
+  `claude plugin install --help`: `plugin@marketplace`, `-s, --scope`, default `user`; the Claude Code
+  docs via Context7 give the same shape). verify-install's structured layer sends that exact string to
+  `fix_superpowers` (`# BL-316-SUPERPOWERS-ROUTE`): one owner of the argv, no deprecation warning, and
+  it still works under `VERIFY_INSTALL_NO_LEGACY_DISPATCH=1`.
+- **gitleaks on Linux.** New `scripts/install-gitleaks.sh`: pinned 8.30.1, a SHA-256 per arch — x64
+  `551f6fc8…` (the `tests.yml` pin) and arm64 `e4a487ee…`, both as published in the release's
+  `gitleaks_8.30.1_checksums.txt` and GitHub's asset `digest` field, read with `gh api` (the two agree;
+  no binary was downloaded). Before any download it refuses a non-Linux host, an unpinned machine type
+  (`# BL-316-ARCH-OTHER`) and a missing verifier (`# BL-316-VERIFIER-PRESENT`); it checks the tarball
+  with `scripts/ci-verify-sha256.sh` before extracting (`# BL-316-CHECKSUM`), then `sudo install`s to
+  `/usr/local/bin`. The matrix's three Linux rows are `bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"`
+  (the `# BL-235-SCRIPTS-DIR` convention). verify-install matches that string exactly and runs the
+  installer from beside itself, never from a path the matrix supplies (`# BL-316-VETTED-INSTALLER`); a
+  lookalike falls to Layer 2, where `bash` is not an allowed head. The metacharacter refusal is
+  unchanged. init.sh, upgrade-project.sh and adoption export `SOLO_SCRIPTS_DIR` before their `eval`
+  (`# BL-316-SCRIPTS-DIR`), and init.sh ships the installer and its verifier, so the derived shipped
+  set carries them to `--sync-framework` and adoption too.
+
+**Tests.** `tests/test-bl316-installers.sh` drives the real matrix through the real resolver into each
+real reader, with `claude`, `curl`, `sudo`, `tar`, `uname`, `brew` and `apt` stubbed: 21 cases and 11
+mutation proofs, 32 passed / 0 failed, rc 0, ~15s local; against `646bb0b` 1 passed / 31 failed (the
+pass is S0, `fix_superpowers` itself). Pinned to the `mcp` shard. `tests/test-bl069-install-cmds-consumers.sh`
+Group E and `tests/test-brownfield-wp10a-tool-resolution.sh` X5 now name the new row.
+
+**Residuals, not fixed.**
+- `check-phase-gate.sh`'s phase-transition auto-install reads `.install_command`, a field the resolver
+  never writes (it writes `install_cmd`), so its "Install now?" runs nothing. Same family, own defect.
+- Existing scaffolded projects keep their own copy of the matrix: `--sync-framework` copies the shipped
+  scripts, not `templates/tool-matrix/`, and `fix_tool_matrix` replaces only a missing or invalid one.
+- Superpowers has no `linux_dnf` key, so a dnf-only host gets the manual text. Neither the row nor the
+  fixer adds the official marketplace first, which the docs say a machine that has never opened an
+  interactive session needs.
+- With Superpowers missing, verify-install registers it twice (`check_tools`, `check_plugins_mcp`), so
+  `--auto-fix` installs twice; what the CLI does on the second install is not measured.
+- The installer always uses `sudo` (a root shell without it fails loudly), and machine types other than
+  x86_64 and aarch64 are refused rather than pinned.
+
