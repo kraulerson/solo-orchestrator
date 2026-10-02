@@ -583,6 +583,7 @@ jobs:
             tests/test-bl311-b-adopt-guardrails-track.sh
             tests/test-bl311-c-scout-runner-ignore-rule.sh
             tests/test-bl311-e-clone-path.sh
+            tests/test-bl311-d-relayed-escape.sh
             tests/test-bl254-ci-templates-call-shipped-scripts.sh
             tests/test-lint-user-guide-scripts.sh
             tests/test-bl255-sed-replacement-escape.sh

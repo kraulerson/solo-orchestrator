@@ -103,12 +103,14 @@ done
 if [ "$ALL_OK" = "1" ]; then pass "T5: actor enum"; else fail_ "T5" "unknown actor in $ACTORS"; fi
 
 # T6: type enum invariant — every row's type is one of the documented values
-# (per BL-030 spec § 6 schema).
+# (per BL-030 spec § 6 schema). BL-311 row 3 added relayed_framework_escape (the
+# Stop arm relaying a check's own escape); its rows are pinned by
+# tests/test-bl311-d-relayed-escape.sh, since this ledger holds none.
 TYPES=$(jq -r '[.[].type] | unique | .[]' "$PROJ/.claude/bypass-audit.json")
 TYPE_OK=1
 for t in $TYPES; do
   case "$t" in
-    claude_bypass_proposal|terminal_commit_blocked|terminal_commit_passed|out_of_band_commit|enforcement_level_set|detector_error|escalation|adoption_event) ;;
+    claude_bypass_proposal|terminal_commit_blocked|terminal_commit_passed|out_of_band_commit|enforcement_level_set|detector_error|escalation|relayed_framework_escape|adoption_event) ;;
     *) TYPE_OK=0 ;;
   esac
 done

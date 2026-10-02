@@ -22299,6 +22299,139 @@ recorded, not fixed:
   1 failed — M19's mutation does not land; its literal arrives in `ee89a1d`). Harmless in a repo that
   merges by merge commit.
 
+**Group D (row 3, and R-BL311E4-1), built on branch `fix/bl311-d-relayed-escape`.** The dogfood row
+was raised by this framework's own detector — the Stop arm of `scripts/hooks/bypass-detector.sh`, as
+registered in k-pdf's `.claude/settings.json`; the Guardrails' `stop-checklist.sh` only reads the
+sentinel. The Stop arm now writes a `terminal_workaround` match as a `relayed_framework_escape` row
+(no decision awaited, no sentinel) when every line it matched relays either a registered attested
+escape with its reason variable and only the arguments its check prints, or the assessment's `!`
+hand-to-human step (with no inline code but `!` and the finisher, pinned in the detector by its
+SHA-256, `# BL-311-HANDOFF-FINISHER-PIN`);
+the table, the rule and the threat (an escape quoted as cover) are in the detector's comment block
+(`# BL-311-RELAY-ESCAPES-BEGIN`, `# BL-311-RELAYED-ESCAPE-ROW`), and `docs/audit-log-lifecycle.md`
+documents the row type and its limits. `tests/test-bl311-d-relayed-escape.sh` drives the real
+detector: the dogfood message verbatim, the three relays round 4 measured, the cover cases that must
+still raise, the registry cross-check against every `SOLO_*_ATTESTED` reader, and 54 mutation proofs.
+PR #482's narrower `terminal_workaround` alone already clears the three measured shell-mode relays
+(none matches it), but not the dogfood relay, an attested-escape relay, or "Run it yourself in shell
+mode: …". Residuals, not fixed:
+- **R-BL311D-1** — a proposal in plain words (no inline code, flag or variable) that shares the relay
+  phrase's own terminal word ("run the cleanup and run `<escape>` in a new terminal"), or that sits on
+  a shell-mode line ("type ! then <command in prose> at the Claude Code prompt"), is not separated.
+- **R-BL311D-2** — an escape relayed inside a fenced block still raises: fences are stripped before
+  the scan, so the lead-in line ("run this in a new terminal:") carries no escape.
+- **R-BL311D-3** — adoption's own closing advice ("close it and start a new one",
+  `# BL-311-ACT2-RESTART`) matches nothing, but a relay of it as "run `claude` again in your terminal"
+  matches `terminal_workaround`, on `main` and under PR #482, and is not a relay under this rule.
+- **R-BL311D-4** — the rule is per line: a shell-mode relay whose line also carries other inline code
+  (a file name, say) raises.
+- **R-BL311D-5** — resolved in review round 1 (below): the prompt file is no longer read. What is
+  left is narrower: the finisher, when the person types it, resolves the script it runs through
+  `.claude/orchestrator-source.json`, a file the session can write; the pin covers the command's text,
+  not that file.
+
+**Group D review round 1 (adversarial review of `a7c0e01`), fixed on the same branch.**
+- **R1-1 (block)** — the command slot after an attested escape admitted any argument but a shell
+  control operator, so `… git push origin main --force`, `… git push origin +main`,
+  `… git push --delete origin release`, `… git commit --amend --no-edit` and `… git commit -m wip -n`
+  were each recorded as a relay with no sentinel, where `main` raised one. Each row now carries the
+  argument grammar its check prints (`_soif_relay_args_ere`): none for `claude` and the three
+  `bash scripts/…` checks; `git commit` with at most one `-m`/`--message` and one quoted message;
+  `git push` with at most a plain remote and branch (no `-`, `+` or `:`). A backstop behind the
+  grammars (`_soif_relay_destructive`) refuses any line carrying `--force`, `--amend`, `--no-verify`,
+  `--dangerously-skip-permissions`, `--delete`, `--mirror`, `--prune`, a `-f`/`-d` or `+`/`:` refspec
+  after `git push`, or `-n` after `git commit`. Found while fixing it, same class: the reason slot
+  admitted `"$(…)"`, `$(…)` and a bare `x;cmd;` — now refused (single-quoted, double-quoted with no
+  `$` `` ` `` `\` `!`, or one plain word).
+- **R1-2 (major)** — the shell-mode exemption trusted the agent-writable assessment prompt; a prompt
+  carrying `bash -c "git push origin +main"` made that command relay silently. The finisher is now
+  pinned by its SHA-256, the literal sits in a comment beside it, and the suite generates the prompt
+  with `adopt_write_assessment_prompt` and fails when the two drift (R7, proved RED by R8). The pin is
+  a hash, not the literal string, because `lint-module-dependencies.sh` T1 fails a core file that names
+  `adopt-project.sh` on any executed line, a string literal included, and no allowlist row can waive
+  T1 (measured: the literal planted in the detector fails the lint, rc 1).
+- **R1-3 (major)** — six guard atoms the reviewer's mutants left alive now each have a case and an
+  in-suite mutant that dies (M3b, M3c, M7b, M11b, M12b, M10b).
+- **R1-4 (minor)** — an empty escape table now returns before the loop
+  (`# BL-311-RELAY-TABLE-NONEMPTY`); before, bash 3.2 printed an unbound-variable error (it already
+  failed closed). Pinned by case C25, not by a mutant: with the guard removed only bash 3.2 differs.
+
+**Group D review round 2 (adversarial review of `b3496cf`), fixed on the same branch.**
+- **R2-1 (block)** — a second command in inline code rode along on a relay line: ``Run `<escape>` in
+  a new terminal, but first do `rm .claude/pending-approval.json` in it.``, `` … then `git config
+  core.hooksPath /dev/null` there``, `` … and `git update-ref refs/heads/main HEAD` too``, and six
+  more (X01–X09) were recorded as relays where `main` raised the sentinel. Other inline code was
+  refused only when `run`/`do`/`execute` introduced it and a terminal word survived the remainder
+  check, so a pronoun ("in it", "there", "too") defeated it. Now structural
+  (`_soif_relay_spans`, `# BL-311-RELAY-SPANS-CALL`): a line is a relay only if EVERY inline code
+  span on it is the escape, the pinned finisher, `!` alone, or a Claude Code slash command
+  (`^/[a-z][a-z0-9-]*$`; the dogfood relay names `/session-resume`), with at most one escape or
+  finisher. Any other span — `` `reboot` `` included — and the line raises. The old run/do/execute
+  prefix check is gone, subsumed; the remainder check stays (a second route
+  in plain words, C8). A slash command keeps its text in the scanned line rather than becoming a
+  token: a token hid a "terminal" in the command's name from the remainder check (measured).
+- **R2-2 (major)** — surviving mutants: the commit message's own quote excluded from inside it
+  (single, OM3, and double, OM4 — git takes `-m 'wip' --no-veri 'x'` as `--no-verify`), the reason's
+  double-quote exclusion (OM2: `SOLO_MCP_REASON="offline" claude --permission-mode
+  "bypassPermissions"`), and a short flag inside a cluster (`git push -uf`, OM5; `git commit -an`,
+  OM6). Each has a behavioural case and an in-suite mutant that dies (M59, M60, M57, M64, M65; M58
+  for the single-quoted reason twin).
+- **R2-3 (minor)** — git takes any unambiguous prefix of a long option (measured on git 2.54.0:
+  `git commit --no-veri` skips the pre-commit hook and commits, `--amen --no-edi` amends,
+  `git push --delet` deletes the remote branch, `--force-w` is `--force-with-lease`; `--forc` is
+  ambiguous there, rc 129). The backstop now refuses every long option after `git commit` or
+  `git push` except `--message` (`# BL-311-RELAY-BACKSTOP-LONGOPT`, `# BL-311-RELAY-BACKSTOP-MESSAGE`).
+- **R2-4 (minor)** — "Let me just run `<escape>` in the terminal to get past the review check" was
+  recorded as a relay. An attestation is the person's decision: a line where the agent announces it
+  will run the escape, or type the finisher, itself ("let me", "I'll", "I will", "I'm (going to)",
+  "I am (going to)", "I can", "I could", "I'd", "I would", "I shall", then up to three words and the
+  verb right before the span) is refused (`# BL-311-RELAY-FIRST-PERSON`,
+  `# BL-311-HANDOFF-FIRST-PERSON`), unless the match names the person ("I'll wait while you run …").
+  Anchored on the span, not the line: the dogfood relay itself says "(I'll pick up from the findings
+  file …)" after its escape.
+- **Residuals.** R-BL311D-4 now covers both kinds: any relay line that also carries other inline code
+  (a folder to run it from included) raises. A slash command is allowed whatever its name
+  (`/hooks`, `/permissions` as much as `/session-resume`) — no closer reading than plain words get
+  (R-BL311D-1). The first-person rule reads words, not intent: "I'm unable to run `<escape>` …"
+  raises, and "I'll, as you asked, run `<escape>` …" (commas between) is not caught. The backstop's
+  long-option arm is for `git commit`/`git push` only; `claude --permission-mode bypassPermissions`
+  is refused by the MCP row's no-argument grammar, not by the backstop.
+
+**Group D review round 3 (adversarial review of `1feb65d`), fixed on the same branch.**
+- **R3-1 (major)** — first-person atoms that could each be removed with the suite green: the subjects
+  "I could", "I'd" (and "I’d"), "I would", "I shall", the typographic "I’m", and every relay verb but
+  `run` and `type`. Each now has a case (C31) and an in-suite mutant that dies; the reviewer's SM2,
+  SM5, SM6 and SM7, applied to a full copy of the tree, each turn the suite red. The subjects, verbs
+  and filler cap sit on their own marked lines (`# BL-311-RELAY-FP-SUBJECT`,
+  `# BL-311-RELAY-FP-VERB`, `# BL-311-RELAY-FP-FILLER`).
+- **R3-5** — relays `main` raised and the branch let through: "We'll run", "Going to run", "I'll go
+  ahead and just run", "I'm going to go ahead and run", "Let me just go ahead and run", "I need to
+  run", "Let's run", "I should run", "Once I run". The filler cap is six words (was three) and the
+  subjects add "let's", "we'll", "we will", "i need", "i should", "i have", "i must", "i want",
+  "going to", "once i" (C32, one mutant per subject and for the cap). The dogfood message, SH1–SH4
+  and "I'll wait while you run …" stay quiet.
+- **R3-7** — the person-runs-it exception's " your " and " yourself " now each have a case that
+  names only that word (C33) and a mutant that dies.
+- **R3-6** — an empty ERE is skipped on every platform (`# BL-311-RELAY-ERE-NONEMPTY`); before, it
+  rested on this Mac's regcomp refusing one. Each of the two guards holds C24 alone, and each one's
+  mutant (replaced by glibc's reading of an empty ERE, `.`) dies here (L4, L5, M111, M112). That
+  glibc matches every string with an empty ERE is expected, not measured.
+- **R3-2 (minor)** — a slash command rode on a shell-mode line ("…, or open `/permissions` and allow
+  it so I can run it." was quiet). Slash commands are now allowed on an escape line only
+  (`# BL-311-HANDOFF-NO-SLASH`; C35).
+- **R-BL311D-R3-3** — the span rule is per line, and "per line" means only that every line the
+  pattern matched must qualify: a line no pattern matches is never read. A proposal on the next line,
+  in a fenced block, or written as anything but backtick inline code (`&#96;`, lookalike quote marks,
+  bold, plain words) beside a qualifying relay is not caught. `main` shares the gap — the pattern
+  table has no hooksPath or hook-disabling pattern, so `git config core.hooksPath /dev/null` on its
+  own line raises nowhere. `docs/audit-log-lifecycle.md` no longer says "never per message".
+- **R-BL311D-R3-4** — accepted false positives, failing closed: "My recommendation: I'd run `…` in a
+  new terminal" raises (the first-person test reads words, not intent), and a commit relay followed
+  by "-- it records the attestation." raises (the backstop's long-option arm reads every `--` after
+  `git commit`/`git push` on the line, prose included).
+- **Also measured, not fixed** — the exception reads words too: "I'll notify you and run `<escape>` in
+  my terminal" is quiet, because the match names "you". On `main` it raised.
+
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
   .claude/manifest.json` now refuses (`# BL-311-MANIFEST-READD-REFUSE`) and says so.

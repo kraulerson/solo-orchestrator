@@ -858,6 +858,13 @@ run_child_suite "tests/test-bl311-c-scout-runner-ignore-rule.sh" \
 run_child_suite "tests/test-bl311-e-clone-path.sh" \
   "BL-311 rows 6 and 7: one clone path; one scoped autoMode.environment line; the fallback" \
   "BL-311 clone-path/auto-mode settings tests FAILED (run tests/test-bl311-e-clone-path.sh for details)"
+# BL-311 row 3: the bypass detector's Stop arm records an agent relaying a
+# check's own documented escape (an attested variable with its reason, or the
+# `!` hand-to-human step) as relayed_framework_escape and raises no sentinel
+# for it; a real proposal beside it still raises.
+run_child_suite "tests/test-bl311-d-relayed-escape.sh" \
+  "BL-311 row 3: a relayed framework escape is recorded, not raised as a bypass proposal" \
+  "BL-311 relayed-escape tests FAILED (run tests/test-bl311-d-relayed-escape.sh for details)"
 
 # BL-254: a generated CI pipeline may only call scripts the scaffold ships,
 # and a governance check may not swallow its own failure; plus the lint that
