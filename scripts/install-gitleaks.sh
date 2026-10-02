@@ -57,7 +57,7 @@ curl -sSfL --retry 3 -o "$tmp/$asset" "$url" || refuse "download failed: $url"
 
 bash "$verifier" "$tmp/$asset" "$sha" >&2 || refuse "$asset did not match its pinned SHA-256"   # BL-316-CHECKSUM
 
-tar -xzf "$tmp/$asset" -C "$tmp" gitleaks || refuse "could not extract gitleaks from $asset"
+tar -xzf "$tmp/$asset" -C "$tmp" gitleaks || refuse "could not extract gitleaks from $asset"   # BL-316-EXTRACT
 [ -f "$tmp/gitleaks" ] || refuse "$asset did not contain a gitleaks binary"
 
 sudo install -m 0755 "$tmp/gitleaks" "$INSTALL_DIR/gitleaks" || refuse "could not install to $INSTALL_DIR/gitleaks"

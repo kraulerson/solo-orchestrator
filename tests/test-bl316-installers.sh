@@ -15,8 +15,8 @@
 # brew, apt). Nothing is downloaded and nothing is installed.
 #   S  every reader runs the BL-284 Superpowers command; nothing live says `add`.
 #   G  scripts/install-gitleaks.sh: pinned version, per-arch pinned SHA-256, the
-#      check BEFORE the install, refusal on mismatch / unknown arch / non-Linux /
-#      missing verifier.
+#      check BEFORE extracting or installing, refusal on mismatch / unknown arch /
+#      non-Linux / missing verifier; init.sh ships it with its verifier.
 #   V  verify-install.sh takes both through its STRUCTURED layer (so they work
 #      under VERIFY_INSTALL_NO_LEGACY_DISPATCH=1) and still refuses lookalikes.
 #   C  the eval readers (init.sh, upgrade-project.sh, adoption) find the installer
@@ -58,12 +58,13 @@ SAFE_PATH_TAIL="$HOSTBIN:/usr/bin:/bin"
 STUBS="$TOPTMP/stubs"; STUBS_UNAME="$TOPTMP/stubs-uname"
 mkdir -p "$STUBS" "$STUBS_UNAME"
 # `claude` mirrors the real dispatch (measured, 2.1.285): plugin|plugins is one
-# group, the group validates its VERB first, and `add` is not one.
+# group, the group validates its VERB first, and `add` is not one. STUB_CLAUDE_RC
+# makes a well-formed install fail, for the cases that need a failing installer.
 cat > "$STUBS/claude" <<'EOF'
 #!/bin/sh
 echo "claude $*" >> "${STUB_LOG:-/dev/null}"
 case "${1:-}" in plugin|plugins) ;; *) echo "stub: unexpected group '${1:-}'" >&2; exit 2 ;; esac
-case "${2:-}" in install|i) exit 0 ;; *) echo "error: unknown command '${2:-}'" >&2; exit 1 ;; esac
+case "${2:-}" in install|i) exit "${STUB_CLAUDE_RC:-0}" ;; *) echo "error: unknown command '${2:-}'" >&2; exit 1 ;; esac
 EOF
 cat > "$STUBS/curl" <<'EOF'
 #!/bin/sh
@@ -203,13 +204,13 @@ vi_extract() {
   } > "$2"
 }
 
-# run_vi <root> <scripts-dir-for-SCRIPT_DIR> <payload> [NO_LEGACY] — sets VI_RC, VI_OUT, VI_LOG, VI_INST
+# run_vi <root> <scripts-dir-for-SCRIPT_DIR> <payload> [NO_LEGACY] [claude-rc] — sets VI_RC, VI_OUT, VI_LOG, VI_INST
 run_vi() {
-  local root="$1" sd="$2" payload="$3" nolegacy="${4:-0}" fx
+  local root="$1" sd="$2" payload="$3" nolegacy="${4:-0}" crc="${5:-0}" fx
   fx="$(newtmp)"; VI_LOG="$fx/log"; VI_INST="$fx/installed"; mkdir -p "$VI_INST"; : > "$VI_LOG"
   vi_extract "$root" "$fx/extract.sh"
   VI_OUT="$( cd "$fx" && env -u SOLO_SCRIPTS_DIR PATH="$STUBS_UNAME:$STUBS:$SAFE_PATH_TAIL" \
-      STUB_LOG="$VI_LOG" STUB_TARBALL="$FIX_TGZ_DIR/fixture.tar.gz" STUB_INSTALL_DIR="$VI_INST" \
+      STUB_LOG="$VI_LOG" STUB_TARBALL="$FIX_TGZ_DIR/fixture.tar.gz" STUB_INSTALL_DIR="$VI_INST" STUB_CLAUDE_RC="$crc" \
       STUB_UNAME_S=Linux STUB_UNAME_M=x86_64 VERIFY_INSTALL_NO_LEGACY_DISPATCH="$nolegacy" \
       _E="$fx/extract.sh" _P="$payload" _SD="$sd" bash -c '
         set +e
@@ -278,6 +279,27 @@ case_S5() {   # verify-install's matrix row runs it STRUCTURED (fix_superpowers)
   [ "$ok" -eq 2 ]
 }
 
+# fell_through <out> — 0 iff a failed STRUCTURED dispatch was read as "no shape
+# matched" and handed to Layer 2: the deprecated `bash -c` path ran, or Layer 2
+# refused with a reason that is not why the install failed.
+fell_through() {
+  printf '%s' "$1" | command grep -qE 'DEPRECATED|disallowed leading token|no structured shape matched|fix_tool_install: REFUSED'
+}
+
+case_S6() {   # a FAILED Superpowers install is reported once — never re-run through the legacy path
+  local p; p="$(payload_for "$1" darwin Superpowers)"
+  local mode n
+  for mode in 0 1; do
+    run_vi "$1" "$1/scripts" "$p" "$mode" 1
+    n="$(command grep -c '^claude ' "$VI_LOG")"
+    CASE_DETAIL="NO_LEGACY=$mode rc=$VI_RC claude-calls=$n calls=[$(tr '\n' ';' < "$VI_LOG")] out=$(printf '%s' "$VI_OUT" | tr '\n' ' ' | cut -c1-400)"
+    [ -n "$VI_RC" ] && [ "$VI_RC" != "0" ] || return 1
+    [ "$n" = "1" ] || return 1
+    fell_through "$VI_OUT" && return 1
+  done
+  return 0
+}
+
 case_G0() {   # matrix: brew on macOS; the vetted installer on every Linux key
   local brew bad
   brew="$(jq -r '.tools[] | select(.name=="gitleaks") | .install.darwin_brew' "$1/templates/tool-matrix/common.json")"
@@ -343,12 +365,13 @@ case_G6() {   # a non-Linux host is refused (and pointed at brew) before any dow
   [ "$RI_RC" -ne 0 ] && [ ! -s "$RI_LOG" ] && printf '%s' "$RI_OUT" | command grep -qF 'brew install gitleaks'
 }
 
-case_G7() {   # the UNMODIFIED installer refuses a tarball that is not the pinned one
+case_G7() {   # the UNMODIFIED installer refuses a tarball that is not the pinned one — before extracting it
   local d; d="$(newtmp)/s"
   installer_copy "$1" "$d" none || { CASE_DETAIL="no installer to copy"; return 1; }
   run_installer "$d" Linux x86_64
   CASE_DETAIL="rc=$RI_RC calls=[$(tr '\n' ';' < "$RI_LOG")] installed=[$(ls "$RI_INST" | tr '\n' ' ')] out=$(printf '%s' "$RI_OUT" | tr '\n' ' ')"
   [ "$RI_RC" -ne 0 ] && command grep -qF "${GL_URL_BASE}x64.tar.gz" "$RI_LOG" \
+    && ! command grep -q '^tar ' "$RI_LOG" \
     && ! command grep -q '^sudo' "$RI_LOG" && [ -z "$(ls "$RI_INST")" ] \
     && printf '%s' "$RI_OUT" | command grep -qF 'did not match its pinned SHA-256'
 }
@@ -359,6 +382,14 @@ case_G8() {   # no verifier beside it: refused, and nothing is even downloaded
   run_installer "$d" Linux x86_64
   CASE_DETAIL="rc=$RI_RC calls=[$(tr '\n' ';' < "$RI_LOG")] out=$(printf '%s' "$RI_OUT" | tr '\n' ' ')"
   [ "$RI_RC" -ne 0 ] && [ ! -s "$RI_LOG" ]
+}
+
+case_G9() {   # init.sh ships the installer AND its verifier — the set --sync-framework and adoption copy
+  local shipped=""
+  shipped="$( . "$1/scripts/lib/scaffold-shipped-set.sh" 2>/dev/null && soif_parse_shipped_scripts "$1/init.sh" "$1/scripts" )"
+  CASE_DETAIL="shipped set has $(printf '%s\n' "$shipped" | command grep -c .) entries; install-gitleaks=$(printf '%s\n' "$shipped" | command grep -cxF scripts/install-gitleaks.sh) ci-verify-sha256=$(printf '%s\n' "$shipped" | command grep -cxF scripts/ci-verify-sha256.sh)"
+  printf '%s\n' "$shipped" | command grep -qxF scripts/install-gitleaks.sh \
+    && printf '%s\n' "$shipped" | command grep -qxF scripts/ci-verify-sha256.sh
 }
 
 case_V1() {   # verify-install installs gitleaks on Linux — structured, so also under NO_LEGACY=1
@@ -396,22 +427,59 @@ case_V3() {   # the vetted string with no installer beside verify-install: refus
   [ "$VI_RC" != "0" ] && printf '%s' "$VI_OUT" | command grep -qF 'not beside verify-install.sh'
 }
 
-case_C1() {   # init.sh — from a directory with no scripts/ — runs the installer and the BL-284 command
-  local p fw cwd log out
-  p="$(payload_for "$1" linux gitleaks Superpowers)"
-  fw="$(newtmp)/fw"; canary_fw "$fw" "$p" || { CASE_DETAIL="fixture"; return 1; }
-  cwd="$(newtmp)"; log="$cwd/log"; : > "$log"
-  awk '/^resolve_and_install_tools\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$1/init.sh" > "$cwd/fn.sh"
-  out="$( cd "$cwd" && env -u SOLO_SCRIPTS_DIR PATH="$STUBS:$SAFE_PATH_TAIL" STUB_LOG="$log" _FN="$cwd/fn.sh" _FW="$fw" bash -c '
+case_V4() {   # a FAILED gitleaks install (checksum mismatch) is reported as that — never handed to Layer 2
+  local p d mode n; p="$(payload_for "$1" linux gitleaks)"
+  d="$(newtmp)/scripts"
+  installer_copy "$1" "$d" none || { CASE_DETAIL="could not prepare the installer beside verify-install"; return 1; }
+  for mode in 0 1; do
+    run_vi "$1" "$d" "$p" "$mode"
+    n="$(command grep -c '^curl ' "$VI_LOG")"
+    CASE_DETAIL="NO_LEGACY=$mode rc=$VI_RC installer-runs=$n calls=[$(tr '\n' ';' < "$VI_LOG")] out=$(printf '%s' "$VI_OUT" | tr '\n' ' ' | cut -c1-400)"
+    [ -n "$VI_RC" ] && [ "$VI_RC" != "0" ] || return 1
+    [ "$n" = "1" ] && [ -z "$(ls "$VI_INST")" ] || return 1
+    printf '%s' "$VI_OUT" | command grep -qF 'did not match its pinned SHA-256' || return 1
+    fell_through "$VI_OUT" && return 1
+  done
+  return 0
+}
+
+# run_init_fn <root> <fw> <cwd> <log> — init.sh's REAL resolve_and_install_tools,
+# extracted from <root>, run from <cwd> against the fixture framework <fw>.
+run_init_fn() {
+  local root="$1" fw="$2" cwd="$3" log="$4"
+  awk '/^resolve_and_install_tools\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$root/init.sh" > "$cwd/fn.sh"
+  ( cd "$cwd" && env -u SOLO_SCRIPTS_DIR PATH="$STUBS:$SAFE_PATH_TAIL" STUB_LOG="$log" _FN="$cwd/fn.sh" _FW="$fw" bash -c '
       set +e
       print_step() { :; }; print_info() { :; }; print_ok() { echo "[OK] $*"; }; print_warn() { echo "[WARN] $*"; }; print_fail() { :; }
       BOLD=; NC=; GREEN=; CYAN=; BLUE=; YELLOW=; RED=
       SCRIPT_DIR="$_FW"; OS_TYPE=Linux; PLATFORM=web; LANGUAGE=typescript; TRACK=standard
       NON_INTERACTIVE=true; AUTO_INSTALL_TOOLS=Y
       is_qdrant_mcp_registered() { return 1; }; is_qdrant_container_running() { return 1; }
-      source "$_FN"; resolve_and_install_tools' 2>&1 )"
+      source "$_FN"; resolve_and_install_tools' 2>&1 )
+}
+
+case_C1() {   # init.sh — from a directory with no scripts/ — runs the installer and the BL-284 command
+  local p fw cwd log out
+  p="$(payload_for "$1" linux gitleaks Superpowers)"
+  fw="$(newtmp)/fw"; canary_fw "$fw" "$p" || { CASE_DETAIL="fixture"; return 1; }
+  cwd="$(newtmp)"; log="$cwd/log"; : > "$log"
+  out="$(run_init_fn "$1" "$fw" "$cwd" "$log")"
   CASE_DETAIL="canary=$([ -s "$fw/CANARY" ] && echo ran || echo ABSENT) calls=[$(tr '\n' ';' < "$log")] out=$(printf '%s' "$out" | command grep -E 'WARN|OK' | tr '\n' ' ' | cut -c1-300)"
   [ -s "$fw/CANARY" ] && command grep -qxF "$BL284_CMD" "$log"
+}
+
+case_C4() {   # init.sh: a FAILED installer's own reason reaches the operator, and the hint is a runnable path
+  local p fw cwd log out want
+  p="$(payload_for "$1" linux gitleaks)"
+  fw="$(newtmp)/fw"; canary_fw "$fw" "$p" || { CASE_DETAIL="fixture"; return 1; }
+  printf '#!/usr/bin/env bash\necho "install-gitleaks: REFUSED — bl316-canary did not match its pinned SHA-256" >&2\nexit 1\n' > "$fw/scripts/install-gitleaks.sh"
+  cwd="$(newtmp)"; log="$cwd/log"; : > "$log"
+  out="$(run_init_fn "$1" "$fw" "$cwd" "$log")"
+  want="Install manually: bash \"$fw/scripts/install-gitleaks.sh\""
+  CASE_DETAIL="want=[$want] out=$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-500)"
+  printf '%s' "$out" | command grep -qF 'bl316-canary did not match its pinned SHA-256' \
+    && printf '%s' "$out" | command grep -qF -- "$want" \
+    && ! printf '%s' "$out" | command grep -qF 'SOLO_SCRIPTS_DIR'
 }
 
 case_C2() {   # upgrade-project.sh's install loop — same, from a directory with no scripts/
@@ -487,6 +555,7 @@ check "S2 — no live file ships 'claude plugins add' / 'claude plugin add'" cas
 check "S3 — README's Superpowers row shows that command" case_S3
 check "S4 — the real resolver emits it (install_cmd and install_cmds), darwin and linux" case_S4
 check "S5 — verify-install's matrix row runs it via fix_superpowers: rc 0, no DEPRECATED path, also under NO_LEGACY=1" case_S5
+check "S6 — a FAILED Superpowers install: non-zero, claude called once, never handed to Layer 2 (both NO_LEGACY modes)" case_S6
 
 echo "=== G — gitleaks on Linux: a pinned, checksum-verified installer ==="
 check "G0 — matrix: darwin_brew stays 'brew install gitleaks'; linux_apt/dnf/pacman are the vetted installer" case_G0
@@ -496,18 +565,21 @@ check "G3 — x86_64: x64 asset, verified, installed to /usr/local/bin/gitleaks"
 check "G4 — aarch64: arm64 asset against the ARM64 pin" case_G4
 check "G5 — armv7l: refused before any download, with the manual-install pointer" case_G5
 check "G6 — Darwin: refused before any download, pointed at brew" case_G6
-check "G7 — a tarball that is not the pinned one is REFUSED: nothing installed, sudo never called" case_G7
+check "G7 — a tarball that is not the pinned one is REFUSED before tar sees it: nothing installed, sudo never called" case_G7
 check "G8 — no verifier beside the installer: refused, nothing downloaded" case_G8
+check "G9 — init.sh ships install-gitleaks.sh and ci-verify-sha256.sh (soif_parse_shipped_scripts)" case_G9
 
 echo "=== V — verify-install.sh's install path ==="
 check "V1 — gitleaks' Linux row is not refused and installs, also under NO_LEGACY=1 (structured layer)" case_V1
 check "V2 — lookalikes (chained, other path, extra argument) are refused and nothing runs" case_V2
 check "V3 — no installer beside verify-install.sh: refused, and the refusal says so" case_V3
+check "V4 — a FAILED gitleaks install: non-zero, the installer's reason shown, run once, never handed to Layer 2" case_V4
 
 echo "=== C — the eval readers find the installer from any working directory ==="
 check "C1 — init.sh resolve_and_install_tools runs the installer and the BL-284 command" case_C1
 check "C2 — upgrade-project.sh upgrade_auto_install_from_resolver does the same" case_C2
 check "C3 — adoption's accepted install runs the framework's installer" case_C3
+check "C4 — init.sh: a failed installer's stderr reaches the operator; the manual hint is an absolute path" case_C4
 
 # ════════════════════════════════════════════════════════════════════════════
 # M — MUTANTS. Each excises or rewrites ONE marked line in a mirror, asserts the
@@ -573,6 +645,42 @@ mutant MG4 scripts/install-gitleaks.sh '# BL-316-ARCH-OTHER' \
   "an unpinned machine type silently gets the x64 asset"
 mutant MG5 scripts/install-gitleaks.sh '# BL-316-VERIFIER-PRESENT' ':' case_G8 \
   "the verifier-presence check before the download is removed"
+
+# A failed vetted install must not be read as "no shape matched" (rc 1).
+mutant MV4 scripts/verify-install.sh '# BL-316-SUPERPOWERS-RC' '    fix_superpowers; return $?' case_S6 \
+  "a failed Superpowers install returns its own rc, so Layer 2 runs claude a second time"
+mutant MV5 scripts/verify-install.sh '# BL-316-VETTED-RC' '    bash -- "${SCRIPT_DIR:-}/$_vetted"; return $?' case_V4 \
+  "a failed gitleaks install returns its own rc, so Layer 2 adds a 'disallowed leading token' refusal"
+mutant MX5 init.sh '# BL-316-SHIP-INSTALLER' ':' case_G9 \
+  "init.sh stops shipping install-gitleaks.sh"
+mutant MX6 init.sh '# BL-316-SHIP-VERIFIER' ':' case_G9 \
+  "init.sh stops shipping ci-verify-sha256.sh, so the shipped installer refuses on every host"
+mutant MI2 init.sh '# BL-316-INSTALL-STDERR' '      if eval "$tool_cmd" 2>/dev/null; then' case_C4 \
+  "init.sh discards the installer's stderr again"
+mutant MI3 init.sh '# BL-316-INSTALL-HINT' '          *"$_sd_tok"*) : ;;' case_C4 \
+  "init.sh's manual hint keeps the unexpanded SOLO_SCRIPTS_DIR placeholder"
+
+# MX1 MOVES a line, which `mutate` cannot express: the extract line goes above
+# the checksum line. Landed = each marker on exactly one line, extract first.
+mx1() {
+  local m f a b
+  m="$(newtmp)/mirror"
+  mk_mirror "$REPO_ROOT" "$m" || { fail_ MX1 "could not build a mirror"; return; }
+  f="$m/scripts/install-gitleaks.sh"
+  a="$(command grep -c -- '# BL-316-CHECKSUM$' "$f")"; b="$(command grep -c -- '# BL-316-EXTRACT$' "$f")"
+  [ "$a" = "1" ] && [ "$b" = "1" ] || { fail_ MX1 "mutant did not land: CHECKSUM on $a line(s), EXTRACT on $b"; return; }
+  awk '/# BL-316-CHECKSUM$/ {held=$0; next}
+       /# BL-316-EXTRACT$/  {print; print held; next} {print}' "$f" > "$f.mut" && cat "$f.mut" > "$f" && rm -f "$f.mut"
+  a="$(command grep -n -- '# BL-316-CHECKSUM$' "$f" | cut -d: -f1)"; b="$(command grep -n -- '# BL-316-EXTRACT$' "$f" | cut -d: -f1)"
+  [ -n "$a" ] && [ -n "$b" ] && [ "$b" -lt "$a" ] && bash -n "$f" 2>/dev/null \
+    || { fail_ MX1 "mutant did not land: EXTRACT at '${b}', CHECKSUM at '${a}'"; return; }
+  if case_G7 "$m"; then
+    fail_ MX1 "the tarball is extracted before its checksum is checked — SURVIVED: G7 still passes ($CASE_DETAIL)"
+  else
+    pass "MX1 (MUTATION) — the tarball is extracted before its checksum is checked: killed by G7"
+  fi
+}
+mx1
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"

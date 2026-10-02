@@ -1758,6 +1758,10 @@ _tool_install_dispatch_structured() {
   #     THIS script, never from a path the matrix supplies.
   #   * Superpowers: the same command `## BL-284:`'s fix_superpowers runs, so the
   #     matrix row and that fixer have one owner of the argv.
+  # Once either arm has RUN, a failure returns 2, never `$?`: the caller reads 1
+  # as "no shape matched" and hands the string to Layer 2, which re-ran the
+  # Superpowers install through the deprecated path and answered a failed
+  # gitleaks install with an unrelated "disallowed leading token" refusal.
   local _vetted=""
   case "$cmd" in
     'bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"') _vetted="install-gitleaks.sh" ;;   # BL-316-VETTED-INSTALLER
@@ -1765,16 +1769,14 @@ _tool_install_dispatch_structured() {
   esac
   if [ "$_vetted" = "fix_superpowers" ]; then
     print_info "fix_tool_install [structured]: fix_superpowers" >&2
-    fix_superpowers
-    return $?
+    fix_superpowers && return 0; return 2   # BL-316-SUPERPOWERS-RC
   elif [ -n "$_vetted" ]; then
     if [ ! -f "${SCRIPT_DIR:-}/$_vetted" ]; then
       _tool_install_refuse "$cmd" "the framework's installer is not beside verify-install.sh (${SCRIPT_DIR:-}/$_vetted); refresh it with: bash scripts/upgrade-project.sh --sync-framework"
       return 2
     fi
     print_info "fix_tool_install [structured]: bash ${SCRIPT_DIR:-}/$_vetted" >&2
-    bash -- "${SCRIPT_DIR:-}/$_vetted"
-    return $?
+    bash -- "${SCRIPT_DIR:-}/$_vetted" && return 0; return 2   # BL-316-VETTED-RC
   fi
 
   # Tokenize via read -a (split on $IFS = space/tab/newline). This
