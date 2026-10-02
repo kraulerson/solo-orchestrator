@@ -22523,13 +22523,29 @@ binary it cannot execute.
   installer from beside itself, never from a path the matrix supplies (`# BL-316-VETTED-INSTALLER`); a
   lookalike falls to Layer 2, where `bash` is not an allowed head. The metacharacter refusal is
   unchanged. init.sh, upgrade-project.sh and adoption export `SOLO_SCRIPTS_DIR` before their `eval`
-  (`# BL-316-SCRIPTS-DIR`), and init.sh ships the installer and its verifier, so the derived shipped
-  set carries them to `--sync-framework` and adoption too.
+  (`# BL-316-SCRIPTS-DIR`), and init.sh ships the installer and its verifier
+  (`# BL-316-SHIP-INSTALLER`, `# BL-316-SHIP-VERIFIER`), so the derived shipped set carries them to
+  `--sync-framework` and adoption too.
+- **A failed vetted install is a failure, not a miss** (review round 1). Both arms first ended in
+  `return $?`, and `_tool_install_dispatch_one` reads 1 as "no shape matched" and hands the string to
+  Layer 2: a failed Superpowers install ran `claude` a second time through the deprecated path, and a
+  failed gitleaks install added `REFUSED — disallowed leading token 'bash'`. Once an arm has run, a
+  failure now returns 2, which that function already treats as final (`# BL-316-SUPERPOWERS-RC`,
+  `# BL-316-VETTED-RC`).
+- **init.sh shows why an install failed.** `resolve_and_install_tools` ran `eval "$tool_cmd" 2>/dev/null`,
+  so the installer's own reason (`did not match its pinned SHA-256`) never reached the operator, and its
+  hint printed `${SOLO_SCRIPTS_DIR:-scripts}` unexpanded, which resolves only from the framework root.
+  stderr is now captured and printed, indented, on failure (`# BL-316-INSTALL-STDERR`), and the hint
+  carries the absolute path (`# BL-316-INSTALL-HINT`).
 
 **Tests.** `tests/test-bl316-installers.sh` drives the real matrix through the real resolver into each
-real reader, with `claude`, `curl`, `sudo`, `tar`, `uname`, `brew` and `apt` stubbed: 21 cases and 11
-mutation proofs, 32 passed / 0 failed, rc 0, ~15s local; against `646bb0b` 1 passed / 31 failed (the
-pass is S0, `fix_superpowers` itself). Pinned to the `mcp` shard. `tests/test-bl069-install-cmds-consumers.sh`
+real reader, with `claude`, `curl`, `sudo`, `tar`, `uname`, `brew` and `apt` stubbed: 25 cases and 18
+mutation proofs, 43 passed / 0 failed, rc 0; against `646bb0b` 1 passed / 42 failed (the pass is S0,
+`fix_superpowers` itself). Review round 1 added S6 and V4 (a failing installer: one run, no Layer 2),
+G7's "`tar` never sees a mismatched tarball" (the line-move mutant MX1 passed every case before it),
+G9 (the shipped set names both scripts — the `# BL-088-CLOSURE` check reads only literal
+`"$SCRIPT_DIR/<name>.sh"` references, so deleting either `cp` line passed every suite) and C4
+(init.sh's stderr and hint). Pinned to the `mcp` shard. `tests/test-bl069-install-cmds-consumers.sh`
 Group E and `tests/test-brownfield-wp10a-tool-resolution.sh` X5 now name the new row.
 
 **Residuals, not fixed.**
@@ -22541,7 +22557,15 @@ Group E and `tests/test-brownfield-wp10a-tool-resolution.sh` X5 now name the new
   fixer adds the official marketplace first, which the docs say a machine that has never opened an
   interactive session needs.
 - With Superpowers missing, verify-install registers it twice (`check_tools`, `check_plugins_mcp`), so
-  `--auto-fix` installs twice; what the CLI does on the second install is not measured.
+  `--auto-fix` installs twice. Not measured here; the Claude Code docs (`plugin install` in the CLI
+  reference, read via Context7) document that a plugin already installed at that scope prints
+  `Plugin "<name>@<marketplace>" is already installed (scope: user)` and exits 0, so the second call
+  should be a no-op.
+- verify-install's pre-existing structured arms (`brew`, `npm`, `pip`/`pip3`/`pipx`/`cargo`/`gem`,
+  `sudo apt|apt-get|dnf|pacman`) still end in `return $?`: an install that exits 1 is read as "no shape
+  matched", so it is re-run through the deprecated `bash -c` path (or refused under
+  `VERIFY_INSTALL_NO_LEGACY_DISPATCH=1`), and one that exits 2 reads as a refusal. Read from
+  `_tool_install_dispatch_one`, not measured; the same fix as `# BL-316-VETTED-RC` would close it.
 - The installer always uses `sudo` (a root shell without it fails loudly), and machine types other than
   x86_64 and aarch64 are refused rather than pinned.
 
