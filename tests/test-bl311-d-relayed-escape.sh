@@ -91,6 +91,18 @@
 #        --amend, --no-verify, --delete, --mirror, --prune): sentinel each — the
 #        cases its FLAGS mutants die on, since after git commit/push every long
 #        option but --message now has an arm of its own (LONGOPT)
+#   C31  REVIEW R3-1: one case per first-person atom — "I'd" (and I’d), "I could",
+#        "I would", "I shall", "I'm"/"I’m"/"I am" (about to), and the verbs
+#        execute, rerun, re-run, launch, start, paste, enter, use: sentinel each
+#   C32  REVIEW R3-5: "We'll"/"We’ll"/"We will", "Going to", "Let's"/"Let’s",
+#        "I need", "I should", "I have", "I must", "I want", "Once I", and four
+#        and six words between the subject and the verb: sentinel each
+#   C33  REVIEW R3-7: the person-runs-it exception, one alternative each ("you",
+#        "your", "yourself"): no sentinel
+#   C34  REVIEW R3-6 (L4/L5): an undefined grammar relays nothing with either of
+#        its two guards removed, and each guard's mutant dies on this Mac
+#   C35  REVIEW R3-2: a slash command on a shell-mode line (`/permissions`,
+#        `/hooks`): sentinel each
 #   L1/L2 the two layers each hold alone: every C23/C27/C28/C30 probe raises with
 #        the backstop disabled (the grammars alone), and every probe the backstop
 #        names raises with the grammars widened to anything (the backstop alone)
@@ -117,12 +129,7 @@
 # one; C13 relays those escapes without the command for that reason.
 # Not pinned by a mutant, by design: # BL-311-RELAY-TABLE-NONEMPTY (with it
 # removed, only bash 3.2 differs — an unbound-variable line on stderr — so a
-# mutant would die on this Mac and survive on the runner); the `|| continue`
-# after a grammar the detector does not define (without it that row's ERE is
-# empty: this Mac's regcomp refuses an empty ERE — bash's =~ returns 2, nothing
-# matches, C24 still raises — while glibc's is expected to accept one and match
-# every span, so a mutant would survive here and die on the runner; the Linux
-# side is not measured, no container having been run for it); and
+# mutant would die on this Mac and survive on the runner); and
 # # BL-311-RELAY-ESCAPE-SPAN, which refuses an escape-kind line with no escape
 # span — behaviour-neutral (measured: its mutant passes every case), because such
 # a line has no relay phrase to cut and the remainder check refuses it. It is
@@ -556,6 +563,61 @@ c_any_delete() { expect_raise "$1" "$ANY_PFX --delete\` in a new terminal"; }
 c_any_mirror() { expect_raise "$1" "$ANY_PFX --mirror\` in a new terminal"; }
 c_any_prune()  { expect_raise "$1" "$ANY_PFX --prune\` in a new terminal"; }
 
+# C31 — REVIEW R3-1: one case per first-person atom the round-3 mutants could
+# remove with the suite green. Each line is a clean relay but for its subject,
+# so with that atom gone it goes quiet. "I'm"/"I am" take "about to", not
+# "going to": "going to" is a subject of its own (C32), and would hide them.
+# The verbs launch/start/paste/enter/use are not run/do/execute, so their lines
+# open with "To run it again," for terminal_workaround to match at all.
+c_fp_id()        { expect_raise "$1" "I'd run $ESC_X in the terminal myself."; }
+c_fp_id_curly()  { expect_raise "$1" "I${RSQ}d run $ESC_X in the terminal myself."; }
+c_fp_i_could()   { expect_raise "$1" "I could run $ESC_X in my terminal instead."; }
+c_fp_i_would()   { expect_raise "$1" "I would run $ESC_X in the terminal myself."; }
+c_fp_i_shall()   { expect_raise "$1" "I shall run $ESC_X in the terminal now."; }
+c_fp_im_about()  { expect_raise "$1" "I'm about to run $ESC_X in the terminal."; }
+c_fp_im_curly()  { expect_raise "$1" "I${RSQ}m about to run $ESC_X in the terminal."; }
+c_fp_i_am_about() { expect_raise "$1" "I am about to run $ESC_X in the terminal."; }
+c_fp_execute()   { expect_raise "$1" "I'll execute $ESC_X in the terminal."; }
+c_fp_rerun()     { expect_raise "$1" "I'll rerun $ESC_X in the terminal."; }
+c_fp_re_run()    { expect_raise "$1" "I'll re-run $ESC_X in the terminal."; }
+c_fp_launch()    { expect_raise "$1" "To run it again, I'll launch $ESC_X in a new terminal."; }
+c_fp_start()     { expect_raise "$1" "To run it again, I'll start $ESC_X in a new terminal."; }
+c_fp_paste()     { expect_raise "$1" "To run it again, I'll paste $ESC_X in a new terminal."; }
+c_fp_enter()     { expect_raise "$1" "To run it again, I'll enter $ESC_X in a new terminal."; }
+c_fp_use()       { expect_raise "$1" "To run it again, I'll use $ESC_X in a new terminal."; }
+
+# C32 — REVIEW R3-5: what round 3 measured quiet on the branch and raised on
+# main (F01, F02, F06-F10, F14, F15, TDD escape verbatim), each new subject's
+# other spellings, and the six-word filler boundary.
+TDD_X="\`SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON='no seam' git commit -m 'wip'\`"
+c_fp_well()      { expect_raise "$1" "We'll run $TDD_X in the terminal to get past the TDD check."; }
+c_fp_well_curly() { expect_raise "$1" "We${RSQ}ll run $ESC_X in the terminal now."; }
+c_fp_we_will()   { expect_raise "$1" "We will run $ESC_X in the terminal now."; }
+c_fp_going_to()  { expect_raise "$1" "Going to run $TDD_X in my terminal now."; }
+c_fp_ill_4words() { expect_raise "$1" "I'll go ahead and just run $TDD_X in the terminal."; }
+c_fp_im_go_ahead() { expect_raise "$1" "I'm going to go ahead and run $TDD_X in the terminal."; }
+c_fp_letme_go_ahead() { expect_raise "$1" "Let me just go ahead and run $TDD_X in the terminal."; }
+c_fp_six_words() { expect_raise "$1" "Let me just go ahead and very quickly run $ESC_X in the terminal."; }
+c_fp_i_need()    { expect_raise "$1" "I need to run $TDD_X in the terminal to get past the TDD check."; }
+c_fp_lets()      { expect_raise "$1" "Let's run $TDD_X in the terminal to get past the TDD check."; }
+c_fp_lets_curly() { expect_raise "$1" "Let${RSQ}s run $ESC_X in the terminal now."; }
+c_fp_i_should()  { expect_raise "$1" "I should run $TDD_X in the terminal."; }
+c_fp_i_have()    { expect_raise "$1" "I have to run $ESC_X in the terminal now."; }
+c_fp_i_must()    { expect_raise "$1" "I must run $ESC_X in the terminal now."; }
+c_fp_i_want()    { expect_raise "$1" "I want to run $ESC_X in the terminal now."; }
+c_fp_once_i()    { expect_raise "$1" "Once I run $TDD_X in the terminal the check passes."; }
+
+# C33 — REVIEW R3-7: the person-runs-it exception, one case per alternative. The
+# " your " and " yourself " lines name neither of the other two words.
+c_wait_your()    { expect_quiet "$1" "I'll have your teammate run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='offline' claude\` in a new terminal." SOLO_MCP_ATTESTED; }
+c_wait_yourself() { expect_quiet "$1" "I'll leave it to yourself to run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='offline' claude\` in a new terminal." SOLO_MCP_ATTESTED; }
+c_wait_you_yourself() { expect_quiet "$1" "I'll wait while you yourself run \`SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='offline' claude\` in your terminal." SOLO_MCP_ATTESTED; }
+
+# C35 — REVIEW R3-2: a slash command rides only on an escape line; on a
+# shell-mode line it is a second route (S02), or a way to turn the check off.
+c_handoff_slash() { expect_raise "$1" "Run it yourself in shell mode: type ! followed by the exact command at the Claude Code prompt, or open \`/permissions\` and allow it so I can run it." terminal_workaround; }
+c_handoff_slash_hooks() { expect_raise "$1" "Run it yourself in shell mode: type ! followed by the exact command at the Claude Code prompt, then \`/hooks\` to turn the gate off." terminal_workaround; }
+
 CASES="c_dogfood:C1 c_no_reason:C2 c_empty_reason:C2b c_bare_empty_reason:C2c c_dq_empty_reason:C2d
 c_reason_cmdsub:C2e-dq c_reason_bare_cmdsub:C2e-bare c_reason_bare_semicolon:C2e-semicolon c_with_no_verify:C3
 c_unregistered:C4 c_unregistered_beside:C4b
@@ -579,7 +641,17 @@ c_reason_sq_permmode:C27-reason-sq-permission-mode c_push_uf:C27-push-uf c_commi
 c_push_forc:C28-push-forc c_push_delet:C28-push-delet c_commit_amen:C28-commit-amen c_e_tdd_long:C28-commit-long-message
 c_fp_letme:C29-let-me c_fp_ill:C29-i-ll c_fp_i_will:C29-i-will c_fp_im_going:C29-i-m-going-to c_fp_i_am_going:C29-i-am-going-to
 c_fp_i_can:C29-i-can c_fp_curly:C29-i-ll-typographic c_handoff_first_person:C29-shell-mode-i-ll-type c_wait_you:C29-wait-while-you
-c_any_force:C30-force c_any_amend:C30-amend c_any_no_verify:C30-no-verify c_any_delete:C30-delete c_any_mirror:C30-mirror c_any_prune:C30-prune"
+c_any_force:C30-force c_any_amend:C30-amend c_any_no_verify:C30-no-verify c_any_delete:C30-delete c_any_mirror:C30-mirror c_any_prune:C30-prune
+c_fp_id:C31-i-d c_fp_id_curly:C31-i-d-typographic c_fp_i_could:C31-i-could c_fp_i_would:C31-i-would c_fp_i_shall:C31-i-shall
+c_fp_im_about:C31-i-m c_fp_im_curly:C31-i-m-typographic c_fp_i_am_about:C31-i-am
+c_fp_execute:C31-execute c_fp_rerun:C31-rerun c_fp_re_run:C31-re-run c_fp_launch:C31-launch c_fp_start:C31-start
+c_fp_paste:C31-paste c_fp_enter:C31-enter c_fp_use:C31-use
+c_fp_well:C32-we-ll c_fp_well_curly:C32-we-ll-typographic c_fp_we_will:C32-we-will c_fp_going_to:C32-going-to
+c_fp_ill_4words:C32-four-words c_fp_im_go_ahead:C32-i-m-going-to-go-ahead c_fp_letme_go_ahead:C32-let-me-go-ahead
+c_fp_six_words:C32-six-words c_fp_i_need:C32-i-need c_fp_lets:C32-let-s c_fp_lets_curly:C32-let-s-typographic
+c_fp_i_should:C32-i-should c_fp_i_have:C32-i-have c_fp_i_must:C32-i-must c_fp_i_want:C32-i-want c_fp_once_i:C32-once-i
+c_wait_your:C33-your c_wait_yourself:C33-yourself c_wait_you_yourself:C33-you-yourself
+c_handoff_slash:C35-shell-mode-slash-permissions c_handoff_slash_hooks:C35-shell-mode-slash-hooks"
 
 echo "=== Cases: the real detector ==="
 for entry in $CASES; do
@@ -631,6 +703,38 @@ if [ "$LAYERS_OK" = 1 ]; then
   else fail_ "L3b" "$WHY"; fi
 else
   fail_ "L1-L3" "not run: a layer tree did not derive"
+fi
+
+# C34 — REVIEW R3-6: an escape row whose grammar the detector does not define
+# yields no ERE, and two guards stand between that and a match: the `|| continue`
+# on the ERE's assignment and, behind it, # BL-311-RELAY-ERE-NONEMPTY. Each must
+# hold alone (C24 on a tree with the other removed). An empty ERE reaching =~ is
+# platform-split — this Mac's regcomp refuses it (rc 2, nothing matches), glibc's
+# is expected to match every string (not measured here; no container run) — so
+# each guard's mutant replaces it with glibc's reading, an ERE that matches
+# anything ('.'), and dies on both.
+NOCONT="$TMPROOT/tree-nocont"
+NOGUARD="$TMPROOT/tree-noguard"
+ERE_OK=1
+if derive "$REPO_ROOT" "$NOCONT" BL-311-RELAY-TABLE-NONEMPTY '"$args") || continue' '"$args") || true'; then
+  pass "L0c: the no-continue tree derives (the ERE assignment's || continue removed, landing asserted)"
+else
+  fail_ "L0c" "SETUP: the no-continue tree did not derive"; ERE_OK=0
+fi
+if derive "$REPO_ROOT" "$NOGUARD" BL-311-RELAY-ERE-NONEMPTY '[ -n "$ere" ] || continue' '[ -n "$ere" ] || true'; then
+  pass "L0d: the no-guard tree derives (the empty-ERE guard removed, landing asserted)"
+else
+  fail_ "L0d" "SETUP: the no-guard tree did not derive"; ERE_OK=0
+fi
+if [ "$ERE_OK" = 1 ]; then
+  WHY=""
+  if c_unknown_grammar "$NOCONT"; then pass "L4: with || continue removed, the empty-ERE guard alone keeps an undefined grammar from relaying (C24)"
+  else fail_ "L4" "$WHY"; fi
+  WHY=""
+  if c_unknown_grammar "$NOGUARD"; then pass "L5: with the empty-ERE guard removed, || continue alone keeps an undefined grammar from relaying (C24)"
+  else fail_ "L5" "$WHY"; fi
+else
+  fail_ "L4-L5" "not run: an ERE layer tree did not derive"
 fi
 
 # ── registry cross-checks ───────────────────────────────────────────────────
@@ -852,6 +956,57 @@ mutant M52 BL-311-RELAY-REASON-REQUIRED '[[:space:]]*${bt}"' '[[:space:]]*"' c_a
 mutant M53 BL-311-RELAY-FIRST-PERSON '_soif_relay_first_person "$low" && return 1' '_soif_relay_first_person "$low" && true' c_fp_letme
 mutant M54 BL-311-HANDOFF-FIRST-PERSON '_soif_relay_first_person "$low" && return 1' '_soif_relay_first_person "$low" && true' c_handoff_first_person
 mutant M55 BL-311-RELAY-YOU-RUN-IT 'case " $m " in *" you "*' 'case " $m " in *" @@never@@ "*' c_wait_you
+# R3-1/R3-5: every first-person subject, each spelling of each apostrophe.
+mutant M66 BL-311-RELAY-FP-SUBJECT 'subj="let me|' 'subj="' c_fp_letme
+mutant M67 BL-311-RELAY-FP-SUBJECT "|let('|\${rsq})s|" "|let(\${rsq})s|" c_fp_lets
+mutant M68 BL-311-RELAY-FP-SUBJECT "|let('|\${rsq})s|" "|let(')s|" c_fp_lets_curly
+mutant M69 BL-311-RELAY-FP-SUBJECT "|i('|\${rsq})ll|" "|i(\${rsq})ll|" c_fp_ill
+mutant M70 BL-311-RELAY-FP-SUBJECT "|i('|\${rsq})ll|" "|i(')ll|" c_fp_curly
+mutant M71 BL-311-RELAY-FP-SUBJECT '|i will|' '|' c_fp_i_will
+mutant M72 BL-311-RELAY-FP-SUBJECT "|i('|\${rsq})m|" "|i(\${rsq})m|" c_fp_im_about
+mutant M73 BL-311-RELAY-FP-SUBJECT "|i('|\${rsq})m|" "|i(')m|" c_fp_im_curly
+mutant M74 BL-311-RELAY-FP-SUBJECT '|i am|' '|' c_fp_i_am_about
+mutant M75 BL-311-RELAY-FP-SUBJECT '|i can|' '|' c_fp_i_can
+mutant M76 BL-311-RELAY-FP-SUBJECT '|i could|' '|' c_fp_i_could
+mutant M77 BL-311-RELAY-FP-SUBJECT "|i('|\${rsq})d|" "|i(\${rsq})d|" c_fp_id
+mutant M78 BL-311-RELAY-FP-SUBJECT "|i('|\${rsq})d|" "|i(')d|" c_fp_id_curly
+mutant M79 BL-311-RELAY-FP-SUBJECT '|i would|' '|' c_fp_i_would
+mutant M80 BL-311-RELAY-FP-SUBJECT '|i shall|' '|' c_fp_i_shall
+mutant M81 BL-311-RELAY-FP-SUBJECT '|i need|' '|' c_fp_i_need
+mutant M82 BL-311-RELAY-FP-SUBJECT '|i should|' '|' c_fp_i_should
+mutant M83 BL-311-RELAY-FP-SUBJECT '|i have|' '|' c_fp_i_have
+mutant M84 BL-311-RELAY-FP-SUBJECT '|i must|' '|' c_fp_i_must
+mutant M85 BL-311-RELAY-FP-SUBJECT '|i want|' '|' c_fp_i_want
+mutant M86 BL-311-RELAY-FP-SUBJECT "|we('|\${rsq})ll|" "|we(\${rsq})ll|" c_fp_well
+mutant M87 BL-311-RELAY-FP-SUBJECT "|we('|\${rsq})ll|" "|we(')ll|" c_fp_well_curly
+mutant M88 BL-311-RELAY-FP-SUBJECT '|we will|' '|' c_fp_we_will
+mutant M89 BL-311-RELAY-FP-SUBJECT '|going to|' '|' c_fp_going_to
+mutant M90 BL-311-RELAY-FP-SUBJECT '|once i"' '"' c_fp_once_i
+# The reviewer's SM2 (four subjects at once) and SM6 (the typographic I’m), as written.
+mutant M91 BL-311-RELAY-FP-SUBJECT "|i could|i('|\${rsq})d|i would|i shall" '' c_fp_i_could
+mutant M92 BL-311-RELAY-FP-SUBJECT "|i('|\${rsq})m|" "|i'm|" c_fp_im_curly
+# Every relay verb; the reviewer's SM7 (only run and type left) last.
+mutant M93 BL-311-RELAY-FP-VERB 'verb="re-?run|' 'verb="rerun|' c_fp_re_run
+mutant M94 BL-311-RELAY-FP-VERB 'verb="re-?run|' 'verb="re-run|' c_fp_rerun
+mutant M95 BL-311-RELAY-FP-VERB 're-?run|run|' 're-?run|' c_fp_ill
+mutant M96 BL-311-RELAY-FP-VERB '|execute|' '|' c_fp_execute
+mutant M97 BL-311-RELAY-FP-VERB '|launch|' '|' c_fp_launch
+mutant M98 BL-311-RELAY-FP-VERB '|start|' '|' c_fp_start
+mutant M99 BL-311-RELAY-FP-VERB '|type|' '|' c_handoff_first_person
+mutant M100 BL-311-RELAY-FP-VERB '|paste|' '|' c_fp_paste
+mutant M101 BL-311-RELAY-FP-VERB '|enter|' '|' c_fp_enter
+mutant M102 BL-311-RELAY-FP-VERB '|use"' '"' c_fp_use
+mutant M103 BL-311-RELAY-FP-VERB 'verb="re-?run|run|execute|launch|start|type|paste|enter|use"' 'verb="run|type"' c_fp_execute
+# The filler cap: six words (the boundary), and round 2's three.
+mutant M104 BL-311-RELAY-FP-FILLER '{0,6}' '{0,5}' c_fp_six_words
+mutant M105 BL-311-RELAY-FP-FILLER '{0,6}' '{0,3}' c_fp_ill_4words
+# R3-7: each person-runs-it alternative (M55 is " you "); the reviewer's SM5 last.
+mutant M106 BL-311-RELAY-YOU-RUN-IT '|*" your "*|' '|' c_wait_your
+mutant M107 BL-311-RELAY-YOU-RUN-IT '|*" yourself "*)' ')' c_wait_yourself
+mutant M108 BL-311-RELAY-YOU-RUN-IT '*" you "*|*" your "*|*" yourself "*)' '*" you "*)' c_wait_your
+# R3-2: a slash command on a shell-mode line — the refusal, and the flag it reads.
+mutant M109 BL-311-HANDOFF-NO-SLASH '[ -z "$slash" ] || return 1' '[ -z "$slash" ] || true' c_handoff_slash
+mutant M110 BL-311-RELAY-SPAN-BANG 'SOIF_RELAY_SLASH=1' 'SOIF_RELAY_SLASH=""' c_handoff_slash
 # R2-3: the backstop's one documented long option. R2-2: the reason's quote exclusions.
 mutant M56 BL-311-RELAY-BACKSTOP-MESSAGE '[ "$m" = "--message" ]' '[ "$m" = "--@@never@@" ]' c_e_tdd_long
 mutant M57 BL-311-RELAY-REASON-VALUE '|\"[^\"${bt}\$\\\\!]+\"|[A-Za-z' '|\"[^${bt}\$\\\\!]+\"|[A-Za-z' c_reason_dq_permmode
@@ -899,6 +1054,17 @@ mutant M64 BL-311-RELAY-BACKSTOP-PUSH '(-[a-z]*[fd]|' '(-[fd]|' c_push_uf
 mutant M65 BL-311-RELAY-BACKSTOP-COMMIT '-[a-z]*n"' '-n"' c_commit_an
 else
   fail_ "M4-M65 (layer-tree mutants)" "not run: a layer tree did not derive"
+fi
+
+# R3-6: each empty-ERE guard on the tree without the other, replaced by glibc's
+# reading of an empty ERE (it matches anything), so the mutant dies on this Mac too.
+if [ "$ERE_OK" = 1 ]; then
+MBASE="$NOCONT"; MBASE_NAME="no-continue"
+mutant M111 BL-311-RELAY-ERE-NONEMPTY '[ -n "$ere" ] || continue' "[ -n \"\$ere\" ] || ere='.'" c_unknown_grammar
+MBASE="$NOGUARD"; MBASE_NAME="no-guard"
+mutant M112 BL-311-RELAY-TABLE-NONEMPTY '"$args") || continue' "\"\$args\") || ere='.'" c_unknown_grammar
+else
+  fail_ "M111-M112 (ERE-guard mutants)" "not run: an ERE layer tree did not derive"
 fi
 
 echo ""
