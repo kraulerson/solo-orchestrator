@@ -22218,7 +22218,9 @@ by its own PR; the entry closes when the rerun passes.
 
 **Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). Group B (rows 2 and 8)
 merged as PR #490 (merge commit `3e737f6`, 2026-09-30). Group C (rows 4 and 5) merged as PR #491
-(merge commit `a8f64f4`, 2026-09-30). The entry stays Open until the clean rerun passes.
+(merge commit `a8f64f4`, 2026-09-30). Group E (rows 6 and 7) merged as PR #492 (merge commit
+`34dae11`). Group D (row 3) merged as PR #493 (merge commit `646bb0b`, 2026-10-01). All nine rows are
+now merged; the entry stays Open until the clean rerun passes.
 
 **What ran.** A fresh Claude Code session (Sonnet, a clean `CLAUDE_CONFIG_DIR`) played a systems
 technician with one to two years of experience — not a developer — installing Solo Orchestrator from
@@ -22422,15 +22424,21 @@ mode: …". Residuals, not fixed:
 - **R-BL311D-R3-3** — the span rule is per line, and "per line" means only that every line the
   pattern matched must qualify: a line no pattern matches is never read. A proposal on the next line,
   in a fenced block, or written as anything but backtick inline code (`&#96;`, lookalike quote marks,
-  bold, plain words) beside a qualifying relay is not caught. `main` shares the gap — the pattern
-  table has no hooksPath or hook-disabling pattern, so `git config core.hooksPath /dev/null` on its
-  own line raises nowhere. `docs/audit-log-lifecycle.md` no longer says "never per message".
+  bold, plain words) beside a qualifying relay is not caught. The detector before #493 raised such
+  messages only because it raised every relay line; no pattern names hook-disabling, so the proposal
+  on its own line raises on neither. `docs/audit-log-lifecycle.md` no longer says "never per message".
+  (Reworded by R-BL311D-R4-1, below.)
 - **R-BL311D-R3-4** — accepted false positives, failing closed: "My recommendation: I'd run `…` in a
   new terminal" raises (the first-person test reads words, not intent), and a commit relay followed
   by "-- it records the attestation." raises (the backstop's long-option arm reads every `--` after
   `git commit`/`git push` on the line, prose included).
 - **Also measured, not fixed** — the exception reads words too: "I'll notify you and run `<escape>` in
   my terminal" is quiet, because the match names "you". On `main` it raised.
+- **R-BL311D-R4-1 (fixed on `fix/bl316-broken-installers`, the BL-316 PR)** — R-BL311D-R3-3 and
+  `docs/audit-log-lifecycle.md` said `main` "shares the gap" / "does not catch it either". True only
+  for a proposal standing alone. Measured in group D's final check: beside a relay line, the pre-#493
+  detector raised every such shape (next line, fenced, `&#96;`, lookalike backticks, bold, plain words)
+  — only because it raised every relay line — and the merged detector is quiet. Both now say so.
 
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
