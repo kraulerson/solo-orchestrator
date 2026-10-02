@@ -45,9 +45,11 @@ carrying these eight parts in order:
 1. what happened; 2. what it means for them; 3. next steps; 4. what is waiting on them;
 5. the options; 6. the pros and cons of each option; 7. your recommendation, with its reasoning;
 8. what happens if they do nothing.
-Every command they must run goes in a fenced code block, never named only in prose. Keep the words
-"terminal" and "shell" out of any sentence that also says "run", "do" or "execute" — "if they do
-nothing" included: the bypass detector reads that as a proposed workaround. The TL;DR is additive:
+Every command they must run goes in a fenced code block opened with ``` (not ~~~), never named
+only in prose. Never write "terminal" or "shell", or any word that contains either (PowerShell,
+shellcheck, nutshell), anywhere in the TL;DR outside those blocks; say "the command line" instead.
+The bypass detector reads either word after "run", "do" or "execute" on one line as a proposed
+workaround, inside other words too, and it skips only ``` blocks. The TL;DR is additive:
 the technical account above it stays in full, and `docs/reference/messaging-standard.md` still
 governs its words. A Stop hook (`scripts/hooks/tldr-check.sh`) sends a reply back, once a turn, when
 it has no TL;DR outside a code block. To turn it off: `bash scripts/reconfigure-project.sh --tldr-mode off`.

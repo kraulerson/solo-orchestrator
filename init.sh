@@ -80,8 +80,10 @@ ENFORCEMENT_LEVEL=""
 CONFIRM_PITFALLS=0
 # `## BL-312:` TL;DR mode — OPT-IN. The interactive setup asks it ([y/N]); a
 # non-interactive run reads `tldr_mode` from --config and is off without it.
+# A non-interactive run with flags only (no --config) never reaches either, so
+# this line alone is what keeps it off there.
 # Always the JSON literal true or false: it is written with --argjson.
-TLDR_MODE=false
+TLDR_MODE=false   # BL-312-INIT-DEFAULT
 
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 # BL-099: shared git-hook body generators (fallback pre-commit + commit-msg TDD

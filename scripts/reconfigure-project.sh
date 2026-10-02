@@ -131,12 +131,26 @@ finalize_reconfigure_commit() {
 # manifest (what the hook reads), CLAUDE.md's TL;DR Mode section (what the agent
 # reads), and the hook's registration in .claude/settings.json. Everything is
 # checked before anything is written, and a write that fails puts back all
-# three. NOT COMMITTED, unlike --enforcement-level: these are three
+# three (a file that cannot be put back is named, and its copy kept). It is a
+# change of its own: beside any other option it refuses rather than doing one
+# and dropping the other. NOT COMMITTED, unlike --enforcement-level: these are three
 # documentation/config files the person can review, and committing them here
 # would sweep in whatever else is uncommitted (`git add -A`).
 if [ -n "$RECONF_TLDR" ]; then
   # shellcheck source=/dev/null
   source "$SCRIPT_DIR/lib/tldr-mode.sh"
+  # The block below ends in `exit`, so any other change asked for in the same run
+  # would be dropped without a word — refuse instead.
+  tl_also=""
+  [ -z "$FIELD$OLD_VALUE$NEW_VALUE" ] || tl_also="$tl_also --field/--old/--new"
+  [ -z "$RECONF_REASON" ] || tl_also="$tl_also --reason"
+  [ -z "$RECONF_LEVEL" ] || tl_also="$tl_also --enforcement-level"
+  [ "$RECONF_CONFIRM" != 1 ] || tl_also="$tl_also --confirm-pitfalls"
+  [ "$RECONF_RESET_BASELINE" != 1 ] || tl_also="$tl_also --reset-detection-baseline"
+  if [ -n "$tl_also" ]; then   # BL-312-RECONF-ALONE
+    print_fail "--tldr-mode is a change of its own and cannot be combined with:$tl_also. Nothing was changed; run each change on its own."
+    exit 1
+  fi
   _tl=""
   case "$RECONF_TLDR" in
     on)  _tl=true ;;
@@ -189,17 +203,39 @@ if [ -n "$RECONF_TLDR" ]; then
   fi
 
   tl_before="$(jq -r 'if .tldr_mode == true then "on" else "off" end' "$TL_MANIFEST")"
-  tl_bak="$(mktemp -d)"
+  # A template, so TMPDIR places it on every platform: a bare `mktemp -d` on
+  # macOS does not read TMPDIR.
+  tl_bak="$(mktemp -d "${TMPDIR:-/tmp}/soif-tldr-mode.XXXXXX")"
   cp -p "$TL_MANIFEST" "$tl_bak/manifest.json"
   [ -f "$TL_SETTINGS" ] && cp -p "$TL_SETTINGS" "$tl_bak/settings.json"
   [ -f "$TL_CLAUDE" ] && cp -p "$TL_CLAUDE" "$tl_bak/CLAUDE.md"
+  # _tl_put_back COPY FILE — FILE from its COPY, only when the two differ: a file
+  # this run never changed is left alone, so a read-only one cannot fail the
+  # rollback.
+  _tl_put_back() { cmp -s "$1" "$2" && return 0; cp -p "$1" "$2"; }   # BL-312-RECONF-PUT-BACK
+  # The rollback runs under `set -e`, so no step in it may end the script: each
+  # is checked, and the failure is always said. A file that could not be put
+  # back is named, and then the backup is KEPT and named too — it is the only
+  # copy of what was there. Otherwise the backup is removed.
   tl_rollback() {
-    rm -f "$TL_MANIFEST.tmp"
-    cp -p "$tl_bak/manifest.json" "$TL_MANIFEST"
-    if [ -f "$tl_bak/settings.json" ]; then cp -p "$tl_bak/settings.json" "$TL_SETTINGS"; else rm -f "$TL_SETTINGS"; fi
-    [ -f "$tl_bak/CLAUDE.md" ] && cp -p "$tl_bak/CLAUDE.md" "$TL_CLAUDE"
-    rm -rf "$tl_bak"
-    print_fail "TL;DR mode was not changed: $1. The manifest, settings.json and CLAUDE.md were put back as they were."
+    local why="$1" left=""
+    rm -f "$TL_MANIFEST.tmp" || left="$left .claude/manifest.json.tmp"
+    _tl_put_back "$tl_bak/manifest.json" "$TL_MANIFEST" || left="$left .claude/manifest.json"   # BL-312-RECONF-ROLLBACK
+    if [ -f "$tl_bak/settings.json" ]; then
+      _tl_put_back "$tl_bak/settings.json" "$TL_SETTINGS" || left="$left .claude/settings.json"
+    elif [ -e "$TL_SETTINGS" ]; then
+      rm -f "$TL_SETTINGS" || left="$left .claude/settings.json"
+    fi
+    if [ -f "$tl_bak/CLAUDE.md" ]; then
+      _tl_put_back "$tl_bak/CLAUDE.md" "$TL_CLAUDE" || left="$left CLAUDE.md"
+    fi
+    if [ -z "$left" ]; then
+      print_fail "TL;DR mode was not changed: $why. The manifest, settings.json and CLAUDE.md are as they were."
+      rm -rf "$tl_bak"
+    else
+      print_fail "TL;DR mode was not changed: $why — and these could not be put back:$left."
+      echo "  What was in them before this run is kept in $tl_bak; copy it back by hand." >&2
+    fi
     exit 1
   }
 
@@ -219,7 +255,18 @@ if [ -n "$RECONF_TLDR" ]; then
     tl_md_note="there is no CLAUDE.md, so no section was written"
   else
     soif_tldr_apply_claude_md "$TL_CLAUDE" "$tl_word" || tl_rollback "CLAUDE.md could not be edited"   # BL-312-RECONF-CLAUDE-MD
-    if [ "$_tl" = true ]; then tl_md_note="has the TL;DR Mode section"; else tl_md_note="has no TL;DR Mode section"; fi
+    # Said as what happened. `on` over a section already there writes it again
+    # with the current wording, at the end of the file — the way a project picks
+    # up a wording change after an upgrade — so an edit between its markers goes.
+    if cmp -s "$tl_bak/CLAUDE.md" "$TL_CLAUDE"; then
+      if [ "$_tl" = true ]; then tl_md_note="the TL;DR Mode section is already there, as current"; else tl_md_note="there is no TL;DR Mode section"; fi
+    elif [ "$_tl" = false ]; then
+      tl_md_note="the TL;DR Mode section was removed"
+    elif [ "$tl_md_state" = "present" ]; then
+      tl_md_note="the TL;DR Mode section was rewritten with the current wording, at the end of the file; anything edited between its markers was replaced"   # BL-312-RECONF-REWRITTEN
+    else
+      tl_md_note="the TL;DR Mode section was added"
+    fi
   fi
   rm -rf "$tl_bak"
 
