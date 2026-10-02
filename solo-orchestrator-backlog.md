@@ -22537,3 +22537,30 @@ Group E and `tests/test-brownfield-wp10a-tool-resolution.sh` X5 now name the new
 - The installer always uses `sudo` (a root shell without it fails loudly), and machine types other than
   x86_64 and aarch64 are refused rather than pinned.
 
+## BL-317: a Phase 3 check of test strength, not only test order
+
+**Status:** Open — DEFERRED (design to be done; decided 2026-10-01 by Karl).
+
+**The gap.** The `## BL-072:` TDD check (`pre-commit-gate.sh`) enforces that tests come first — a
+`feat`/`fix`/`refactor` commit carrying implementation must carry a test (a block or a warning, by
+tier) — not that the tests would catch a defect. Nothing downstream measures that either: `scripts/run-phase3-validation.sh` runs
+semgrep-full-tree, license, snyk, zap-dast and threat-model, where "coverage" means every `TM-NNN` row
+in PROJECT_BIBLE.md Section 4 has a validation row; `scripts/check-phase-gate.sh` requires a Phase 3
+summary and a non-empty `docs/test-results/`; `scripts/test-gate.sh` counts features between test
+sessions. No check enforces coverage or runs mutation testing on a project's code: the Go CI template
+writes a coverage profile with no floor, and the PROJECT_BIBLE template's test table states ">80%
+coverage" as a criterion nothing measures.
+
+**Candidate mechanisms.**
+- **A coverage floor** on changed files. Cheap and per-stack tooling is common, but gameable — tests
+  that execute lines without asserting anything pass it.
+- **Mutation testing on changed files** (mutmut, Stryker, PIT and their kin). Measures whether a test
+  fails when the code is wrong, which is the property wanted; but it needs a tool per language, runtime
+  grows with code size, and some stacks have no mature tool.
+
+**Open design questions.** Per-stack tool selection, presumably through the tool matrix (a category
+like `sast`); which phase transition checks it (Phase 2→3 or 3→4); blocking or advisory, and by tier;
+how POC tiers relax it; a runtime budget, and whether to scope to files changed since the last check.
+
+**Source.** An external review Karl shared on 2026-10-01. Its claims, recorded as the review's and not
+verified here: Kiro uses property-based tests, and ECC sets an 80% coverage target.
