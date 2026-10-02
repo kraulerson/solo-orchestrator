@@ -22397,6 +22397,41 @@ mode: …". Residuals, not fixed:
   long-option arm is for `git commit`/`git push` only; `claude --permission-mode bypassPermissions`
   is refused by the MCP row's no-argument grammar, not by the backstop.
 
+**Group D review round 3 (adversarial review of `1feb65d`), fixed on the same branch.**
+- **R3-1 (major)** — first-person atoms that could each be removed with the suite green: the subjects
+  "I could", "I'd" (and "I’d"), "I would", "I shall", the typographic "I’m", and every relay verb but
+  `run` and `type`. Each now has a case (C31) and an in-suite mutant that dies; the reviewer's SM2,
+  SM5, SM6 and SM7, applied to a full copy of the tree, each turn the suite red. The subjects, verbs
+  and filler cap sit on their own marked lines (`# BL-311-RELAY-FP-SUBJECT`,
+  `# BL-311-RELAY-FP-VERB`, `# BL-311-RELAY-FP-FILLER`).
+- **R3-5** — relays `main` raised and the branch let through: "We'll run", "Going to run", "I'll go
+  ahead and just run", "I'm going to go ahead and run", "Let me just go ahead and run", "I need to
+  run", "Let's run", "I should run", "Once I run". The filler cap is six words (was three) and the
+  subjects add "let's", "we'll", "we will", "i need", "i should", "i have", "i must", "i want",
+  "going to", "once i" (C32, one mutant per subject and for the cap). The dogfood message, SH1–SH4
+  and "I'll wait while you run …" stay quiet.
+- **R3-7** — the person-runs-it exception's " your " and " yourself " now each have a case that
+  names only that word (C33) and a mutant that dies.
+- **R3-6** — an empty ERE is skipped on every platform (`# BL-311-RELAY-ERE-NONEMPTY`); before, it
+  rested on this Mac's regcomp refusing one. Each of the two guards holds C24 alone, and each one's
+  mutant (replaced by glibc's reading of an empty ERE, `.`) dies here (L4, L5, M111, M112). That
+  glibc matches every string with an empty ERE is expected, not measured.
+- **R3-2 (minor)** — a slash command rode on a shell-mode line ("…, or open `/permissions` and allow
+  it so I can run it." was quiet). Slash commands are now allowed on an escape line only
+  (`# BL-311-HANDOFF-NO-SLASH`; C35).
+- **R-BL311D-R3-3** — the span rule is per line, and "per line" means only that every line the
+  pattern matched must qualify: a line no pattern matches is never read. A proposal on the next line,
+  in a fenced block, or written as anything but backtick inline code (`&#96;`, lookalike quote marks,
+  bold, plain words) beside a qualifying relay is not caught. `main` shares the gap — the pattern
+  table has no hooksPath or hook-disabling pattern, so `git config core.hooksPath /dev/null` on its
+  own line raises nowhere. `docs/audit-log-lifecycle.md` no longer says "never per message".
+- **R-BL311D-R3-4** — accepted false positives, failing closed: "My recommendation: I'd run `…` in a
+  new terminal" raises (the first-person test reads words, not intent), and a commit relay followed
+  by "-- it records the attestation." raises (the backstop's long-option arm reads every `--` after
+  `git commit`/`git push` on the line, prose included).
+- **Also measured, not fixed** — the exception reads words too: "I'll notify you and run `<escape>` in
+  my terminal" is quiet, because the match names "you". On `main` it raised.
+
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
   .claude/manifest.json` now refuses (`# BL-311-MANIFEST-READD-REFUSE`) and says so.
