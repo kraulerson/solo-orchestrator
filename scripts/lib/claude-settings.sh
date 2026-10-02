@@ -16,6 +16,17 @@
 #
 # bash-3.2 safe. Needs jq for the roster (the caller checks, as init.sh did).
 
+# `## BL-312:` the TL;DR-mode hook's registration is spelled once, in
+# tldr-mode.sh, because reconfigure-project.sh wires the same hook from inside a
+# project, where this file is not shipped. Sourced from this file's own
+# directory when the caller has not already sourced it.
+_soif_cs_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! command -v soif_tldr_register_hook >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  [ -f "$_soif_cs_dir/tldr-mode.sh" ] && . "$_soif_cs_dir/tldr-mode.sh"
+fi
+unset _soif_cs_dir
+
 # soif_vendored_skills — the skills init.sh vendors into .claude/skills/, one
 # per line. Adding a skill: drop it under templates/generated/skills/<name>/
 # and add its name here.
@@ -324,6 +335,13 @@ soif_register_hook_roster() {
             && mv "$_f.tmp" "$_f"
           hooks_added=true
         fi
+
+        # `## BL-312:` the TL;DR-mode Stop hook, in the same group as the bypass
+        # detector's Stop arm. Registered UNCONDITIONALLY, in both modes: it reads
+        # `tldr_mode` from the manifest on every stop and does nothing unless it
+        # is true, so the choice is switched in the manifest
+        # (reconfigure-project.sh --tldr-mode) without touching this file.
+        if soif_tldr_register_hook "$_f"; then hooks_added=true; fi   # BL-312-TLDR-ROSTER
 
         # BL-030: PostToolUse hook for the Claude-commit recorder
         # (always-on). Records SHA of every successful Claude-issued

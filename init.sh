@@ -78,6 +78,10 @@ ACCEPT_LOCAL_ONLY_RISK=false
 DEFER_REMOTE_PUSH=false
 ENFORCEMENT_LEVEL=""
 CONFIRM_PITFALLS=0
+# `## BL-312:` TL;DR mode — OPT-IN. The interactive setup asks it ([y/N]); a
+# non-interactive run reads `tldr_mode` from --config and is off without it.
+# Always the JSON literal true or false: it is written with --argjson.
+TLDR_MODE=false
 
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 # BL-099: shared git-hook body generators (fallback pre-commit + commit-msg TDD
@@ -99,6 +103,9 @@ source "$SCRIPT_DIR/scripts/lib/currency-manifest.sh"
 # framework-side. (tests/test-currency-birth-stamp.sh + tests/test-plan-staging.sh
 # pin the byte-identity.)
 source "$SCRIPT_DIR/scripts/lib/render-project-docs.sh"
+# `## BL-312:` TL;DR mode's shared pieces — the question, the [y/N] reader,
+# the CLAUDE.md section and the Stop-hook registration the roster below uses.
+source "$SCRIPT_DIR/scripts/lib/tldr-mode.sh"
 # The session layer (permissions, hook roster, vendored skills) — shared with
 # the adoption driver so both give a project the same one (§10-WP9c).
 source "$SCRIPT_DIR/scripts/lib/claude-settings.sh"
@@ -740,6 +747,27 @@ collect_project_info() {
   # the primary language here. You will need to add CI steps for secondary languages
   # manually in .github/workflows/ci.yml after project creation.
 
+  # `## BL-312:` TL;DR mode — one plain question, and it defaults to NO: Enter,
+  # anything but a yes, or end of input leaves it off. Switchable later with
+  # scripts/reconfigure-project.sh --tldr-mode on|off.
+  echo ""
+  echo -e "  ${BOLD}How the agent replies to you:${NC}"
+  echo "    TL;DR mode ends every reply with one plain-English summary: what happened, what it"
+  echo "    means for you, next steps, what is waiting on you, your options with their pros and"
+  echo "    cons, a recommendation with its reasoning, and what happens if you do nothing."
+  # ONLY AT A TERMINAL, the guard prompt_input and prompt_yes_no use: piped
+  # stdin is not a person, and reading it here would take the line meant for
+  # the next prompt — measured: tests/test-bl180-interactive-enforcement.sh's
+  # fed sequence lost its "Continue? Y" to this question, which read the Y as
+  # yes and turned the mode on. Not a terminal → off, said on stderr.
+  local tldr_answer=""
+  if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then   # BL-312-INIT-TTY-ONLY
+    read -rp "$(echo -e "  ${BOLD}${SOIF_TLDR_QUESTION} [y/N]${NC}: ")" tldr_answer || tldr_answer="" # lint-raw-read-prompt: allow init.sh interactive-only wizard, asked only at a terminal (NON_INTERACTIVE=true path bypasses collect_inputs_interactive entirely and reads tldr_mode from --config)
+  else
+    echo -e "${YELLOW}[WARN]${NC} Non-interactive context: the TL;DR mode question was not asked — TL;DR mode is off. Turn it on later: bash scripts/reconfigure-project.sh --tldr-mode on" >&2
+  fi
+  if soif_tldr_yes "$tldr_answer"; then TLDR_MODE=true; else TLDR_MODE=false; fi
+
   # Testing interval (default 2, configurable in Intake)
   TEST_INTERVAL=2
 
@@ -765,6 +793,7 @@ collect_project_info() {
   print_info "Project: $PROJECT_NAME"
   print_info "Platform: $PLATFORM | Track: $TRACK | Language: $LANGUAGE"
   print_info "Directory: $PROJECT_DIR"
+  print_info "TL;DR mode: $([ "$TLDR_MODE" = true ] && echo on || echo off)"
   echo ""
 
   read -rp "$(echo -e "${BOLD}Continue? [Y/n]${NC}: ")" confirm # lint-raw-read-prompt: allow init.sh interactive-only wizard (NON_INTERACTIVE=true path bypasses collect_inputs_interactive entirely; see init.sh:3532)
@@ -1453,6 +1482,11 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/bypass-audit.sh"       scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/bypass-patterns.sh"    scripts/lib/
   chmod +x scripts/hooks/bypass-detector.sh scripts/escalate-to-user.sh
+  # `## BL-312:` the TL;DR-mode Stop hook (registered unconditionally by the
+  # roster; it reads tldr_mode) and the lib reconfigure-project.sh switches it with.
+  cp "$SCRIPT_DIR/scripts/hooks/tldr-check.sh"      scripts/hooks/   # BL-312-SHIP-HOOK
+  cp "$SCRIPT_DIR/scripts/lib/tldr-mode.sh"         scripts/lib/     # BL-312-SHIP-LIB
+  chmod +x scripts/hooks/tldr-check.sh
   cp "$SCRIPT_DIR/scripts/pending-approval.sh" scripts/      # BL-015
   cp "$SCRIPT_DIR/scripts/lint-uat-scenarios.sh" scripts/    # BL-009
   cp "$SCRIPT_DIR/scripts/lint-fixture-envelopes.sh" scripts/  # BL-030
@@ -2699,6 +2733,15 @@ generate_claude_md() {
   # verify focus). {template sha, rendered-output sha}.
   soif_currency_record_render_base A1 CLAUDE.md \
     "$SCRIPT_DIR/templates/generated/claude-md.tmpl" CLAUDE.md
+
+  # `## BL-312:` the TL;DR Mode section, only when the mode is on — AFTER the
+  # render base is captured, on purpose: the section is this project's choice,
+  # not template content, so the Currency System's three-way merge carries it
+  # as the project's own trailing text and reconfigure-project.sh can take it
+  # out again byte for byte.
+  if [ "$TLDR_MODE" = true ]; then
+    soif_tldr_apply_claude_md CLAUDE.md on || print_warn "TL;DR mode is on, but its section could not be added to CLAUDE.md; to add it: bash scripts/reconfigure-project.sh --tldr-mode on"   # BL-312-INIT-CLAUDE-MD
+  fi
 }
 
 generate_approval_log() {
@@ -3545,8 +3588,16 @@ JSON config schema (snake_case keys; all fields optional, missing → use flag/d
   "branch_protection_attested": false,
   "approvals_attested": false,
   "allow_existing_dir": false,
-  "no_remote_creation": false
+  "no_remote_creation": false,
+  "tldr_mode": false
 }
+
+tldr_mode (config key only; BL-312): true ends every reply the agent gives with
+one plain-English TL;DR — what happened, what it means for you, next steps, what
+is waiting on you, the options with their pros and cons, a recommendation with
+its reasoning, what happens if you do nothing, and every command to run in a
+fenced block. Must be a JSON boolean. Absent → false (off). Switch it later with
+scripts/reconfigure-project.sh --tldr-mode on|off.
 
 Examples:
   ./init.sh --non-interactive \
@@ -3611,7 +3662,7 @@ collect_inputs_non_interactive() {
     fi
 
     # Warn on unknown fields (forward-compat per spec § 5.4).
-    local known_fields="project description platform track deployment gov_mode language project_dir git_host visibility remote_url branch_protection_attested approvals_attested allow_existing_dir no_remote_creation accept_local_only_risk defer_remote_push"
+    local known_fields="project description platform track deployment gov_mode language project_dir git_host visibility remote_url branch_protection_attested approvals_attested allow_existing_dir no_remote_creation accept_local_only_risk defer_remote_push tldr_mode"
     local field
     for field in $(jq -r 'keys[]' "$CONFIG_FILE"); do
       if ! echo " $known_fields " | grep -q " $field "; then
@@ -3670,6 +3721,22 @@ collect_inputs_non_interactive() {
       cfg_defer_push=$(cfg_get defer_remote_push)
       [ "$cfg_defer_push" = "true" ] && ARG_DEFER_REMOTE_PUSH=true
     fi
+    # `## BL-312:` TL;DR mode — a JSON boolean, OFF when the key is absent.
+    # Read by TYPE, not through cfg_get: its `// empty` turns `false` into
+    # nothing, and a string "true" is a typo to report, not a yes to guess.
+    local cfg_tldr_type=""
+    cfg_tldr_type=$(jq -r 'if has("tldr_mode") then (.tldr_mode | type) else "absent" end' "$CONFIG_FILE" 2>/dev/null)
+    case "$cfg_tldr_type" in
+      absent) TLDR_MODE=false ;;
+      boolean) TLDR_MODE=$(jq -r '.tldr_mode' "$CONFIG_FILE") ;;   # BL-312-INIT-CONFIG
+      *)
+        fail "invalid config field tldr_mode" \
+             "tldr_mode must be the JSON boolean true or false; found a ${cfg_tldr_type:-unreadable value}." \
+             "write \"tldr_mode\": true (every reply ends with a plain-English TL;DR) or false, or leave it out (off)." \
+             "--config='$CONFIG_FILE'"
+        return 1
+        ;;
+    esac
   fi
 
   # ----- Pass 1: schema validation (per-input typing) -----
@@ -4065,6 +4132,7 @@ collect_inputs_non_interactive() {
       --argjson no_remote "$([ "$NO_REMOTE_CREATION" = true ] && echo true || echo false)" \
       --argjson accept_local_only "$([ "$ACCEPT_LOCAL_ONLY_RISK" = true ] && echo true || echo false)" \
       --argjson defer_push "$([ "$DEFER_REMOTE_PUSH" = true ] && echo true || echo false)" \
+      --argjson tldr_mode "$([ "$TLDR_MODE" = true ] && echo true || echo false)" \
       '{
         _validated: true,
         _resolved_at: $ts,
@@ -4084,7 +4152,8 @@ collect_inputs_non_interactive() {
         allow_existing_dir: $allow_dir,
         no_remote_creation: $no_remote,
         accept_local_only_risk: $accept_local_only,
-        defer_remote_push: $defer_push
+        defer_remote_push: $defer_push,
+        tldr_mode: $tldr_mode
       }'
   fi
   return 0
@@ -4198,6 +4267,8 @@ Non-interactive mode (for CI, UAT, AI agents):
   Defaults:                --track standard, --git-host github,
                            --visibility private, --description "",
                            --project-dir "$HOME/Code/$PROJECT"
+  TL;DR mode:              off unless the --config file sets "tldr_mode": true
+                           (see --help-non-interactive)
 
 Init logs are saved to <project>/.solo-orchestrator/init-TIMESTAMP.log
 HELPEOF
@@ -4406,6 +4477,7 @@ HELPEOF
   log_line "Track: $TRACK"
   log_line "Deployment: $DEPLOYMENT"
   log_line "POC Mode: ${POC_MODE:-none}"
+  log_line "TL;DR mode: $TLDR_MODE"
 
   if [ "$DRY_RUN" = true ]; then
     dry_run_summary
@@ -4642,7 +4714,9 @@ prepare_initial_state_for_commit() {
 
   # Seed manifest with all framework-managed fields. remote_url stays "" until
   # create_and_protect_remote actually creates the repo; if it doesn't, the
-  # empty value is the documented "no remote" sentinel.
+  # empty value is the documented "no remote" sentinel. `tldr_mode` (`## BL-312:`)
+  # is always written, true or false, so the choice is on record either way;
+  # it is on the adoption driver's Solo key list (`# BL-311-SOLO-KEYS`).
   local poc_val
   if [ -n "$POC_MODE" ]; then
     poc_val="$POC_MODE"
@@ -4655,25 +4729,25 @@ prepare_initial_state_for_commit() {
     tmp=$(mktemp)
     if [ -n "$poc_val" ]; then
       jq --arg h "$_RESOLVED_HOST" --arg m "$_RESOLVED_MODE" \
-         --arg dep "$DEPLOYMENT" --arg pm "$poc_val" --arg lvl "$ENFORCEMENT_LEVEL" \
-         '. + {host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:$pm, enforcement_level:$lvl}' \
+         --arg dep "$DEPLOYMENT" --arg pm "$poc_val" --arg lvl "$ENFORCEMENT_LEVEL" --argjson tl "$TLDR_MODE" \
+         '. + {host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:$pm, enforcement_level:$lvl, tldr_mode:$tl}' \
          "$manifest" > "$tmp" && mv "$tmp" "$manifest"
     else
       jq --arg h "$_RESOLVED_HOST" --arg m "$_RESOLVED_MODE" \
-         --arg dep "$DEPLOYMENT" --arg lvl "$ENFORCEMENT_LEVEL" \
-         '. + {host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:null, enforcement_level:$lvl}' \
+         --arg dep "$DEPLOYMENT" --arg lvl "$ENFORCEMENT_LEVEL" --argjson tl "$TLDR_MODE" \
+         '. + {host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:null, enforcement_level:$lvl, tldr_mode:$tl}' \
          "$manifest" > "$tmp" && mv "$tmp" "$manifest"
     fi
   else
     if [ -n "$poc_val" ]; then
       jq -n --arg h "$_RESOLVED_HOST" --arg m "$_RESOLVED_MODE" \
-            --arg dep "$DEPLOYMENT" --arg pm "$poc_val" --arg lvl "$ENFORCEMENT_LEVEL" \
-            '{host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:$pm, enforcement_level:$lvl}' \
+            --arg dep "$DEPLOYMENT" --arg pm "$poc_val" --arg lvl "$ENFORCEMENT_LEVEL" --argjson tl "$TLDR_MODE" \
+            '{host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:$pm, enforcement_level:$lvl, tldr_mode:$tl}' \
         > "$manifest"
     else
       jq -n --arg h "$_RESOLVED_HOST" --arg m "$_RESOLVED_MODE" \
-            --arg dep "$DEPLOYMENT" --arg lvl "$ENFORCEMENT_LEVEL" \
-            '{host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:null, enforcement_level:$lvl}' \
+            --arg dep "$DEPLOYMENT" --arg lvl "$ENFORCEMENT_LEVEL" --argjson tl "$TLDR_MODE" \
+            '{host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:null, enforcement_level:$lvl, tldr_mode:$tl}' \
         > "$manifest"
     fi
   fi

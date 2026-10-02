@@ -124,6 +124,11 @@ adopt_write_framework_docs() {                         # BL-242-DOCS-STAGE
     || { adopt_refuse "could not render CLAUDE.md from the framework's template"; return 1; }
   # A render that exits 0 having written nothing is not a document.
   [ -s "$rendered" ] || { adopt_refuse "CLAUDE.md rendered empty"; return 1; }
+  # `## BL-312:` the TL;DR Mode section, when the operator said yes — added to
+  # the render before it is PUT, so it follows the same link-and-permission rule.
+  if [ "${ADOPT_TLDR_MODE:-false}" = true ]; then
+    soif_tldr_apply_claude_md "$rendered" on || { adopt_refuse "could not add the TL;DR Mode section to CLAUDE.md"; return 1; }   # BL-312-ADOPT-TLDR-DOCS
+  fi
   out="$(_adopt_doc_put "$root" CLAUDE.md "$rendered")" || return 1
   case "$out" in replaced) replaced="$replaced CLAUDE.md" ;; kept-*) kept="$kept CLAUDE.md:${out#kept-}" ;; esac
 

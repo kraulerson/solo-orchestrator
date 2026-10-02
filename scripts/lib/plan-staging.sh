@@ -88,6 +88,10 @@ if ! command -v soif_render_claude_md >/dev/null 2>&1; then
   # shellcheck source=/dev/null
   [ -f "$_soif_ps_dir/render-project-docs.sh" ] && . "$_soif_ps_dir/render-project-docs.sh"
 fi
+if ! command -v soif_tldr_apply_claude_md >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  [ -f "$_soif_ps_dir/tldr-mode.sh" ] && . "$_soif_ps_dir/tldr-mode.sh"
+fi
 unset _soif_ps_dir
 
 # The exact review-r1 M1 shallow-clone fallback line (byte-stable — a test pins it).
@@ -673,7 +677,17 @@ _soif_plan_recover_and_render() {
 
   case "$artifact" in
     CLAUDE.md)
-      soif_render_claude_md "$template" "$out" "$name" "$desc" "$platform" "$track" "$language" "$test_interval" "$deployment" ;;
+      soif_render_claude_md "$template" "$out" "$name" "$desc" "$platform" "$track" "$language" "$test_interval" "$deployment"
+      # `## BL-312:` a project in TL;DR mode carries the TL;DR Mode section at
+      # the end of its CLAUDE.md (added after the render, at birth or by
+      # reconfigure-project.sh). Both legs get it too, from the SAME text, so the
+      # three-way sees it as common ground: without it the section is the
+      # user's own trailing text, and an upstream change to the template's last
+      # lines would conflict with it.
+      if [ "$(jq -r 'if type == "object" then (.tldr_mode == true) else false end' "$mf" 2>/dev/null)" = "true" ] \
+         && command -v soif_tldr_apply_claude_md >/dev/null 2>&1; then
+        soif_tldr_apply_claude_md "$out" on >/dev/null 2>&1 || :   # BL-312-PLAN-TLDR-LEGS
+      fi ;;
     PROJECT_INTAKE.md)
       # NO resolver output at plan time — structural render only; the user's tooling
       # summary is preserved through the three-way as ours-only trailing content.

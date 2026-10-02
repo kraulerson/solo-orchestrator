@@ -812,8 +812,10 @@ _adopt_preflight_prior_archive() {
 # SYNC: every top-level key init.sh or adoption writes into the manifest must
 # be on it. tests/test-bl311-b-adopt-guardrails-track.sh derives both halves
 # (K1 from a real adoption, K2 from init.sh's writers) and drives every entry
-# through this preflight (R1).
-ADOPT_SOLO_MANIFEST_KEYS='["host","mode","remote_url","deployment","poc_mode","enforcement_level","soloFrameworkCommit","currency","adoption","mcp"]'   # BL-311-SOLO-KEYS
+# through this preflight (R1). `tldr_mode` (`## BL-312:`) is written by both
+# init.sh's seed and `adopt_write_manifest`; tests/test-bl312-tldr-mode.sh G1/G2
+# pin that a Guardrails manifest carrying it is not Guardrails-only.
+ADOPT_SOLO_MANIFEST_KEYS='["host","mode","remote_url","deployment","poc_mode","enforcement_level","soloFrameworkCommit","currency","adoption","mcp","tldr_mode"]'   # BL-311-SOLO-KEYS
 
 # _adopt_guardrails_only ROOT — 0 iff `.claude/manifest.json` is the
 # Guardrails' own and nothing of this framework's. `.claude/phase-state.json` is
@@ -1194,6 +1196,56 @@ adopt_track_known() {
   return 1
 }
 
+# ── `## BL-312:` TL;DR MODE — OPTIONAL, AND NO ANSWER MEANS NO ──────────────
+# Whether every reply the agent gives ends with one plain-English TL;DR (the
+# eight parts tldr-mode.sh's CLAUDE.md section lists). Opt-in by Karl's ruling:
+# end of input, or an empty answer, is NO — as the MCP step's skip is, and
+# unlike the tier and the track, which refuse. An answer that is not offered
+# still refuses, as everywhere.
+#
+# IT IS ASKED LAST — after the intake's confirmations, before the pre-write
+# preflight and every writer — AND THAT POSITION IS WHAT MAKES THE DEFAULT SAFE.
+# The adoption suites pipe fixed answer sequences, written before this question
+# existed. Most are exactly as long as the questions; some are padded with `1`s,
+# because the intake's confirmation count depends on what the environment has
+# installed (the CI audit moved ahead of the intake for that reason). Put any
+# earlier, this question would read an answer meant for a later one and shift
+# the rest. Last, an exact sequence reaches it at end of input (no), and a
+# padding `1` is the number offered for "no" — the safe answer is listed FIRST,
+# as the MCP step's skip is (`# BL-311-MCP-OFFER-ORDER`). So a stray answer can
+# never turn it on: tests/test-bl312-tldr-mode.sh A1 pins the `1`, AE the end
+# of input, AR the refusal.
+ADOPT_TLDR_MODE=false
+ADOPT_TLDR_NO="no"
+ADOPT_TLDR_YES="yes"
+
+adopt_ask_tldr_mode() {
+  local raw="" ans=""
+  ADOPT_TLDR_MODE=false
+  adopt_head "How the agent replies to you"
+  adopt_note "TL;DR mode ends every reply with one plain-English summary: what happened, what it"
+  adopt_note "means for you, next steps, what is waiting on you, your options with their pros and"
+  adopt_note "cons, a recommendation with its reasoning, and what happens if you do nothing."
+  adopt_note "You can switch it later: bash scripts/reconfigure-project.sh --tldr-mode on (or off)."
+  adopt_blank
+  adopt_offer_choice "$SOIF_TLDR_QUESTION (No answer means no.)" "$ADOPT_TLDR_NO" "$ADOPT_TLDR_YES"   # BL-312-ADOPT-TLDR-OFFER-ORDER
+  adopt_read_optional
+  raw="$ADOPT_ANSWER"
+  printf '\n'
+  if [ -z "$raw" ]; then   # BL-312-ADOPT-TLDR-EOF
+    adopt_note "No answer — TL;DR mode is off."
+  else
+    ans="$(adopt_resolve_choice "$raw" "$ADOPT_TLDR_NO" "$ADOPT_TLDR_YES")"   # BL-312-ADOPT-TLDR-RESOLVE-ORDER
+    if [ -z "$ans" ]; then
+      adopt_refuse "'$raw' is not one of the answers offered for: TL;DR mode"
+      return 1
+    fi
+    if [ "$ans" = "$ADOPT_TLDR_YES" ]; then ADOPT_TLDR_MODE=true; fi   # BL-312-ADOPT-TLDR-YES
+  fi
+  if [ "$ADOPT_TLDR_MODE" = true ]; then adopt_note "TL;DR mode: on"; else adopt_note "TL;DR mode: off"; fi
+  return 0
+}
+
 # THE LANDING IS A CONSTANT, AND IT IS SPELLED AS ONE (D10). Every adopted
 # project lands at phase 0 and stays there until the ordinary gates move it:
 # no scenario, no scanned rung, no floor, no arithmetic anywhere in any act.
@@ -1299,6 +1351,15 @@ adopt_write_manifest() {
       '{host: $h, mode: $m, remote_url: "", deployment: $d, poc_mode: $p, enforcement_level: "strict"}' \
       | adopt_write_file "$root" ".claude/manifest.json" || return 1
   fi
+  # `## BL-312:` `tldr_mode`, true or false, whichever arm ran above — as
+  # init.sh's seed writes it: the question's answer, or false at end of input.
+  # A SEPARATE edit, and before the stamp: the two arms above are pinned
+  # byte for byte by tests/test-bl221-tier-fail-closed.sh (W2 executes the
+  # merge filter) and tests/test-bl268-mode-vocabulary.sh (MP2/MP3 mutate their
+  # argument lines).
+  local tl="false"
+  [ "$ADOPT_TLDR_MODE" = true ] && tl="true"
+  adopt_jq_edit "$root" ".claude/manifest.json" '.tldr_mode = $tl' --argjson tl "$tl" || return 1   # BL-312-ADOPT-TLDR-MANIFEST
 
   sha="$(adopt_sha256 "$root/.claude/adoption/scout-report.json")"
   # REFUSE ON AN EMPTY HASH (R-WP4-3), and refuse HERE rather than hoping the
@@ -2429,6 +2490,10 @@ adopt_main() {
   adopt_guardrails_resolve "$root" || return 1   # BL-296-ADOPT-RESOLVE-CALL
 
   adopt_run_reverse_intake "$report" || return 1
+
+  # `## BL-312:` TL;DR mode — the LAST question, before any writer; its comment
+  # says why last is the only safe place for a question whose default is no.
+  adopt_ask_tldr_mode || return 1   # BL-312-ADOPT-TLDR-CALL
 
   # WP5b. Was adopt_stub_test_debt_ledger; it is a real measurement now.
   # BEFORE adopt_install_framework, and that ordering is stated rather than
