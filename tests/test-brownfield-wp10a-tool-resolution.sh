@@ -350,11 +350,12 @@ fi
 # The only "runnable" fixture above is `touch <path>`, a shape no matrix entry
 # has. These two are the SHIPPED strings, measured from the real resolver:
 # darwin+brew yields `brew install gitleaks`; linux+apt/dnf/pacman yields the
-# array joined with ` && `, whose first token is `GITLEAKS_VERSION=$(curl`.
-# A first cut resolved that first token as a command and therefore REFUSED the
-# only Linux install path the matrix has — telling the operator "this host has
-# no package manager recipe for it" while printing that recipe.
-X5_LINUX='GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name) && curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/x.tar.gz" | sudo tar -xz -C /usr/local/bin gitleaks'
+# framework's installer (`## BL-316:`; it was a `GITLEAKS_VERSION=$(curl …)`
+# pipeline until then). A first cut resolved that pipeline's first token as a
+# command and therefore REFUSED the only Linux install path the matrix had —
+# telling the operator "this host has no package manager recipe for it" while
+# printing that recipe.
+X5_LINUX='bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"'
 X5_BREW='brew install gitleaks'
 X5_URL='https://github.com/gitleaks/gitleaks/releases'
 

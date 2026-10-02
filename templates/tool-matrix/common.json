@@ -201,18 +201,9 @@
       "latest_check": {"method": "github_release", "package": "gitleaks/gitleaks"},
       "install": {
         "darwin_brew": "brew install gitleaks",
-        "linux_apt": [
-          "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)",
-          "curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks"
-        ],
-        "linux_dnf": [
-          "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)",
-          "curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks"
-        ],
-        "linux_pacman": [
-          "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)",
-          "curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks"
-        ],
+        "linux_apt": "bash \"${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh\"",
+        "linux_dnf": "bash \"${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh\"",
+        "linux_pacman": "bash \"${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh\"",
         "manual": "https://github.com/gitleaks/gitleaks/releases"
       },
       "auto_installable": true,
@@ -302,9 +293,9 @@
       "latest_check": null,
       "update_check": {"method": "claude_plugin"},
       "install": {
-        "darwin_brew": "claude plugins add superpowers",
-        "linux_apt": "claude plugins add superpowers",
-        "linux_pacman": "claude plugins add superpowers",
+        "darwin_brew": "claude plugin install --scope user superpowers@claude-plugins-official",
+        "linux_apt": "claude plugin install --scope user superpowers@claude-plugins-official",
+        "linux_pacman": "claude plugin install --scope user superpowers@claude-plugins-official",
         "manual": "Run: claude → /plugins → search 'superpowers' → install"
       },
       "auto_installable": true,

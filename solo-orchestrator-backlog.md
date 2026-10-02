@@ -22218,7 +22218,9 @@ by its own PR; the entry closes when the rerun passes.
 
 **Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). Group B (rows 2 and 8)
 merged as PR #490 (merge commit `3e737f6`, 2026-09-30). Group C (rows 4 and 5) merged as PR #491
-(merge commit `a8f64f4`, 2026-09-30). The entry stays Open until the clean rerun passes.
+(merge commit `a8f64f4`, 2026-09-30). Group E (rows 6 and 7) merged as PR #492 (merge commit
+`34dae11`). Group D (row 3) merged as PR #493 (merge commit `646bb0b`, 2026-10-01). All nine rows are
+now merged; the entry stays Open until the clean rerun passes.
 
 **What ran.** A fresh Claude Code session (Sonnet, a clean `CLAUDE_CONFIG_DIR`) played a systems
 technician with one to two years of experience — not a developer — installing Solo Orchestrator from
@@ -22422,15 +22424,21 @@ mode: …". Residuals, not fixed:
 - **R-BL311D-R3-3** — the span rule is per line, and "per line" means only that every line the
   pattern matched must qualify: a line no pattern matches is never read. A proposal on the next line,
   in a fenced block, or written as anything but backtick inline code (`&#96;`, lookalike quote marks,
-  bold, plain words) beside a qualifying relay is not caught. `main` shares the gap — the pattern
-  table has no hooksPath or hook-disabling pattern, so `git config core.hooksPath /dev/null` on its
-  own line raises nowhere. `docs/audit-log-lifecycle.md` no longer says "never per message".
+  bold, plain words) beside a qualifying relay is not caught. The detector before #493 raised such
+  messages only because it raised every relay line; no pattern names hook-disabling, so the proposal
+  on its own line raises on neither. `docs/audit-log-lifecycle.md` no longer says "never per message".
+  (Reworded by R-BL311D-R4-1, below.)
 - **R-BL311D-R3-4** — accepted false positives, failing closed: "My recommendation: I'd run `…` in a
   new terminal" raises (the first-person test reads words, not intent), and a commit relay followed
   by "-- it records the attestation." raises (the backstop's long-option arm reads every `--` after
   `git commit`/`git push` on the line, prose included).
 - **Also measured, not fixed** — the exception reads words too: "I'll notify you and run `<escape>` in
   my terminal" is quiet, because the match names "you". On `main` it raised.
+- **R-BL311D-R4-1 (fixed on `fix/bl316-broken-installers`, the BL-316 PR)** — R-BL311D-R3-3 and
+  `docs/audit-log-lifecycle.md` said `main` "shares the gap" / "does not catch it either". True only
+  for a proposal standing alone. Measured in group D's final check: beside a relay line, the pre-#493
+  detector raised every such shape (next line, fenced, `&#96;`, lookalike backticks, bold, plain words)
+  — only because it raised every relay line — and the merged detector is quiet. Both now say so.
 
 **Found during groups A–B, not fixed here.** One line each, with what was measured:
 - **No documented undo.** The repo documents no way to undo an adoption; `--re-add
@@ -22472,3 +22480,119 @@ nothing — plus every command they must run, in a fenced block, never named in 
 `CLAUDE.md` both read); the hook's check (which parts it can verify mechanically, and how it avoids
 re-prompting forever on a reply it cannot parse); and how it coexists with the Guardrails' own Stop hooks.
 
+## BL-316: two installers that could never run — the tool matrix's Superpowers command uses a verb Claude Code does not have, and its Linux gitleaks install is a pipeline verify-install.sh refuses
+
+**Status:** Closed — shipped 2026-10-01 on `fix/bl316-broken-installers` (PR pending), fix commit
+`1ae8332`. Karl's ruling (2026-10-01, from an external review): fix both before `## BL-311:`'s clean
+dogfood rerun, as a new entry citing `## BL-284:` and `## BL-069:` rather than reopening them.
+
+**What `## BL-284:` fixed, and what it left.** `# BL-284-PLUGIN-VERB` corrected verify-install.sh's own
+fixer, `fix_superpowers`, to `claude plugin install --scope user superpowers@claude-plugins-official`.
+It left the tool matrix (`templates/tool-matrix/common.json`, keys `darwin_brew`, `linux_apt`,
+`linux_pacman`) and README's tools table at `claude plugins add superpowers`. The matrix row is what
+`init.sh` (`resolve_and_install_tools`, an `eval`), `upgrade-project.sh`
+(`upgrade_auto_install_from_resolver`) and verify-install's `fix_tool_install` run — the last as a
+second Superpowers row from `check_tools`, through the deprecated `bash -c` path, because `claude` is
+an allowed legacy head. Measured on Claude Code 2.1.285: `claude plugins add` exits 1 with
+`error: unknown command 'add'`; `claude plugin --help` lists `install|i` and no `add`.
+
+**What `## BL-069:` fixed, and what it left.** PR #140 made the three readers iterate `install_cmds`
+and turned gitleaks' Linux string into a two-stage array (`GITLEAKS_VERSION=$(curl … | jq …)`, then
+`curl … | sudo tar …`). Its tests pinned the array's join and dispatched only `brew install` shapes
+through verify-install. There each stage is a separate call and stage 1 carries `$(` and `|`:
+measured at `646bb0b`, `fix_tool_install` on the `linux_apt` row prints `REFUSED — post-allowlist
+payload contains shell-chaining metacharacters` at stage 1/2 and runs nothing — and unrefused, stage 2
+would run in a fresh `bash -c` without `GITLEAKS_VERSION`. The eval readers (init.sh, upgrade,
+adoption) did run it: `latest`, unverified, and always the x64 asset, so an arm64 Linux host got a
+binary it cannot execute.
+
+**Fix.**
+- **Superpowers.** All three matrix values and the README row carry the BL-284 command (from
+  `claude plugin install --help`: `plugin@marketplace`, `-s, --scope`, default `user`; the Claude Code
+  docs via Context7 give the same shape). verify-install's structured layer sends that exact string to
+  `fix_superpowers` (`# BL-316-SUPERPOWERS-ROUTE`): one owner of the argv, no deprecation warning, and
+  it still works under `VERIFY_INSTALL_NO_LEGACY_DISPATCH=1`.
+- **gitleaks on Linux.** New `scripts/install-gitleaks.sh`: pinned 8.30.1, a SHA-256 per arch — x64
+  `551f6fc8…` (the `tests.yml` pin) and arm64 `e4a487ee…`, both as published in the release's
+  `gitleaks_8.30.1_checksums.txt` and GitHub's asset `digest` field, read with `gh api` (the two agree;
+  no binary was downloaded). Before any download it refuses a non-Linux host, an unpinned machine type
+  (`# BL-316-ARCH-OTHER`) and a missing verifier (`# BL-316-VERIFIER-PRESENT`); it checks the tarball
+  with `scripts/ci-verify-sha256.sh` before extracting (`# BL-316-CHECKSUM`), then `sudo install`s to
+  `/usr/local/bin`. The matrix's three Linux rows are `bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"`
+  (the `# BL-235-SCRIPTS-DIR` convention). verify-install matches that string exactly and runs the
+  installer from beside itself, never from a path the matrix supplies (`# BL-316-VETTED-INSTALLER`); a
+  lookalike falls to Layer 2, where `bash` is not an allowed head. The metacharacter refusal is
+  unchanged. init.sh, upgrade-project.sh and adoption export `SOLO_SCRIPTS_DIR` before their `eval`
+  (`# BL-316-SCRIPTS-DIR`), and init.sh ships the installer and its verifier
+  (`# BL-316-SHIP-INSTALLER`, `# BL-316-SHIP-VERIFIER`), so the derived shipped set carries them to
+  `--sync-framework` and adoption too.
+- **A failed vetted install is a failure, not a miss** (review round 1). Both arms first ended in
+  `return $?`, and `_tool_install_dispatch_one` reads 1 as "no shape matched" and hands the string to
+  Layer 2: a failed Superpowers install ran `claude` a second time through the deprecated path, and a
+  failed gitleaks install added `REFUSED — disallowed leading token 'bash'`. Once an arm has run, a
+  failure now returns 2, which that function already treats as final (`# BL-316-SUPERPOWERS-RC`,
+  `# BL-316-VETTED-RC`).
+- **init.sh shows why an install failed.** `resolve_and_install_tools` ran `eval "$tool_cmd" 2>/dev/null`,
+  so the installer's own reason (`did not match its pinned SHA-256`) never reached the operator, and its
+  hint printed `${SOLO_SCRIPTS_DIR:-scripts}` unexpanded, which resolves only from the framework root.
+  stderr is now captured and printed, indented, on failure (`# BL-316-INSTALL-STDERR`), and the hint
+  carries the absolute path (`# BL-316-INSTALL-HINT`).
+
+**Tests.** `tests/test-bl316-installers.sh` drives the real matrix through the real resolver into each
+real reader, with `claude`, `curl`, `sudo`, `tar`, `uname`, `brew` and `apt` stubbed: 25 cases and 18
+mutation proofs, 43 passed / 0 failed, rc 0; against `646bb0b` 1 passed / 42 failed (the pass is S0,
+`fix_superpowers` itself). Review round 1 added S6 and V4 (a failing installer: one run, no Layer 2),
+G7's "`tar` never sees a mismatched tarball" (the line-move mutant MX1 passed every case before it),
+G9 (the shipped set names both scripts — the `# BL-088-CLOSURE` check reads only literal
+`"$SCRIPT_DIR/<name>.sh"` references, so deleting either `cp` line passed every suite) and C4
+(init.sh's stderr and hint). Pinned to the `mcp` shard. `tests/test-bl069-install-cmds-consumers.sh`
+Group E and `tests/test-brownfield-wp10a-tool-resolution.sh` X5 now name the new row.
+
+**Residuals, not fixed.**
+- `check-phase-gate.sh`'s phase-transition auto-install reads `.install_command`, a field the resolver
+  never writes (it writes `install_cmd`), so its "Install now?" runs nothing. Same family, own defect.
+- Existing scaffolded projects keep their own copy of the matrix: `--sync-framework` copies the shipped
+  scripts, not `templates/tool-matrix/`, and `fix_tool_matrix` replaces only a missing or invalid one.
+- Superpowers has no `linux_dnf` key, so a dnf-only host gets the manual text. Neither the row nor the
+  fixer adds the official marketplace first, which the docs say a machine that has never opened an
+  interactive session needs.
+- With Superpowers missing, verify-install registers it twice (`check_tools`, `check_plugins_mcp`), so
+  `--auto-fix` installs twice. Not measured here; the Claude Code docs (`plugin install` in the CLI
+  reference, read via Context7) document that a plugin already installed at that scope prints
+  `Plugin "<name>@<marketplace>" is already installed (scope: user)` and exits 0, so the second call
+  should be a no-op.
+- verify-install's pre-existing structured arms (`brew`, `npm`, `pip`/`pip3`/`pipx`/`cargo`/`gem`,
+  `sudo apt|apt-get|dnf|pacman`) still end in `return $?`: an install that exits 1 is read as "no shape
+  matched", so it is re-run through the deprecated `bash -c` path (or refused under
+  `VERIFY_INSTALL_NO_LEGACY_DISPATCH=1`), and one that exits 2 reads as a refusal. Read from
+  `_tool_install_dispatch_one`, not measured; the same fix as `# BL-316-VETTED-RC` would close it.
+- The installer always uses `sudo` (a root shell without it fails loudly), and machine types other than
+  x86_64 and aarch64 are refused rather than pinned.
+
+## BL-317: a Phase 3 check of test strength, not only test order
+
+**Status:** Open — DEFERRED (design to be done; decided 2026-10-01 by Karl).
+
+**The gap.** The `## BL-072:` TDD check (`pre-commit-gate.sh`) enforces that tests come first — a
+`feat`/`fix`/`refactor` commit carrying implementation must carry a test (a block or a warning, by
+tier) — not that the tests would catch a defect. Nothing downstream measures that either: `scripts/run-phase3-validation.sh` runs
+semgrep-full-tree, license, snyk, zap-dast and threat-model, where "coverage" means every `TM-NNN` row
+in PROJECT_BIBLE.md Section 4 has a validation row; `scripts/check-phase-gate.sh` requires a Phase 3
+summary and a non-empty `docs/test-results/`; `scripts/test-gate.sh` counts features between test
+sessions. No check enforces coverage or runs mutation testing on a project's code: the Go CI template
+writes a coverage profile with no floor, and the PROJECT_BIBLE template's test table states ">80%
+coverage" as a criterion nothing measures.
+
+**Candidate mechanisms.**
+- **A coverage floor** on changed files. Cheap and per-stack tooling is common, but gameable — tests
+  that execute lines without asserting anything pass it.
+- **Mutation testing on changed files** (mutmut, Stryker, PIT and their kin). Measures whether a test
+  fails when the code is wrong, which is the property wanted; but it needs a tool per language, runtime
+  grows with code size, and some stacks have no mature tool.
+
+**Open design questions.** Per-stack tool selection, presumably through the tool matrix (a category
+like `sast`); which phase transition checks it (Phase 2→3 or 3→4); blocking or advisory, and by tier;
+how POC tiers relax it; a runtime budget, and whether to scope to files changed since the last check.
+
+**Source.** An external review Karl shared on 2026-10-01. Its claims, recorded as the review's and not
+verified here: Kiro uses property-based tests, and ECC sets an 80% coverage target.

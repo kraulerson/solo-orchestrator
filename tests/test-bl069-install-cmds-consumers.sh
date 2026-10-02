@@ -338,10 +338,19 @@ _assert_array_joins() {
   fi
 }
 
-GITLEAKS_JOIN='GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name) && curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" | sudo tar -xz -C /usr/local/bin gitleaks'
+# `## BL-316:` gitleaks left this group. Its two-stage array could never run
+# through verify-install.sh (each stage is a separate `bash -c`, and both carry
+# `$(` or `|`, which the legacy path refuses), so its Linux rows now name one
+# vetted installer. tests/test-bl316-installers.sh owns that row; this only
+# records that it is no longer an array.
+GITLEAKS_ROW='bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"'
 for k in linux_apt linux_dnf linux_pacman; do
-  _assert_array_joins "T-wrap-gitleaks-$k" "$COMMON_JSON" \
-    ".tools[] | select(.name==\"gitleaks\") | .install.$k" 2 "$GITLEAKS_JOIN"
+  _gl=$(jq -c ".tools[] | select(.name==\"gitleaks\") | .install.$k" "$COMMON_JSON")
+  if [ "$_gl" = "$(jq -cn --arg c "$GITLEAKS_ROW" '$c')" ]; then
+    pass "T-wrap-gitleaks-$k: one stage, the BL-316 installer"
+  else
+    fail_ "T-wrap-gitleaks-$k" "got $_gl"
+  fi
 done
 
 RUST_JOIN="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source \"\$HOME/.cargo/env\""

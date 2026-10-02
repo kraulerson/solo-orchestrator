@@ -1504,11 +1504,13 @@ All scripts live in `scripts/` and can be run with `bash scripts/<name>.sh`. Scr
 | `check-gate.sh` | Host-aware remediation helper for gate failures (branch protection and friends) | `bash scripts/check-gate.sh --help` | Any |
 | `check-maintenance.sh` | Maintenance cadence check | `bash scripts/check-maintenance.sh` | 4+ |
 | `check-pr-review.sh` | The push-time review gate — refuses a push with no adversarial review recorded against HEAD | Automatic (pre-push hook) | 2+ |
+| `ci-verify-sha256.sh` | Checks a downloaded file against a pinned SHA-256 by computing and comparing it; `install-gitleaks.sh` uses it | `bash scripts/ci-verify-sha256.sh <file> <expected-sha256>` | Any |
 | `cut-release.sh` | The post-1.0 release cut | `bash scripts/cut-release.sh` | 4+ |
 | `delta.sh` | The post-1.0 delta track's operator front door (open, close and cut deltas) | `bash scripts/delta.sh --help` | 4+ |
 | `detect-out-of-band-commits.sh` | Records user-terminal commits made outside the hooks (BL-030) | Automatic (SessionStart hook) | 2+ |
 | `escalate-to-user.sh` | The documented alternative to bypassing a gate — hands the decision to you (BL-029) | `bash scripts/escalate-to-user.sh --help` | Any |
 | `install-filesystem-gates.sh` | Installs the strict-mode git hooks (BL-030) | `bash scripts/install-filesystem-gates.sh` | Any |
+| `install-gitleaks.sh` | Installs a pinned, checksum-verified gitleaks on Linux (x86_64, aarch64) — the tool matrix's Linux recipe, run for you by init, upgrade, verify-install and adoption; on macOS use `brew install gitleaks` | `bash scripts/install-gitleaks.sh` | Any |
 | `lint-backlog-references.sh` | Closed backlog entries must cite a PR or SHA (in a generated project it self-declares nothing to validate unless a backlog file exists) | Automatic (pre-commit hook) | Any |
 | `lint-counter-antipattern.sh` | Refuses the `((x++))`-under-`set -e` class of counter bug in shell scripts | Automatic (pre-commit hook) | Any |
 | `lint-fixture-envelopes.sh` | Refuses test fixtures still using the retired envelope shape — shipped, but wired into no hook or pipeline in a generated project; run it by hand | `bash scripts/lint-fixture-envelopes.sh` | Any |

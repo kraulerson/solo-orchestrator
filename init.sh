@@ -797,6 +797,10 @@ collect_project_info() {
 # ================================================================
 resolve_and_install_tools() {
   print_step "Resolving tool installation plan..."
+  # `## BL-316:` matrix install rows can name a framework script as
+  # "${SOLO_SCRIPTS_DIR:-scripts}/…" (gitleaks on Linux). This runs before any
+  # `cd`, so without it that path would resolve against the operator's shell.
+  export SOLO_SCRIPTS_DIR="${SOLO_SCRIPTS_DIR:-$SCRIPT_DIR/scripts}"   # BL-316-SCRIPTS-DIR
   local os_type="$OS_TYPE"
   local dev_os
   case "$os_type" in
@@ -1097,10 +1101,19 @@ resolve_and_install_tools() {
       fi
 
       print_info "Installing $tool_name..."
-      if eval "$tool_cmd" 2>/dev/null; then
+      # `## BL-316:` stderr is captured, not discarded: it is where an installer
+      # says WHY it failed (install-gitleaks.sh's checksum refusal). stdout still
+      # streams. The hint expands the one placeholder a matrix row may carry, so
+      # it can be pasted from any directory.
+      local _tool_err="" _tool_hint="$tool_cmd" _sd_tok='${SOLO_SCRIPTS_DIR:-scripts}'
+      if { _tool_err="$(eval "$tool_cmd" 2>&1 1>&3 3>&-)"; } 3>&1; then   # BL-316-INSTALL-STDERR
         print_ok "$tool_name installed"
       else
-        print_warn "Could not install $tool_name. Install manually: $tool_cmd"
+        case "$_tool_hint" in
+          *"$_sd_tok"*) _tool_hint="${_tool_hint%%"$_sd_tok"*}${SOLO_SCRIPTS_DIR:-scripts}${_tool_hint#*"$_sd_tok"}" ;;   # BL-316-INSTALL-HINT
+        esac
+        print_warn "Could not install $tool_name. Install manually: $_tool_hint"
+        if [ -n "$_tool_err" ]; then printf '%s\n' "$_tool_err" | sed 's/^/    /'; fi
       fi
     done
   fi
@@ -1416,6 +1429,10 @@ create_project() {
   # in every generated project — correct, but useless — so it ships with them.
   cp "$SCRIPT_DIR/scripts/probe-tool.sh" scripts/
   chmod +x scripts/probe-tool.sh 2>/dev/null || true
+  # `## BL-316:` the tool matrix's Linux gitleaks rows run this installer, and it
+  # checks its download with the verifier beside it; both ship with the matrix.
+  cp "$SCRIPT_DIR/scripts/install-gitleaks.sh" scripts/   # BL-316-SHIP-INSTALLER
+  cp "$SCRIPT_DIR/scripts/ci-verify-sha256.sh" scripts/   # BL-316-SHIP-VERIFIER
   cp "$SCRIPT_DIR/scripts/session-version-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-freshness-check.sh" scripts/   # BL-109 S2 (Currency System, Layer 1)
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/

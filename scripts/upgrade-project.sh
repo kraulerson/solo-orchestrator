@@ -3390,6 +3390,9 @@ MATRIX_DIR="$ORCHESTRATOR_ROOT/templates/tool-matrix"
 upgrade_auto_install_from_resolver() {
   local resolver_output="$1"
   local auto_count="$2"
+  # `## BL-316:` a matrix row may name "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh";
+  # resolve it beside the resolver this run used, not against the caller's cwd.
+  export SOLO_SCRIPTS_DIR="${SOLO_SCRIPTS_DIR:-$ORCHESTRATOR_ROOT/scripts}"   # BL-316-SCRIPTS-DIR
   local _ui=0
   while [ "$_ui" -lt "$auto_count" ]; do
     local _tool_name _stages_json _st
