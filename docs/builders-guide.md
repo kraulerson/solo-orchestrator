@@ -652,6 +652,15 @@ The following items are enforced by `scripts/check-phase-gate.sh` when `current_
 - [ ] **No unresolved Open Questions in `PRODUCT_MANIFESTO.md`.** Any line matching `Status: Open` (case-insensitive) produces a FAIL.
 - [ ] **Phase 0 intermediate outputs saved** (blocking). The script requires all three of `docs/phase-0/frd.md`, `user-journey.md`, and `data-contract.md`. Any missing file — or a missing `docs/phase-0/` directory entirely — produces a `[FAIL]` and blocks the gate (BL-114: this check was hardened from its earlier advisory behavior; the gate label and verdict now agree).
 
+#### Single-Authority Attestation
+
+**Organizational deployments only.** At Phase 0→1 and Phase 1→2, `scripts/check-phase-gate.sh` fails the gate when the gate's **Approver** cell names the same person who committed that row. A company with exactly one technical authority fails it at every gate, whatever it does. `docs/governance-framework.md` §XIV item 5, a second technologist with repository and hosting access, is a BLOCKING pre-condition of the organizational tier, and that company does not meet it.
+
+- **The attestation:** set `SOLO_SINGLE_AUTHORITY_ATTESTED=1` with `SOLO_SINGLE_AUTHORITY_ATTESTED_REASON="<why this organisation has a single technical authority>"`. The failure becomes an `[ATTESTED]` block, recorded per gate to `.claude/process-state.json::attestations.single_authority` with the reason, date, actor and `git rev-parse HEAD`. Only the exact value `1` counts. Blocks are attested, not silenced.
+- **It says what it is.** Every run that uses it prints that the independence control was NOT applied and that §XIV item 5 is a BLOCKING pre-condition that REMAINS UNMET. It does not make the project compliant. Record the acknowledgement of concentrated access required by `docs/governance-framework.md` §X, Insider Threat Acknowledgment, item 1, in `APPROVAL_LOG.md` as well.
+- **Set it on every run.** Nothing reads the record back to decide the gate. A run without the variables fails exactly as before.
+- **It is refused, and the gate still blocks,** when the reason is blank, when the gate has no key to record against, or when the record cannot be written. The `[FAIL]` line names the cause: `jq` not installed, the state file or `.claude/` not writable, the state file not a JSON object of the expected shape (with jq's own message), or `.claude/process-state.json.lockdir` held. If no other gate run is in progress, that lockdir is stale from a killed run; remove it and re-run.
+
 **Limitation — Manifesto content depth:** The gate script verifies that `PRODUCT_MANIFESTO.md` exists and has the 8 required section headings with non-empty content. It does not validate that section content matches the track requirements (e.g., Full track requiring revenue model detail, Standard track requiring competency matrix entries). Track-specific content completeness is the reviewer's responsibility.
 
 ---

@@ -18241,7 +18241,7 @@ operator reads it).
 is already the repo's own, documented by `## BL-104:`; what is missing is any way for a reader of the
 gate's output to apply it.
 
-**Logged:** 2026-09-13, from the other side: while building `## BL-274:` (cited but never filed on any branch — see PR #401)'s A13 case, which needed a
+**Logged:** 2026-09-13, from the other side: while building `## BL-274:`'s A13 case, which needed a
 project the Phase 0→1 gate clears cleanly so that an exit code could be attributed to one control.
 
 **THE FRAMEWORK ALREADY KNOWS, AND THAT IS THE POINT.** This is not an undiscovered trap.
@@ -20178,7 +20178,7 @@ the operator how to make the gate PASS does need the ruling, because control 1 a
 prescribe opposite actions. Half one is shipped; half two is deliberately not attempted.
 
 **Logged:** 2026-09-13, while establishing why a single-authority organisation can never pass the
-Phase 1→2 gate (`## BL-274:` (never filed — see PR #401; the gate message now points at this entry instead)). The taxonomy question there is real; this is the defect underneath it,
+Phase 1→2 gate (`## BL-274:`; the gate message points at this entry). The taxonomy question there is real; this is the defect underneath it,
 and it affects every organizational deployment, not just single-authority ones.
 
 **THREE SOURCES, TWO ANSWERS, AND THE CODE IS THE ODD ONE OUT.**
@@ -20307,8 +20307,8 @@ requires exit 2 with "Unknown argument". If the flag is ever implemented, R2 tur
 in half one must be revisited. The three-source contradiction remains READ, from the files named and
 quoted verbatim — there is nothing to run about a disagreement between two documents and a comparison.
 
-**Related:** `## BL-274:` (never filed on any branch — a placeholder entry now holds the number; the shipped
-refusal text points at THIS entry instead), `## BL-212:` (the same walker — its coverage stops at Phase 1→2, and
+**Related:** `## BL-274:` (the single-authority attestation; it does NOT decide this entry, and the
+refusal text points at THIS entry), `## BL-212:` (the same walker — its coverage stops at Phase 1→2, and
 whichever rule wins here must land before that widening reaches two more gates), `## BL-213:` (the
 category sibling: a shipped script advertising an exit code that does not exist), `## BL-055:` and
 `## BL-143:` (the per-line blame walker this check is built on), `## BL-060:` (the last time this
@@ -21310,40 +21310,149 @@ judgement explicitly undecided).
 
 ---
 
-## BL-274: PLACEHOLDER — the self-approval gate's single-technical-authority case, cited by BL-275 and BL-279 but never filed
+## BL-274: an organizational deployment requires a second technologist, so a company with ONE technical authority could not satisfy the tier — decided: it may, on a recorded attestation that says the pre-condition is still unmet
 
-**Status:** Open — **DECIDED 2026-09-17 (Karl), on issue #404: the taxonomy is NOT an absolute — a
-RECORDED, REASON-MANDATORY single-authority attestation is ACCEPTED, so such a company may run at the
-`organizational` tier on the record.** That acceptance is the whole of the ruling. **The contributor's
-mechanism, as proposed in #404 and carried on their fork `fix/bl274` (tip `6a222d1`, on the pre-stack
-base), is:** `SOLO_SINGLE_AUTHORITY_ATTESTED` plus a mandatory reason, recorded per gate and pinned to
-HEAD, refused if it cannot be recorded, printing every time that governance §XIV item 5 is a BLOCKING
-pre-condition that REMAINS UNMET, never the words verified/satisfied/passed/complete — the
-contributor's proposal, not Karl's words (the v2.2 review's R-18). It is invited as a PR against `main`,
-which should also write the real entry over this placeholder; adversarial review before merge.
-`## BL-275:`'s author-vs-approver contradiction is NOT decided by this. PLACEHOLDER text follows, written by the
-maintainer on merge (2026-09-15), not by the contributor who cited it.
+**Status:** Open — decided on issue #404 (2026-09-17). The mechanism below implements the decision.
+The open half is the taxonomy text: `docs/governance-framework.md` §X and §XIV item 5 still say
+"mandatory", and whether they should name this route is the maintainer's call.
 
-**Why this exists.** The 2026-09-13 contributor batch (`## BL-275:`, `## BL-279:`) cites
-`## BL-274:` nine times — as "the A13 fixture whose construction exposed" the WARN-vs-block
-drift, and as "the adopter-facing question this defect produces, and the attestation built
-for it". No branch on the contributor's fork carries the entry (`git grep BL-274` finds
-nothing on `main` before this batch, and no `fix/bl274` ref exists), so every one of those
-cites resolved to nothing. `lint-backlog-references.sh` checks commit messages and
-`lint-bl-markers.sh` checks `# BL-NNN-` markers; neither covers an in-file `## BL-NNN:` cite,
-so this dangled silently. A placeholder holds the number so the cites resolve, in the same
-never-delete-the-trail spirit as every Closed entry above.
+**The decision, verbatim (issue #404, 2026-09-17):** *"the taxonomy is not intended as an absolute. A
+single-technical-authority company may run at the `organizational` tier with the recorded attestation
+you built — `SOLO_SINGLE_AUTHORITY_ATTESTED` plus a mandatory reason, recorded per gate and pinned to
+HEAD, refused if it cannot be recorded, and printing every time that §XIV item 5 is a BLOCKING
+pre-condition that REMAINS UNMET. That is the honesty shape this repository uses elsewhere, and your
+suite's A13/A14/A15 are the right pins."* It keeps two things separate: `## BL-275:`'s
+author-vs-approver contradiction is not decided by it, and the Phase 2→3 limit below is recorded, not
+fixed.
 
-**What it appears to be, from the citing text.** A project with ONE technical authority
-cannot satisfy `docs/governance-framework.md` §XIV item 5 (a second technologist with
-repository and hosting access), so the organizational self-approval check will always
-fire for it — the gate is the symptom, the missing second person is the cause. BL-275
-rewrote the gate's message to say exactly that; BL-279 built an "A13" case around it. What
-BL-274 was going to propose — an attestation route, a documented pre-condition check, or
-nothing — is not recoverable from the cites and is deliberately not invented here.
+**Logged:** 2026-09-13, from an adopter with a real instance of the shape: a limited company with a
+liability entity, insurance, ITSM and an audit trail, and exactly one technical authority, who is both
+Senior Technical Authority and Orchestrator.
 
-**To close:** either write the real entry over this placeholder, or fold the number into
-`## BL-275:` and re-point the cites. Not both, and not by deleting the number.
+**The problem.** The organizational self-approval control in `validate_approval_fields` fails when the
+Approver cell matches the blame author of that row. For a single-authority company the two are the
+same person at every gate, so the gate is permanently red. That is not a gate defect.
+`docs/governance-framework.md` §XIV lists six blocking pre-conditions, and item 5 is:
+
+> **Backup maintainer designated:** Second technologist with repository and hosting access per Section X.
+
+§X repeats it as a per-project mandate, and its Insider Threat section names the anti-self-approval
+control as one of three structural guarantees. A single-authority organizational project has an unmet
+blocking pre-condition, and the red gate is its symptom.
+
+**The mechanism.** In `scripts/check-phase-gate.sh`, `_cpg_single_authority_gate`
+(`# BL-274-SINGLE-AUTHORITY`) is consulted inside the organizational self-approval arm, so it never
+fires on a project with nothing to excuse (A12) or on a `personal` one (A11). Without it the refusal is
+unchanged (A1, A14).
+
+- `SOLO_SINGLE_AUTHORITY_ATTESTED` must be exactly `1` (A21), and
+  `SOLO_SINGLE_AUTHORITY_ATTESTED_REASON` is required: blank or absent is `[BLOCKED]`, exit non-zero,
+  nothing recorded (A5, A17). The reason is sanitised at ingest (`accum_oneline`, or a
+  `tr` fallback when `scripts/lib/accumulation.sh` is absent, A29) and printed with `printf '%s'`
+  (A10, A15, A16).
+- `_cpg_record_single_authority_attestation` (`# BL-274-ATTEST-WRITE`) writes
+  `.claude/process-state.json::attestations.single_authority[<gate>]` with the sanitised reason, date,
+  actor, gate key and `git rev-parse HEAD` (A6+A7), one record per gate (A19). Idempotence is
+  head-sensitive: the same reason at a new HEAD refreshes the pin (A8), a new reason at the same HEAD
+  replaces the old one (A8b), and a repeat of both changes nothing (A18). Nothing reads the pin back to decide the gate; the attestation is supplied on
+  every run.
+- It is refused, and the gate blocks (`# BL-274-ATTEST-REFUSE`), when the call site has no gate key
+  (A20) or the record cannot be written. The recorder returns a code per cause, and the `[FAIL]` line
+  names that cause and no other: 2, `jq` not on PATH (A22); 3, the state file cannot be written,
+  read-only or not a regular file (A9, A23), or `.claude/` refuses writes, returned at once when the
+  lock cannot be made and none exists (A27 at mode 0555, A28 under `chflags uchg`); 4, `.claude/process-state.json.lockdir` is held, with the
+  instruction to remove it if no other gate run holds it (A25); 5, `jq` cannot merge the record: the
+  state file is not a JSON object, or `.attestations` or `.attestations.single_authority` is not an
+  object (A24, and A31 for a top-level array), and the first line of `jq`'s own message is printed,
+  with C0 controls and backslashes stripped as `# BL-233-WPB-ONELINE` does, so a value `jq` quotes from
+  the state file cannot forge a gate line (A32). Its stderr file lives in `TMPDIR` and is removed on
+  every path that returns (A13, A31). On each, exit is non-zero, there is no `[ATTESTED]` line, an
+  existing state file's bytes are unchanged, and the recorder leaves no lock of its own (A9) and no
+  temp file (A24); a TERM during the write leaves neither (A30).
+- With the attestation, a project the gate otherwise clears exits 0 (A13, on the PREMISE that the same
+  project with an independent approver exits 0).
+
+Every time it fires it prints, in this order:
+
+```
+[ATTESTED] Phase 0→1: single-authority attestation ACCEPTED — the independence control was NOT
+           applied, because one person holds the only technical authority here. Reason: <operator's words>
+        This RECORDS an accepted exception. No check was performed and no independent approval exists.
+        docs/governance-framework.md §XIV item 5 — a second technologist with repository and hosting
+        access — is a BLOCKING pre-condition and REMAINS UNMET. This attestation does not clear it.
+        Recorded to .claude/process-state.json::attestations.single_authority, pinned to this commit,
+        not silenced. See docs/reference/builders-guide.md § "Single-Authority Attestation" (framework
+        backlog: ## BL-274:).
+```
+
+One line carries §XIV item 5, BLOCKING pre-condition and REMAINS UNMET, and the block cites the guide
+section a generated project carries (A3); that section exists and ships (A26). The words *verified*,
+*satisfied*, *passed* and *complete* are barred from the block outright, and no `[OK]`- or
+`[PASS]`-led line about the attestation appears anywhere (A4). An attestation that reads like a passed
+check is `## BL-256:`'s receipt for a check that did not happen; if that distinction ever stops
+holding, the mechanism should go.
+
+Each property has a precedent here:
+
+| property | precedent |
+|---|---|
+| gate-keyed, HEAD-pinned, HEAD-sensitive idempotence | `_cpg_record_accum_attestation` in the same script, minus its read-back |
+| mandatory reason, refused when blank | `scripts/check-pr-review.sh` — *"An attestation without a justification is the gate switched off with extra steps."* |
+| refuse if it cannot be recorded | `check-pr-review.sh`'s unrecordable arm; `# BL-233-WPB-ATTEST-REFUSE` in the same script |
+| `printf '%s'`, never `echo -e`, for an operator reason | `_cpg_check_accumulation`'s `ATTESTED (reason: …)` display line |
+| ingest sanitiser and display `printf` as complements | `accum_oneline` in `scripts/lib/accumulation.sh` |
+| a solo operator with no second person | `SOLO_UAT_SOLO_ATTESTED`, `scripts/process-checklist.sh` |
+| a governance control met by written exception | `zdr_attestation_reason`, invariant #16 |
+
+**`docs/governance-framework.md` §X, Insider Threat Acknowledgment, item 1, remains the home for the
+underlying acceptance.** It requires the Application Owner and IT
+Security to acknowledge the concentrated-access risk in `APPROVAL_LOG.md` at the Phase 0→1 gate. An
+adopter using this attestation records that acknowledgement as well; the attestation unblocks the
+gate and does not discharge the obligation.
+
+**Pins.** `tests/test-bl274-single-authority-attestation.sh` holds the cases named above. Its mutants
+are located by distance from a `# BL-274-*` marker, with the literal on that line asserted before and
+after. Every refusal arm of the recorder and the gate has one that flips it to success, or makes its
+remedy unreachable, and a case that kills it.
+
+**A limit on the claim — recorded, not fixed here (#404).** `validate_approval_fields` is called at
+two sites, Phase 0→1 and Phase 1→2. The Phase 2→3 gate never calls it: it is checked by
+`_cpg_gate_has_evidence "Phase 2.*Phase 3"` (`# BL-071-EVIDENCE-GATE`), which confirms a dated row and
+never who committed it. So this attestation unblocks Phase 0→1 and Phase 1→2, and Phase 2→3 was never
+blocked by self-approval. That is `## BL-212:`'s open finding: an organizational project's go-live
+signatures are unchecked for authorship whether or not this attestation exists.
+
+**Residuals.**
+- `## BL-275:` — the contradiction between §V control 1 (author = approver) and the implementation
+  (author ≠ approver) is undecided.
+- The refusal an unattested single-authority project sees does not name this route. That is
+  `## BL-275:`'s deliberate shape (no "do X and this will pass" sentence until the contradiction is
+  decided); adding a pointer is a wording decision for the maintainer.
+- `docs/builders-guide.md` documents the attestation under "Single-Authority Attestation"; the user
+  guide and the governance framework do not.
+- The recorder is the fourth copy in this script of the mkdir-lock / `mktemp` / `trap` / `mv` block
+  (`lock_dir="$file.lockdir"` also in `_cpg_record_gate_date`, `_cpg_record_reviewer_attestation` and
+  `_cpg_record_accum_attestation`), and the pattern appears five more times across `scripts/`
+  (`run-phase3-validation.sh` twice, `track-tool-usage.sh`, `lib/bypass-audit.sh` twice). One shared
+  helper would change every site's error contract, and is not attempted here.
+- A `mktemp` or `mv` failure inside the lock returns 3, and no case reaches it: both need `.claude/`
+  to refuse writes, and then the lock cannot be made and the run returns 3 there first. It is reachable
+  only if the directory's permissions change between the `mkdir` and the `mktemp`, so neither arm has a
+  mutant.
+- If another run releases the lock between a failed `mkdir` and the existence check that follows it,
+  the refusal is code 3 and names an unwritable `.claude/`. The run still refuses and records nothing;
+  only the named cause is wrong, and only in that window.
+- A TERM delivered to the gate process itself between the `mktemp` of `jq`'s stderr file and its
+  removal leaves that file in `TMPDIR`: the recorder's trap is in the subshell and covers only the
+  temp state file and the lock.
+- `jq`'s stderr file is made from an explicit `${TMPDIR:-/tmp}/soif-sa-jq.XXXXXX` template. BSD `mktemp`
+  (macOS) ignores `TMPDIR` when given no template, and GNU honours it, so the bare form would put the
+  file outside a fixture's `TMPDIR` on macOS only, and A31's cleanup check would pass there vacuously.
+**Related:** `## BL-275:` (the same control, and why its remedy line cannot be made both true and
+consistent), `## BL-212:` (the same walker, its coverage stopping at Phase 1→2), `## BL-279:` (the
+A13 fixture that exposed the WARN-vs-block drift), `## BL-256:` (a green line read as a check that was
+performed), `## BL-149:` (a gate people cannot satisfy honestly is a gate they delete), `## BL-032:`
+(the attestation lineage).
 
 ---
 
