@@ -1677,8 +1677,10 @@ HOOKEOF
 # the one reliably tool-shaped exit and takes the not-runnable arm; every
 # other non-zero exit blocks — an ERRORING suite is not a passing suite.
 #   Resolution order: .claude/test-command (first line, operator-owned; set
-#   it to your fast lane if the full suite is slow) -> detected stack
-#   default (package.json real test script / pytest / cargo / go) -> loud
+#   it to your fast lane if the full suite is slow; adoption writes it from
+#   the interview's confirmed answer, BL-318 G1) -> detected
+#   stack default (package.json real test script / pytest, through uv,
+#   poetry, pdm or pipenv when its file is present / cargo / go) -> loud
 #   not-enforced WARN.
 #   Fast lane (latency discipline): the arm runs only when STAGED files
 #   include source (added/copied/modified/DELETED/RENAMED); docs/config-only
@@ -1790,7 +1792,30 @@ if [ "$soif_test_src" -gt 0 ]; then
     soif_test_cmd="npm test"
   elif [ -f pytest.ini ] || [ -f conftest.py ] \
        || { [ -f pyproject.toml ] && grep -q '^\[tool\.pytest' pyproject.toml; }; then
-    soif_test_cmd="pytest"
+    # BL-318-PYTEST-RUNNER — a BARE `pytest` cannot see a managed project's
+    # environment: uv keeps it in .venv, off PATH. Dogfood run 2's commit
+    # printed `sh: pytest: command not found`, took the not-runnable arm and
+    # LANDED over a suite that passes 1075/0. pytest therefore goes through the
+    # manager in evidence, with Scout's precedence and spelling
+    # (`_scout_python_test`, scripts/lib/scout/scout-stack.sh) — copied, not
+    # sourced, because this hook ships into projects that carry no Scout. uv
+    # keeps Scout's `--frozen`, and here it matters more than in Scout: this
+    # runs INSIDE a commit, and `uv run` locks before it runs, so a uv.lock
+    # behind its pyproject.toml would be rewritten under the commit being
+    # checked (measured, uv 0.11.3: plain `uv run` -> ` M uv.lock`; `--frozen`
+    # -> untouched). poetry, pdm and pipenv `run` do not lock. With none of
+    # them, the operator's activated environment IS the PATH: bare pytest.
+    if [ -f uv.lock ]; then
+      soif_test_cmd="uv run --frozen pytest"   # BL-318-PYTEST-UV
+    elif [ -f poetry.lock ]; then
+      soif_test_cmd="poetry run pytest"   # BL-318-PYTEST-POETRY
+    elif [ -f pdm.lock ]; then
+      soif_test_cmd="pdm run pytest"   # BL-318-PYTEST-PDM
+    elif [ -f Pipfile ]; then
+      soif_test_cmd="pipenv run pytest"   # BL-318-PYTEST-PIPENV
+    else
+      soif_test_cmd="pytest"
+    fi
   elif [ -f Cargo.toml ]; then
     soif_test_cmd="cargo test"
   elif [ -f go.mod ]; then

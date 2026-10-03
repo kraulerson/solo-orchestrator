@@ -89,6 +89,11 @@ adopt_record_answer() {
 }
 
 # ── The scan-derived arm — the BL-204 pattern, preserved ────────────────────
+# The provenance of an answer the scan had nothing to offer for. One spelling,
+# because `adopt_write_test_command` reads it back to tell such an answer from
+# a confirmed or corrected command.
+ADOPT_PROV_SCAN_NOTHING="answered by you; the scan had nothing"
+
 # adopt_confirm_scanned FIELD TITLE VALUE SOURCE
 adopt_confirm_scanned() {
   local field="$1" title="$2" value="$3" source="$4"
@@ -101,7 +106,7 @@ adopt_confirm_scanned() {
     # Nothing was derivable after all, so this degrades to the ordinary
     # question rather than confirming an empty value at the operator.
     adopt_ask_free "$title" "$title — the scan found nothing to offer here. What is the answer?" || return 1
-    adopt_record_answer "$field" "$title" "scan-derived" "$ADOPT_ANSWER" "answered by you; the scan had nothing"
+    adopt_record_answer "$field" "$title" "scan-derived" "$ADOPT_ANSWER" "$ADOPT_PROV_SCAN_NOTHING"
     return 0
   fi
 
@@ -461,6 +466,80 @@ adopt_render_intake_progress() {
       language: "", description: "",
       answers: $a}' \
     | adopt_write_file "$root" ".claude/intake-progress.json"
+}
+
+# ── `.claude/test-command` — `## BL-318:` G1 ────────────────────────────────
+# adopt_write_test_command ROOT — the interview's test-command answer, one line,
+# into the file the commit-time project-test check reads FIRST (`## BL-125:`,
+# `# BL-125-COMMIT-TESTS` in scripts/lib/hook-templates.sh).
+#
+# WHY. Dogfood run 2: the interview offered `uv run --frozen pytest`, the
+# operator kept it, and nothing wrote it down. The check fell back to its own
+# detection — a bare `pytest` — got `command not found`, said PROJECT TESTS NOT
+# ENFORCED, and let the commit through.
+#
+# WHICH COMMAND: THE CONFIRMED ANSWER, VERBATIM, SCOUT'S FLAG INCLUDED. Scout
+# adds `--frozen` (uv) and `--config.verify-deps-before-run=false` (pnpm) so its
+# own run never rewrites a lockfile; its evidence line calls `uv run pytest` /
+# `pnpm test` the everyday command. The flag stays here, because this file is
+# run by a pre-commit hook in the developer's own working tree on every source
+# commit: `uv run` locks before it runs and pnpm 11 installs before it runs, so
+# with the lockfile behind its manifest the check would REWRITE A TRACKED FILE
+# under the commit it is checking (measured, uv 0.11.3: plain `uv run` left
+# ` M uv.lock`; `--frozen` left it untouched; `--locked` exits 2, which this
+# check would read as a failed suite). `--frozen` still syncs the environment
+# from the lockfile, so the tests run against exactly the locked dependencies.
+# And it is the string the operator was shown and kept — writing a different one
+# would put a command in an operator-owned file that the operator never saw.
+#
+# THEIRS WINS, IN TWO SENSES. An answer the operator changed in the interview is
+# what the ledger holds, so it is what is written. And a `.claude/test-command`
+# the project already has — anything at that path, a dangling symlink included,
+# which a write would follow — is left exactly as it is: the file is
+# operator-owned, so it is theirs (adoption design v1 §7.5, keep theirs), not a
+# surface to archive and replace. Nothing is written, so it needs no archive
+# row (I20).
+#
+# NOT WRITTEN, AND SAID SO, IN TWO CASES. When the scan offered nothing, the
+# question never named a command ("the scan found nothing to offer here. What
+# is the answer?"), so the free answer is not taken as one. When the answer is
+# not something `sh` can parse ("don't know"), the hook's `sh -c` would exit 2
+# on every source commit and BLOCK it as a failed suite — the check reports a
+# missing runner (exit 127) as not enforced, and only that.
+adopt_write_test_command() {
+  local root="$1" rel=".claude/test-command" cmd="" prov=""
+  adopt_head "The test command your commits run"
+  if [ -e "$root/$rel" ] || [ -L "$root/$rel" ]; then   # BL-318-TESTCMD-KEEP
+    adopt_note "You already have .claude/test-command, so adoption left it exactly as it is. Every"
+    adopt_note "commit that stages a source file runs the command in it, not the answer above."
+    return 0
+  fi
+  cmd="$(awk -F '\t' '$1 == "test_command" { v = $4 } END { print v }' "$ADOPT_ANSWERS" 2>/dev/null)"
+  prov="$(awk -F '\t' '$1 == "test_command" { v = $5 } END { print v }' "$ADOPT_ANSWERS" 2>/dev/null)"
+  if [ -z "$cmd" ] || [ "$prov" = "$ADOPT_PROV_SCAN_NOTHING" ]; then   # BL-318-TESTCMD-ASKED
+    adopt_note "Not written: the scan found no test command, so there was none to confirm. Until you"
+    adopt_note "write yours into .claude/test-command (one line, e.g. 'npm test'), the check that runs"
+    adopt_note "your tests on every commit runs only what it can detect itself, and says PROJECT"
+    adopt_note "TESTS NOT ENFORCED when that is nothing."
+    return 0
+  fi
+  if ! sh -n -c "$cmd" 2>/dev/null; then   # BL-318-TESTCMD-PARSE
+    adopt_note "Not written: the shell cannot read '$cmd' as a command, and the check that runs your"
+    adopt_note "tests on every commit would block every source commit over it. Write your test"
+    adopt_note "command into .claude/test-command yourself (one line)."
+    return 0
+  fi
+  printf '%s\n' "$cmd" | adopt_write_file "$root" "$rel" || return 1   # BL-318-TESTCMD-WRITE
+  adopt_note "Wrote .claude/test-command: $cmd"
+  adopt_note "Every commit that stages a source file runs it, and a commit whose tests fail is"
+  adopt_note "blocked. It is your answer to Testing & Bug Tracking above; edit that one line to"
+  adopt_note "change it (to a faster subset, if the whole suite is slow)."
+  case "$cmd" in
+    *--frozen*|*verify-deps-before-run=false*)
+      adopt_note "The flag in it stays: it stops the check from rewriting your lockfile in the middle of a commit."   # BL-318-TESTCMD-FLAG-WHY
+      ;;
+  esac
+  return 0
 }
 
 # ── The process-state file, and the merge that no longer rides with it ──────

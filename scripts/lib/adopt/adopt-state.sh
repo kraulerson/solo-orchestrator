@@ -1273,6 +1273,9 @@ adopt_write_intake() {
   local root="$1" report="$2"
   adopt_render_intake_doc "$root" || return 1
   adopt_render_intake_progress "$root" || return 1
+  # `## BL-318:` G1 — the confirmed test command, for the commit-time check.
+  # Here, inside the write phase, so the rehearsal plans it and I20 sees it.
+  adopt_write_test_command "$root" || return 1   # BL-318-TESTCMD-CALL
   # A7: the FILE, not the phase-1 merge. `init.sh` guarantees every scaffolded
   # project a process-state and an adoptee must have one too; the
   # classification that used to ride in with it is Act 4's now (§8.7a row 5).

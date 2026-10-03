@@ -625,6 +625,7 @@ jobs:
             tests/test-bl311-mcp-add-order.sh
             tests/test-bl316-installers.sh
             tests/test-bl312-tldr-mode.sh
+            tests/test-bl318-g1-test-command.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1056,6 +1057,7 @@ jobs:
             tests/test-bl311-b-adopt-guardrails-track.sh  # 42s local, measured — one real adoption, four cases halted at the intake, 12 direct writer calls
             tests/test-bl311-c-scout-runner-ignore-rule.sh  # 36s local without uv, as the runner has none (39s with uv, measured); Scout suites run ~2x local in CI — one real adoption, stubbed and real --run-tests, 35 mutants (M25 needs uv); here, not in `rest`, which measured 577s of 720s on PR #490
             tests/test-bl316-installers.sh                  # 15s local, measured — two real adoptions, seven resolver runs, 11 mutants; here, not in `rest` (612s of 720s on PR #493)
+            tests/test-bl318-g1-test-command.sh             # 30s local, measured — two real adoptions plus one under a mutant, 11 mutants; here, not in `rest` (620s of 720s on PR #495; `mcp` was 397s)
           )
           pin_mcp_mutants=(                               # 400s on PR #490's run, 355s on PR #494's, of 720s
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
