@@ -21,7 +21,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# BL-046: uses print_ok/fail/info + guard_not_in_framework only — core subset.
+# BL-046: uses print_ok/fail/info, guard_not_in_framework and prompt_yes_no only — core subset.
 if [ -f "$SCRIPT_DIR/lib/helpers-core.sh" ]; then
   source "$SCRIPT_DIR/lib/helpers-core.sh"
 else
@@ -32,6 +32,12 @@ else
   # framework guard: there's nothing to source. The full Solo install always
   # ships helpers.
   guard_not_in_framework() { return 0; }
+  # BL-277-FP-STUB — the false-positive close's confirmation cannot be asked
+  # without helpers-core.sh, so it is refused, before the sentinel is touched.
+  prompt_yes_no() {
+    print_fail "--resolve --decision false-positive cannot ask for confirmation: $SCRIPT_DIR/lib/helpers-core.sh is missing. Sentinel left in place."
+    exit 1
+  }
 fi
 
 # security-audits-2 (S3, 2026-04-26 audit sweep): the helpers.sh docstring at
@@ -170,11 +176,12 @@ cmd_offer() {
 # --- Subcommand: --resolve ---
 
 cmd_resolve() {
-  local project_root decision=""
-  # Parse optional --decision <accept|decline>.
+  local project_root decision="" reason=""
+  # Parse optional --decision <accept|decline|false-positive> [--reason TEXT].
   while [ $# -gt 0 ]; do
     case "$1" in
       --decision) decision="${2:-}"; shift 2 ;;
+      --reason)   reason="${2:-}"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -191,10 +198,37 @@ cmd_resolve() {
   if [ -n "$decision" ]; then
     case "$decision" in
       accept|decline) ;;
+      # Every refusal below, and the confirmation, come BEFORE the sentinel is
+      # touched, for the same reason the typo check above does: a close that
+      # fails after the sentinel is gone leaves PENDING rows stranded.
+      false-positive)
+        # BL-277-FP-OPERATOR — operator-only, by the same guard as
+        # `test-gate.sh --unrecord-feature`: every sentinel now comes from text
+        # the model wrote, so a model closing it here would relabel its own
+        # proposal as none. Agent calls have no terminal on stdin.
+        if [ ! -t 0 ]; then
+          print_fail "--resolve --decision false-positive requires interactive authorization. Sentinel left in place."
+          echo "The Orchestrator must run this command directly in a terminal:" >&2
+          echo "  scripts/pending-approval.sh --resolve --decision false-positive --reason \"<why this was not a proposal>\"" >&2
+          return 1
+        fi
+        # BL-277-FP-REASON — a reason of whitespace alone is no reason.
+        if [ -z "${reason//[[:space:]]/}" ]; then
+          print_fail "--resolve: --decision false-positive requires --reason \"<why this was not a proposal>\". Sentinel left in place."
+          return 1
+        fi
+        # BL-277-FP-CONFIRM — confirmed, as --unrecord-feature and --reset
+        # confirm after the same guard.
+        if ! prompt_yes_no "Close every PENDING bypass proposal as a false positive, reason \"$reason\"? [y/N]" "N"; then
+          print_info "False-positive close cancelled. Sentinel left in place."
+          return 0
+        fi
+        ;;
       *)
-        print_fail "--resolve: unknown decision '$decision' (expected: accept | decline). Sentinel left in place."
+        print_fail "--resolve: unknown decision '$decision' (expected: accept | decline | false-positive). Sentinel left in place."
         echo "  Re-run: scripts/pending-approval.sh --resolve --decision accept" >&2
         echo "      or: scripts/pending-approval.sh --resolve --decision decline" >&2
+        echo "      or: scripts/pending-approval.sh --resolve --decision false-positive --reason \"<why>\"" >&2
         return 1
         ;;
     esac
@@ -223,7 +257,8 @@ cmd_resolve() {
     if [ -f "$lib" ]; then
       # shellcheck disable=SC1090
       source "$lib"
-      if bypass_audit_close_pending "$project_root" "$decision" 2>&1; then
+      # BL-277-FP-PASS — the reason travels to the library.
+      if bypass_audit_close_pending "$project_root" "$decision" "$reason" 2>&1; then
         print_ok "Audit log closed: pending bypass rows marked $decision."
       else
         print_fail "Audit log close failed (decision='$decision')."
@@ -352,6 +387,13 @@ Commands:
                                   Optional: --decision accept|decline closes
                                   any PENDING claude_bypass_proposal rows in
                                   .claude/bypass-audit.json to match (BL-029.1).
+                                  --decision false-positive --reason "WHY"
+                                  closes them as false_positive instead: nothing
+                                  was proposed, and WHY is recorded on each row
+                                  (BL-277). An empty reason is refused. The
+                                  Orchestrator's alone: refused unless run
+                                  directly in a terminal, then confirmed at a
+                                  [y/N] prompt.
   --clear                         Delete the sentinel (agent abort, semantic alias).
   --status                        Print the current pending question, if any.
   --validate [PATH]               Lint a sentinel file. Default: .claude/pending-approval.json.

@@ -9,6 +9,13 @@
 # bypass-audit.json on match. Stop passes with .stop_hook_active == true
 # are skipped to avoid re-entrant double-scanning.
 #
+# BL-277: the surfaces differ in AUTHORSHIP. A Stop match, or a match in a
+# Write result (the file the model just wrote), is text the model wrote: actor
+# "claude", user_response PENDING, and the pending-approval sentinel is raised.
+# Any other PostToolUse match is text a program printed: recorded under actor
+# "tool_output", user_response n/a, and no sentinel — reading a rule is not
+# proposing to break it.
+#
 # No-op conditions:
 #   - .claude/ doesn't exist
 #   - jq isn't installed
@@ -471,9 +478,11 @@ STOP_HOOK_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/nul
 TEXT=""
 case "$EVENT" in
   PostToolUse)
-    # Claude Code envelope: .tool_response. For Bash, .stdout/.stderr/.exit_code/.interrupted;
-    # for Read/Edit/Write, .output or .content (or a string). Cover all
-    # known shapes; missing field returns "" and the next guard exits.
+    # Claude Code envelope: .tool_response. Bash always carries .stdout (so
+    # .stderr is reached only when .stdout is absent); Write, Grep in content
+    # mode and Agent carry a top-level .content; Read nests its text under
+    # .file.content and Edit carries none of these, so neither is scanned.
+    # A missing field returns "" and the next guard exits.
     TEXT=$(echo "$INPUT" | jq -r '.tool_response.stdout // .tool_response.stderr // .tool_response.output // .tool_response.content // ""' 2>/dev/null)
     ;;
   Stop)
@@ -534,6 +543,18 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 LEVEL=$(jq -r '.enforcement_level // "strict"' "$PROJECT_ROOT/.claude/manifest.json" 2>/dev/null)
 FIRST_PATTERN=""
 
+# BL-277-AUTHORSHIP — who wrote the scanned text. The Stop arm reads the
+# model's message, and a Write result carries the file the model wrote. Other
+# PostToolUse text is whatever a program printed, so its rows are recorded
+# under their own actor and await no decision: nobody proposed anything.
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
+ACTOR="tool_output"
+USER_RESPONSE="n/a"
+if [ "$EVENT" = "Stop" ] || { [ "$EVENT" = "PostToolUse" ] && [ "$TOOL_NAME" = "Write" ]; }; then
+  ACTOR="claude"
+  USER_RESPONSE="PENDING"
+fi
+
 while IFS= read -r PATTERN; do
   [ -z "$PATTERN" ] && continue
   [ -z "$FIRST_PATTERN" ] && FIRST_PATTERN="$PATTERN"
@@ -560,14 +581,16 @@ while IFS= read -r PATTERN; do
     --arg evt "$EVENT" \
     --arg ex "$EXCERPT" \
     --arg sev "$SEVERITY" \
+    --arg actor "$ACTOR" \
+    --arg ur "$USER_RESPONSE" \
     '{
       timestamp: $ts,
       session_id: $sid,
       type: "claude_bypass_proposal",
-      actor: "claude",
+      actor: $actor,
       enforcement_level_at_event: $lvl,
       details: {pattern: $pat, event: $evt, excerpt: $ex, severity: $sev},
-      user_response: "PENDING",
+      user_response: $ur,
       final_outcome: "recorded_only"
     }')
 
@@ -611,8 +634,13 @@ FIRST_PATTERN="$RAISE_PATTERN"
 # copy-paste the phrase out of compliance — defeating the defense. The
 # phrase remains in options[0] (structurally required for matching), and
 # the question instructs the user to read options[0] verbatim.
+#
+# BL-277-SENTINEL-AUTHORED — the sentinel is a question put to the operator
+# about something the model proposed, so it is raised for authored text only.
+# The pre-commit gate relays the question to the model, so it names no way to
+# close the proposal as a false positive: that close is the operator's.
 SENTINEL="$PROJECT_ROOT/.claude/pending-approval.json"
-if [ ! -f "$SENTINEL" ]; then
+if [ "$ACTOR" = "claude" ] && [ ! -f "$SENTINEL" ]; then
   CONFIRM_PHRASE="I have read the proposal at .claude/bypass-audit.json and accept the bypass"
   jq -nc \
     --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. To accept, type option A1 verbatim. To decline, say 'decline' or describe what you want instead." \

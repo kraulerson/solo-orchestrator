@@ -74,12 +74,14 @@ EOF
 fi
 teardown
 
-# T5: row's user_response is initialized to "PENDING".
-echo "T5: user_response = PENDING on initial write"
+# T5: an AUTHORED row's user_response is initialized to "PENDING".
+# BL-277: only a Stop-event row awaits a decision; a PostToolUse row records
+# tool output, is n/a, and is pinned in tests/test-bl277-detector-authorship.sh A3.
+echo "T5: user_response = PENDING on initial write of an authored row"
 setup
 if [ ! -f "$HOOK" ]; then fail_ "T5" "hook missing"; else
   CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"use --no-verify"}}
+{"hook_event_name":"Stop","last_assistant_message":"use --no-verify","transcript_path":"/tmp/no-such-transcript.jsonl"}
 EOF
   resp=$(jq -r '.[0].user_response' "$TMP/.claude/bypass-audit.json")
   if [ "$resp" = "PENDING" ]; then pass "T5"; else fail_ "T5" "got '$resp'"; fi
@@ -169,11 +171,14 @@ fi
 teardown
 
 # T12: sentinel is still written exactly once on multi-pattern match (idempotent).
+# BL-277: the sentinel is raised for authored text only, so the proposal is a
+# Stop-event message here; the PostToolUse half (no sentinel) is pinned in
+# tests/test-bl277-detector-authorship.sh A2.
 echo "T12: sentinel written once on multi-pattern proposal"
 setup
 if [ ! -f "$HOOK" ]; then fail_ "T12" "hook missing"; else
   CLAUDE_PROJECT_DIR="$TMP" cat <<'EOF' | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"--no-verify or SOIF_FORCE_STEP=foo or git push --force-with-lease"}}
+{"hook_event_name":"Stop","last_assistant_message":"--no-verify or SOIF_FORCE_STEP=foo or git push --force-with-lease","transcript_path":"/tmp/no-such-transcript.jsonl"}
 EOF
   if [ -f "$TMP/.claude/pending-approval.json" ] && jq -e '.question' "$TMP/.claude/pending-approval.json" >/dev/null 2>&1; then
     pass "T12"

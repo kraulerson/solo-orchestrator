@@ -18032,7 +18032,9 @@ a hoist is not taken).
 
 **Status:** Open — **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
 contributor who filed this (also issue #385, which proposed scanning `tool_input`) is invited to build it;
-adversarial review before merge, as every PR. Not built yet; the build is PR #454, changes requested.
+adversarial review before merge, as every PR. Built in PR #454, to that decision and to the ruling
+below, including both of its requests; see "Build note" at the end of this entry for what changed, the
+suite, the mutants and the residuals.
 **RULED 2026-09-27 (Karl), on PR #454's review: files the agent WRITES must still be scanned.** The PR's
 Bash-only PostToolUse matcher was justified as removing the Read half, but Read output was never
 scanned (Read's text sits at `toolUseResult.file.content`); a top-level `content` is a Write, both
@@ -18153,12 +18155,17 @@ blocking sentinel. Observed on one adopting project's ledger during a single day
   gate that handles the flag, each raised a row.
 
 **The test-suite rows are the structural half, and they generalise.** A correct suite for this defect
-CANNOT avoid containing the trigger strings: asserting "the detector fires on a genuine proposal"
-requires a genuine-looking proposal in a fixture, and a suite that avoided the vocabulary would be
-testing something else. So the fixture a correct test must contain is itself a trigger, the sentinel it
-raises then blocks the agent writing the fix, and — per the sentinel-scope defect noted below — it
-blocks them in every repository touched from that session, not just this one. That is a closed loop, and
-it is a stronger argument than the ledger's growth rate on its own.
+CANNOT avoid FEEDING the detector the trigger strings: asserting "the detector fires on a genuine
+proposal" requires a genuine-looking proposal in a fixture, and a suite that avoided the vocabulary
+would be testing something else. So the fixture a correct test must contain is itself a trigger, the
+sentinel it raises then blocks the agent writing the fix, and — per the sentinel-scope defect noted
+below — it blocks them in every repository touched from that session, not just this one. That is a
+closed loop, and it is a stronger argument than the ledger's growth rate on its own. **Correction
+(2026-09-18):** an earlier version of this paragraph said the suite cannot avoid CONTAINING the
+strings. It can: `tests/test-bl277-detector-authorship.sh` assembles every fixture from split literals
+(`"--no-""verify"`), so the contiguous vocabulary exists only at run time and the file itself matches
+none of the six patterns (checked by scanning the file with the pattern table before every run of it).
+The loop is real for a suite written the obvious way; it is not a law.
 
 **Severity follows from that, and it is not "noisy log".** Each false row raises a BLOCKING sentinel.
 **Five were declined by hand in one day**, none of them corresponding to anything any agent proposed,
@@ -18210,21 +18217,259 @@ trees.
    from — rows attributing another program's output to the model are not a cosmetic problem there.
    Cost: it changes an audit-row schema, so readers of `actor` must be swept first.
 
-**Why no regression suite lands with this entry, stated rather than quietly omitted — and the reason is
-NOT the one it looks like.** A suite here is perfectly writable. Its assertions are outcome-shaped and
-fix-agnostic — "reading the audit ledger does not append to it", "reading the shipped CLAUDE.md
-template does not raise a blocking sentinel" — and all three options satisfy both, so the suite would
-survive whichever is chosen. That is its spec, and it should be written.
+**Why no regression suite landed with the entry's first version, stated rather than quietly omitted —
+and the reason was NOT the one it looks like.** A suite here was always writable. The blocker was
+redness, not authorship: the defect was unfixed, so the suite was RED, and a red suite must be either
+registered — which turns CI red for everyone — or marked `LINT_TEST_REGISTRATION_EXEMPT`, which parks a
+known-red suite behind a marker and is precisely the unearned-receipt move this repo exists to refuse.
+So it landed WITH the fix (below). **One claim in that first version was wrong and is corrected here:**
+it said the suite's assertions could be fix-agnostic, "reading the audit ledger does not append to it"
+among them, and that all three options satisfied that. Option 3 — the option chosen — does NOT satisfy
+it: output scanning is kept on purpose, so reading the ledger through a Bash tool still appends rows;
+what changes is that they carry `actor: "tool_output"` and raise nothing. The suite's L1 pins what is
+true — reading the ledger back mints no `claude` row — and the growth is listed as a residual below.
 
-The blocker is redness, not authorship. **The defect is unfixed, so the suite is RED today**, and a red
-suite must be either registered — which turns CI red for everyone — or marked
-`LINT_TEST_REGISTRATION_EXEMPT`, which parks a known-red suite behind a marker and is precisely the
-unearned-receipt move this repo exists to refuse. So it lands WITH the chosen fix.
+**Build note.** The changed sites, each marked:
 
-Note the distinction from the self-obstruction above, because the two are easy to merge and only one is
-a blocker: that a correct suite must CONTAIN the trigger strings is evidence about the defect's
-severity and its closed loop. It is not what stops the suite shipping, and it would not stop it even
-after the fix. The reproduction in this entry is repeatable in the meantime.
+- `# BL-277-AUTHORSHIP` in `scripts/hooks/bypass-detector.sh`: `ACTOR` and `USER_RESPONSE` are set from
+  the event before the row loop — Stop, and a PostToolUse whose `tool_name` is `Write`, give `claude` /
+  `PENDING`; any other PostToolUse gives `tool_output` / `n/a` (`final_outcome` stays
+  `recorded_only`). The scan, the row-per-pattern loop, the excerpt and
+  the severity are untouched, so `tests/test-bypass-detector.sh` T1 still passes unchanged (A5 restates
+  its envelope). Pinned by A1 (each of the six patterns in tool output writes its row and none is
+  attributed to `claude`), A3 (`n/a` / `recorded_only`), A4 (a real Bash result, every key present, the
+  text on `stdout`), A7 (an Agent report and a Grep content result, each with its `tool_name`: scanned,
+  `tool_output`, `n/a`, no sentinel), W1 (a real Write result, created and overwritten: one `claude` row, PENDING, and
+  the sentinel), S1 (a Stop match writes one `claude` row, PENDING), K1 (the whole shipped `claude-md.tmpl` as tool output:
+  matched, no `claude` row, no sentinel — it is the R1 measurement above, inverted), L1 (the ledger read
+  back twice as tool output is scanned and mints no `claude` row — R3 above, inverted).
+- `# BL-277-SENTINEL-AUTHORED`, same file: the sentinel write is guarded by `ACTOR = claude`, so it is
+  gated on authorship rather than on the event name. Pinned by A2 (no sentinel from any of the six
+  patterns in tool output), S2 (an authored match raises a schema-valid sentinel), G2 (a repository whose
+  ledger holds only tool-output rows commits without a "pending user decision" denial), G3 (an authored
+  match still blocks the commit through the sentinel), and G1 as the other direction the maintainer
+  asked for: a real verify-skipping `git commit` is still denied by `pre-commit-gate.sh`'s own arm
+  (the `_is_git_commit` test paired with the flag grep, directly above the BL-015 block), with its own
+  reason, and never depended on this hook — that arm predates BL-029. "Detected" therefore holds
+  through the gate, not through a ledger row: the detector never scanned `tool_input`, so a
+  verify-skipping commit that actually executes leaves no row, before and after (G1 says which arm it
+  pins). The sentinel's question is main's text, unchanged: the gate's deny reason
+  relays it to the model, so it names no way to close the proposal as a false positive. Pinned by S3
+  (the relayed question is present and names none of `false-positive`, `false positive`,
+  `false_positive` or `--reason`).
+- `# BL-277-FALSE-POSITIVE` and `# BL-277-FP-RECORD` in `scripts/lib/bypass-audit.sh`,
+  `# BL-277-FP-REASON` and `# BL-277-FP-PASS` in `scripts/pending-approval.sh`: `--resolve --decision
+  false-positive --reason "<why>"` closes PENDING proposal rows as `user_response: false_positive`,
+  `final_outcome: recorded_only`, and records the reason on each row as `details.false_positive_reason`
+  (the `jq` that lands it is `# BL-277-FP-RECORD`; the call that carries the reason to the library is
+  `# BL-277-FP-PASS`; its `[OK]` line prints `$decision`, as on `main`).
+  The close is the operator's alone: `# BL-277-FP-OPERATOR` refuses it when stdin is not a terminal,
+  and `# BL-277-FP-CONFIRM` then asks `[y/N]` through `prompt_yes_no`, the two steps
+  `test-gate.sh --unrecord-feature` and `process-checklist.sh --reset` already take for agent calls,
+  in the same shape (a refusal is rc 1; a "no" is "cancelled", rc 0, nothing moved). A
+  missing, empty or blank reason is refused in the script BEFORE the sentinel is touched (the same
+  ordering the `accpet`-typo fix established), and refused again in the library so a direct caller
+  cannot close silently. Pinned by D1 (the operator's close, under a pseudo-terminal: closes, records,
+  distinct from accept and decline), D2 (five empty shapes on the operator's side, tab-only and
+  newline-only among them: non-zero, sentinel kept, row still PENDING), D5 (the agent's side, no
+  terminal on stdin: a well-formed close with a reason is refused, sentinel kept, row PENDING, no
+  reason written), D7 (the operator answers "n", or presses Enter: cancelled, nothing moves), P0
+  (control: the pseudo-terminal is real and the agent's side has none), D4 (the library's own refusal
+  of a blank, tab-only or newline-only reason, reached directly because the script's guard would
+  otherwise shield it from every test), D6 (the library refuses an unknown decision given with a
+  reason), D3 (decline and accept record what they did before, and neither writes a
+  `false_positive_reason`, even when handed a `--reason`). On a stub install without
+  `scripts/lib/helpers-core.sh`, `# BL-277-FP-STUB` supplies a `prompt_yes_no` that refuses the close
+  and names the missing file (D8).
+- `# BL-277-MATCHER` in the hook roster, `scripts/lib/claude-settings.sh` (`soif_register_hook_roster`,
+  which `init.sh` sources since #451 moved the roster out of it; this entry's hunk moved with it, inside
+  the greenfield branch of the maintainer's `# BL-242-SETTINGS-BL277` guard, which is unchanged): the
+  detector's PostToolUse registration is its own hook group with
+  `"matcher": "Bash|Write"` (the maintainer's ruling on #454: files the agent writes are still
+  scanned), instead of being
+  appended to group `[0]` and inheriting its absent matcher. The registration's idempotence probe
+  (the `if ! jq -e` guard that stops a re-run appending a second group) was widened from group `[0]`
+  to any group. Pinned by R6 in the unit suite: the roster, sourced, runs twice in greenfield mode on
+  the settings template, and the settings then hold exactly one detector, under matcher Bash|Write and
+  in no other group, the Stop arm once, and the tool tracker and commit recorder unscoped (only the detector
+  moved). The second run is what reaches the probe; a second `init.sh` never can, because it refuses an
+  existing directory. `tests/test-bl029-integration.sh` T1 (full lane) looks the registration up by
+  matcher in a project `init.sh` produces.
+  R5 (control) sources the roster and runs it on one fixture in each mode: greenfield registers the
+  PostToolUse detector once, adoption registers none, both keep the Stop arm. It passes at base and
+  after the change, because it pins the maintainer's guard, not this entry's; M9 lifts that guard and
+  R5 kills it. On adopted projects the PostToolUse arm stays off until the guard is lifted.
+- `docs/audit-log-lifecycle.md`: `tool_output` added to the `actor` enum, `false_positive` to
+  `user_response`, the `claude_bypass_proposal` section rewritten per actor, two cold-pickup queries
+  added. The section had said an authored row starts at `final_outcome: "n/a"`; the detector's row
+  literal (now beside `# BL-277-AUTHORSHIP`) has always been `recorded_only` and the document now says
+  so.
+
+**Suite.** `tests/test-bl277-detector-authorship.sh` is hermetic (temp trees,
+the real scripts over stdin, the roster sourced into a temp tree, `init.sh` never run) and is in the
+`tests.yml` unit lane. Because the roster is sourced, R6 pins the matcher in the PR-blocking lane
+without running `init.sh`, which installs the Claude Dev Framework into `$HOME` and so, by CLAUDE.md's
+membership rule, stays out of the unit lane. The operator's side of the false-positive close runs under
+`script(1)` (BSD or util-linux) with its answer typed at the terminal: "y" for D1, and "n" and a bare
+Enter for D7.
+Every fixture in the suite is assembled from split literals (see the correction above); a scan of the file
+with the six regexes finds zero matches. Controls: A5 (T1's exact envelope still writes exactly one
+row), A6 (clean output writes nothing), G1, G3, D3, X1 (non-JSON, an unknown event, a string
+`tool_response` and empty stdin all exit 0, leave the ledger byte-identical, and raise nothing), R5.
+The three pre-existing
+suites whose cases assumed the OLD contract were retargeted, each with a comment naming this entry:
+`tests/test-bypass-detector.sh` T5 and T12 (PENDING and the sentinel are now authored-row facts, so
+their envelopes are Stop events; the PostToolUse halves are A3 and A2), `tests/test-bypass-sentinel.sh`
+T1, T2, T2b, T4 (Stop envelopes) plus a new T1b (a tool-output match writes a row and no sentinel),
+`tests/test-bl029-integration.sh` T1 (lookup by matcher), a new T2b (the tool-output row raised no
+sentinel) ahead of T3 (which now raises it with a Stop event), and T5's actor whitelist (`tool_output`
+added — with the T2 row as the fixture behind it, so the entry can fail). The suite is registered in both
+`tests/full-project-test-suite.sh` and the `tests.yml` unit lane.
+
+**Mutants, each applied by the suite's `mutate` helper, which proves location and landing before any
+verdict counts.** Location: the operative text occurs exactly once in the file and its line lies within
+N lines AFTER the marker. Landing: the operative text is gone, the replacement is present exactly once
+more than before and ON the operative line, `diff` shows one line removed and one added, and `bash -n`
+passes. A mutant that fails any of that is reported as a SETUP failure, never as a kill. Text reaches
+`awk` through `ENVIRON`, never `-v`, because `-v` applies backslash escapes, so an operative holding
+`\"` would be searched for as `"`.
+
+| Mutant | File, marker | Distance | Operative → replacement | Killed by | Survives |
+|---|---|---|---|---|---|
+| M1 | detector, `# BL-277-AUTHORSHIP` | ≤ 6 | `ACTOR="tool_output"` → `ACTOR="claude"` | A1 | S1 |
+| M2 | detector, `# BL-277-AUTHORSHIP` | ≤ 6 | `USER_RESPONSE="n/a"` → `USER_RESPONSE="PENDING"` | A3 | A1 |
+| M3 | detector, `# BL-277-SENTINEL-AUTHORED` | ≤ 6 | the authorship guard removed (the shipped `if [ ! -f "$SENTINEL" ]`) | A2, G2 | A1 |
+| M3b | detector, `# BL-277-SENTINEL-AUTHORED` | ≤ 6 | `if false; then` (sentinel never raised) | S2, G3 | S1 |
+| M4 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 4 | `false_positive`/`recorded_only` → `declined`/`abandoned` | D1 | D3 |
+| M5 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 5 | the reason guard → `if false; then` | D4 | — |
+| M6 | pending-approval, `# BL-277-FP-REASON` | ≤ 6 | the reason guard → `if false; then` | D2 | D1 |
+| M7 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 5 | the group written without `"matcher": "Bash\|Write"` | R6 | R5 |
+| M8 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 4 | the idempotence probe regressed to `[0].hooks[]?` | R6 | R5 |
+| M10 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 5 | `"matcher": "Bash\|Write"` → `"matcher": "Bash\|Read\|Edit\|Write"` | R6 | R5 |
+| M12 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 5 | `"matcher": "Bash\|Write"` → `"matcher": "Bash"` (the ruling's case) | R6 | R5 |
+| M9 | roster (copied, sourced), `THE PostToolUse ARM IS GREENFIELD-ONLY FOR NOW` | ≤ 4 | the adoption guard → `if true; then` | R5 | — |
+| M11 | detector, `# BL-277-AUTHORSHIP` | ≤ 10 | the Write arm dropped: `if [ "$EVENT" = "Stop" ]; then` | W1 | S1, A1 |
+| M13 | detector, `# BL-277-SENTINEL-AUTHORED` | ≤ 8 | a false-positive close command appended to the question | S3 | S2 |
+| M14 | lib, `# BL-277-FP-RECORD` | ≤ 3 | the condition removed, the reason written onto every closed row (the maintainer's mutant) | D3 | D1 |
+| M15 | pending-approval, `# BL-277-FP-REASON` | ≤ 6 | `[[:space:]]` narrowed to a space (the maintainer's mutant) | D2 | D1 |
+| M16 | pending-approval, `# BL-277-FP-OPERATOR` | ≤ 8 | the terminal guard → `if false; then` | D5 | D1 |
+| M17 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 5 | `[[:space:]]` narrowed to a space | D4 | — |
+| M18 | lib, `# BL-277-FALSE-POSITIVE` | ≤ 3 | `false-positive)` widened to `false-positive\|*)` | D6 | D1 |
+| M19 | pending-approval, `# BL-277-FP-CONFIRM` | ≤ 3 | the confirmation skipped: `if false && ! prompt_yes_no …` | D7 | D1 |
+| M23 | pending-approval, `# BL-277-FP-CONFIRM` | ≤ 3 | the confirmation's default flipped to `Y` | D7 (its Enter arm) | — |
+| M24 | detector, `# BL-277-AUTHORSHIP` | ≤ 6 | an authored `Agent` arm added beside the block | A7 | S1, W1 |
+| M20 | pending-approval on a stub install, `# BL-277-FP-STUB` | ≤ 4 | the fallback `prompt_yes_no` renamed away | D8 | — |
+| M21 | lib, `# BL-277-FP-RECORD` | ≤ 2 | the close widened to `user_response == "n/a"` rows | D9 | D1 |
+| M22 | lib, `# BL-277-FP-RECORD` | ≤ 2 | the close widened to `escalation` rows | D9 | D1 |
+
+Each "survives" column is asserted too, so a kill that came from breaking something else is reported
+as such.
+
+**The maintainer's review of #454 (2026-09-27), and what changed for it.** The ruling is recorded in
+the Status paragraph above; each point of the review, with the change and the cases that pin it:
+- **The matcher removed `Write`, not `Read`.** It is now `Bash|Write`, and a `Write` result is
+  authored text: `# BL-277-AUTHORSHIP` gives it `claude` / `PENDING` and the sentinel. W1 pins it with a
+  real `Write` result, created and overwritten; M11 (the `Write` arm dropped) and M12 (the matcher
+  narrowed to `Bash`) are killed by W1 and R6. Residuals 1 and 2 are corrected.
+- **The relayed question told the agent how to close its own proposal.** The pointer is gone (S3, M13),
+  and `# BL-277-FP-OPERATOR` makes the false-positive close operator-only by the framework's existing
+  terminal guard (D5, M16; P0 proves the operator's side in the suite has a real terminal). Its bounds
+  are residual 8.
+- **`# BL-277-FP-RECORD` was unpinned.** D3 now closes by `accept` and by `decline`, each handed a
+  `--reason`, and asserts no `false_positive_reason` is written; the maintainer's mutant is M14, killed
+  by D3. Before D3 changed, the suite passed in full with that mutant applied.
+- **Minor.** D2 gains tab-only and newline-only reasons, which kill the maintainer's `[[:space:]]`
+  narrowing (M15; before, with it applied, D2 passed and only M6's text check failed). A4's
+  cases that no Bash result can arrive as are replaced by the real shape (residual 7). The echoed
+  proposal is residual 6.
+
+**Residuals, disclosed.**
+1. **The ledger still grows on reads through Bash.** Option 3 keeps output scanning, so `cat` or `grep`
+   of a file with the vocabulary appends `tool_output` rows — three per read of the template, and the
+   ledger read back through Bash still quotes itself. Nothing blocks, but `## BL-161:`'s point stands:
+   every row dirties the tree. **Corrected 2026-09-27 (the maintainer's measurement on #454):** an
+   earlier version said the matcher removed the `Read`-tool half of the growth.
+   There was none: a `Read` result carries the file under `file.content`, which none of the four keys
+   the detector reads (`stdout`, `stderr`, `output`, top-level `content`) reaches, so `Read` results
+   were never scanned, before or after. Three other tools do carry a top-level `content`: `Write` (the
+   file written, hence `Bash|Write`), `Grep` in content mode, and `Agent` (a subagent's report). On
+   new projects the matcher stops scanning `Grep` and `Agent` results, so it does reduce the growth by
+   the `Grep` share; residual 10 is what it costs for `Agent`. Measured over transcript results, each
+   joined to its tool name, over the 400 most recently modified `~/.claude/projects/*/*.jsonl` on the
+   contributor's machine at 19:08 BST on 27 September, taking the detector's own extraction
+   (`stdout // stderr // output // content`) as the test: `Agent` 82 of 1098 results reach a scanned
+   key, `Grep` 333 of 605, `Read` 0 of 1404. Reducing the Bash half means deciding what output is worth a row, which is the
+   maintainer's scan-surface call.
+2. **Existing projects keep their unscoped registration.** No upgrade path rewrites `settings.json`
+   hook groups: `upgrade-project.sh --sync-framework` delivers the three changed scripts (all in the
+   shipped set `soif_parse_shipped_scripts` derives from `init.sh`), so the behavioural fix reaches
+   them, but the detector stays in PostToolUse group `[0]` there and still runs after every tool.
+   Under this change a `Write` result is authored there too (actor `claude`, sentinel raised, as on a
+   new project); `Bash`, `Grep` and `Agent` results are `tool_output` and raise nothing; the other
+   tools' results carry none of the four keys, so they write nothing. **Corrected 2026-09-27:** an
+   earlier version said every other tool wrote nothing, which is false for `Grep` and `Agent`
+   (residual 1's counts), and that A4 pinned "the `.content` shape a `Read`-driven envelope takes";
+   `Read` takes no such shape, and A4 is now a real Bash result. `verify-install.sh`'s registration row looks the
+   detector up in any group and is satisfied by both shapes. A migration that moves the group is a
+   `settings.json` write during an upgrade, which `## BL-149:` warns against doing silently; not built.
+3. **A PENDING row written before this change closes under the new vocabulary too.** `false-positive`
+   closes every PENDING `claude_bypass_proposal` row, including legacy rows the old detector wrote from
+   tool output with `actor: "claude"`. That is the intended use — those are the rows that were never
+   proposals — but the reason is applied to all of them at once, as `accept` and `decline` always have.
+4. **`escalation` rows are untouched by the third disposition**, as by the other two (the D2 fix's
+   scoping in `bypass_audit_close_pending`). Closing an escalation as a false positive has no meaning.
+   D9 pins the scope under all three decisions: on a ledger holding PENDING proposals, a
+   `tool_output` row (`n/a`) and an open escalation, only the proposals change (M21 and M22 widen the
+   selection to `n/a` rows and to escalations, and D9 kills both).
+5. **The adoption guard's comment goes stale when this entry closes.** The maintainer's comment at
+   `# BL-242-SETTINGS-BL277` in `scripts/lib/claude-settings.sh` keeps the detector's PostToolUse arm
+   off on adopted projects "until that entry closes". Merging this meets that condition, and nothing
+   flags the comment. Lifting the guard is the maintainer's one-line choice, not made here. R5 pins
+   the current behaviour (adoption registers no PostToolUse detector), so lifting the guard means
+   flipping R5 with it.
+6. **An authored proposal echoed through Bash is now `tool_output`, with no sentinel.** `echo "…"` of
+   bypass-shaped text the model composed comes back as `stdout`, so it is recorded under `tool_output`
+   and blocks nothing. That is what option 3 decides: the detector cannot tell an echo from a `cat`. The
+   same text in the model's own message still reaches the Stop arm, and a Bash command that runs the
+   bypass is still denied by `pre-commit-gate.sh`'s own arms (G1).
+7. **`stderr` is never read under a Bash registration** (pre-existing, not this change's). Every real
+   Bash result carries `stdout`, empty or not, and `jq`'s `//` keeps an empty string, so the extraction
+   stops at `stdout`. A4 used to feed `stderr`, `output` and `content` under `tool_name: Bash`, which no
+   Bash result can arrive as; it now feeds the real shape and claims only `stdout`.
+8. **The operator-only close is a terminal check and a typed confirmation, with their bounds.**
+   `[ ! -t 0 ]` then `prompt_yes_no` is the framework's existing way of telling the Orchestrator from
+   an agent call; it is not a credential. Two routes still reach a false-positive close without the
+   Orchestrator: a caller that runs the script under a pseudo-terminal and types `y` into it (D1 does
+   exactly that, through `script(1)`), which would pass `--unrecord-feature` and `--reset` the same
+   way; and a caller that sources `scripts/lib/bypass-audit.sh` and calls `bypass_audit_close_pending`
+   directly (D4 and D6 do), which has no terminal check, the same shape as `test-gate.sh`'s callable
+   `_unrecord_feature_apply`. No environment variable or other flag reaches it. And, pre-existing,
+   `--clear` and a bare `--resolve` still remove the sentinel from any caller; those leave the rows
+   PENDING, so the ledger still records an open proposal, where a false-positive close would have
+   recorded that none was made.
+9. **`Edit` is not scanned** (pre-existing). An `Edit` result carries `oldString`/`newString`, none of
+   the four keys, so a proposal written into a file by `Edit` leaves no row, on `main` and here. The
+   ruling names `Write`; extending the scan to `Edit` would be a new surface, not built.
+10. **`Bash|Write` stops scanning `Agent` results on new projects, and an `Agent` result is
+    subagent-authored text.** It is the subagent's final report, top-level `content` (residual 1's
+    counts). On `main`, with no matcher, a bypass proposal in a subagent's report raised the sentinel.
+    Here it is not scanned on a new project, and on an existing project it is a `tool_output` row with
+    no sentinel. The detector is not registered on `SubagentStop`, so no authored arm sees it. The same
+    reasoning as the `Write` ruling would scan it as authored (`Bash|Write|Agent`); that is a scan-scope
+    call for the maintainer and is put to him on #454, not built.
+11. **The Write arm depends on `content` being in the Write result.** The Claude Code hooks page's
+    PostToolUse example gives Write's `tool_response` as `{filePath, type}`, with no `content`, and an
+    envelope of that shape gives no row, here and on `main`. Real Write results carry `content` (a
+    transcript `toolUseResult` for Write does), so the example is trimmed and W1 uses the real shape;
+    but if the payload ever drops `content`, the Write arm stops scanning without a sound.
+
+**A pre-existing failure, easy to misread as this change's.** Where no global git identity exists (a
+bare `ubuntu:24.04` container, or a temporary `HOME`), `tests/test-bl029-integration.sh` exits 128 with
+no output, identically before and after this change. The suite provisions its project with an
+unguarded `( cd /tmp && bash init.sh … )` under `set -e`, and `init.sh`'s initial commit fails for want
+of a git identity (`Author identity unknown`), so the suite exits with `init.sh`'s status before
+printing a line. With an identity configured, the suite runs. A `|| exit 1` with a message on that
+subshell, or a fixture identity, is a separate one-line follow-up.
 
 **Related:** `## BL-029:` (the detector, and the only backlog family that has ever touched this file —
 swept by file across full history: `scripts/hooks/bypass-detector.sh` and `scripts/lib/bypass-patterns.sh`

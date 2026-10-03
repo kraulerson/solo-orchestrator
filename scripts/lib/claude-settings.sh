@@ -12,7 +12,8 @@
 # was split in two and prints to stdout (init.sh redirects it); and the one
 # adoption-only guard (`# BL-242-SETTINGS-BL277`). Review measured the result
 # byte-identical to main's inline code across 12 languages and 8 roster
-# starting states, idempotent re-runs included.
+# starting states, idempotent re-runs included. BL-277 has since moved the
+# detector's PostToolUse arm into its own group.
 #
 # bash-3.2 safe. Needs jq for the roster (the caller checks, as init.sh did).
 
@@ -321,8 +322,12 @@ soif_register_hook_roster() {
         # adopted project it stays OFF until that entry closes, and the
         # adoption transcript says so. ONE guarded line, as §10-WP9c specifies.
         if [ "$_mode" != "adoption" ]; then   # BL-242-SETTINGS-BL277
-          if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
-            jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]' "$_f" > "$_f.tmp" \
+          # BL-277-MATCHER — its own PostToolUse group, scoped to Bash and Write.
+          # Appended to group [0] it inherited that group's absent matcher and ran
+          # after every tool. Write stays: a file the model writes is text it
+          # authored, and the maintainer ruled it is still scanned (PR #454).
+          if ! jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
+            jq '.hooks.PostToolUse += [{"matcher": "Bash|Write", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' "$_f" > "$_f.tmp" \
               && mv "$_f.tmp" "$_f"
             hooks_added=true
           fi
