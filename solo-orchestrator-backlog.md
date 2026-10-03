@@ -22076,6 +22076,119 @@ for the 4.0 trap: **assign at the declaration**, applied to code you are already
 
 ---
 
+## BL-308: every project born from init.sh fails its first pull request at the generated CI's gitleaks step — a vendored `scripts/check-gate.sh` declaration reads as a generic API key
+
+**Status:** Open — reproduction and fix in the pull request that files this entry.
+
+**Found:** 2026-09-22, on the first pull request of an organizational project generated from `main`
+at `f8841de`: the `Security - Secret detection (gitleaks)` step of the
+generated `ci.yml` failed with `11 commits scanned, leaks found: 1`, and every governance step after
+it never ran. The step is `gitleaks git --redact --exit-code 1` over the full history
+(`fetch-depth: 0`, `# BL-151` in `templates/pipelines/ci/github/*.yml`), so the project cannot make
+the finding go away by editing the file: the init commit carries it forever.
+
+**Measured on `main` at `19d27e3`, gitleaks 8.30.1.** Over this
+repository's working tree (`gitleaks dir . --redact --exit-code 1`,
+default rules): rc 1, 9 findings. Eight are fixtures, none of which init.sh ships: seven
+`aws-access-token` plants in `tests/test-brownfield-wp2-scout-sections.sh`,
+`tests/test-brownfield-wp6-collision-archive.sh` and
+`docs/designs/2026-08-02-brownfield-adoption-v1.md`, and one `generic-api-key` finding, the
+walk-006 suite's fake `ghp_` token. The ninth is the one that ships:
+
+```
+generic-api-key   scripts/check-gate.sh:1280   wf_bad_key="" REDACTED"
+```
+
+A project generated from that tree by `tests/test-bl308-gitleaks-generated-project.sh`
+(organizational, production, typescript, web, no remote): 1 commit, and `gitleaks git --redact
+--exit-code 1` over it gives rc 1 with 1 finding, the same file and line.  It ships no
+`.gitleaks.toml` and no `.gitleaksignore`, so the default rules apply. The rule's regex reads
+`key=` followed, within a few quote or space characters, by ten or more word characters as
+`name=value`; on that compound `local` the "value" it extracts is the NEXT declaration,
+`wf_unlocated=`, whose `=` defeats the rule's letters-only allowlist. The deciding fact is
+the rule's 3.5 entropy floor, not the `=`: `wf_unlocated=` scores 3.70 and clears it. The next
+compound `local` (`wf_folded="" wf_dupkey="" wf_mapscope="" …`) has the identical shape and
+is not flagged, because `wf_mapscope=` scores 3.42; scanned alone, that line is rc 0 and the
+defect's line rc 1. The shape alone does not trip, so that declaration needs no rename.
+
+**Fix.** Rename the variable — `wf_bad_key` → `wf_unrecognised` at its five sites in
+`scripts/check-gate.sh` (declaration, accumulator, the `wf_swallows` verdict at
+`# D-A-STEP-KEY-VERDICT`, and the two lines of the remedy message). Behaviour is identical: the
+remedy text still says "a key this check does not recognise", and
+`tests/test-walk006-ci-protection-scope.sh`, which pins the step-key verdict, and the other suites
+naming the script stay green.
+No `.gitleaks.toml` is shipped, no rule is disabled and no path is allowlisted: a declaration that
+looks like a credential is renamed, which is what an operator would be told to do.
+
+**Considered and rejected: shipping `templates/gitleaks/framework.toml`.** It is not a project config
+and does not allowlist this shape. It is the adoption stop's own rule set (§6.2b of ADOPT-002-ARCH):
+`[extend] useDefault = true` and nothing else, so it IS gitleaks' defaults, and its header says it
+ships nowhere by design. `tests/test-brownfield-wp10b-own-scan.sh` O8 pins that the file exists and
+extends the defaults; that it ships nowhere is the header's own claim. An allowlist
+added there would suppress the finding for every adopted project without disclosure, the shape the
+stop exists to refuse. It is untouched here.
+
+**Pinned by two suites.** `tests/test-bl308-gitleaks-vendored-clean.sh` (unit lane): G1 scans
+what init.sh ships (`init.sh`, `scripts/`, `templates/`, `evaluation-prompts/Projects/`, the
+platform modules, and the reference docs parsed from init.sh's own `cp` lines by
+`soif_parse_shipped_reference_doc_sources`) with the default rules and asserts rc 0 and zero
+findings. C1 plants an AWS-shaped key and C2 a generic-shaped key in a copy of
+`scripts/check-gate.sh`, and each asserts rc 1 with the plant found by rule and line, so the fix
+cannot be "disable the rule" or an allowlist wide enough to swallow a real credential. C3 asserts
+no scanner config or ignore file exists at the repo root, so G1's default-rules verdict is the one
+a generated project gets. C4 plants a generic-shaped key in a shipped reference doc and in a
+platform module, and C5 in the installer, a CI template and an evaluation prompt; each asserts
+rc 1 with every plant found, so every part of G1's surface is scanned. R1 runs
+`scripts/lint-tests-registered.sh` against a copy of `tests.yml` without this suite's row and
+asserts rc 1 naming the suite `not-in-unit-lane`: the lint's `## BL-181:` predicate exempts any
+test that names the installer on an executed line, so the suite spells that path in halves and
+R1 keeps it demanded in the PR-blocking lane. `tests/test-bl308-gitleaks-generated-project.sh`
+(full lane, invokes init.sh): P1 asserts the generated `ci.yml` carries `gitleaks git --redact
+--exit-code 1`, and P2 runs exactly that over the generated project and asserts rc 0, zero
+findings and at least one commit. Both suites skip with a named reason when gitleaks is absent
+locally and fail when `CI` is set, the `## BL-288:` posture, and each pins it on itself: A1 and
+A2 re-run the suite with gitleaks shadowed off PATH by the PATH mirror of
+`tests/test-bl112-commit-enforcement.sh`, written inline, A1 with `CI` unset asserting rc 0 and
+`[SKIP] the whole suite`, A2 with `CI=1` asserting rc 1 and `[FAIL] setup`; a PATH that still
+finds gitleaks fails both at setup.
+
+**Migration for projects generated before this fix.** The working tree is cleared by the next
+framework sync (`scripts/upgrade-project.sh --sync-framework`, or applying the rename directly), but
+`gitleaks git` scans history, so the init commit still reports it. The documented gitleaks route is
+a `.gitleaksignore` at the project root carrying the commit fingerprint gitleaks itself prints:
+
+```
+<init-commit-sha>:scripts/check-gate.sh:generic-api-key:1280
+```
+
+with a comment line above it naming this entry. One line, one commit, one rule, one line number —
+nothing else in history is ignored. (`--baseline-path` is the other route; it ignores every finding
+in a saved report and is the wider net, so the fingerprint is preferred.)
+
+**Residuals.**
+
+- The unit suite spells the installer's path in halves, which also hides it from
+  `scripts/lint-no-live-remote-in-tests.sh`: that lint resolves a variable to the installer only
+  when its assignment ends in `/init.sh`, and `lint-tests-registered.sh` reads the name the other
+  way, so no spelling satisfies both. The suite copies and parses the installer and never runs it.
+- G1's surface is this repository's. The `.claude/framework/` content init.sh vendors from
+  `~/.claude-dev-framework` is outside it, and only P2 (full lane) scans it.
+- A1 and A2 make the unit suite take several seconds where it took under one: building the PATH
+  mirror costs one `ln` per entry of each PATH directory that holds gitleaks.
+- P2 is the only check of a real generated project and its history, and it runs in the full lane
+  only; the unit lane covers the shipped surface through G1's copies.
+- This repository's own history still reports the declaration at the commit that introduced it
+  (`gitleaks git` over this repository). No PR-blocking job scans this repository's history, and a
+  generated project starts with a fresh one.
+- Projects generated before this fix keep the finding in their init commit; the migration above is
+  the route.
+
+**Related:** `## BL-151:` (why the generated CI runs the gitleaks CLI over full history),
+`## BL-288:` (the gitleaks-absent posture the suites adopt), `## BL-147:` (the CI template
+integrity suite that is a neighbour of the renamed script).
+
+---
+
 ## BL-309: twenty-four absence assertions in eight suites grep for `integer expression`, which bash 5.3 reworded, so where the script under test runs under 5.3 they cannot fail
 
 **Status:** Open — entry only, the sweep asked for on #419 ("the 'assertion that cannot fail'
