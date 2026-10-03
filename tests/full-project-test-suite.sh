@@ -1023,6 +1023,18 @@ run_child_suite "tests/test-upgrade-help-and-projectless.sh" \
 run_child_suite "tests/test-bug010-intake-silent-paths.sh" \
   "BUG-010: the intake wizard refuses an unreadable progress file, stops at end of input, and never completes over a failed render" \
   "BUG-010 intake silent-path tests FAILED (run tests/test-bug010-intake-silent-paths.sh for details)"
+# BL-282: once a section was complete no flag could correct a recorded
+# answer; --set-answer writes through save_answer, records the amendment,
+# refuses unknown keys, and re-renders PROJECT_INTAKE.md.
+run_child_suite "tests/test-bl282-set-answer.sh" \
+  "BL-282: --set-answer corrects a recorded answer, records the amendment, refuses unknown keys" \
+  "BL-282 set-answer tests FAILED (run tests/test-bl282-set-answer.sh for details)"
+# BL-301 (#418): adoption records intake rows under keys the wizard never
+# asks; --set-answer accepts a key already in answers/, notes it as
+# adoption-recorded, and still refuses a key that exists nowhere.
+run_child_suite "tests/test-bl301-adoption-recorded-keys.sh" \
+  "BL-301: --set-answer accepts adoption-recorded keys, notes them, still refuses unknown keys" \
+  "BL-301 adoption-recorded-keys tests FAILED (run tests/test-bl301-adoption-recorded-keys.sh for details)"
 # BL-286: the TDD gate's branch axis resolves its base from the project's
 # recorded integration branch, so it stops exempting every commit on a
 # non-`main` trunk — and an absent key still behaves byte-identically.
