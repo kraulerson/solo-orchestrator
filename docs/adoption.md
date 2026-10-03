@@ -1196,6 +1196,12 @@ whoever adds a writer must re-run the count**. An enumeration
 of what a run writes has to be re-run by whoever adds a writer; nothing checks
 it.)*
 
+*(And again: since `## BL-318:` G1 (2026-10-03), `.claude/test-command` joins
+these whenever the interview confirmed a test command and the project had no
+such file — see "Three things to know before you rely on it" below. The 79 above
+predates it and the other writers added since. One measured run on 2026-10-03, a
+four-file uv project with no Guardrails clone, committed 112 files.)*
+
 ### What lands in `scripts/`
 
 ```text
@@ -2298,9 +2304,20 @@ project that is already adopted. Or run the scanners by hand on each commit:
 
 - **A test suite that already fails will block source commits.** The hook runs
   your project's own test command whenever a source file is staged, and refuses
-  the commit if it fails. Adoption does not run your tests, so it cannot warn you
-  in advance. If your suite is red today, fix it — or point the hook at a command
-  that passes by writing it to `.claude/test-command` — before your first
+  the commit if it fails. That command is the one you confirmed under *Testing &
+  Bug Tracking* in the interview: **adoption writes it to `.claude/test-command`**,
+  one line, exactly as you confirmed it. Scout's flag stays in it (`--frozen` for
+  uv, `--config.verify-deps-before-run=false` for pnpm), so the check never
+  rewrites your lockfile in the middle of a commit. A `.claude/test-command` you
+  already have is left exactly as it is. No file is written when the scan found
+  no test command, or when your answer is not something the shell can parse. The
+  run's "The test command your commits run" section says which of these
+  happened. With no file, the hook finds a command itself, and pytest runs
+  through uv, poetry, pdm or pipenv when that tool's file is there. A project
+  adopted before 2026-10-03 has no file, and for a Python project its older hook
+  runs a bare `pytest` — write the file yourself. Adoption does not run your tests, so it cannot
+  warn you in advance. If your suite is red today, fix it — or point the hook at
+  a command that passes by editing `.claude/test-command` — before your first
   source commit.
 - **Your test command has no time limit.** A suite that hangs, or waits for
   input in watch mode, will hang the commit. The same `.claude/test-command`
