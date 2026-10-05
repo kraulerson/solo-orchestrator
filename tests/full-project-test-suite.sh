@@ -988,8 +988,9 @@ run_child_suite "tests/test-bl312-tldr-mode-init.sh" \
   "BL-312 TL;DR mode init tests FAILED (run tests/test-bl312-tldr-mode-init.sh for details)"
 # BL-318 G1: adoption never wrote .claude/test-command, so the commit-time
 # project-test check ran a bare pytest in a uv project and let the commit
-# through; adoption now writes the confirmed command, and the hook's fallback
-# runs pytest through uv/poetry/pdm/pipenv.
+# through; adoption now writes the scan's command when the operator kept it,
+# and the hook's fallback runs pytest through uv/poetry/pdm/pipenv after a
+# --version probe.
 run_child_suite "tests/test-bl318-g1-test-command.sh" \
   "BL-318 G1: adoption writes .claude/test-command; the hook's pytest fallback goes through the project's manager" \
   "BL-318 G1 test-command tests FAILED (run tests/test-bl318-g1-test-command.sh for details)"
