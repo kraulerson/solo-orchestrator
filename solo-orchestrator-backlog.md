@@ -22702,8 +22702,8 @@ verified here: Kiro uses property-based tests, and ECC sets an 80% coverage targ
 ## BL-318: brownfield dogfood run 2 (k-pdf, 2026-10-03) — what still stops a regular user
 
 **Status:** Open — filed 2026-10-03 from the second dogfood run. Groups G1–G4 and G6 can each close by
-their own PR. G5 needs a design decision from Karl first. The entry closes when every group is
-resolved.
+their own PR. G5's design was decided by Karl on 2026-10-05 (below). The entry closes when every group
+is resolved.
 
 **What ran.** The `## BL-311:` rerun. A headless Claude Code session played the same systems
 technician (not a developer). It installed Solo from the public README at `a07d707`, which carries the
@@ -22766,8 +22766,121 @@ preference, which made every reply carry one anyway.
   symlink to a folder outside the project, the pre-write rehearsal writes through the link (9 entries
   outside on round 1's tip, 8 on `a07d707`). It still prints "Nothing was committed and nothing was
   written."
+- **A renamed project folder breaks the `.venv` pytest launcher (PR #496; fails closed).** A
+  virtualenv's `pytest` script names its interpreter by absolute path. After the project folder is
+  renamed it exits 126, and the commit-time check reads that as a FAILED suite and blocks every source
+  commit. The output names the missing interpreter, so the cause is visible. Candidate fix: treat 126
+  like 127 (not enforced, loudly).
+- **A root-level module named like a standard-library one breaks the probe (PR #496; improbable; fails
+  open, loudly).** `python -c` puts the project folder first on `sys.path`, so a `token.py` or
+  `logging.py` there shadows the module the `# BL-318-PYTEST-PROBE-CMD` import probe needs. The probe
+  fails and the check says NOT ENFORCED, blaming a missing pytest. Candidate fix:
+  `python -c 'import sys; del sys.path[0]; import pytest'`.
+- **One adoption note is wrong (PR #496; wording).** The `# BL-318-TESTCMD-PLACEHOLDER` note says the
+  check finds nothing to run while `package.json` carries npm's placeholder. In a Python project whose
+  `package.json` came from `npm init`, the hook's own fallback still runs pytest.
+
+**G5, decided (Karl, 2026-10-05) and built (branch `fix/bl318-g5-guardrails-refresh`; PR to be cited).
+G5 status: Open until that PR merges.**
+- **The ruling.** Option (b), ask first — but at **every** Claude Code session start, not once, so a
+  user blocked by a Guardrails defect can restart the session and accept the fix. The update does not
+  touch `.claude/settings.json`; refreshing settings is its own entry, `## BL-319:` (deferred).
+- **The check.** `check-versions.sh` compares the project's `.claude/manifest.json` `frameworkVersion`
+  with the clone's `FRAMEWORK_VERSION`, numerically, part by part (`# BL-318-G5-CMP`), accepting only
+  `MAJOR.MINOR.PATCH` (`# BL-318-G5-VALID`), and only in a project with `.claude/framework/`
+  (`# BL-318-G5-FRAMEWORK-DIR`). Behind within one MAJOR version: a `[WARN]` and
+  `bash scripts/refresh-guardrails.sh` under "Update commands" (`# BL-318-G5-OFFER`). A newer MAJOR
+  version: a `[WARN]` that names `migrations/` and no command (`# BL-318-G5-MAJOR`, review round 1
+  R-3). No manifest, no key, no clone, or a value that is not a version: "cannot tell whether an update
+  is available" with the reason, never silence and never "up to date". A value read from the manifest
+  is shown as `[0-9A-Za-z._+-]` only, at most 40 characters (`# BL-318-G5-SAFE`, R-7): before that,
+  `"frameworkVersion": "BELOW MINIMUM"` made the session start print "URGENT — … Do NOT proceed".
+- **The offer.** `session-version-check.sh` takes the row out of the generic text, whose question is
+  "Would you like me to run these updates now", and makes it on its own (`# BL-318-G5-SESSION-OFFER`):
+  both versions, what the update changes, that settings are untouched, and that the agent must not run
+  it, because it replaces the Guardrails that check the agent's own work — the human types it after `!`
+  (`# BL-318-G5-SESSION-ROUTE`). It also says the command first pulls the shared clone and can
+  install a newer version than offered (R-4). Its words name no terminal or shell and carry no flag,
+  and the suite checks each line, the whole offer and a relay of it against
+  `scripts/lib/bypass-patterns.sh`. A Guardrails row with no command (a new MAJOR version, or
+  "cannot tell") leaves the generic block too and is told as a notice the agent must not act on
+  (`# BL-318-G5-SESSION-NOTICE-SPLIT`, final check N1): under the generic "Would you like me to run
+  these updates now" it invited the agent to offer a migration, and after a refused update has pulled
+  the shared clone, every other project on the machine shows that row.
+- **The relay (review round 1, R-2).** Claude Code's documentation calls `!` "shell mode", so the
+  natural relay ("Type `!` at the Claude Code prompt, then `bash scripts/refresh-guardrails.sh`, to run
+  it in shell mode.") matched `terminal_workaround` and the real `scripts/hooks/bypass-detector.sh`
+  raised the sentinel, which then blocks commits. The detector now pins this exact command beside the
+  assessment finisher (`SOIF_RELAY_GUARDRAILS_SHA256`, `# BL-318-G5-HANDOFF-MATCH`), under every
+  condition of the hand-to-human line: the same sentence with another command, an argument, a chained
+  command, or the agent saying it will type it, still raises.
+- **The command.** `scripts/refresh-guardrails.sh`, shipped to every project (`# BL-318-G5-SHIP`),
+  refuses before writing anything in the project: a symlink on the write path (`# BL-318-G5-REFRESH-LINK-DIR`,
+  `# BL-318-G5-REFRESH-LINK-FILE`, R-8b); an uncommitted change in what the clone copies
+  (`# BL-318-G5-REFRESH-DIRTY`, R-8a — the manifest would record a commit that lacks it, and every
+  later check would call the project current; untracked files count); a different MAJOR version,
+  upgrade or downgrade, checked after its own pull of the clone so the version checked is the one that
+  would be installed (`# BL-318-G5-REFRESH-PULL`, `# BL-318-G5-REFRESH-MAJOR`, R-3). That pull may
+  already have moved the shared clone when it refuses. Then it runs only the clone's own `refresh_cdf_assets` and checks
+  the result: every copied file of every kind byte-identical (`# BL-318-G5-RECEIPT-KINDS`,
+  `# BL-318-G5-RECEIPT-FILES`), hook scripts executable (`# BL-318-G5-RECEIPT-EXEC`), the manifest
+  naming the clone's version (`# BL-318-G5-RECEIPT-VERSION`). Anything short of that is `[FAIL]` and a
+  non-zero exit. `scripts/check-updates.sh` now points at it too and no longer reads a project ahead of
+  the clone as needing an update (`# BL-318-G5-CU-REMEDY`, `# BL-318-G5-CU-AHEAD`, R-6).
+- **Why not `upgrade-project.sh --sync-framework`.** Measured with stdin not a TTY (how a command typed
+  after `!` runs) against a Guardrails 4.3.0 project and a 4.3.7 clone: it does apply the refresh, and
+  in the same run it re-synced 70 of 74 vendored scripts, backfilled `scripts/lib/` files, the skills
+  and `.gitignore`, and stamped `soloFrameworkCommit` — 85 paths. On real Guardrails files the new
+  command changed 16 paths and left `.claude/settings.json` byte-identical: 12 hooks changed or added,
+  2 rules, the manifest, and a mode-only change (`+x`) on `hooks/_preflight.sh`. That fixture took its
+  4.3.0 files from CDF `0396a1a` with `git archive`, which keeps git's 644 mode for that file; a project
+  the Guardrails installer set up already has it executable, so there the count is 15 (the reviewer's,
+  on `ea2025a`, the same 4.3.0 file set) against 4.3.7 at `e1e2fa1`. `--backfill-only` runs the same
+  backfills before the same refresh.
+- **No restart.** Claude Code starts each hook as a new process from its path in
+  `.claude/settings.json`. Measured: the registered hook command printed the 4.3.0 text before the
+  update and the 4.3.7 text on the next call after it. The Guardrails' own session-start message was
+  printed once, at the session's start, and changes at the next session.
+- **Tests.** `tests/test-bl318-g5-guardrails-refresh.sh`: 48 cases and 48 mutants. E1, the end to end
+  against the real `cdf-refresh.sh`, SKIPS where no clone supplies it (CI has none); E0 runs the same
+  end to end against a faithful stub upstream everywhere (review round 1, R-1: before it, nothing in the
+  PR lane proved the command could succeed or leave `settings.json` alone), and so do the command's own
+  guards and the real-detector relay cases.
+
+**G5 residuals (not fixed):**
+- **Nothing stops the agent running the update itself.** The offer tells it not to, and that is the only
+  line. Measured against Guardrails 4.3.7's config-guard: it blocks `cp x
+  .claude/framework/hooks/config-guard.sh` and a rewrite of `.claude/manifest.json` (exit 2), but allows
+  `bash scripts/refresh-guardrails.sh` (exit 0), because it reads the command's text and this text names
+  no protected path. Enforcing ask-first needs a check that refuses this command from the agent's Bash
+  tool while a command typed after `!` still runs; this branch builds none, and no way to tell the two
+  apart was measured.
+- **The clone pulls have no bound.** The command's own pull (`GIT_TERMINAL_PROMPT=0`, so it never
+  waits on a credential prompt) and `refresh_cdf_assets`'s (upstream CDF) run `git pull --ff-only`
+  with no timeout, so a network that hangs holds the `!` command until the user interrupts it.
+- **The relay exemption is as narrow as the finisher's.** A relay line is exempt only when it names
+  `!` and the Claude Code prompt; "run it in shell mode with `bash scripts/refresh-guardrails.sh`" on
+  its own still raises the sentinel (fails closed, as for the finisher). The offer's own wording names
+  both, so a relay that follows it is clean.
+- **It compares with the clone on disk.** A clone behind its remote at the project's own version makes
+  no offer; the clone row asks for `git pull` first and the next session offers the update. The
+  refresh pulls first, so it can install a newer version than the offer named; its `[OK]` line reports
+  the version it installed.
+- **An empty tool matrix ends `check-versions.sh` before the row** (its existing "No tools to check"
+  exit). Not reachable with the shipped matrix.
+- **The freshness check overlaps.** In a project with a `.currency` block, `session-freshness-check.sh`'s
+  informational `cdf-behind` item (the manifest's `frameworkCommit` against the clone's HEAD) can show
+  beside the offer. It goes quiet once the update records the clone's commit.
+- **Hooks are copied, not registered; removed hooks stay.** A release that adds a hook needs a
+  settings change to run it, and the refresh never deletes a hook the clone dropped — one still
+  registered keeps running its old code. Both are `## BL-319:`.
 
 **Handed to the Development Guardrails (CDF), not fixed here:**
+- G5 review round 1, R-5: CDF's own session-start hook says "Framework N commits behind. Run: cd
+  ~/.claude-dev-framework && git pull && cd - && bash ~/.claude-dev-framework/scripts/sync.sh", and
+  `sync.sh` regenerates the hook registrations in `.claude/settings.json`. In the same session the G5
+  offer says the agent must not run the update itself and that the update does not change settings.
+  The two messages contradict each other; CDF's should point at the project's own update route.
 - The agent cannot commit. After approval, `enforce-evaluate` requires `mark-evaluated.sh`, and
   `config-guard` forbids running it. `config-guard` also forbids `git add` of the `.claude/` state
   files the finisher tells the operator to stage (findings 23, 30).
@@ -22776,3 +22889,31 @@ preference, which made every reply carry one anyway.
 - `stop-checklist`'s "commit before finishing" conflicts with the approval rule (21).
 - `enforce-superpowers` is armed when the plugin is not installed, and its marker is not honoured
   across turns (27, 28, 29).
+
+## BL-319: refreshing a project's Development Guardrails settings (`.claude/settings.json`)
+
+**Status:** Open — DEFERRED (decided 2026-10-05 by Karl, with `## BL-318:` G5).
+
+**The gap.** `## BL-318:` G5's update (`scripts/refresh-guardrails.sh`, which runs the clone's
+`refresh_cdf_assets`) re-copies `.claude/framework/` and the manifest's `frameworkVersion` and
+`frameworkCommit`. It never touches `.claude/settings.json`, where the Guardrails installer wrote its
+hook registrations and its `permissions.deny` rules. A Guardrails release that changes settings
+therefore reaches new projects only.
+
+**The motivating case.** Guardrails 4.3.7 (CDF `970f799`) stopped generating `Write(path)` deny rules:
+Claude Code consults only `Edit(path)` and `Read(path)` rules and warns about each `Write(...)` rule at
+startup. CDF's own sync drops the six legacy ones (`FRAMEWORK_LEGACY_DENY_RULES`). A project installed
+before 4.3.7 keeps all six after the G5 update, and keeps the warnings. The same holds for hooks: a
+release that adds one ships the file but leaves it unregistered, and one that drops a hook leaves its
+registration and its old file in place.
+
+**The open design question: composition.** `.claude/settings.json` is not the Guardrails' alone.
+Solo's own hooks (`session-version-check.sh` and the other session scripts, registered through
+`scripts/lib/claude-settings.sh`), the project hooks adoption puts back ahead of the installer's
+(`docs/adoption.md`, "Your `settings.json` keeps its hooks"), and the operator's own rules live in the
+same file, and CDF's installer replaces `hooks` wholesale. A refresh must change only the Guardrails'
+entries. Undecided: how those entries are identified (the installer does not mark them); what happens
+to one the user edited; whether the refresh calls CDF's own settings merge or a Solo-side one; and
+whether the replaced file is archived the way adoption archives it. The agent cannot edit the file
+directly (config-guard and the deny rules forbid it), and a script it ran would not be stopped either
+(G5's first residual), so the route is G5's: offered, and typed by the human after `!`.

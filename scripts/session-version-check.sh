@@ -23,8 +23,86 @@ fi
 # Extract BELOW MINIMUM lines (critical — tool version too old for enforcement)
 BELOW_MIN_LINES=$(echo "$VERSION_OUTPUT" | grep "BELOW MINIMUM" || true)
 
+# ── `## BL-318:` G5 — the project's Development Guardrails update is OFFERED,
+# never run by the agent. check-versions.sh lists it as
+#   "  Development Guardrails in this project: bash scripts/refresh-guardrails.sh"
+# under "Update commands". The generic text below tells the agent to ask "Would
+# you like me to run these updates now", and for THIS update that is wrong: it
+# replaces the Guardrails that check the agent's own work, so starting it is
+# the human's decision (Karl, 2026-10-05: ask first). NOTHING MECHANICAL STOPS
+# THE AGENT RUNNING IT — measured against Guardrails 4.3.7: config-guard blocks
+# `cp … .claude/framework/hooks/…` and a rewrite of .claude/manifest.json
+# (exit 2) but allows `bash scripts/refresh-guardrails.sh` (exit 0), because it
+# reads the command's text. So the offer gives the true reason, not "you are
+# blocked". The row and its command leave the generic lists, and _gr_offer asks
+# the human to type the command after `!` (the route
+# `# BL-311-ASSESSMENT-AUTO-MODE` established). No memory
+# of a refusal is kept: the offer returns at every session start until the
+# versions match (Karl, 2026-10-05), so a session blocked by a Guardrails defect
+# can be restarted and the fix accepted.
+#
+# Its words name no terminal and no shell: a relay of a terminal route in the
+# agent's own words matched terminal_workaround (measured for BL-311), and
+# tests/test-bl318-g5-guardrails-refresh.sh S3 checks every line, the whole
+# offer as one line, and a relay of it against scripts/lib/bypass-patterns.sh.
+# It carries no option-like token either (it says "fast-forward only", not the
+# flag): the detector's hand-to-human exemption refuses a relay line with one
+# outside its code spans, so an agent folding that sentence into its relay would
+# raise the sentinel.
+GR_TAG="Development Guardrails in this project:"
+GR_STATE=""
+GR_CMD=""
+GR_CMD_LINE="$(printf '%s\n' "$UPDATE_CMDS" | grep -F -- "  $GR_TAG " | head -1 || true)"   # BL-318-G5-SESSION-DETECT
+if [ -n "$GR_CMD_LINE" ]; then
+  GR_CMD="${GR_CMD_LINE#*"$GR_TAG" }"
+  GR_STATE="$(printf '%s\n' "$WARN_LINES" | grep -F -- "[WARN] $GR_TAG " | head -1 || true)"
+  GR_STATE="${GR_STATE#"[WARN] "}"
+  WARN_LINES="$(printf '%s\n' "$WARN_LINES" | grep -vF -- "[WARN] $GR_TAG " || true)"   # BL-318-G5-SESSION-WARN-SPLIT
+  UPDATE_CMDS="$(printf '%s\n' "$UPDATE_CMDS" | grep -vF -- "  $GR_TAG " || true)"   # BL-318-G5-SESSION-SPLIT
+  # The heading alone is not a list: drop it when the offer was its only line.
+  if [ "$(printf '%s\n' "$UPDATE_CMDS" | grep -c '^  ' || true)" = "0" ]; then UPDATE_CMDS=""; fi
+fi
+# A Guardrails row with NO command — a new MAJOR version (a migration) or
+# "cannot tell" — leaves the generic block too (final check, N1). Left there, it
+# sat under "Would you like me to run these updates now", inviting the agent to
+# offer a Guardrails migration it must not run. And it spreads: a refused update
+# has already pulled the shared clone, so every other project on the machine
+# shows the row at every session start. _gr_notice tells it as a notice.
+GR_NOTICE=""
+if [ -z "$GR_CMD" ]; then
+  GR_NOTICE="$(printf '%s\n' "$WARN_LINES" | grep -F -- "[WARN] $GR_TAG " || true)"
+  WARN_LINES="$(printf '%s\n' "$WARN_LINES" | grep -vF -- "[WARN] $GR_TAG " || true)"   # BL-318-G5-SESSION-NOTICE-SPLIT
+fi
+
+# What the update changes and how it applies were MEASURED (`## BL-318:` G5):
+# scripts/refresh-guardrails.sh pulls the shared clone, then rewrites only
+# .claude/framework/ and the manifest's frameworkVersion/frameworkCommit
+# (review round 1, R-4: the pull reaches every project on the machine and can
+# move the version past the one offered); Claude Code starts every hook as
+# a new process from the path in .claude/settings.json, so the next tool call
+# runs the new files, while the Guardrails' own session-start message was
+# printed once, at this session's start.
+_gr_offer() {
+  printf '%s\n' "GUARDRAILS UPDATE OFFER. Tell the Orchestrator about it in your FIRST response, before any other work:"
+  printf '  %s\n' "${GR_STATE:-$GR_TAG an update is available}"
+  printf '%s\n' "What the update changes: it copies the Guardrails hooks and rules into .claude/framework/ again and records the new version in .claude/manifest.json. It does not change .claude/settings.json. It first pulls the shared Guardrails clone (fast-forward only; ~/.claude-dev-framework, or the folder CDF_HOME names), which every project on this machine reads, so it can install a newer version than the one named here."
+  printf '%s\n' "Do NOT run the update yourself: it replaces the Guardrails that check your own work, so starting it is the Orchestrator's decision. Ask the Orchestrator whether to update now. If they agree, ask them to type ! and then this exact command at the Claude Code prompt:"   # BL-318-G5-SESSION-ROUTE
+  printf '  %s\n' "$GR_CMD"
+  printf '%s\n' "Wait for its output: it ends in an [OK] line when the update landed, or a [FAIL] line that names what stopped it."
+  printf '%s\n' "Once it lands, no restart is needed for the new hooks: Claude Code runs each hook from its file on every call, so your next tool call uses them. Only the Guardrails' own session-start message stays the old one until the next session."
+  printf '%s\n' "If they decline, carry on. This offer comes back at every session start until the update is done."
+}
+
+_gr_notice() {
+  printf '%s\n' "GUARDRAILS NOTICE. Tell the Orchestrator this in your FIRST response, before any other work. Do NOT run anything about it yourself:"
+  printf '%s\n' "$GR_NOTICE" | sed 's/^\[WARN\] /  /'
+  printf '%s\n' "There is no command to offer here. A new MAJOR version needs a Guardrails migration, and a version that cannot be read needs the reason above fixed; both are the Orchestrator's to decide."
+}
+
 # Only output when something needs attention
+GENERIC_SHOWN=false
 if [ -n "$BELOW_MIN_LINES" ] || [ "$VERSION_EXIT" -ne 0 ]; then
+  GENERIC_SHOWN=true
   cat << EOF
 URGENT — VERSION CHECK FAILED. Report this to the Orchestrator IMMEDIATELY as your FIRST response before any other work.
 
@@ -38,6 +116,7 @@ Ask the Orchestrator: "The following tools are outdated. Would you like me to ru
 Then list each update command and wait for approval before running them.
 EOF
 elif [ -n "$WARN_LINES" ] || [ -n "$UPDATE_CMDS" ]; then
+  GENERIC_SHOWN=true
   cat << EOF
 VERSION CHECK: Report the following to the Orchestrator as your FIRST response before any other work.
 
@@ -49,5 +128,13 @@ $WARN_LINES
 }You MUST ask the Orchestrator: "Would you like me to run these updates now, or skip for this session?"
 List each update command explicitly and wait for their answer. Do NOT skip this question.
 EOF
+fi
+if [ -n "$GR_CMD" ]; then
+  if [ "$GENERIC_SHOWN" = true ]; then echo ""; fi
+  _gr_offer                                                                       # BL-318-G5-SESSION-OFFER
+fi
+if [ -n "$GR_NOTICE" ]; then
+  if [ "$GENERIC_SHOWN" = true ]; then echo ""; fi
+  _gr_notice                                                                      # BL-318-G5-SESSION-TELL
 fi
 # If everything is up to date: output nothing. No noise.

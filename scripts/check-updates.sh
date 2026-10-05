@@ -74,12 +74,38 @@ if [ -f ".claude/manifest.json" ] && command -v jq &>/dev/null; then
   # (default ~/.claude-dev-framework, overridable via CDF_HOME). A newer clone
   # means the project's .claude/framework/ assets are stale — direct the user
   # to the upgrade that refreshes them.
+  #
+  # `## BL-318:` G5 review round 1 (R-6): the remedy is scripts/refresh-guardrails.sh,
+  # which changes only .claude/framework/ and the manifest version, not
+  # `upgrade-project.sh --backfill-only`, which runs every manifest, skills and
+  # helper-script backfill before the same refresh. And `!=` read a project AHEAD
+  # of the clone as needing an update; a numeric MAJOR.MINOR.PATCH order now
+  # says "nothing to update" there (check-versions.sh's row compares the same
+  # way). A value that is not MAJOR.MINOR.PATCH still reads as "differs".
   cdf_home="${CDF_HOME:-$HOME/.claude-dev-framework}"
+  _cu_order() {   # A B -> lt, eq or gt; rc 1 unless both are MAJOR.MINOR.PATCH
+    local re='^[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$' i=0
+    local -a a=() b=()
+    [[ "$1" =~ $re ]] && [[ "$2" =~ $re ]] || return 1
+    IFS='.' read -r -a a <<< "$1" || :
+    IFS='.' read -r -a b <<< "$2" || :
+    for i in 0 1 2; do
+      if [ "${a[$i]}" -lt "${b[$i]}" ]; then echo lt; return 0; fi
+      if [ "${a[$i]}" -gt "${b[$i]}" ]; then echo gt; return 0; fi
+    done
+    echo eq
+  }
   if [ -f "$cdf_home/FRAMEWORK_VERSION" ]; then
     clone_version=$(tr -d '[:space:]' < "$cdf_home/FRAMEWORK_VERSION" 2>/dev/null)
-    if [ -n "$clone_version" ] && [ "$clone_version" != "$cdf_version" ]; then
+    cu_order="$(_cu_order "$cdf_version" "$clone_version" || :)"
+    if [ -n "$clone_version" ] && [ "$cu_order" = lt ]; then
+      print_warn "This project's Development Guardrails (${cdf_version}) are older than the Guardrails clone (${clone_version})."
+      echo "         Update them: bash scripts/refresh-guardrails.sh   (it pulls the shared clone first, fast-forward only)"   # BL-318-G5-CU-REMEDY
+    elif [ -n "$clone_version" ] && [ "$cu_order" = gt ]; then   # BL-318-G5-CU-AHEAD
+      print_ok "This project's Development Guardrails (${cdf_version}) are newer than the Guardrails clone (${clone_version}); nothing to update."
+    elif [ -n "$clone_version" ] && [ "$clone_version" != "$cdf_version" ]; then
       print_warn "CDF clone is at ${clone_version} — differs from this project's pin (${cdf_version:-none})."
-      echo "         Refresh CDF assets: bash scripts/upgrade-project.sh --backfill-only"
+      echo "         Update them: bash scripts/refresh-guardrails.sh"
       echo "         (Run 'cd $cdf_home && git pull --ff-only' first to compare against the latest upstream.)"
     elif [ -n "$clone_version" ]; then
       print_ok "CDF framework assets match the local clone (${clone_version})."

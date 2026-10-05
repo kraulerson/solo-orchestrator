@@ -281,7 +281,33 @@ new one.** The checks, and the memory and documentation servers, that adoption
 set up only take effect in a session started after adoption: a session that was
 already open has no record of its own start, and the framework's MCP check
 blocks every file edit in it (measured in the 2026-09-27 dogfood run). The run's
-closing block says so too. Then:
+closing block says so too.
+
+**If the project already had the Development Guardrails, that new session may
+offer to update them.** Adoption keeps an existing install as it found it (see
+"The Development Guardrails for Claude Code" below). When its version is older
+than your clone's, every session start says so, with both versions, and asks
+you to type `!` and then this command at the Claude Code prompt:
+
+```bash
+bash scripts/refresh-guardrails.sh
+```
+
+The agent is told not to run it for you: it replaces the Guardrails that check
+the agent's own work, so starting it is your decision. The command first runs
+`git pull --ff-only` on the Guardrails clone, which every project on this
+machine shares, so it can install a newer version than the one offered. Then it
+copies the clone's Guardrails hooks and rules into `.claude/framework/` and
+records the new version in `.claude/manifest.json`; it does not change
+`.claude/settings.json`. It refuses a new MAJOR version (that is a migration,
+and the session start tells you so instead of offering the command), an
+uncommitted change in the clone's hooks or rules, and a symlink in
+`.claude/framework/`. When it refuses, nothing in this project is changed; the
+shared clone may already have been pulled. The new hooks apply from the agent's next tool call,
+so no restart is needed. Say no and the offer comes back at the next session
+start, so a session that a Guardrails defect is blocking can be restarted and
+the fix accepted then. Commit `.claude/framework/` and `.claude/manifest.json`
+afterwards. Then:
 
 ```bash
 bash scripts/resume.sh
@@ -1673,7 +1699,10 @@ Three differences from a new project, on purpose:
 - **No clone.** Adoption never fetches the Guardrails over the network. Without a
   clone it says **NOT INSTALLED** and prints the two commands that install them
   afterwards, and the Adoption Record says so.
-- **No update.** It installs the version on disk, and the Record names it.
+- **No update.** It installs the version on disk, and the Record names it. An
+  install the project already had stays at its own version, and from then on
+  every session start offers the update while the clone is newer
+  ([step 6](#6-afterwards); `## BL-318:` G5).
 - **An existing install is left alone.** A project that already has
   `.claude/framework/` keeps its own — including the settings the Guardrails
   keep in `.claude/manifest.json` (profile, rules, hooks, project config,

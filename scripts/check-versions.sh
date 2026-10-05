@@ -738,6 +738,118 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   fi
 done
 
+# ── `## BL-318:` G5 — THIS PROJECT's Development Guardrails against the clone ──
+# The matrix row above (the `git_repo` handler) answers one question: is the
+# CLONE behind its remote? Nothing answered the other one — is the copy this
+# PROJECT runs (`.claude/framework/`, versioned by `.claude/manifest.json` ->
+# `frameworkVersion`) older than the clone? Dogfood run 2's adoptee ran 4.3.0
+# beside a newer clone, and no line anywhere said so.
+#
+# Behind within one MAJOR version -> a [WARN] and the refresh command in the "Update commands" list, so
+# session-version-check.sh can offer it (ask first, every session start, Karl's
+# 2026-10-05 ruling). The command is the PROJECT's own scripts/refresh-guardrails.sh,
+# which pulls the clone `--ff-only` itself before copying, so when the clone row
+# above is also behind, its `git pull` (listed first) and this command agree.
+# Equal or ahead -> an [OK] row and nothing to do. Anything this cannot read ->
+# "cannot tell" with the reason: never silence, and never "up to date".
+#
+# The clone is `${CDF_HOME:-$HOME/.claude-dev-framework}` — the same clone the
+# refresh reads (scripts/lib/cdf-refresh.sh, check-updates.sh), so the version
+# offered is the version the command installs.
+#
+# STRICT MAJOR.MINOR.PATCH, digits only, at most nine per part. version_gte
+# above strips prefixes and suffixes and lets a failed `[ -gt ]` fall through,
+# so "abc" meets every minimum; that is tolerable for a tool's --version text
+# and wrong here, where the input is a value in a file and a wrong answer is a
+# false "up to date". Nine digits keep every part inside `[`'s integer range.
+GUARDRAILS_ROW="Development Guardrails in this project"
+GUARDRAILS_REFRESH_CMD="bash scripts/refresh-guardrails.sh"
+
+_cv_xyz_valid() {
+  local _re='^[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$'
+  [[ "${1:-}" =~ $_re ]]                                                          # BL-318-G5-VALID
+}
+
+# _cv_xyz_cmp A B — lt, eq or gt, numerically, part by part. Both already valid.
+_cv_xyz_cmp() {
+  local _i=0 _x="" _y=""
+  local -a _av=() _bv=()
+  IFS='.' read -r -a _av <<< "$1" || :
+  IFS='.' read -r -a _bv <<< "$2" || :
+  for _i in 0 1 2; do
+    _x="${_av[$_i]}"; _y="${_bv[$_i]}"
+    if [ "$_x" -lt "$_y" ]; then echo lt; return 0; fi                            # BL-318-G5-CMP
+    if [ "$_x" -gt "$_y" ]; then echo gt; return 0; fi
+  done
+  echo eq
+}
+
+# _cv_gr_show VALUE — a value read from a file, shown as version characters only
+# ([0-9A-Za-z._+-]; every other byte is `?`) and at most 40 of them. The
+# manifest is the project's, so its text must not steer what reads this report:
+# escaping was not enough (review round 1, R-7). `"frameworkVersion": "BELOW
+# MINIMUM"` survived _cv_render_safe verbatim, and session-version-check.sh greps
+# the whole report for BELOW MINIMUM, so the session start said "URGENT — Do NOT
+# proceed with any work"; a U+2028 or 40 characters of instructions passed too.
+_cv_gr_show() {
+  printf '%s' "$1" | LC_ALL=C tr -c '0-9A-Za-z._+-' '?' | LC_ALL=C cut -c1-40     # BL-318-G5-SAFE
+}
+
+_cv_guardrails_row() {
+  local _clone="${CDF_HOME:-$HOME/.claude-dev-framework}"
+  local _mf=".claude/manifest.json" _inst="" _avail="" _why=""
+  [ -d ".claude/framework" ] || return 0                                          # BL-318-G5-FRAMEWORK-DIR
+  echo ""
+  echo -e "${BOLD}── Development Guardrails (this project) ──${NC}"
+  if [ ! -f "$_mf" ]; then
+    _why="this project has no .claude/manifest.json, so its installed version is unknown"   # BL-318-G5-NO-MANIFEST
+  elif ! jq -e 'type == "object"' "$_mf" >/dev/null 2>&1; then
+    _why=".claude/manifest.json is not a JSON object"                             # BL-318-G5-BAD-JSON
+  else
+    _inst="$(jq -r '(.frameworkVersion // empty) | tostring' "$_mf" 2>/dev/null || :)"
+    if [ -z "$_inst" ]; then
+      _why=".claude/manifest.json records no frameworkVersion"                    # BL-318-G5-NO-KEY
+    elif ! _cv_xyz_valid "$_inst"; then
+      _why=".claude/manifest.json records frameworkVersion '$(_cv_gr_show "$_inst")', which is not a MAJOR.MINOR.PATCH version"   # BL-318-G5-BAD-INSTALLED
+    elif [ ! -f "$_clone/FRAMEWORK_VERSION" ]; then
+      _why="no Guardrails clone with a FRAMEWORK_VERSION at $_clone to compare against"   # BL-318-G5-NO-CLONE
+    else
+      _avail="$(tr -d '[:space:]' < "$_clone/FRAMEWORK_VERSION" 2>/dev/null || :)"
+      if ! _cv_xyz_valid "$_avail"; then
+        _why="the clone's FRAMEWORK_VERSION at $_clone holds '$(_cv_gr_show "$_avail")', which is not a MAJOR.MINOR.PATCH version"   # BL-318-G5-BAD-CLONE
+      fi
+    fi
+  fi
+  if [ -n "$_why" ]; then
+    print_warn "$GUARDRAILS_ROW: cannot tell whether an update is available — $_why"
+    return 0
+  fi
+  case "$(_cv_xyz_cmp "$_inst" "$_avail")" in
+    lt)
+      # A new MAJOR version is a migration, not this update (review round 1,
+      # R-3): CDF ships migrations/ for majors, and its sync.sh stops to say
+      # "MAJOR version bump detected … Migration may be needed." With no restart,
+      # 5.x hooks would run at once against 4.x settings. Warned, never offered,
+      # and scripts/refresh-guardrails.sh refuses the same case.
+      if [ "${_inst%%.*}" -lt "${_avail%%.*}" ]; then                             # BL-318-G5-MAJOR
+        print_warn "$GUARDRAILS_ROW: ${_inst} installed, ${_avail} available — a new MAJOR version, which needs a Guardrails migration (see ${_clone}/migrations/), not scripts/refresh-guardrails.sh"
+      else
+        print_warn "$GUARDRAILS_ROW: ${_inst} installed, ${_avail} available"
+        UPDATES+=("$GUARDRAILS_ROW ${_inst} → ${_avail}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-318-G5-OFFER
+      fi
+      ;;
+    eq)
+      print_ok "$GUARDRAILS_ROW: ${_inst} — up to date"
+      PASS_COUNT=$((PASS_COUNT + 1))
+      ;;
+    *)
+      print_ok "$GUARDRAILS_ROW: ${_inst} — newer than the clone's ${_avail}; nothing to update"
+      PASS_COUNT=$((PASS_COUNT + 1))
+      ;;
+  esac
+}
+_cv_guardrails_row                                                                # BL-318-G5-CALL
+
 # --- Summary ---
 echo ""
 echo -e "${BOLD}── Summary ──${NC}"
