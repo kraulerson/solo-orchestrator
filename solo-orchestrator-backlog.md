@@ -22766,6 +22766,19 @@ preference, which made every reply carry one anyway.
   symlink to a folder outside the project, the pre-write rehearsal writes through the link (9 entries
   outside on round 1's tip, 8 on `a07d707`). It still prints "Nothing was committed and nothing was
   written."
+- **A renamed project folder breaks the `.venv` pytest launcher (PR #496; fails closed).** A
+  virtualenv's `pytest` script names its interpreter by absolute path. After the project folder is
+  renamed it exits 126, and the commit-time check reads that as a FAILED suite and blocks every source
+  commit. The output names the missing interpreter, so the cause is visible. Candidate fix: treat 126
+  like 127 (not enforced, loudly).
+- **A root-level module named like a standard-library one breaks the probe (PR #496; improbable; fails
+  open, loudly).** `python -c` puts the project folder first on `sys.path`, so a `token.py` or
+  `logging.py` there shadows the module the `# BL-318-PYTEST-PROBE-CMD` import probe needs. The probe
+  fails and the check says NOT ENFORCED, blaming a missing pytest. Candidate fix:
+  `python -c 'import sys; del sys.path[0]; import pytest'`.
+- **One adoption note is wrong (PR #496; wording).** The `# BL-318-TESTCMD-PLACEHOLDER` note says the
+  check finds nothing to run while `package.json` carries npm's placeholder. In a Python project whose
+  `package.json` came from `npm init`, the hook's own fallback still runs pytest.
 
 **G5, decided (Karl, 2026-10-05) and built (branch `fix/bl318-g5-guardrails-refresh`; PR to be cited).
 G5 status: Open until that PR merges.**
