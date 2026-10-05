@@ -215,13 +215,15 @@ output=$( cd "$E12_DIR" && bash "$E12_DIR/scripts/resume.sh" 2>&1 </dev/null ) |
 # whose stderr lacked the four magic shell-error keywords. A regression
 # where resume.sh silently truncated its prompt output mid-stream still
 # PASSed. Pin the positive contract:
-#   (1) exit 0 (resume.sh has no required-input branch — missing
-#       CLAUDE.md falls through to "(not found in CLAUDE.md)" defaults).
+#   (1) exit 0 (resume.sh has no required-input branch — a missing
+#       CLAUDE.md falls through to the fallback below).
 #   (2) Output contains the prompt template end marker
 #       "End of resume prompt" — proves the script reached the prompt's
 #       tail and did not early-exit silently mid-output.
-#   (3) Output contains "(not found in CLAUDE.md)" — proves the
-#       fallback path actually fired (defaults rendered into prompt).
+#   (3) Output says once that there is no CLAUDE.md — proves the fallback
+#       path actually fired. `## BL-318:` G2 replaced the four
+#       "(not found in CLAUDE.md)" fillers with that one plain line
+#       (`# BL-318-G2-NO-CLAUDE-FIELDS`), so the filler must be GONE.
 e12a_ok=1
 if [ "$result" -ne 0 ]; then
   fail "E12a: resume.sh must exit 0 with missing CLAUDE.md (got exit $result)"
@@ -231,12 +233,16 @@ if ! echo "$output" | grep -qF "End of resume prompt"; then
   fail "E12a: resume.sh prompt-template tail marker absent — script bailed mid-output"
   e12a_ok=0
 fi
-if ! echo "$output" | grep -qF "(not found in CLAUDE.md)"; then
-  fail "E12a: resume.sh missing-CLAUDE fallback string '(not found in CLAUDE.md)' not emitted"
+if [ "$(echo "$output" | grep -cF "There is no CLAUDE.md in this project")" -ne 1 ]; then
+  fail "E12a: resume.sh missing-CLAUDE fallback line 'There is no CLAUDE.md in this project' not emitted exactly once"
+  e12a_ok=0
+fi
+if echo "$output" | grep -qF "(not found in CLAUDE.md)"; then
+  fail "E12a: resume.sh still prints the '(not found in CLAUDE.md)' filler"
   e12a_ok=0
 fi
 if [ "$e12a_ok" -eq 1 ]; then
-  pass "E12a: resume.sh exit=0, prompt tail emitted, and (not found in CLAUDE.md) fallback fired"
+  pass "E12a: resume.sh exit=0, prompt tail emitted, and the no-CLAUDE.md fallback said once"
 fi
 
 # Test with empty CLAUDE.md
@@ -248,9 +254,9 @@ printf '# manifesto\n' > "$E12B_DIR/PRODUCT_MANIFESTO.md"   # BL-202: keep E12b 
 result=0
 output=$( cd "$E12B_DIR" && bash "$E12B_DIR/scripts/resume.sh" 2>&1 </dev/null ) || result=$?
 
-# BL-037 closure: empty CLAUDE.md exercises the same fallback as
-# missing CLAUDE.md (grep returns nothing → default placeholder).
-# Same positive contract as E12a.
+# BL-037 closure: an empty CLAUDE.md records no field, so the one plain
+# "does not record" line fires (`# BL-318-G2-FIELDS-NONE`) — not the
+# no-CLAUDE.md line, and never the old filler. Same positive contract as E12a.
 e12b_ok=1
 if [ "$result" -ne 0 ]; then
   fail "E12b: resume.sh must exit 0 with empty CLAUDE.md (got exit $result)"
@@ -260,12 +266,16 @@ if ! echo "$output" | grep -qF "End of resume prompt"; then
   fail "E12b: resume.sh prompt-template tail marker absent — script bailed mid-output"
   e12b_ok=0
 fi
-if ! echo "$output" | grep -qF "(not found in CLAUDE.md)"; then
-  fail "E12b: resume.sh empty-CLAUDE fallback string '(not found in CLAUDE.md)' not emitted"
+if [ "$(echo "$output" | grep -cF "CLAUDE.md does not record what has been built")" -ne 1 ]; then
+  fail "E12b: resume.sh empty-CLAUDE fallback line 'CLAUDE.md does not record what has been built' not emitted exactly once"
+  e12b_ok=0
+fi
+if echo "$output" | grep -qF "(not found in CLAUDE.md)"; then
+  fail "E12b: resume.sh still prints the '(not found in CLAUDE.md)' filler"
   e12b_ok=0
 fi
 if [ "$e12b_ok" -eq 1 ]; then
-  pass "E12b: resume.sh exit=0, prompt tail emitted, and (not found in CLAUDE.md) fallback fired"
+  pass "E12b: resume.sh exit=0, prompt tail emitted, and the empty-CLAUDE.md fallback said once"
 fi
 
 

@@ -1001,6 +1001,12 @@ run_child_suite "tests/test-bl318-g1-test-command.sh" \
 run_child_suite "tests/test-bl318-g5-guardrails-refresh.sh" \
   "BL-318 G5: the session start offers an older project's Guardrails update; scripts/refresh-guardrails.sh applies only that" \
   "BL-318 G5 Guardrails-refresh tests FAILED (run tests/test-bl318-g5-guardrails-refresh.sh for details)"
+# BL-318 G2: after an adoptee's assessment resume.sh printed the classic prompt,
+# not Phase 0's, because branch 2 required no PRODUCT_MANIFESTO.md; and that
+# prompt filled three fields with CLAUDE.md's Context Health Check paragraph.
+run_child_suite "tests/test-bl318-g2-resume-adoptee.sh" \
+  "BL-318 G2: an assessed adoptee gets its Phase 0 prompt; the classic prompt prints no filler" \
+  "BL-318 G2 resume-adoptee tests FAILED (run tests/test-bl318-g2-resume-adoptee.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \
