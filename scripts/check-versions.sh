@@ -745,7 +745,7 @@ done
 # `frameworkVersion`) older than the clone? Dogfood run 2's adoptee ran 4.3.0
 # beside a newer clone, and no line anywhere said so.
 #
-# Behind -> a [WARN] and the refresh command in the "Update commands" list, so
+# Behind within one MAJOR version -> a [WARN] and the refresh command in the "Update commands" list, so
 # session-version-check.sh can offer it (ask first, every session start, Karl's
 # 2026-10-05 ruling). The command is the PROJECT's own scripts/refresh-guardrails.sh,
 # which pulls the clone `--ff-only` itself before copying, so when the clone row
@@ -784,11 +784,15 @@ _cv_xyz_cmp() {
   echo eq
 }
 
-# _cv_gr_show VALUE — a value read from a file, safe for print_*'s `echo -e` and
-# short. The manifest is the project's, and any text in it would otherwise reach
-# the report as escapes (see _cv_render_safe for the forged-row measurement).
+# _cv_gr_show VALUE — a value read from a file, shown as version characters only
+# ([0-9A-Za-z._+-]; every other byte is `?`) and at most 40 of them. The
+# manifest is the project's, so its text must not steer what reads this report:
+# escaping was not enough (review round 1, R-7). `"frameworkVersion": "BELOW
+# MINIMUM"` survived _cv_render_safe verbatim, and session-version-check.sh greps
+# the whole report for BELOW MINIMUM, so the session start said "URGENT — Do NOT
+# proceed with any work"; a U+2028 or 40 characters of instructions passed too.
 _cv_gr_show() {
-  _cv_render_safe "$1" | LC_ALL=C cut -c1-40                                      # BL-318-G5-SAFE
+  printf '%s' "$1" | LC_ALL=C tr -c '0-9A-Za-z._+-' '?' | LC_ALL=C cut -c1-40     # BL-318-G5-SAFE
 }
 
 _cv_guardrails_row() {
@@ -822,8 +826,17 @@ _cv_guardrails_row() {
   fi
   case "$(_cv_xyz_cmp "$_inst" "$_avail")" in
     lt)
-      print_warn "$GUARDRAILS_ROW: ${_inst} installed, ${_avail} available"
-      UPDATES+=("$GUARDRAILS_ROW ${_inst} → ${_avail}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-318-G5-OFFER
+      # A new MAJOR version is a migration, not this update (review round 1,
+      # R-3): CDF ships migrations/ for majors, and its sync.sh stops to say
+      # "MAJOR version bump detected … Migration may be needed." With no restart,
+      # 5.x hooks would run at once against 4.x settings. Warned, never offered,
+      # and scripts/refresh-guardrails.sh refuses the same case.
+      if [ "${_inst%%.*}" -lt "${_avail%%.*}" ]; then                             # BL-318-G5-MAJOR
+        print_warn "$GUARDRAILS_ROW: ${_inst} installed, ${_avail} available — a new MAJOR version, which needs a Guardrails migration (see ${_clone}/migrations/), not scripts/refresh-guardrails.sh"
+      else
+        print_warn "$GUARDRAILS_ROW: ${_inst} installed, ${_avail} available"
+        UPDATES+=("$GUARDRAILS_ROW ${_inst} → ${_avail}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-318-G5-OFFER
+      fi
       ;;
     eq)
       print_ok "$GUARDRAILS_ROW: ${_inst} — up to date"

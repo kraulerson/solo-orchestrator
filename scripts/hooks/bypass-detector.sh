@@ -79,8 +79,10 @@ source "$SCRIPTS_DIR/lib/bypass-audit.sh"
 #      Claude Code's name for that route ("shell mode", "shell command(s)"), and
 #      that carries no escape span and no slash command: its one command, if
 #      it names one, is the assessment's finisher, byte for byte
-#      (SOIF_RELAY_FINISHER_SHA256). No project file is read for it: the prompt
-#      the agent was given is a file the session can write.
+#      (SOIF_RELAY_FINISHER_SHA256), or the Guardrails update the session-start
+#      offer prints, byte for byte (SOIF_RELAY_GUARDRAILS_SHA256, `## BL-318:`
+#      G5). No project file is read for either: the prompt the agent was given
+#      is a file the session can write.
 #
 # THE THREAT: AN AGENT QUOTING A SANCTIONED ESCAPE AS COVER for a real proposal
 # in the same message. That is why the exemption is per pattern and per line:
@@ -171,6 +173,19 @@ RAISE_PATTERN=""
 # drift apart (R7), so a change to the finisher must come here too.
 # BL-311-HANDOFF-FINISHER-PIN
 SOIF_RELAY_FINISHER_SHA256='6e3dddd3fb669270fdfa6810c980163aa51f5bfdd909e86a40947880b5ff9c56'
+
+# THE GUARDRAILS UPDATE, PINNED THE SAME WAY (`## BL-318:` G5, review round 1
+# R-2). session-version-check.sh offers this command and asks the agent to hand
+# it to the person, typed after `!`; Claude Code's documentation calls that
+# route "shell mode", so the natural relay — "Type `!` at the Claude Code
+# prompt, then `bash scripts/refresh-guardrails.sh`, to run it in shell mode." —
+# matched terminal_workaround and raised the sentinel, which then blocked
+# commits. It is the second and last command a shell-mode relay may carry:
+#   bash scripts/refresh-guardrails.sh
+# Exact bytes, no argument, under every other condition of the hand-to-human
+# line. tests/test-bl318-g5-guardrails-refresh.sh S6 fails when this pin and the
+# command check-versions.sh offers drift apart.
+SOIF_RELAY_GUARDRAILS_SHA256='ede06e0a81bdb6bf77aa0835b66ef8b19ba7a39da13df968fc993306defe0778'
 
 # _soif_relay_sha256 TEXT — TEXT's SHA-256 in hex; rc 1 when no tool here computes one.
 _soif_relay_sha256() {
@@ -316,6 +331,11 @@ EOF
       fi
       # BL-311-HANDOFF-FINISHER-MATCH — (b) the finisher byte for byte, bare or after "! ".
       if [ -z "$kind" ] && [ "$(_soif_relay_sha256 "$body" || true)" = "$SOIF_RELAY_FINISHER_SHA256" ]; then
+        kind="$SOIF_RELAY_TOK_FINISHER"
+      fi
+      # (b) or the Guardrails update, the same way: it takes the finisher's token,
+      # so every finisher condition (one per line, no first-person) holds for it.
+      if [ -z "$kind" ] && [ "$(_soif_relay_sha256 "$body" || true)" = "$SOIF_RELAY_GUARDRAILS_SHA256" ]; then   # BL-318-G5-HANDOFF-MATCH
         kind="$SOIF_RELAY_TOK_FINISHER"
       fi
     fi

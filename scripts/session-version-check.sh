@@ -45,6 +45,10 @@ BELOW_MIN_LINES=$(echo "$VERSION_OUTPUT" | grep "BELOW MINIMUM" || true)
 # agent's own words matched terminal_workaround (measured for BL-311), and
 # tests/test-bl318-g5-guardrails-refresh.sh S3 checks every line, the whole
 # offer as one line, and a relay of it against scripts/lib/bypass-patterns.sh.
+# It carries no option-like token either (it says "fast-forward only", not the
+# flag): the detector's hand-to-human exemption refuses a relay line with one
+# outside its code spans, so an agent folding that sentence into its relay would
+# raise the sentinel.
 GR_TAG="Development Guardrails in this project:"
 GR_STATE=""
 GR_CMD=""
@@ -60,15 +64,17 @@ if [ -n "$GR_CMD_LINE" ]; then
 fi
 
 # What the update changes and how it applies were MEASURED (`## BL-318:` G5):
-# scripts/refresh-guardrails.sh rewrites only .claude/framework/ and the
-# manifest's frameworkVersion/frameworkCommit; Claude Code starts every hook as
+# scripts/refresh-guardrails.sh pulls the shared clone, then rewrites only
+# .claude/framework/ and the manifest's frameworkVersion/frameworkCommit
+# (review round 1, R-4: the pull reaches every project on the machine and can
+# move the version past the one offered); Claude Code starts every hook as
 # a new process from the path in .claude/settings.json, so the next tool call
 # runs the new files, while the Guardrails' own session-start message was
 # printed once, at this session's start.
 _gr_offer() {
   printf '%s\n' "GUARDRAILS UPDATE OFFER. Tell the Orchestrator about it in your FIRST response, before any other work:"
   printf '  %s\n' "${GR_STATE:-$GR_TAG an update is available}"
-  printf '%s\n' "What the update changes: it copies the Guardrails hooks, rules and gates into .claude/framework/ again and records the new version in .claude/manifest.json. It does not change .claude/settings.json."
+  printf '%s\n' "What the update changes: it copies the Guardrails hooks and rules into .claude/framework/ again and records the new version in .claude/manifest.json. It does not change .claude/settings.json. It first pulls the shared Guardrails clone (fast-forward only; ~/.claude-dev-framework, or the folder CDF_HOME names), which every project on this machine reads, so it can install a newer version than the one named here."
   printf '%s\n' "Do NOT run the update yourself: it replaces the Guardrails that check your own work, so starting it is the Orchestrator's decision. Ask the Orchestrator whether to update now. If they agree, ask them to type ! and then this exact command at the Claude Code prompt:"   # BL-318-G5-SESSION-ROUTE
   printf '  %s\n' "$GR_CMD"
   printf '%s\n' "Wait for its output: it ends in an [OK] line when the update landed, or a [FAIL] line that names what stopped it."

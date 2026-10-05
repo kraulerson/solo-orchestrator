@@ -32,8 +32,11 @@
 #   G  check-versions.sh's row, one fixture project per state
 #   S  session-version-check.sh's offer, and its words against the detector
 #   E  scripts/refresh-guardrails.sh: end to end against the real upstream
-#      refresh (SKIPPED with a reason where no clone supplies it — CI has none),
-#      and its own guards against stub upstreams, which run everywhere
+#      refresh (E1, SKIPPED with a reason where no clone supplies it — CI has
+#      none), the same end to end against a faithful stub upstream (E0, which
+#      runs everywhere, so the PR lane proves the command can succeed and leaves
+#      settings.json alone), and its own guards against stub upstreams
+#   U  check-updates.sh's Guardrails block (the manual checker of the same pair)
 #   M  mutants: each rewrites ONE marked line in a mirror of the tree, checks
 #      the edit landed by its literal text and still parses, and needs a named
 #      case to go RED
@@ -204,11 +207,12 @@ case_G6() {   # the manifest is not JSON
   cannot_tell "$1" ".claude/manifest.json is not a JSON object"
 }
 case_G7() {   # the installed version is not MAJOR.MINOR.PATCH
-  local v
+  local v shown
   for v in 4.3 abc v4.3.0 4.3.0-rc1 '4.3.0 ' 1234567890.0.0; do
+    shown="$v"; [ "$v" = '4.3.0 ' ] && shown='4.3.0?'   # a space is shown as ? (G14)
     pair 4.3.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
     jq --arg v "$v" '.frameworkVersion = $v' "$P/.claude/manifest.json" > "$P/m" && mv "$P/m" "$P/.claude/manifest.json"
-    cannot_tell "$1" ".claude/manifest.json records frameworkVersion '$v', which is not a MAJOR.MINOR.PATCH version" \
+    cannot_tell "$1" ".claude/manifest.json records frameworkVersion '$shown', which is not a MAJOR.MINOR.PATCH version" \
       || { CASE_DETAIL="'$v': $CASE_DETAIL"; return 1; }
   done
 }
@@ -232,7 +236,7 @@ case_G10() {  # not a Guardrails project: no row, and the session hook stays sil
 }
 case_G11() {  # numeric, part by part — multi-digit parts
   local row inst cl want out
-  for row in 4.9.9:4.10.0:behind 4.10.0:4.9.9:no 9.99.99:10.0.0:behind 10.0.0:9.99.99:no \
+  for row in 4.9.9:4.10.0:behind 4.10.0:4.9.9:no 10.9.99:10.10.0:behind 10.0.0:9.99.99:no \
              4.3.9:4.3.10:behind 4.3.10:4.3.9:no 0.0.9:0.0.10:behind; do
     inst="${row%%:*}"; cl="${row#*:}"; want="${cl#*:}"; cl="${cl%%:*}"
     pair "$inst" "$cl" || { CASE_DETAIL="fixture"; return 1; }
@@ -264,6 +268,40 @@ case_G13() {  # a manifest value cannot forge a report row
   done
 }
 
+case_G14() {  # manifest text cannot steer the session start: "BELOW MINIMUM", U+2028
+  local out sout v
+  for v in 'BELOW MINIMUM' "$(printf '4.3.0\342\200\250x')"; do
+    pair 4.3.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
+    jq --arg v "$v" '.frameworkVersion = $v' "$P/.claude/manifest.json" > "$P/m" && mv "$P/m" "$P/.claude/manifest.json"
+    out="$(cv "$1")"
+    has_f "$out" "BELOW MINIMUM" && { CASE_DETAIL="the manifest's words reach the report verbatim"; return 1; }
+    sout="$(sv "$1")"
+    has_f "$sout" "URGENT" && { CASE_DETAIL="the session start says URGENT because of a manifest value"; return 1; }
+    [ "$(printf '%s\n' "$out" | LC_ALL=C command grep -c "$(printf '\342\200\250')")" = 0 ] || { CASE_DETAIL="U+2028 reaches the report"; return 1; }
+  done
+  pair 4.3.0 4.3.7; jq '.frameworkVersion = "BELOW MINIMUM"' "$P/.claude/manifest.json" > "$P/m" && mv "$P/m" "$P/.claude/manifest.json"
+  cannot_tell "$1" ".claude/manifest.json records frameworkVersion 'BELOW?MINIMUM', which is not a MAJOR.MINOR.PATCH version"
+}
+case_G15() {  # the shown value is capped at 40 characters
+  local v='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbb'
+  pair 4.3.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
+  jq --arg v "$v" '.frameworkVersion = $v' "$P/.claude/manifest.json" > "$P/m" && mv "$P/m" "$P/.claude/manifest.json"
+  cannot_tell "$1" ".claude/manifest.json records frameworkVersion '${v%bbbbbbbbbb}', which is not a MAJOR.MINOR.PATCH version"
+}
+case_G16() {  # a new MAJOR version is a migration: warned, never offered
+  local out sout
+  pair 4.3.0 5.0.0 || { CASE_DETAIL="fixture"; return 1; }
+  out="$(cv "$1")"
+  has_x "$out" "[WARN] $GR: 4.3.0 installed, 5.0.0 available — a new MAJOR version, which needs a Guardrails migration (see $H/.claude-dev-framework/migrations/), not scripts/refresh-guardrails.sh" \
+    || { CASE_DETAIL="no migration row: $(printf '%s\n' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
+  has_f "$out" "  $GR: $REFRESH_CMD" && { CASE_DETAIL="the routine update is offered across a MAJOR version"; return 1; }
+  sout="$(sv "$1")"
+  has_f "$sout" "$OFFER_HEAD" && { CASE_DETAIL="the session start offers the routine update across a MAJOR version"; return 1; }
+  has_f "$sout" "needs a Guardrails migration" || { CASE_DETAIL="the session start does not report the migration"; return 1; }
+  pair 5.0.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
+  no_offer "$(cv "$1")" || { CASE_DETAIL="ahead by a MAJOR version: $CASE_DETAIL"; return 1; }
+}
+
 # ── S: the session-start offer ───────────────────────────────────────────────
 OFFER_HEAD='GUARDRAILS UPDATE OFFER'
 case_S1() {
@@ -272,7 +310,9 @@ case_S1() {
   out="$(sv "$1")"
   for want in "$OFFER_HEAD" \
               "  $GR: 4.3.0 installed, 4.3.7 available" \
-              "into .claude/framework/" \
+              "copies the Guardrails hooks and rules into .claude/framework/" \
+              "It first pulls the shared Guardrails clone (fast-forward only" \
+              "so it can install a newer version than the one named here" \
               "records the new version in .claude/manifest.json" \
               "It does not change .claude/settings.json." \
               "Do NOT run the update yourself" \
@@ -295,7 +335,7 @@ case_S2() {   # current: silent
 }
 # offer_para TEXT — the offer, from its head line to the end.
 offer_para() { printf '%s\n' "$1" | awk -v h="$OFFER_HEAD" 'index($0, h) == 1 { on = 1 } on { print }'; }
-case_S3() {   # the detector finds nothing in the offer, or in a relay of it
+case_S3() {   # the pattern table finds nothing in the offer, or in a plain relay of it
   local out para joined relay word hit=""
   pair 4.3.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
   out="$(sv "$1")"
@@ -340,6 +380,48 @@ case_S5() {   # cannot tell: reported, not silent
   return 0
 }
 
+# The REAL detector (scripts/hooks/bypass-detector.sh) over one Stop message, in
+# a fresh strict project. Sets D_PROJ; the sentinel is D_PROJ's pending-approval.
+D_PROJ=""
+detect() {
+  D_PROJ="$(newtmp)/dproj"; mkdir -p "$D_PROJ/.claude"
+  printf '%s\n' '{"enforcement_level":"strict"}' > "$D_PROJ/.claude/manifest.json"
+  jq -n --arg m "$2" '{hook_event_name: "Stop", last_assistant_message: $m, session_id: "bl318g5"}' \
+    | CLAUDE_PROJECT_DIR="$D_PROJ" bash "$1/scripts/hooks/bypass-detector.sh" >/dev/null 2>&1
+}
+raised() { [ -f "$D_PROJ/.claude/pending-approval.json" ]; }
+# Relays an agent writes from the offer, naming Claude Code's own name for `!`.
+RELAY_A='Type `!` at the Claude Code prompt, then `bash scripts/refresh-guardrails.sh`, to run it in shell mode.'
+RELAY_B='Run it from shell mode: type `!` at the Claude Code prompt, then `bash scripts/refresh-guardrails.sh`.'
+RELAY_C='I won'"'"'t run the update myself. When you are ready, run it in shell mode: type ! at the Claude Code prompt and then `bash scripts/refresh-guardrails.sh`.'
+RELAY_D='Type `!` at the Claude Code prompt, then `bash scripts/refresh-guardrails.sh`, to run it in shell mode; it first pulls the shared Guardrails clone (fast-forward only), so it can install a newer version than 4.3.7.'
+case_S6() {   # the detector's pin is the command check-versions.sh offers
+  local cmd pin got
+  cmd="$(sed -n 's/^GUARDRAILS_REFRESH_CMD="\(.*\)"$/\1/p' "$1/scripts/check-versions.sh")"
+  [ "$cmd" = "$REFRESH_CMD" ] || { CASE_DETAIL="check-versions.sh offers '$cmd'"; return 1; }
+  pin="$(sed -n "s/^SOIF_RELAY_GUARDRAILS_SHA256='\([0-9a-f]*\)'\$/\1/p" "$1/scripts/hooks/bypass-detector.sh")"
+  got="$( { printf '%s' "$cmd" | shasum -a 256 2>/dev/null || printf '%s' "$cmd" | sha256sum; } | awk '{print $1; exit}')"
+  [ "${#pin}" = 64 ] && [ "$got" = "$pin" ] || { CASE_DETAIL="the detector pins '$pin', the command hashes to '$got'"; return 1; }
+  command grep -qF -- "#   $cmd" "$1/scripts/hooks/bypass-detector.sh" || { CASE_DETAIL="the detector's comment does not carry the command"; return 1; }
+}
+case_S7() {   # the real detector: relays that call `!` shell mode raise no sentinel
+  local r
+  for r in "$RELAY_A" "$RELAY_B" "$RELAY_C" "$RELAY_D"; do
+    detect "$1" "$r" || { CASE_DETAIL="harness: the detector did not run"; return 1; }
+    if raised; then CASE_DETAIL="SENTINEL RAISED on: $r ($(jq -r .question "$D_PROJ/.claude/pending-approval.json" | head -1))"; return 1; fi
+  done
+}
+case_S8() {   # the real detector: the same sentence with another command, an argument, or the agent running it, raises
+  local r
+  for r in 'Type `!` at the Claude Code prompt, then `bash scripts/other-thing.sh`, to run it in shell mode.' \
+           'Type `!` at the Claude Code prompt, then `bash scripts/refresh-guardrails.sh --force`, to run it in shell mode.' \
+           'Type `!` at the Claude Code prompt, then `bash scripts/refresh-guardrails.sh; git push --force`, to run it in shell mode.' \
+           'I will type `!` at the Claude Code prompt and then I will type `bash scripts/refresh-guardrails.sh` to run it in shell mode myself.'; do
+    detect "$1" "$r" || { CASE_DETAIL="harness: the detector did not run"; return 1; }
+    raised || { CASE_DETAIL="no sentinel on: $r"; return 1; }
+  done
+}
+
 # ── E: scripts/refresh-guardrails.sh ─────────────────────────────────────────
 # Stub upstreams, so the script's own guards run where no real clone exists.
 STUBS="$WORK/upstreams"; mkdir -p "$STUBS"
@@ -349,6 +431,7 @@ refresh_cdf_assets() {
   for f in "$c"/hooks/*.sh "$c"/hooks/*.txt "$c"/rules/*.md "$c"/gates/*.sh; do
     [ -f "$f" ] || continue
     sub="${f%/*}"; sub="${sub##*/}"
+    case "${STUB_SKIP:-}:$sub:${f##*.}" in rules:rules:*|txt:hooks:txt|gates:gates:*) continue ;; esac
     mkdir -p "$p/.claude/framework/$sub" && cp "$f" "$p/.claude/framework/$sub/"
   done
   [ "${STUB_NOCHMOD:-}" = 1 ] || chmod +x "$p"/.claude/framework/hooks/*.sh "$p"/.claude/framework/gates/*.sh 2>/dev/null
@@ -400,6 +483,97 @@ same_files() {  # every file the refresh copies is byte-identical in the project
     sub="${f%/*}"; sub="${sub##*/}"
     cmp -s "$f" "$P/.claude/framework/$sub/${f##*/}" || { CASE_DETAIL="$sub/${f##*/} differs"; return 1; }
   done
+}
+
+# landed — the success half of the end to end, which must hold with no clone.
+landed() {  # INSTALLED-BEFORE CLONE-VERSION SETTINGS-CKSUM
+  local changed bad
+  [ "$RG_RC" -eq 0 ] || { CASE_DETAIL="rc=$RG_RC: $(last3 "$RG_OUT")"; return 1; }
+  has_f "$RG_OUT" "[OK] $GR updated: $1 -> $2" || { CASE_DETAIL="no [OK] line: $(last3 "$RG_OUT")"; return 1; }
+  has_f "$RG_OUT" ".claude/settings.json was not changed" || { CASE_DETAIL="does not say settings.json was left alone"; return 1; }
+  [ "$(jq -r .frameworkVersion "$P/.claude/manifest.json")" = "$2" ] || { CASE_DETAIL="manifest frameworkVersion not $2"; return 1; }
+  same_files || return 1
+  [ -x "$P/.claude/framework/hooks/marker-guard.sh" ] || { CASE_DETAIL="a new hook is not executable"; return 1; }
+  [ "$(cksum < "$P/.claude/settings.json")" = "$3" ] || { CASE_DETAIL="settings.json changed"; return 1; }
+  changed="$(git -C "$P" status --porcelain --untracked-files=all | awk '{print $NF}')"
+  [ -n "$changed" ] || { CASE_DETAIL="git status shows no change"; return 1; }
+  bad="$(printf '%s\n' "$changed" | command grep -vE '^\.claude/framework/|^\.claude/manifest\.json$' | tr '\n' ' ')"
+  [ -z "$bad" ] || { CASE_DETAIL="it also changed: $bad"; return 1; }
+}
+case_E0() {   # end to end against a faithful stub upstream: runs with no clone, as on CI
+  local s
+  eproj "$1" 4.3.0 4.3.7 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  s="$(cksum < "$P/.claude/settings.json")"
+  rg
+  landed 4.3.0 4.3.7 "$s"
+}
+# e0_skip KIND FILE — an upstream that leaves one kind uncopied is named.
+e0_skip() {
+  eproj "$1" 4.3.0 4.3.7 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  rg STUB_SKIP="$2"
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0 though $3 was not copied"; return 1; }
+  has_f "$RG_OUT" "[FAIL]" && has_f "$RG_OUT" "$3" || { CASE_DETAIL="$3 is not named: $(last3 "$RG_OUT")"; return 1; }
+}
+case_E0b() { e0_skip "$1" rules .claude/framework/rules/plan-before-code.md; }
+case_E0c() { e0_skip "$1" txt .claude/framework/hooks/known-stdlib.txt; }
+case_E0d() { e0_skip "$1" gates .claude/framework/gates/visual-auditor.sh; }
+# untouched — the project is as committed: no file under .claude changed.
+untouched() { [ -z "$(git -C "$P" status --porcelain --untracked-files=all -- .claude)" ] || { CASE_DETAIL="the project changed: $(git -C "$P" status --porcelain -- .claude | tr '\n' ' ')"; return 1; }; }
+case_E12() {  # a symlinked hook is not written through
+  local out
+  eproj "$1" 4.3.0 4.3.7 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  out="$(dirname "$P")/outside.sh"; printf 'MINE\n' > "$out"
+  rm -f "$P/.claude/framework/hooks/config-guard.sh"; ln -s "$out" "$P/.claude/framework/hooks/config-guard.sh"
+  ( cd "$P" && git add -A && git commit -q -m link ) >/dev/null 2>&1
+  rg
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0"; return 1; }
+  [ "$(cat "$out")" = MINE ] || { CASE_DETAIL="the file outside the project was overwritten through the link"; return 1; }
+  has_f "$RG_OUT" "symlink" && has_f "$RG_OUT" ".claude/framework/hooks/config-guard.sh" || { CASE_DETAIL="the link is not named: $(last3 "$RG_OUT")"; return 1; }
+  untouched
+}
+case_E13() {  # a symlinked .claude/framework/hooks folder is not written through
+  local out
+  eproj "$1" 4.3.0 4.3.7 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  out="$(dirname "$P")/outside-hooks"; mv "$P/.claude/framework/hooks" "$out"; ln -s "$out" "$P/.claude/framework/hooks"
+  ( cd "$P" && git add -A && git commit -q -m link ) >/dev/null 2>&1
+  rg
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0"; return 1; }
+  [ "$(tail -1 "$out/config-guard.sh")" = "echo HOOK-OLD" ] && [ ! -e "$out/marker-guard.sh" ] || { CASE_DETAIL="the folder outside the project was written"; return 1; }
+  has_f "$RG_OUT" "symlink" || { CASE_DETAIL="the link is not named: $(last3 "$RG_OUT")"; return 1; }
+  untouched
+}
+case_E14() {  # an uncommitted change in the clone is not installed under a commit that lacks it
+  eproj "$1" 4.3.0 4.3.7 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  printf '#!/usr/bin/env bash\necho LOCAL-EDIT\n' > "$H/.claude-dev-framework/hooks/config-guard.sh"
+  rg
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0 with an uncommitted hook in the clone"; return 1; }
+  has_f "$RG_OUT" "uncommitted" && has_f "$RG_OUT" "hooks/config-guard.sh" || { CASE_DETAIL="the change is not named: $(last3 "$RG_OUT")"; return 1; }
+  untouched
+}
+case_E15() {  # the clone's pull bringing a new MAJOR version is refused before anything is copied
+  local b w cl
+  eproj "$1" 4.3.0 4.3.7 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  cl="$H/.claude-dev-framework"; b="$(dirname "$P")/origin.git"; w="$(dirname "$P")/upstream-work"
+  { git init -q --bare "$b" && git -C "$cl" remote add origin "$b" \
+      && git -C "$cl" push -q origin HEAD:refs/heads/main && git -C "$b" symbolic-ref HEAD refs/heads/main \
+      && git -C "$cl" fetch -q origin && git -C "$cl" branch -q --set-upstream-to=origin/main \
+      && git clone -q "$b" "$w" && [ -f "$w/FRAMEWORK_VERSION" ] \
+      && git -C "$w" config user.email t@t.local && git -C "$w" config user.name T \
+      && printf '5.0.0\n' > "$w/FRAMEWORK_VERSION" && printf '#!/usr/bin/env bash\necho HOOK-5\n' > "$w/hooks/config-guard.sh" \
+      && git -C "$w" commit -q -am "5.0.0" && git -C "$w" push -q origin HEAD:refs/heads/main; } >/dev/null 2>&1 \
+    || { CASE_DETAIL="fixture: the remote"; return 1; }
+  [ "$(tr -d '[:space:]' < "$cl/FRAMEWORK_VERSION")" = 4.3.7 ] || { CASE_DETAIL="fixture: the clone is not at 4.3.7 before the run"; return 1; }
+  rg
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0: a new MAJOR version was installed as a routine update"; return 1; }
+  has_f "$RG_OUT" "migration" || { CASE_DETAIL="no migration named: $(last3 "$RG_OUT")"; return 1; }
+  untouched
+}
+case_E16() {  # a clone already at a new MAJOR version is refused
+  eproj "$1" 4.3.0 5.0.0 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  rg
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0 across a MAJOR version"; return 1; }
+  has_f "$RG_OUT" "4.3.0" && has_f "$RG_OUT" "5.0.0" && has_f "$RG_OUT" "migration" || { CASE_DETAIL="no migration named: $(last3 "$RG_OUT")"; return 1; }
+  untouched
 }
 
 case_E1() {   # end to end, against the real upstream refresh
@@ -506,6 +680,28 @@ case_E11() {  # --help writes nothing
   [ -z "$(git -C "$P" status --porcelain)" ] || { CASE_DETAIL="--help changed the project"; return 1; }
 }
 
+# ── U: check-updates.sh's Guardrails block ──────────────────────────────────
+cu() { ( cd "$P" && HOME="$H" bash "$1/scripts/check-updates.sh" "$REPO_ROOT" </dev/null 2>&1 ); }
+case_U1() {   # behind: warned, and the remedy is the narrow command
+  local out
+  pair 4.3.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
+  touch "$P/CLAUDE.md"
+  out="$(cu "$1")"
+  has_f "$out" "[WARN]" && has_f "$out" "older than the Guardrails clone (4.3.7)" || { CASE_DETAIL="no behind warning: $(printf '%s\n' "$out" | command grep -iE 'guardrails|cdf' | tr '\n' '|')"; return 1; }
+  has_f "$out" "Update them: $REFRESH_CMD" || { CASE_DETAIL="the remedy is not $REFRESH_CMD"; return 1; }
+  has_f "$out" "backfill-only" && { CASE_DETAIL="still points at --backfill-only"; return 1; }
+  return 0
+}
+case_U2() {   # ahead: not read as needing an update
+  local out
+  pair 4.3.8 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
+  touch "$P/CLAUDE.md"
+  out="$(cu "$1")"
+  has_f "$out" "newer than the Guardrails clone (4.3.7); nothing to update" || { CASE_DETAIL="no ahead line: $(printf '%s\n' "$out" | command grep -iE 'guardrails|cdf' | tr '\n' '|')"; return 1; }
+  has_f "$out" "$REFRESH_CMD" && { CASE_DETAIL="an update is offered to a project ahead of the clone"; return 1; }
+  return 0
+}
+
 check() {
   local label="$1" fn="$2"
   CASE_DETAIL=""
@@ -523,9 +719,12 @@ check "G7: an installed version that is not MAJOR.MINOR.PATCH (4.3, abc, v4.3.0,
 check "G8: a clone version that is not MAJOR.MINOR.PATCH -> 'cannot tell'" case_G8
 check "G9: no clone -> 'cannot tell', naming the path" case_G9
 check "G10: a project without .claude/framework/ gets no row and no session-start text" case_G10
-check "G11: numeric part by part — 4.9.9 < 4.10.0, 9.99.99 < 10.0.0, 4.3.9 < 4.3.10, and the reverses are not offered" case_G11
+check "G11: numeric part by part — 4.9.9 < 4.10.0, 10.9.99 < 10.10.0, 4.3.9 < 4.3.10, and the reverses (and 10.0.0 vs 9.99.99) are not offered" case_G11
 check "G12: CDF_HOME names the clone, as it does for the refresh" case_G12
 check "G13: a manifest value carrying a newline or a backslash-n cannot forge an [OK] row" case_G13
+check "G14: a manifest value cannot steer the session start ('BELOW MINIMUM' -> no URGENT) and U+2028 does not reach it" case_G14
+check "G15: a shown manifest value is capped at 40 characters" case_G15
+check "G16: 4.3.0 vs 5.0.0 is a migration: a [WARN] naming migrations/, no command, no offer; 5.0.0 vs 4.3.7 is not offered" case_G16
 
 echo "=== S — session-version-check.sh: the offer ==="
 check "S1: the offer names both versions, what changes (not settings.json), asks for ! and forbids the agent running it; offered every session" case_S1
@@ -533,13 +732,20 @@ check "S2: current -> the session hook is silent" case_S2
 check "S3: no terminal/shell route in the offer; the detector flags no line, the offer joined, or a relay of it" case_S3
 check "S4: beside another warning and an URGENT block, the update is never in the list the agent may run" case_S4
 check "S5: 'cannot tell' reaches the session start; nothing is offered" case_S5
+check "S6: the detector pins the SHA-256 of the exact command check-versions.sh offers, and its comment carries it" case_S6
+check "S7: the REAL detector raises no sentinel on relays that call ! shell mode (four phrasings, one carrying the offer's pull sentence)" case_S7
+check "S8: the REAL detector raises on the same sentence with another command, an argument, a chained command, or the agent running it" case_S8
 
 echo "=== E — scripts/refresh-guardrails.sh (the command typed after !) ==="
 if [ -f "$UPSTREAM_SRC" ]; then
   check "E1: end to end with the real upstream refresh, no TTY: 4.3.0 -> 4.3.7, files byte-identical, hooks executable and run as registered, only .claude/framework/ and the manifest changed, settings.json untouched, then no offer and a silent session hook" case_E1
 else
-  skip "E1: end to end" "the real upstream refresh is not at $UPSTREAM_SRC (set CDF_REFRESH_SRC); the E2-E11 guards run against stub upstreams"
+  skip "E1: end to end" "the real upstream refresh is not at $UPSTREAM_SRC (set CDF_REFRESH_SRC); E0 runs the same end to end against a stub upstream, and every E guard runs too"
 fi
+check "E0: end to end against a faithful stub upstream, no clone needed (CI): rc 0, [OK] 4.3.0 -> 4.3.7, files byte-identical, new hook executable, settings.json untouched, only .claude/framework/ and the manifest changed" case_E0
+check "E0b: an upstream that skips rules/ -> [FAIL] naming the rule" case_E0b
+check "E0c: an upstream that skips hooks/*.txt -> [FAIL] naming the data file" case_E0c
+check "E0d: an upstream that skips gates/ -> [FAIL] naming the gate script" case_E0d
 check "E2: a project with its own manifest and no .claude/framework/ -> refused, no Guardrails installed, manifest untouched" case_E2
 check "E3: no clone -> refused with the clone command, manifest untouched" case_E3
 check "E4: an upstream that records the version and copies nothing -> [FAIL] naming the stale file" case_E4
@@ -550,6 +756,15 @@ check "E8: shipped — in init.sh's shipped set (generated, adopted, synced) and
 check "E9: no manifest -> refused before any file is rewritten" case_E9
 check "E10: an upstream that defines no refresh -> named" case_E10
 check "E11: --help prints usage and writes nothing" case_E11
+check "E12: a hook that is a symlink to a file outside the project -> refused, the outside file untouched" case_E12
+check "E13: a symlinked .claude/framework/hooks folder -> refused, the outside folder untouched" case_E13
+check "E14: an uncommitted change in the clone's hooks -> refused, nothing installed" case_E14
+check "E15: the clone's own pull brings 5.0.0 -> refused as a migration before anything is copied" case_E15
+check "E16: a clone already at 5.0.0 -> refused as a migration" case_E16
+
+echo "=== U — check-updates.sh ==="
+check "U1: behind -> [WARN] and the remedy is bash scripts/refresh-guardrails.sh, not --backfill-only" case_U1
+check "U2: ahead -> 'nothing to update', no remedy" case_U2
 
 # ── M: mutants ───────────────────────────────────────────────────────────────
 mk_mirror() { mkdir -p "$2" && cp -Rp "$1/scripts" "$1/init.sh" "$2/"; }
@@ -611,6 +826,25 @@ mutant MR6  "$RGS" '# BL-318-G5-RECEIPT-FILES' '      :' case_E4 "a stale hook b
 mutant MR7  "$RGS" '# BL-318-G5-RECEIPT-EXEC' '      :' case_E7 "a hook Claude Code cannot run is called updated"
 mutant MR8  "$RGS" '# BL-318-G5-RECEIPT-VERSION' ':' case_E5 "files copied, version not recorded, called updated"
 mutant MI1  init.sh '# BL-318-G5-SHIP' '  :' case_E8 "the script is not shipped, so the offered command does not exist"
+# Review round 1 — each of these must die with no clone (CDF_REFRESH_SRC=/nonexistent).
+OKL='echo "[OK] $ROW updated: ${BEFORE} -> ${AFTER}"'
+mutant MC   "$RGS" '# BL-318-G5-REFRESH-OK' 'exit 1' case_E0 "R-1 C: the command never succeeds"
+mutant MD   "$RGS" '# BL-318-G5-REFRESH-OK' "printf '{}\\n' > \"\$PROJECT_ROOT/.claude/settings.json\"; $OKL" case_E0 "R-1 D: settings.json is rewritten before [OK]"
+mutant MB   "$RGS" '# BL-318-G5-RECEIPT-KINDS' 'KINDS="hooks:sh"' case_E0b "R-1 B: the receipt checks hooks only, so an uncopied rule passes"
+mutant MB2  "$RGS" '# BL-318-G5-RECEIPT-KINDS' 'KINDS="hooks:sh rules:md gates:sh"' case_E0c "the receipt skips hooks/*.txt"
+mutant MB3  "$RGS" '# BL-318-G5-RECEIPT-KINDS' 'KINDS="hooks:sh hooks:txt rules:md"' case_E0d "the receipt skips gates/"
+mutant MR9  "$RGS" '# BL-318-G5-REFRESH-LINK-DIR' ':' case_E13 "a symlinked folder is written through"
+mutant MR10 "$RGS" '# BL-318-G5-REFRESH-LINK-FILE' ':' case_E12 "a symlinked hook is written through"
+mutant MR11 "$RGS" '# BL-318-G5-REFRESH-DIRTY' ':' case_E14 "an uncommitted clone edit is installed and recorded under a commit that lacks it"
+mutant MR12 "$RGS" '# BL-318-G5-REFRESH-PULL' ':' case_E15 "the major check reads the clone before its pull, so the pull's 5.0.0 is installed"
+mutant MR13 "$RGS" '# BL-318-G5-REFRESH-MAJOR' ':' case_E16 "a new MAJOR version is installed as a routine update"
+mutant MV13 "$CV" '# BL-318-G5-SAFE' '  printf '"'"'%s'"'"' "$1" | LC_ALL=C tr -c '"'"'0-9A-Za-z._+-'"'"' '"'"'?'"'"'' case_G15 "no 40-character cap"
+mutant MV14 "$CV" '# BL-318-G5-SAFE' '  _cv_render_safe "$1" | LC_ALL=C cut -c1-40' case_G14 "free text passes (the old sanitiser): 'BELOW MINIMUM' makes the session start URGENT"
+mutant MV15 "$CV" '# BL-318-G5-MAJOR' '      if false; then' case_G16 "a new MAJOR version is offered as a routine update"
+mutant MP1  scripts/hooks/bypass-detector.sh '# BL-318-G5-HANDOFF-MATCH' '      if false; then' case_S7 "the update's relay is not pinned, so 'shell mode' raises the sentinel"
+mutant MP2  scripts/hooks/bypass-detector.sh '# BL-318-G5-HANDOFF-MATCH' '      if [ -z "$kind" ]; then' case_S8 "any command in a shell-mode relay is exempt"
+mutant MU1  scripts/check-updates.sh '# BL-318-G5-CU-AHEAD' '    elif false; then' case_U2 "a project ahead of the clone is told to update"
+mutant MU2  scripts/check-updates.sh '# BL-318-G5-CU-REMEDY' '      echo "         Refresh CDF assets: bash scripts/upgrade-project.sh --backfill-only"' case_U1 "the remedy is the 85-path upgrade again"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
