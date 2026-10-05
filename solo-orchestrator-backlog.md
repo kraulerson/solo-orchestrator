@@ -22698,3 +22698,81 @@ how POC tiers relax it; a runtime budget, and whether to scope to files changed 
 
 **Source.** An external review Karl shared on 2026-10-01. Its claims, recorded as the review's and not
 verified here: Kiro uses property-based tests, and ECC sets an 80% coverage target.
+
+## BL-318: brownfield dogfood run 2 (k-pdf, 2026-10-03) — what still stops a regular user
+
+**Status:** Open — filed 2026-10-03 from the second dogfood run. Groups G1–G4 and G6 can each close by
+their own PR. G5 needs a design decision from Karl first. The entry closes when every group is
+resolved.
+
+**What ran.** The `## BL-311:` rerun. A headless Claude Code session played the same systems
+technician (not a developer). It installed Solo from the public README at `a07d707`, which carries the
+merged `## BL-311:`, `## BL-312:` and `## BL-316:` fixes. It then adopted a private copy of k-pdf
+(Python/uv, built with an older Solo, Guardrails 4.3.0, no `phase-state.json`). The run took 11 turns,
+cost $6.19 and produced 33 findings. Stages 0–3 passed (install, Scout, adopt, assessment). Stage 4
+(one small change, committed through the project's checks, pushed) **failed its criterion**: the change
+was made test-first, committed as `8d0b2be` and pushed, but the project-test check did not run, and
+hooks blocked the agent falsely or with no way through. **Evidence** (outside the repo, untracked):
+`~/dogfood-2026-10/k-pdf-dogfood-2-FINDINGS.md` (the 33 rows, the step log and the stage verdicts),
+`~/dogfood-2026-10/turns/` (every turn; `adopt-full.out` is adoption's full output and
+`stage4-commit.out` is the commit hook's output), `~/dogfood-2026-10/claude-dir.tgz` (the adoptee's
+`.claude/`), the transcript and a git bundle beside them. The live project is
+`~/Documents/Claude Projects/k-pdf-dogfood-2`.
+
+**How the earlier fixes behaved.** `## BL-311:` rows 1, 2, 3, 4, 5, 7, 8 and 9 behaved as built. Some
+examples: Scout ran `uv run --frozen pytest` and got exit 0 in 268 s. The ignore-rule refusal named
+`.gitignore` line 20 (`lib/`) and suggested `/lib/`. The track was asked, not defaulted. Adoption
+registered Context7 and Qdrant. Row 6 is **inconclusive**: the auto-mode refusal it documents did not
+happen, even though the settings line was never loaded (run findings 1, 3). `## BL-316:` behaved as
+built: Karl installed Superpowers with the README's `claude plugin install` command at the first try.
+`## BL-312:`'s nudge **never fired**. This is likely confounded by the test account's own TL;DR
+preference, which made every reply carry one anyway.
+
+| Group | What the user hit | Root cause | Run findings |
+|---|---|---|---|
+| **G1** | The commit-time project-test check (`## BL-125:`) ran bare `pytest` in a uv project: `sh: pytest: command not found` → "PROJECT TESTS NOT ENFORCED", and the commit went through. The interview had confirmed `uv run --frozen pytest`. | Adoption never writes `.claude/test-command`. The hook's own detection falls back to bare `pytest`, which cannot see uv's `.venv`. | 31, 32 |
+| **G2** | After the assessment, `scripts/resume.sh` printed the classic resume prompt, not Phase 0's. Its fields held garbage (the Context Health Check paragraph three times, "Last session: (not found in CLAUDE.md)"). | `## BL-202:` branch 2 requires `[ ! -f PRODUCT_MANIFESTO.md ]`, so any adoptee built with an older Solo falls through to the classic prompt. That prompt reads CLAUDE.md sections the framework's CLAUDE.md no longer has. `docs/adoption.md` promises the Phase 0 prompt. | 24 |
+| **G3** | The guide says the framework's CI "runs from your next push". A branch push ran nothing. | `ci.yml` and the framework's `solo-gates.yml` trigger only on a push to `main` and on PRs to `main`. `solo-gates.yml` (from `templates/pipelines/ci/github/python.yml`) also reuses the adoptee's workflow name `CI` and installs from `requirements.txt`, which a uv project does not have. | 33 |
+| **G4** | Docs: Superpowers is never listed as an adoption prerequisite, yet the Guardrails' `enforce-superpowers` blocks every source edit without it. The adoption guide does not explain the approval step agent-run commits need, or how the stop hook and the commit hook interact. No doc says how an adopted project at phase 0 makes its first change. README and the adoption guide carry two different prerequisite lists. The session-start version warnings give a non-developer no guidance. | Missing or split documentation. | 27 (Solo half), 20, 21, 26, 2, 14 |
+| **G5** | The run used Guardrails 4.3.0 (`0396a1a`) while the CDF clone is `2f7ef3a`, so no Guardrails fix since then reached this adoptee. | Adoption's "already installed" arm (`adopt_guardrails_resolve`) keeps an adoptee's older Guardrails install and never refreshes it. **Design question for Karl:** refresh on adoption (and how to archive what it replaces), or point the operator at the CDF upgrade. | Stage 1 log |
+| **G6** | Three small ones. (a) Scout and adoption report "deploys on a branch push" for a `ci.yml` with no deploy step: line 149 is Nuitka's `--no-deployment-flag`. (b) Adoption runs `claude mcp add` mid-interview, yet a later refusal says "Nothing was committed and nothing was written". That is true of the project, not of Claude Code's user configuration. (c) The assessment records `adoptedAtCommit` as the pre-adoption HEAD. **That is by design** (`adoption-stamp.sh`: "the PRE-ADOPTION TIP, i.e. the parent the adoption commit will land on"). Only the finisher's wording "the commit this project was adopted at" invites the misreading. | (a) the deploy detector matches the word inside a flag. (b) the refusal's sentence does not count writes outside the project. (c) wording only. | 5, 12, 19 |
+
+**G1, as built (branch `fix/bl318-g1-test-command`, after the final check).**
+- Adoption writes `.claude/test-command` only when the operator **kept** the scan's offer. The recorded
+  answer must equal Scout's `stack.testCommand.value` (`# BL-318-TESTCMD-OFFER`), which is one of Scout's
+  fixed command strings or null. It is written verbatim with its no-rewrite flag (`# BL-318-TESTCMD-KEPT`,
+  `adopt_write_test_command`).
+- Nothing is written when Scout found no command. The interview shows "(none detected)" there, which
+  round 2 compared against and wrote (`# BL-318-TESTCMD-ASKED`).
+- Nothing is written when the offer is npm's placeholder script, which would block every source commit
+  (`# BL-318-TESTCMD-PLACEHOLDER`, the hook's own `no test specified` needle).
+- A **changed** answer is never written (the coordinator's decision on review round 1's R-1). Round 1
+  wrote `pytest; bugs in GitHub Issues`, and a commit with a failing pytest then landed. The run says
+  what runs instead and gives the one `echo` line that writes a command.
+- A file the project already has is kept, and the run says what the check will run from it.
+- The hook's own pytest fallback goes through uv, poetry, pdm or pipenv. It first probes
+  `<runner> python -c 'import pytest'` (`# BL-318-PYTEST-PROBE-CMD`); round 2's `pytest --version`
+  loaded plugins on pytest 8.x, so a broken suite read as missing. Pytest absent from that
+  environment is not enforced, loudly, instead of every source commit being blocked as a failed
+  suite. A suite that is there but broken still blocks.
+
+**Residuals (not fixed):**
+- **A written file gets no probe.** A kept `uv run --frozen pytest` whose pytest is not in the
+  environment uv syncs (an optional extra, a group it does not install, a dependency added but not
+  locked) makes uv exit 2, and the check blocks every source commit as a failed suite. The file is
+  operator-owned and holds any command, so `--version` cannot be appended safely. The remedy today is
+  to edit the file (e.g. `uv run --frozen --extra test pytest`).
+- **Pre-existing `# BL-242-PARENT-LINK` gap** (review round 1). With an untracked `.claude` that is a
+  symlink to a folder outside the project, the pre-write rehearsal writes through the link (9 entries
+  outside on round 1's tip, 8 on `a07d707`). It still prints "Nothing was committed and nothing was
+  written."
+
+**Handed to the Development Guardrails (CDF), not fixed here:**
+- The agent cannot commit. After approval, `enforce-evaluate` requires `mark-evaluated.sh`, and
+  `config-guard` forbids running it. `config-guard` also forbids `git add` of the `.claude/` state
+  files the finisher tells the operator to stage (findings 23, 30).
+- `config-guard` blocks read-only Bash reads of `.claude/` (7, 13).
+- `enforce-evaluate` matches the bare word "commit" in any command text (15).
+- `stop-checklist`'s "commit before finishing" conflicts with the approval rule (21).
+- `enforce-superpowers` is armed when the plugin is not installed, and its marker is not honoured
+  across turns (27, 28, 29).

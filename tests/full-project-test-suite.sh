@@ -986,6 +986,14 @@ run_child_suite "tests/test-bl312-tldr-mode.sh" \
 run_child_suite "tests/test-bl312-tldr-mode-init.sh" \
   "BL-312: TL;DR mode through init.sh — --config key, real scaffolds on and off" \
   "BL-312 TL;DR mode init tests FAILED (run tests/test-bl312-tldr-mode-init.sh for details)"
+# BL-318 G1: adoption never wrote .claude/test-command, so the commit-time
+# project-test check ran a bare pytest in a uv project and let the commit
+# through; adoption now writes the scan's command when the operator kept it,
+# and the hook's fallback runs pytest through uv/poetry/pdm/pipenv after an
+# import probe.
+run_child_suite "tests/test-bl318-g1-test-command.sh" \
+  "BL-318 G1: adoption writes .claude/test-command; the hook's pytest fallback goes through the project's manager" \
+  "BL-318 G1 test-command tests FAILED (run tests/test-bl318-g1-test-command.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \
