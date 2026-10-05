@@ -613,6 +613,21 @@ If tools are out of date, the script offers interactive update options:
 
 **Critical rule:** The agent will not proceed with Phase 2+ work if any required security tool (Semgrep, gitleaks, Snyk) is below its minimum version. This prevents building against outdated security scanning.
 
+**This project's Development Guardrails.** The `git_repo` row above says whether the Guardrails *clone* is behind its remote. In a project that has `.claude/framework/`, the check also compares the version this *project* runs (`.claude/manifest.json` → `frameworkVersion`) with the clone's (`FRAMEWORK_VERSION` in `~/.claude-dev-framework`, or in `$CDF_HOME` when you set it). When the project is older, every session start offers the update:
+
+- The agent tells you both versions and asks you to type `!` and then this command at the Claude Code prompt:
+
+  ```bash
+  bash scripts/refresh-guardrails.sh
+  ```
+
+- The agent does not run it itself. The Guardrails stop it changing `.claude/framework/` and `.claude/manifest.json`, so the update is yours to start.
+- It copies the clone's Guardrails hooks, rules and gates into `.claude/framework/` and records the new version in `.claude/manifest.json`. It does **not** change `.claude/settings.json` (`## BL-319:` tracks that). It ends with an `[OK]` line, or a `[FAIL]` line naming what did not land.
+- The new hooks apply from the agent's next tool call: Claude Code runs each hook from its file every time, so no restart is needed. Only the Guardrails' own session-start message stays the old one until the next session.
+- Say no and the session carries on. The offer comes back at every session start until the versions match, so if a Guardrails hook is blocking you wrongly, start a new session and accept it — or type the command at any time.
+
+When the check cannot read one of the two versions — no `.claude/manifest.json`, no `frameworkVersion` in it, no clone, or a value that is not `MAJOR.MINOR.PATCH` — it says "cannot tell whether an update is available" and why, instead of staying silent.
+
 #### Extending the Version Check
 
 The version check is data-driven through the tool matrix (`templates/tool-matrix/common.json` and platform-specific files). If you swap a tool (e.g., replace Qdrant with Supabase), update the tool matrix entry — `check-versions.sh` reads the `update_check` method and handles it automatically. No script changes required.
@@ -1247,7 +1262,9 @@ cd ~/projects/your-project
 bash scripts/upgrade-project.sh --backfill-only     # lightest upgrade — syncs CDF only, no track/deployment change
 ```
 
-`--backfill-only` is the lightest invocation: it refreshes CDF assets (and runs the manifest backfills) without changing your track or deployment. Any full `upgrade-project.sh` run (e.g. `--track`, `--deployment`, `--to-production`) also refreshes CDF assets as part of the upgrade.
+To update the Guardrails and nothing else, run `bash scripts/refresh-guardrails.sh` instead: it runs the same CDF refresh without the manifest, skills and helper-script backfills, and the session start offers it whenever your project is older than the clone ([Session-Start Version Check](#session-start-version-check)).
+
+`--backfill-only` is the lightest upgrade invocation: it refreshes CDF assets (and runs the manifest backfills) without changing your track or deployment. Any full `upgrade-project.sh` run (e.g. `--track`, `--deployment`, `--to-production`) also refreshes CDF assets as part of the upgrade.
 
 What the refresh does:
 
@@ -1511,6 +1528,7 @@ All scripts live in `scripts/` and can be run with `bash scripts/<name>.sh`. Scr
 | `check-changelog.sh` | CHANGELOG.md currency check — warns when source changed without a changelog entry; `SOIF_STRICT_CHANGELOG=true` turns the warning into a failing step | Automatic (CI) | 2+ |
 | `check-session-state.sh` | CLAUDE.md freshness check — warns when it lags HEAD by more than N commits / T hours; `SOIF_STRICT_SESSION=true` turns the warning into a failing step | Automatic (CI) | 2+ |
 | `check-versions.sh` | Tool version comparison against minimums | `bash scripts/check-versions.sh` | Any |
+| `refresh-guardrails.sh` | Updates this project's Development Guardrails to the clone's version: `.claude/framework/` and the manifest version, never `.claude/settings.json` (BL-318 G5) | Offered at session start; type `!` then `bash scripts/refresh-guardrails.sh` | Any |
 | `check-updates.sh` | Framework update availability check | `bash scripts/check-updates.sh` | Any |
 | `intake-wizard.sh` | Interactive project intake questionnaire | `bash scripts/intake-wizard.sh` | Pre-0 |
 | `upgrade-project.sh` | Track/deployment upgrade (Light→Standard, personal→org) | `bash scripts/upgrade-project.sh --help` | Any |
