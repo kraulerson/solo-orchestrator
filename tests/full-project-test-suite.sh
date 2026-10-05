@@ -994,6 +994,13 @@ run_child_suite "tests/test-bl312-tldr-mode-init.sh" \
 run_child_suite "tests/test-bl318-g1-test-command.sh" \
   "BL-318 G1: adoption writes .claude/test-command; the hook's pytest fallback goes through the project's manager" \
   "BL-318 G1 test-command tests FAILED (run tests/test-bl318-g1-test-command.sh for details)"
+# BL-318 G5: nothing compared a project's Development Guardrails with the clone,
+# so an adoptee kept 4.3.0 beside a newer clone in silence; check-versions.sh
+# now reports it, the session start offers scripts/refresh-guardrails.sh, and
+# the human runs it after `!`.
+run_child_suite "tests/test-bl318-g5-guardrails-refresh.sh" \
+  "BL-318 G5: the session start offers an older project's Guardrails update; scripts/refresh-guardrails.sh applies only that" \
+  "BL-318 G5 Guardrails-refresh tests FAILED (run tests/test-bl318-g5-guardrails-refresh.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

@@ -1465,6 +1465,11 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/install-gitleaks.sh" scripts/   # BL-316-SHIP-INSTALLER
   cp "$SCRIPT_DIR/scripts/ci-verify-sha256.sh" scripts/   # BL-316-SHIP-VERIFIER
   cp "$SCRIPT_DIR/scripts/session-version-check.sh" scripts/
+  # `## BL-318:` G5: the command session-version-check.sh offers when this
+  # project's Development Guardrails are older than the clone. The human runs it
+  # after `!`, so it must already be in every project: generated, adopted and
+  # synced all read this cp line through soif_parse_shipped_scripts.
+  cp "$SCRIPT_DIR/scripts/refresh-guardrails.sh" scripts/   # BL-318-G5-SHIP
   cp "$SCRIPT_DIR/scripts/session-freshness-check.sh" scripts/   # BL-109 S2 (Currency System, Layer 1)
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-intake-check.sh" scripts/   # BL-202 (intake/Phase-0 dead-air)
@@ -1596,7 +1601,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host-errors.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh scripts/check-pr-review.sh scripts/record-pr-review.sh scripts/print-prepush-recipe.sh scripts/check-changelog.sh scripts/check-session-state.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/refresh-guardrails.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh scripts/check-pr-review.sh scripts/record-pr-review.sh scripts/print-prepush-recipe.sh scripts/check-changelog.sh scripts/check-session-state.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
