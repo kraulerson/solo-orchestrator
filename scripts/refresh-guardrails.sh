@@ -51,7 +51,7 @@
 # addition there) and wrong here, where the refresh is the whole job: a missing
 # clone must not end in a success. So this checks its preconditions before
 # writing anything, then checks the result — the RECEIPT: every file the
-# refresh copies is byte-identical in the project, the hooks and gates are
+# refresh copies is byte-identical in the project, the hook scripts are
 # executable (Claude Code runs them by path; one it cannot execute is a check
 # that silently stops running), and the manifest names the clone's version.
 # Anything short of that is [FAIL] and a non-zero exit.
