@@ -22737,6 +22737,29 @@ preference, which made every reply carry one anyway.
 | **G5** | The run used Guardrails 4.3.0 (`0396a1a`) while the CDF clone is `2f7ef3a`, so no Guardrails fix since then reached this adoptee. | Adoption's "already installed" arm (`adopt_guardrails_resolve`) keeps an adoptee's older Guardrails install and never refreshes it. **Design question for Karl:** refresh on adoption (and how to archive what it replaces), or point the operator at the CDF upgrade. | Stage 1 log |
 | **G6** | Three small ones. (a) Scout and adoption report "deploys on a branch push" for a `ci.yml` with no deploy step: line 149 is Nuitka's `--no-deployment-flag`. (b) Adoption runs `claude mcp add` mid-interview, yet a later refusal says "Nothing was committed and nothing was written". That is true of the project, not of Claude Code's user configuration. (c) The assessment records `adoptedAtCommit` as the pre-adoption HEAD. **That is by design** (`adoption-stamp.sh`: "the PRE-ADOPTION TIP, i.e. the parent the adoption commit will land on"). Only the finisher's wording "the commit this project was adopted at" invites the misreading. | (a) the deploy detector matches the word inside a flag. (b) the refusal's sentence does not count writes outside the project. (c) wording only. | 5, 12, 19 |
 
+**G1, as built (branch `fix/bl318-g1-test-command`, review round 2).**
+- Adoption writes `.claude/test-command` only when the operator **kept** the scan's offer: the recorded
+  answer equals the report's offer. The offer is one of Scout's fixed command strings, written verbatim
+  with its no-rewrite flag (`# BL-318-TESTCMD-KEPT`, `adopt_write_test_command`).
+- A **changed** answer is never written (the coordinator's decision on review round 1's R-1). Round 1
+  wrote `pytest; bugs in GitHub Issues`, and a commit with a failing pytest then landed. The run says
+  what runs instead and gives the one `echo` line that writes a command.
+- A file the project already has is kept, and the run says what the check will run from it.
+- The hook's own pytest fallback goes through uv, poetry, pdm or pipenv, and first probes
+  `<command> --version` (`# BL-318-PYTEST-PROBE`). Pytest that cannot start there is not enforced,
+  loudly, instead of every source commit being blocked as a failed suite.
+
+**Residuals (not fixed):**
+- **A written file gets no probe.** A kept `uv run --frozen pytest` whose pytest is not in the
+  environment uv syncs (an optional extra, a group it does not install, a dependency added but not
+  locked) makes uv exit 2, and the check blocks every source commit as a failed suite. The file is
+  operator-owned and holds any command, so `--version` cannot be appended safely. The remedy today is
+  to edit the file (e.g. `uv run --frozen --extra test pytest`).
+- **Pre-existing `# BL-242-PARENT-LINK` gap** (review round 1). With an untracked `.claude` that is a
+  symlink to a folder outside the project, the pre-write rehearsal writes through the link (9 entries
+  outside on round 1's tip, 8 on `a07d707`). It still prints "Nothing was committed and nothing was
+  written."
+
 **Handed to the Development Guardrails (CDF), not fixed here:**
 - The agent cannot commit. After approval, `enforce-evaluate` requires `mark-evaluated.sh`, and
   `config-guard` forbids running it. `config-guard` also forbids `git add` of the `.claude/` state
