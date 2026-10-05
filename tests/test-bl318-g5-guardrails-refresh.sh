@@ -298,12 +298,24 @@ case_G16() {  # a new MAJOR version is a migration: warned, never offered
   sout="$(sv "$1")"
   has_f "$sout" "$OFFER_HEAD" && { CASE_DETAIL="the session start offers the routine update across a MAJOR version"; return 1; }
   has_f "$sout" "needs a Guardrails migration" || { CASE_DETAIL="the session start does not report the migration"; return 1; }
+  notice_only "$sout" || return 1
   pair 5.0.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
   no_offer "$(cv "$1")" || { CASE_DETAIL="ahead by a MAJOR version: $CASE_DETAIL"; return 1; }
 }
 
 # ── S: the session-start offer ───────────────────────────────────────────────
 OFFER_HEAD='GUARDRAILS UPDATE OFFER'
+NOTICE_HEAD='GUARDRAILS NOTICE'
+# notice_only SESSION-OUTPUT — the Guardrails row is the only warning, and it is
+# told as a notice the agent must not act on: never inside the generic block,
+# whose question offers to run the updates (final check, N1).
+notice_only() {
+  has_f "$1" "$NOTICE_HEAD" || { CASE_DETAIL="no '$NOTICE_HEAD': $(last3 "$1")"; return 1; }
+  has_f "$1" "Do NOT run anything about it yourself" || { CASE_DETAIL="the notice does not forbid acting on it"; return 1; }
+  has_f "$1" "Would you like me to run these updates now" && { CASE_DETAIL="the generic question invites the agent to run it"; return 1; }
+  has_f "$1" "[WARN] $GR" && { CASE_DETAIL="the Guardrails row is still in the generic warnings"; return 1; }
+  return 0
+}
 case_S1() {
   local out want
   pair 4.3.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
@@ -375,9 +387,9 @@ case_S5() {   # cannot tell: reported, not silent
   pair 4.3.0 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
   rm -rf "$H/.claude-dev-framework"
   out="$(sv "$1")"
-  has_f "$out" "[WARN] $GR: cannot tell whether an update is available" || { CASE_DETAIL="not reported: $(last3 "$out")"; return 1; }
+  has_f "$out" "  $GR: cannot tell whether an update is available" || { CASE_DETAIL="not reported: $(last3 "$out")"; return 1; }
   has_f "$out" "$OFFER_HEAD" && { CASE_DETAIL="an update is offered on a version it cannot read"; return 1; }
-  return 0
+  notice_only "$out"
 }
 
 # The REAL detector (scripts/hooks/bypass-detector.sh) over one Stop message, in
@@ -568,6 +580,22 @@ case_E15() {  # the clone's pull bringing a new MAJOR version is refused before 
   has_f "$RG_OUT" "migration" || { CASE_DETAIL="no migration named: $(last3 "$RG_OUT")"; return 1; }
   untouched
 }
+case_E14b() { # an untracked new hook in the clone is not installed either
+  eproj "$1" 4.3.0 4.3.7 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  printf '#!/usr/bin/env bash\necho UNTRACKED\n' > "$H/.claude-dev-framework/hooks/zz-new.sh"
+  rg
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0 with an untracked hook in the clone"; return 1; }
+  [ ! -e "$P/.claude/framework/hooks/zz-new.sh" ] || { CASE_DETAIL="the untracked hook was installed"; return 1; }
+  has_f "$RG_OUT" "uncommitted" && has_f "$RG_OUT" "hooks/zz-new.sh" || { CASE_DETAIL="the untracked file is not named: $(last3 "$RG_OUT")"; return 1; }
+  untouched
+}
+case_E16b() { # a MAJOR downgrade (project 5.0.0, clone 4.3.7) is refused too
+  eproj "$1" 5.0.0 4.3.7 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
+  rg
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0: a 5.0.0 project was taken back to 4.3.7"; return 1; }
+  has_f "$RG_OUT" "migration" || { CASE_DETAIL="no migration named: $(last3 "$RG_OUT")"; return 1; }
+  untouched
+}
 case_E16() {  # a clone already at a new MAJOR version is refused
   eproj "$1" 4.3.0 5.0.0 "$STUBS/good.sh" || { CASE_DETAIL="fixture"; return 1; }
   rg
@@ -724,14 +752,14 @@ check "G12: CDF_HOME names the clone, as it does for the refresh" case_G12
 check "G13: a manifest value carrying a newline or a backslash-n cannot forge an [OK] row" case_G13
 check "G14: a manifest value cannot steer the session start ('BELOW MINIMUM' -> no URGENT) and U+2028 does not reach it" case_G14
 check "G15: a shown manifest value is capped at 40 characters" case_G15
-check "G16: 4.3.0 vs 5.0.0 is a migration: a [WARN] naming migrations/, no command, no offer; 5.0.0 vs 4.3.7 is not offered" case_G16
+check "G16: 4.3.0 vs 5.0.0 is a migration: a [WARN] naming migrations/, no command, no offer, told as a notice without the generic run-the-updates question; 5.0.0 vs 4.3.7 is not offered" case_G16
 
 echo "=== S — session-version-check.sh: the offer ==="
 check "S1: the offer names both versions, what changes (not settings.json), asks for ! and forbids the agent running it; offered every session" case_S1
 check "S2: current -> the session hook is silent" case_S2
 check "S3: no terminal/shell route in the offer; the detector flags no line, the offer joined, or a relay of it" case_S3
 check "S4: beside another warning and an URGENT block, the update is never in the list the agent may run" case_S4
-check "S5: 'cannot tell' reaches the session start; nothing is offered" case_S5
+check "S5: 'cannot tell' reaches the session start as a notice; nothing is offered, and the generic run-the-updates question is absent" case_S5
 check "S6: the detector pins the SHA-256 of the exact command check-versions.sh offers, and its comment carries it" case_S6
 check "S7: the REAL detector raises no sentinel on relays that call ! shell mode (four phrasings, one carrying the offer's pull sentence)" case_S7
 check "S8: the REAL detector raises on the same sentence with another command, an argument, a chained command, or the agent running it" case_S8
@@ -761,6 +789,8 @@ check "E13: a symlinked .claude/framework/hooks folder -> refused, the outside f
 check "E14: an uncommitted change in the clone's hooks -> refused, nothing installed" case_E14
 check "E15: the clone's own pull brings 5.0.0 -> refused as a migration before anything is copied" case_E15
 check "E16: a clone already at 5.0.0 -> refused as a migration" case_E16
+check "E16b: a 5.0.0 project with a 4.3.7 clone (a MAJOR downgrade) -> refused" case_E16b
+check "E14b: an untracked new hook in the clone -> refused, not installed" case_E14b
 
 echo "=== U — check-updates.sh ==="
 check "U1: behind -> [WARN] and the remedy is bash scripts/refresh-guardrails.sh, not --backfill-only" case_U1
@@ -844,6 +874,14 @@ mutant MV15 "$CV" '# BL-318-G5-MAJOR' '      if false; then' case_G16 "a new MAJ
 mutant MP1  scripts/hooks/bypass-detector.sh '# BL-318-G5-HANDOFF-MATCH' '      if false; then' case_S7 "the update's relay is not pinned, so 'shell mode' raises the sentinel"
 mutant MP2  scripts/hooks/bypass-detector.sh '# BL-318-G5-HANDOFF-MATCH' '      if [ -z "$kind" ]; then' case_S8 "any command in a shell-mode relay is exempt"
 mutant MU1  scripts/check-updates.sh '# BL-318-G5-CU-AHEAD' '    elif false; then' case_U2 "a project ahead of the clone is told to update"
+# Final check — N1, N2, N3.
+mutant MN1  "$SV" '# BL-318-G5-SESSION-NOTICE-SPLIT' '  :' case_G16 "N1: the migration row stays in the generic block, under 'Would you like me to run these updates now'"
+mutant MN1b "$SV" '# BL-318-G5-SESSION-NOTICE-SPLIT' '  :' case_S5 "N1: the 'cannot tell' row stays in the generic block too"
+mutant MN1c "$SV" '# BL-318-G5-SESSION-TELL' '  :' case_G16 "N1: the split row is never told at all"
+MAJ_LINE="$(command grep -F '# BL-318-G5-REFRESH-MAJOR' "$REPO_ROOT/$RGS")"; MAJ_LINE="${MAJ_LINE%%   # BL-318-G5-REFRESH-MAJOR}"
+mutant MN2  "$RGS" '# BL-318-G5-REFRESH-MAJOR' "${MAJ_LINE/ -ne / -lt }" case_E16b "N2: -ne -> -lt, so a MAJOR downgrade is installed"
+DIRTY_LINE="$(command grep -F '# BL-318-G5-REFRESH-PORCELAIN' "$REPO_ROOT/$RGS")"; DIRTY_LINE="${DIRTY_LINE%%   # BL-318-G5-REFRESH-PORCELAIN}"
+mutant MN3  "$RGS" '# BL-318-G5-REFRESH-PORCELAIN' "${DIRTY_LINE/--porcelain/--porcelain --untracked-files=no}" case_E14b "N3: --untracked-files=no, so an untracked clone hook is installed"
 mutant MU2  scripts/check-updates.sh '# BL-318-G5-CU-REMEDY' '      echo "         Refresh CDF assets: bash scripts/upgrade-project.sh --backfill-only"' case_U1 "the remedy is the 85-path upgrade again"
 
 echo

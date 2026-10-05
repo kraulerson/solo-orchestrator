@@ -62,6 +62,17 @@ if [ -n "$GR_CMD_LINE" ]; then
   # The heading alone is not a list: drop it when the offer was its only line.
   if [ "$(printf '%s\n' "$UPDATE_CMDS" | grep -c '^  ' || true)" = "0" ]; then UPDATE_CMDS=""; fi
 fi
+# A Guardrails row with NO command — a new MAJOR version (a migration) or
+# "cannot tell" — leaves the generic block too (final check, N1). Left there, it
+# sat under "Would you like me to run these updates now", inviting the agent to
+# offer a Guardrails migration it must not run. And it spreads: a refused update
+# has already pulled the shared clone, so every other project on the machine
+# shows the row at every session start. _gr_notice tells it as a notice.
+GR_NOTICE=""
+if [ -z "$GR_CMD" ]; then
+  GR_NOTICE="$(printf '%s\n' "$WARN_LINES" | grep -F -- "[WARN] $GR_TAG " || true)"
+  WARN_LINES="$(printf '%s\n' "$WARN_LINES" | grep -vF -- "[WARN] $GR_TAG " || true)"   # BL-318-G5-SESSION-NOTICE-SPLIT
+fi
 
 # What the update changes and how it applies were MEASURED (`## BL-318:` G5):
 # scripts/refresh-guardrails.sh pulls the shared clone, then rewrites only
@@ -80,6 +91,12 @@ _gr_offer() {
   printf '%s\n' "Wait for its output: it ends in an [OK] line when the update landed, or a [FAIL] line that names what stopped it."
   printf '%s\n' "Once it lands, no restart is needed for the new hooks: Claude Code runs each hook from its file on every call, so your next tool call uses them. Only the Guardrails' own session-start message stays the old one until the next session."
   printf '%s\n' "If they decline, carry on. This offer comes back at every session start until the update is done."
+}
+
+_gr_notice() {
+  printf '%s\n' "GUARDRAILS NOTICE. Tell the Orchestrator this in your FIRST response, before any other work. Do NOT run anything about it yourself:"
+  printf '%s\n' "$GR_NOTICE" | sed 's/^\[WARN\] /  /'
+  printf '%s\n' "There is no command to offer here. A new MAJOR version needs a Guardrails migration, and a version that cannot be read needs the reason above fixed; both are the Orchestrator's to decide."
 }
 
 # Only output when something needs attention
@@ -115,5 +132,9 @@ fi
 if [ -n "$GR_CMD" ]; then
   if [ "$GENERIC_SHOWN" = true ]; then echo ""; fi
   _gr_offer                                                                       # BL-318-G5-SESSION-OFFER
+fi
+if [ -n "$GR_NOTICE" ]; then
+  if [ "$GENERIC_SHOWN" = true ]; then echo ""; fi
+  _gr_notice                                                                      # BL-318-G5-SESSION-TELL
 fi
 # If everything is up to date: output nothing. No noise.

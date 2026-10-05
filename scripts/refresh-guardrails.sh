@@ -38,7 +38,8 @@
 # .claude/manifest.json. It does not touch .claude/settings.json (refreshing
 # that is `## BL-319:`, deferred).
 #
-# WHAT IT REFUSES, before writing anything (review round 1): a symlink on the
+# WHAT IT REFUSES, before writing anything in the project (review round 1; the
+# MAJOR check runs after the clone's pull, so the shared clone may have moved): a symlink on the
 # write path (R-8b: it would write through it, outside the project); an
 # uncommitted change in what the clone copies (R-8a: the manifest would record a
 # commit that does not contain it, and every later check would call the project
@@ -72,9 +73,10 @@ version than the one you were offered. Then it copies the Guardrails hooks and
 rules into .claude/framework/ and records the new version in
 .claude/manifest.json. It does not change .claude/settings.json.
 
-It refuses, changing nothing: a new MAJOR version (that is a migration), an
-uncommitted change in the clone's hooks or rules, and a symlink in
-.claude/framework/.
+It refuses a new MAJOR version (that is a migration), an uncommitted change
+in the clone's hooks or rules, and a symlink in .claude/framework/. When it
+refuses, nothing in this project is changed; the shared clone may already have
+been pulled.
 USAGE
   exit 0
 fi
@@ -111,7 +113,7 @@ done
 
 # Nothing uncommitted in what the clone copies: the manifest records the clone's
 # HEAD as frameworkCommit, and that commit would not contain the change.
-DIRTY="$(git -C "$CLONE" status --porcelain -- 'hooks/*.sh' 'hooks/*.txt' 'rules/*.md' 'gates/*.sh' FRAMEWORK_VERSION 2>/dev/null | tr '\n' ';' || :)"
+DIRTY="$(git -C "$CLONE" status --porcelain -- 'hooks/*.sh' 'hooks/*.txt' 'rules/*.md' 'gates/*.sh' FRAMEWORK_VERSION 2>/dev/null | tr '\n' ';' || :)"   # BL-318-G5-REFRESH-PORCELAIN
 [ -z "$DIRTY" ] || _rg_fail "the clone at $CLONE has uncommitted changes in what the update copies ($DIRTY)." "The manifest would record a commit that does not contain them, and every later check would call this project current." "Commit or discard them in the clone (cd \"$CLONE\" && git status), then run this again. Nothing was changed."   # BL-318-G5-REFRESH-DIRTY
 
 # Pull first, so the version checked below is the one that will be installed
