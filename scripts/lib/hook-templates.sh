@@ -1680,8 +1680,8 @@ HOOKEOF
 #   it to your fast lane if the full suite is slow; adoption writes it when
 #   the operator kept the scan's command, BL-318 G1) -> detected
 #   stack default (package.json real test script / pytest, through uv,
-#   poetry, pdm or pipenv when its file is present and only once a
-#   `--version` probe shows pytest starts there / cargo / go) -> loud
+#   poetry, pdm or pipenv when its file is present and only once
+#   `<runner> python -c 'import pytest'` succeeds there / cargo / go) -> loud
 #   not-enforced WARN.
 #   Fast lane (latency discipline): the arm runs only when STAGED files
 #   include source (added/copied/modified/DELETED/RENAMED); docs/config-only
@@ -1806,32 +1806,45 @@ if [ "$soif_test_src" -gt 0 ]; then
     # checked (measured, uv 0.11.3: plain `uv run` -> ` M uv.lock`; `--frozen`
     # -> untouched). poetry, pdm and pipenv `run` do not lock. With none of
     # them, the operator's activated environment IS the PATH: bare pytest.
-    # Each arm is ONE line, test and command together, so a mutation of either
-    # half is a mutation of the marked line.
-    if [ -f uv.lock ]; then soif_test_cmd="uv run --frozen pytest"   # BL-318-PYTEST-UV
-    elif [ -f poetry.lock ]; then soif_test_cmd="poetry run pytest"   # BL-318-PYTEST-POETRY
-    elif [ -f pdm.lock ]; then soif_test_cmd="pdm run pytest"   # BL-318-PYTEST-PDM
-    elif [ -f Pipfile ]; then soif_test_cmd="pipenv run pytest"   # BL-318-PYTEST-PIPENV
-    else soif_test_cmd="pytest"
+    # Each arm is ONE line, test and runner together, so a mutation of either
+    # half is a mutation of the marked line. The arm picks the RUNNER prefix;
+    # the test command and the probe are both built from it, so the probe can
+    # never go through a different environment from the run (uv's keeps
+    # --frozen).
+    soif_test_run=""
+    if [ -f uv.lock ]; then soif_test_run="uv run --frozen"   # BL-318-PYTEST-UV
+    elif [ -f poetry.lock ]; then soif_test_run="poetry run"   # BL-318-PYTEST-POETRY
+    elif [ -f pdm.lock ]; then soif_test_run="pdm run"   # BL-318-PYTEST-PDM
+    elif [ -f Pipfile ]; then soif_test_run="pipenv run"   # BL-318-PYTEST-PIPENV
     fi
-    # BL-318 G1, review round 1's R-2 — PROBE A MANAGER BEFORE TRUSTING ITS EXIT.
-    # When pytest is not in the environment the manager runs (an optional extra,
-    # a group it does not install, a dependency added but not locked), `uv run`
-    # exits 2 (measured, uv 0.11.3: "Failed to spawn"), not 127, and the
-    # arm below would read that as a suite that RAN and FAILED and block every
-    # source commit. That is not a test result. `pytest --version` starts pytest
-    # without collecting anything, so it fails when pytest cannot start, NOT when
-    # the suite is broken (measured, pytest 9.1.1: rc 0 with a conftest.py that
-    # fails to import and with an unknown flag in addopts; the real run exits 4
-    # on both, which still blocks). A failed probe takes the not-enforced arm,
-    # loudly, naming the fix. A manager that
-    # is not installed fails here too (127), with the same honest receipt. The
-    # bare `pytest` arm needs no probe: its not-found IS 127.
-    if [ "$soif_test_cmd" != "pytest" ]; then
+    soif_test_cmd="${soif_test_run:+$soif_test_run }pytest"
+    # BL-318 G1 — PROBE A MANAGER BEFORE TRUSTING ITS EXIT (review round 1's R-2,
+    # respelled after the final check's N3). When pytest is not in the
+    # environment the manager runs (an optional extra, a group it does not
+    # install, a dependency added but not locked), `uv run` exits 2 (measured,
+    # uv 0.11.3: "Failed to spawn"), not 127, and the arm below would read that
+    # as a suite that RAN and FAILED and block every source commit. That is not
+    # a test result.
+    # THE PROBE IMPORTS PYTEST; IT DOES NOT RUN IT. `pytest --version` was the
+    # first spelling, and on pytest 8.x it loads the plugin machinery (9.1.1
+    # does not: rc 0 on the same broken import), so a suite the COMMIT broke failed the probe and landed
+    # as NOT ENFORCED — measured on pytest 8.4.1: `--version` exits 1 for a
+    # broken `pytest_plugins` import and for a broken `-p` plugin, 4 for an
+    # unknown flag in addopts, while `python -c 'import pytest'` exits 0 on all
+    # three and 1 when pytest is absent (uv 0.11.3: `uv run --frozen python -c
+    # 'import pytest'` exits 1 without pytest, 0 with it, and leaves uv.lock
+    # untouched). So a broken suite reaches the real run and BLOCKS. A failed
+    # probe takes the not-enforced arm, loudly, naming the fix; a manager that
+    # is not installed fails it too (127), with the same honest receipt. One
+    # known skew, in the loud direction: a pytest that is on PATH but not in the
+    # manager's environment fails the probe although `<runner> pytest` might
+    # start. The bare `pytest` arm gets no probe: its not-found IS 127.
+    if [ -n "$soif_test_run" ]; then   # BL-318-PYTEST-PROBE-GUARD
+      soif_probe="$soif_test_run python -c 'import pytest'"   # BL-318-PYTEST-PROBE-CMD
       soif_probe_rc=0
-      sh -c "$soif_test_cmd --version" </dev/null >/dev/null 2>&1 || soif_probe_rc=$?
-      if [ "$soif_probe_rc" -ne 0 ]; then   # BL-318-PYTEST-PROBE
-        soif_tests_not_enforced "'$soif_test_cmd' cannot start pytest here ('$soif_test_cmd --version' exited $soif_probe_rc): the tool is not installed, or pytest is not in the environment it runs — an optional extra, a group it does not install, or a dependency added but not locked."
+      sh -c "$soif_probe" </dev/null >/dev/null 2>&1 || soif_probe_rc=$?
+      if [ "$soif_probe_rc" -ne 0 ]; then   # BL-318-PYTEST-PROBE-FAIL
+        soif_tests_not_enforced "'$soif_test_cmd' cannot start pytest here (the probe $soif_probe exited $soif_probe_rc): the tool is not installed, or pytest is not in the environment it runs — an optional extra, a group it does not install, or a dependency added but not locked."
         echo "  Install pytest into that environment, or put the command that reaches it"
         echo "  in .claude/test-command — for uv, e.g. 'uv run --frozen --extra test pytest'."
         soif_test_cfg_warned=1

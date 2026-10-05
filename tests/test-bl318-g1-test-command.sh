@@ -16,26 +16,31 @@
 #     the project already has is kept, and the run says what it runs
 #     (`# BL-318-TESTCMD-*`, `adopt_write_test_command`);
 #   - the hook's own fallback runs pytest through the project's uv, poetry, pdm
-#     or pipenv when one is in evidence, after a `--version` probe shows pytest
-#     starts there (`# BL-318-PYTEST-*`), so a project with no file — every
-#     adoptee adopted before this fix, and a greenfield uv project — gets a
-#     check that runs, and one whose pytest cannot start is not enforced
-#     (loudly) rather than blocked as a failed suite.
+#     or pipenv when one is in evidence, after `<runner> python -c 'import
+#     pytest'` succeeds there (`# BL-318-PYTEST-*`), so a project with no
+#     file — every adoptee adopted before this fix, and a greenfield uv
+#     project — gets a check that runs, one whose pytest is absent is not
+#     enforced (loudly) rather than blocked as a failed suite, and one whose
+#     suite the commit broke still blocks;
+#   - nothing is written when Scout found no command (the interview offers
+#     "(none detected)") or when its offer is npm's placeholder script.
 #
 # CASES
 #   H  the hook's fallback: a bare repo, the emitted hook, stub runners on PATH
 #   U  the writer, driven through the real interview function
 #      (`adopt_confirm_scanned`), so the answer it judges is the one the
-#      interview recorded
+#      interview recorded — over REAL Scout reports where the shape matters
+#      (no test command; npm's placeholder)
 #   A  the real driver: a uv adoptee gets the file, committed; an adoptee whose
 #      scan offer differs from the hook's fallback proves the FILE is what runs;
-#      a file the adoptee already has is kept
+#      a file the adoptee already has is kept; an adoptee Scout finds no test
+#      command in gets no file, and its commit runs the hook's own detection
 #   E  a commit in the uv adoptee runs the written command
 #   M  mutants: each rewrites ONE marked line in a mirror of the tree, checks
 #      the edit landed by its literal text (and, for the hook, that the emitted
 #      hook still parses), and needs a named case to go RED
 #
-# ~50s local (three real adoptions, plus two more under mutants), so tests.yml
+# ~69s local (four real adoptions, plus three more under mutants), so tests.yml
 # pins it to the `mcp` leg. No init.sh, not an aggregator -> both lists.
 # bash 3.2 safe.
 set -uo pipefail
@@ -107,31 +112,37 @@ if PATH="$NOSCAN_PATH" command -v semgrep >/dev/null 2>&1 \
   exit 1
 fi
 
-# mk_stubs DIR RC [PROBE_RC] — uv, poetry, pdm, pipenv, pytest and make that
-# append their own command line to DIR/calls. A call whose last argument is
-# `--version` (the hook's probe, `# BL-318-PYTEST-PROBE`) exits PROBE_RC
-# (default 0), saying what uv says when it cannot spawn pytest; every other call
-# exits RC. First on PATH, so a real runner on the host never answers for one.
+# mk_stubs DIR RC [PROBE_RC] [VERSION_RC] — uv, poetry, pdm, pipenv, pytest,
+# python and make that append their own command line to DIR/calls.
+#   - a call whose last argument is `import pytest` (the hook's probe,
+#     `<runner> python -c 'import pytest'`, `# BL-318-PYTEST-PROBE-CMD`) exits
+#     PROBE_RC (default 0), saying what uv says when pytest is not there;
+#   - a call whose last argument is `--version` exits VERSION_RC (default 0) —
+#     set it non-zero to model pytest < 9, whose `--version` loads the plugins
+#     and so fails on a suite the commit broke (review N3);
+#   - every other call exits RC.
+# First on PATH, so a real runner on the host never answers for one.
 mk_stubs() {
-  local d="$1" rc="$2" prc="${3:-0}" t=""
+  local d="$1" rc="$2" prc="${3:-0}" vrc="${4:-0}" t=""
   mkdir -p "$d" || return 1
-  for t in uv poetry pdm pipenv pytest make; do
+  for t in uv poetry pdm pipenv pytest python make; do
     cat > "$d/$t" <<STUB
 #!/bin/sh
 echo "$t\${*:+ \$*}" >> "$d/calls"
 last=""
 for a in "\$@"; do last="\$a"; done
-if [ "\$last" = "--version" ]; then
-  [ $prc -eq 0 ] || echo "error: Failed to spawn: pytest" >&2
+if [ "\$last" = "import pytest" ]; then
+  [ $prc -eq 0 ] || echo "ModuleNotFoundError: No module named 'pytest'" >&2
   exit $prc
 fi
+[ "\$last" = "--version" ] && exit $vrc
 exit $rc
 STUB
     chmod +x "$d/$t" || return 1
   done
 }
 # _runs STUBS — the calls that were not the probe, one per line.
-_runs() { command grep -v -- ' --version$' "$1/calls" 2>/dev/null; }
+_runs() { command grep -v -- ' -c import pytest$' "$1/calls" 2>/dev/null; }
 
 # ════════════════════════════════════════════════════════════════════════════
 # H — the hook's fallback, when the project has no .claude/test-command
@@ -174,6 +185,7 @@ _hrun() {
   mk_stubs "$s" 1 || { CASE_DETAIL="stubs"; return 1; }
   v="$(_commit "$d" "$s" "chore: add app")"
   calls="$(_runs "$s")"
+  cp "$s/calls" "$WORK/h.calls" 2>/dev/null || : > "$WORK/h.calls"
   CASE_DETAIL="verdict=$v ran=[$(printf '%s' "$calls" | tr '\n' '|')] want=[$want] hook: $(command grep -E 'BL-125|BLOCKED|WARN' "$d/commit.log" 2>/dev/null | head -3 | tr '\n' ' ')"
   [ "$v" = "REFUSED" ] && [ "$calls" = "$want" ] \
     && command grep -qxF "[BLOCKED] project tests FAILED (exit 1): $want" "$d/commit.log"
@@ -184,22 +196,48 @@ case_H1() { _hrun "$1" "uv run --frozen pytest" pyproject.toml uv.lock; }
 case_H2() { _hrun "$1" "poetry run pytest" pyproject.toml poetry.lock; }
 case_H3() { _hrun "$1" "pdm run pytest" pyproject.toml pdm.lock; }
 case_H4() { _hrun "$1" "pipenv run pytest" pytest.ini Pipfile; }
-case_H5() { _hrun "$1" "pytest" pytest.ini requirements.txt; }
+case_H5() {   # bare pytest, and NOTHING else ran — no probe on the bare arm (review N4: `_runs` hid one)
+  _hrun "$1" "pytest" pytest.ini requirements.txt || return 1
+  local raw; raw="$(cat "$WORK/h.calls" 2>/dev/null)"
+  CASE_DETAIL="$CASE_DETAIL raw=[$(printf '%s' "$raw" | tr '\n' '|')]"
+  [ "$raw" = "pytest" ]
+}
 case_H6() { _hrun "$1" "uv run --frozen pytest" pytest.ini uv.lock poetry.lock pdm.lock Pipfile; }
 case_H7() { _hrun "$1" "poetry run pytest" pyproject.toml poetry.lock pdm.lock Pipfile; }
 case_H8() {   # uv cannot spawn pytest (an extra, a group, not locked): the probe takes the not-enforced arm; the suite is never run as "failed"
   local fw="$1" d s v calls bad=""
   d="$(newtmp)/p"; s="$(newtmp)"
   _hproj "$fw" "$d" pyproject.toml uv.lock || { CASE_DETAIL="fixture"; return 1; }
-  mk_stubs "$s" 2 2 || { CASE_DETAIL="stubs"; return 1; }
+  mk_stubs "$s" 2 1 || { CASE_DETAIL="stubs"; return 1; }
   v="$(_commit "$d" "$s" "chore: add app")"
   calls="$(cat "$s/calls" 2>/dev/null)"
   [ "$v" = "LANDED" ] || bad="$bad [verdict $v]"
-  [ "$calls" = "uv run --frozen pytest --version" ] || bad="$bad [calls=[$(printf '%s' "$calls" | tr '\n' '|')]]"
+  # The probe goes through the SAME runner, --frozen included, and imports pytest.
+  [ "$calls" = "uv run --frozen python -c import pytest" ] || bad="$bad [calls=[$(printf '%s' "$calls" | tr '\n' '|')]]"
   command grep -qF "[WARN] 'uv run --frozen pytest' cannot start pytest here" "$d/commit.log" || bad="$bad [no WARN naming the command]"
   command grep -qF 'PROJECT TESTS NOT ENFORCED' "$d/commit.log" || bad="$bad [not said loudly]"
   command grep -qF "uv run --frozen --extra test pytest" "$d/commit.log" || bad="$bad [the fix is not named]"
   command grep -qF '[BLOCKED]' "$d/commit.log" && bad="$bad [blocked as a failed suite]"
+  CASE_DETAIL="${bad:-} hook: $(command grep -E 'BL-125|BLOCKED|WARN' "$d/commit.log" 2>/dev/null | head -3 | tr '\n' ' ')"
+  [ -z "$bad" ]
+}
+case_H9() {   # review N3: pytest is there (the probe passes) and the COMMIT broke the suite at plugin load — BLOCKED, not "not enforced"
+  # The stubs model pytest 8.x, where `pytest --version` loads the plugins and
+  # so fails on exactly this suite (measured, pytest 8.4.1: rc 1 for a broken
+  # pytest_plugins import and a broken `-p` plugin, rc 4 for an unknown addopts
+  # flag), while `python -c 'import pytest'` does not load them (rc 0 on all
+  # three). A probe spelled `--version` would call this suite missing.
+  local fw="$1" d s v calls bad=""
+  d="$(newtmp)/p"; s="$(newtmp)"
+  _hproj "$fw" "$d" pyproject.toml uv.lock || { CASE_DETAIL="fixture"; return 1; }
+  mk_stubs "$s" 1 0 1 || { CASE_DETAIL="stubs"; return 1; }
+  v="$(_commit "$d" "$s" "chore: add app")"
+  calls="$(cat "$s/calls" 2>/dev/null)"
+  [ "$v" = "REFUSED" ] || bad="$bad [verdict $v]"
+  [ "$calls" = "uv run --frozen python -c import pytest
+uv run --frozen pytest" ] || bad="$bad [calls=[$(printf '%s' "$calls" | tr '\n' '|')]]"
+  command grep -qxF "[BLOCKED] project tests FAILED (exit 1): uv run --frozen pytest" "$d/commit.log" || bad="$bad [no BLOCKED line]"
+  command grep -qF 'PROJECT TESTS NOT ENFORCED' "$d/commit.log" && bad="$bad [called the broken suite not enforced]"
   CASE_DETAIL="${bad:-} hook: $(command grep -E 'BL-125|BLOCKED|WARN' "$d/commit.log" 2>/dev/null | head -3 | tr '\n' ' ')"
   [ -z "$bad" ]
 }
@@ -210,28 +248,39 @@ check "H1 uv.lock + pyproject [tool.pytest]: the hook runs 'uv run --frozen pyte
 check "H2 pyproject.toml + poetry.lock: 'poetry run pytest'" case_H2 "$REPO_ROOT"
 check "H3 pyproject.toml + pdm.lock: 'pdm run pytest'" case_H3 "$REPO_ROOT"
 check "H4 Pipfile alone: 'pipenv run pytest'" case_H4 "$REPO_ROOT"
-check "H5 no manager lockfile (requirements.txt): bare 'pytest', and no manager is run" case_H5 "$REPO_ROOT"
+check "H5 no manager lockfile (requirements.txt): bare 'pytest' is the ONLY call — no manager, no probe" case_H5 "$REPO_ROOT"
 check "H6 several lockfiles: uv wins, Scout's precedence (uv, poetry, pdm, pipenv)" case_H6 "$REPO_ROOT"
 check "H7 poetry.lock + pdm.lock + Pipfile: poetry wins" case_H7 "$REPO_ROOT"
-check "H8 uv cannot spawn pytest: probed first, LANDS with a loud not-enforced WARN naming the fix — never blocked as a failed suite" case_H8 "$REPO_ROOT"
+check "H8 pytest not in uv's environment: the import probe (through 'uv run --frozen') fails, the commit LANDS with a loud not-enforced WARN naming the fix — never blocked as a failed suite" case_H8 "$REPO_ROOT"
+check "H9 pytest present, the commit broke the suite at plugin load (pytest 8 '--version' modelled failing): the probe passes and the commit is BLOCKED" case_H9 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
 # U — the writer, through the real interview function
 # ════════════════════════════════════════════════════════════════════════════
 TITLE='Testing & Bug Tracking'
-# _unit FW ROOT OFFERED ANSWERS — run `adopt_confirm_scanned` for the
-# test_command row with the scan OFFERING `OFFERED` ("" = the scan found
-# nothing) and ANSWERS (a printf format) as the operator's replies, then
-# `adopt_write_test_command ROOT REPORT`, where REPORT is a scan report whose
-# intakePrefill offers the same OFFERED. Sets URC; the run's output is in
-# $WORK/u.out and the paths it recorded as written are in $WORK/u.written.
+# _unit FW ROOT OFFERED ANSWERS [REPORT] — run `adopt_confirm_scanned` for the
+# test_command row, with ANSWERS (a printf format) as the operator's replies,
+# then `adopt_write_test_command ROOT REPORT`.
+#   - With REPORT: a REAL Scout report (review N1: a hand-built report had a
+#     shape Scout never emits). The interview offers what REPORT's intakePrefill
+#     offers, exactly as `adopt_run_reverse_intake` reads it; OFFERED is unused.
+#   - Without: a report with Scout's two fields for a FOUND command — the
+#     intakePrefill row and `stack.testCommand` — both carrying OFFERED.
+# Sets URC; the run's output is in $WORK/u.out and the paths it recorded as
+# written are in $WORK/u.written.
 URC=0
 _unit() {
-  local fw="$1" root="$2" offered="$3" ans="$4"
+  local fw="$1" root="$2" offered="$3" ans="$4" rep="${5:-}"
   : > "$WORK/u.written"
-  jq -n --arg v "$offered" \
-    '{intakePrefill: {sections: [{id: "11_5", title: "Testing & Bug Tracking", kind: "scan-derived", field: "test_command",
-       value: (if $v == "" then null else $v end), source: "the scan"}]}}' > "$WORK/u.report.json" || { URC=90; return; }
+  if [ -n "$rep" ]; then
+    offered="$(jq -r '.intakePrefill.sections[]? | select(.field == "test_command") | (.value // "")' "$rep")"
+  else
+    rep="$WORK/u.report.json"
+    jq -n --arg v "$offered" \
+      '{stack: {testCommand: {value: $v, source: "the scan"}},
+        intakePrefill: {sections: [{id: "11_5", title: "Testing & Bug Tracking", kind: "scan-derived", field: "test_command",
+          value: $v, source: "the scan"}]}}' > "$rep" || { URC=90; return; }
+  fi
   # shellcheck disable=SC2059
   printf "$ans" | (
     ADOPT_PROJECT_NAME=t
@@ -241,11 +290,27 @@ _unit() {
     adopt_ledger_init "$ADOPT_WORK/written" || exit 90
     adopt_answers_init "$ADOPT_WORK/answers" || exit 90
     adopt_confirm_scanned test_command "$TITLE" "$offered" "the scan" || exit 91
-    adopt_write_test_command "$root" "$WORK/u.report.json"; rc=$?
+    adopt_write_test_command "$root" "$rep"; rc=$?
     cp "$ADOPT_WORK/written" "$WORK/u.written" 2>/dev/null
     exit "$rc" ) > "$WORK/u.out" 2>&1
   URC=$?
 }
+# Two REAL Scout reports, taken once from this tree's scripts/scout.sh: a
+# Python project Scout finds no test command in (a conftest.py and a source
+# file: `stack.testCommand` is null and the interview offers "(none detected)"),
+# and a JS project whose scripts.test is `npm init`'s placeholder (Scout offers
+# `npm test`; the body is in `stack.testCommand.source`).
+_scout_fx() {   # _scout_fx NAME — prints the report path, or nothing
+  local d="$WORK/scoutfx/$1"
+  bash "$REPO_ROOT/scripts/scout.sh" --root "$d" --out "$d.out" >/dev/null 2>&1 \
+    && [ -s "$d.out/scout-report.json" ] && printf '%s\n' "$d.out/scout-report.json"
+}
+mkdir -p "$WORK/scoutfx/none/src" "$WORK/scoutfx/npm/src"
+( cd "$WORK/scoutfx/none" && git init -q . && printf 'x = 1\n' > src/app.py && printf 'import sys\n' > conftest.py ) >/dev/null 2>&1
+( cd "$WORK/scoutfx/npm" && git init -q . && printf 'var x = 1;\n' > src/app.js \
+  && printf '{\n  "name": "kp",\n  "version": "1.0.0",\n  "scripts": {\n    "test": "echo \\"Error: no test specified\\" && exit 1"\n  }\n}\n' > package.json ) >/dev/null 2>&1
+REP_NONE="$(_scout_fx none)"
+REP_NPM="$(_scout_fx npm)"
 _uroot() { local r; r="$(newtmp)/p"; mkdir -p "$r" && printf '%s\n' "$r"; }
 _said() { command grep -qF -- "$1" "$WORK/u.out"; }
 _recorded() { command grep -cxF '.claude/test-command' "$WORK/u.written" 2>/dev/null; }
@@ -301,12 +366,38 @@ case_U3c() {  # an existing file with nothing runnable in it: kept, and said so
   CASE_DETAIL="rc=$URC out=$(_out 400)"
   [ "$URC" -eq 0 ] && _said "Nothing in it is runnable" && ! _said "Every commit that stages a source file runs:"
 }
-case_U4() {   # the scan found nothing: the free answer is not written, and that is said
+case_U4() {   # review N1, a REAL no-test Scout report: keeping "(none detected)" writes nothing, and that is said
   local r; r="$(_uroot)"
-  _unit "$1" "$r" "" 'we use pytest\n'
-  CASE_DETAIL="rc=$URC file=$([ -e "$r/.claude/test-command" ] && echo WRITTEN || echo absent) out=$(_out)"
+  [ -n "$REP_NONE" ] || { CASE_DETAIL="no Scout report for the no-test fixture"; return 1; }
+  _unit "$1" "$r" "" '1\n' "$REP_NONE"
+  CASE_DETAIL="rc=$URC file=[$(_body "$r" | tr '\n' '|')] offered=[$(command grep -o "Keep '[^']*'" "$WORK/u.out" | head -1)] out=$(_out)"
+  _said "Keep '(none detected)' as the answer?" || return 1
   [ "$URC" -eq 0 ] && [ ! -e "$r/.claude/test-command" ] && [ "$(_recorded)" = "0" ] \
-    && _said "Not written: the scan found no test command"
+    && _said "Not written: the scan found no test command" && ! _said "echo '"
+}
+case_U4b() {  # the same report, the answer changed to a command: still nothing written — the question never named one
+  local r; r="$(_uroot)"
+  [ -n "$REP_NONE" ] || { CASE_DETAIL="no Scout report for the no-test fixture"; return 1; }
+  _unit "$1" "$r" "" '2\npytest\n' "$REP_NONE"
+  CASE_DETAIL="rc=$URC file=[$(_body "$r" | tr '\n' '|')] out=$(_out)"
+  [ "$URC" -eq 0 ] && [ ! -e "$r/.claude/test-command" ] && _said "Not written: the scan found no test command"
+}
+case_U8() {   # review N2, a REAL Scout report on npm's placeholder script: keeping 'npm test' writes nothing, and that is said
+  local r; r="$(_uroot)"
+  [ -n "$REP_NPM" ] || { CASE_DETAIL="no Scout report for the placeholder fixture"; return 1; }
+  _unit "$1" "$r" "" '1\n' "$REP_NPM"
+  CASE_DETAIL="rc=$URC file=[$(_body "$r" | tr '\n' '|')] out=$(_out 500)"
+  _said "Keep 'npm test' as the answer?" || return 1
+  [ "$URC" -eq 0 ] && [ ! -e "$r/.claude/test-command" ] && [ "$(_recorded)" = "0" ] \
+    && _said "Not written: package.json's test script is npm's placeholder"
+}
+case_U8b() {  # ... and changing it does not get the changed-answer note, whose example line would install the placeholder
+  local r; r="$(_uroot)"
+  [ -n "$REP_NPM" ] || { CASE_DETAIL="no Scout report for the placeholder fixture"; return 1; }
+  _unit "$1" "$r" "" '2\nnpm run unit\n' "$REP_NPM"
+  CASE_DETAIL="rc=$URC file=[$(_body "$r" | tr '\n' '|')] out=$(_out 500)"
+  [ "$URC" -eq 0 ] && [ ! -e "$r/.claude/test-command" ] \
+    && _said "Not written: package.json's test script is npm's placeholder" && ! _said "echo 'npm test'"
 }
 case_U6() {   # pnpm: Scout's flag is kept, and the run says why it stays
   local r; r="$(_uroot)"
@@ -325,7 +416,10 @@ check "U7 changed to 'pytest; bugs in GitHub Issues' (review round 1: it was wri
 check "U3 an existing .claude/test-command is kept byte for byte, not in the write set, and the run says what it runs (read as the hook reads it)" case_U3 "$REPO_ROOT"
 check "U3b an existing dangling symlink is kept, nothing is written through it, and the run names its target and says the check ignores it" case_U3b "$REPO_ROOT"
 check "U3c an existing file with only a comment is kept, and the run says nothing in it is runnable" case_U3c "$REPO_ROOT"
-check "U4 the scan found nothing: the free answer is not written, and the run says so" case_U4 "$REPO_ROOT"
+check "U4 a real Scout report with no test command: keeping '(none detected)' writes nothing, and the run says so (review N1)" case_U4 "$REPO_ROOT"
+check "U4b the same report, the answer changed to 'pytest': nothing written" case_U4b "$REPO_ROOT"
+check "U8 a real Scout report on npm's placeholder test script: keeping 'npm test' writes nothing, and the run says why (review N2)" case_U8 "$REPO_ROOT"
+check "U8b the same report, the answer changed: nothing written, and no 'echo npm test' advice" case_U8b "$REPO_ROOT"
 check "U6 pnpm: 'pnpm --config.verify-deps-before-run=false test' is written verbatim and the flag is explained" case_U6 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -391,6 +485,34 @@ case_A2() {
   CASE_DETAIL="${bad:-}"
   [ -z "$bad" ]
 }
+# A4 — review N1, end to end: a Python project Scout finds no test command in
+# (conftest.py and a source file). Every scan answer kept, "(none detected)"
+# included. Round 2 wrote "(none detected)" into the file, and since the file
+# beats detection, every commit ran `sh -c '(none detected)'` -> 127 -> not
+# enforced. Now nothing is written, so the hook's own detection (conftest.py ->
+# bare pytest) is what runs, and a failing suite blocks.
+case_A4() {
+  local p bad="" o s v raw
+  p="$(newtmp)/kp"; mkdir -p "$p/src" "$p/tests" || { CASE_DETAIL="fixture"; return 1; }
+  ( cd "$p" && git init -q . && git config user.email bl318@test.invalid && git config user.name "BL318 Test" \
+      && printf 'x = 1\n' > src/app.py && printf 'import sys\n' > conftest.py \
+      && printf 'def test_x():\n    assert True\n' > tests/test_app.py \
+      && git add -- src/app.py conftest.py tests/test_app.py && git commit -q --no-verify -m "chore: their history" ) >/dev/null 2>&1 \
+    || { CASE_DETAIL="fixture"; return 1; }
+  _adopt "$1" "$p" a4; o="$WORK/a4.out"
+  [ "$RUN_RC" -eq 0 ] || bad="$bad [rc $RUN_RC: $(command grep -m1 -E 'REFUSED|BLOCKED' "$o")]"
+  command grep -qF "Keep '(none detected)' as the answer?" "$o" || bad="$bad [the interview did not offer (none detected)]"
+  { [ -e "$p/.claude/test-command" ] || [ -L "$p/.claude/test-command" ]; } && bad="$bad [file written: $(_body "$p" | tr '\n' '|')]"
+  command grep -qF "Not written: the scan found no test command" "$o" || bad="$bad [the run did not say nothing was written]"
+  s="$(newtmp)"; mk_stubs "$s" 1 || { CASE_DETAIL="stubs"; return 1; }
+  v="$(_commit "$p" "$s" "chore: change app")"
+  raw="$(cat "$s/calls" 2>/dev/null)"
+  [ "$v" = "REFUSED" ] || bad="$bad [verdict $v]"
+  [ "$raw" = "pytest" ] || bad="$bad [ran=[$(printf '%s' "$raw" | tr '\n' '|')]]"
+  command grep -qxF "[BLOCKED] project tests FAILED (exit 1): pytest" "$p/commit.log" || bad="$bad [no BLOCKED line: $(command grep -E 'BL-125|WARN' "$p/commit.log" | head -2 | tr '\n' ' ')]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
 case_A3() {   # the adoptee already has .claude/test-command: kept byte for byte, not in the adoption commit, and said
   local p bad="" o before
   p="$(newtmp)/kp"; _uvproj "$p" || { CASE_DETAIL="fixture"; return 1; }
@@ -412,6 +534,7 @@ echo "=== A — the real driver ==="
 check "A1 a uv adoptee: .claude/test-command is 'uv run --frozen pytest', committed in the adoption commit; the run says so and explains the flag" case_A1 "$REPO_ROOT"
 check "A2 Scout offers 'make test' where the hook's fallback would run uv: the file says 'make test', and the next commit runs make test — the written FILE is what runs" case_A2 "$REPO_ROOT"
 check "A3 the adoptee's own .claude/test-command is kept byte for byte, outside the adoption commit, and the run says what it runs" case_A3 "$REPO_ROOT"
+check "A4 Scout finds no test command and every answer is kept: nothing is written, and the next commit runs the hook's own detection (bare pytest) and blocks on a failing suite (review N1)" case_A4 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
 # E — the adopted project's commit runs the written command
@@ -420,7 +543,7 @@ case_E1() {   # failing suite -> blocked, naming the command; passing suite -> t
   local p="$1" s1 s0 v calls bad=""
   [ -n "$p" ] && [ -d "$p/.git" ] || { CASE_DETAIL="no adopted project (A1 did not complete)"; return 1; }
   # The file, not the hook's own fallback (which spells the same command here):
-  # present, and it is what is read — so no probe runs (`# BL-318-PYTEST-PROBE`
+  # present, and it is what is read — so no probe runs (`# BL-318-PYTEST-PROBE-GUARD`
   # belongs to the fallback only), and the calls hold the one real run.
   [ "$(_body "$p")" = "uv run --frozen pytest" ] || bad="$bad [no written file: $(_body "$p" | tr '\n' '|')]"
   s1="$(newtmp)"; mk_stubs "$s1" 1 || { CASE_DETAIL="stubs"; return 1; }
@@ -486,21 +609,32 @@ mutant() {
 HT=scripts/lib/hook-templates.sh
 AI=scripts/lib/adopt/adopt-intake.sh
 AS=scripts/lib/adopt/adopt-state.sh
-mutant MH1  "$HT" '# BL-318-PYTEST-UV'     '    if [ -f uv.lock ]; then soif_test_cmd="pytest"' case_H1 "a uv project runs bare pytest again (the dogfood defect)"
-mutant MH1b "$HT" '# BL-318-PYTEST-UV'     '    if [ -f uv.lock ] || [ -f pyproject.toml ]; then soif_test_cmd="uv run --frozen pytest"' case_H2 "the uv arm keys on pyproject.toml, not uv.lock (review round 1's R-3 survivor)"
-mutant MH2  "$HT" '# BL-318-PYTEST-POETRY' '    elif [ -f poetry.lock ]; then soif_test_cmd="pytest"' case_H2 "a poetry project runs bare pytest"
-mutant MH3  "$HT" '# BL-318-PYTEST-PDM'    '    elif [ -f pdm.lock ]; then soif_test_cmd="pytest"' case_H3 "a pdm project runs bare pytest"
-mutant MH4  "$HT" '# BL-318-PYTEST-PIPENV' '    elif [ -f Pipfile ]; then soif_test_cmd="pytest"' case_H4 "a pipenv project runs bare pytest"
-mutant MH4b "$HT" '# BL-318-PYTEST-PIPENV' '    elif [ -f Pipfile.lock ]; then soif_test_cmd="pipenv run pytest"' case_H4 "the pipenv arm keys on Pipfile.lock, not Pipfile (review round 1's R-3 survivor)"
-mutant MP1  "$HT" '# BL-318-PYTEST-PROBE'  '    if false; then' case_H8 "no probe: a pytest uv cannot spawn blocks every source commit as a failed suite (review round 1's R-2)"
+# The writer's offer read as round 2 spelled it — from the interview's prefill,
+# which says "(none detected)" when Scout found nothing.
+OLD_OFFER_READ="$(cat <<'R'
+  offered="$(jq -r '[.intakePrefill.sections[]? | select(.field == "test_command") | (.value // "")] | last // ""' "$report" 2>/dev/null)"
+R
+)"
+mutant MH1  "$HT" '# BL-318-PYTEST-UV'     '    if [ -f uv.lock ]; then soif_test_run=""' case_H1 "a uv project runs bare pytest again (the dogfood defect)"
+mutant MH1b "$HT" '# BL-318-PYTEST-UV'     '    if [ -f uv.lock ] || [ -f pyproject.toml ]; then soif_test_run="uv run --frozen"' case_H2 "the uv arm keys on pyproject.toml, not uv.lock (review round 1's R-3 survivor)"
+mutant MH2  "$HT" '# BL-318-PYTEST-POETRY' '    elif [ -f poetry.lock ]; then soif_test_run=""' case_H2 "a poetry project runs bare pytest"
+mutant MH3  "$HT" '# BL-318-PYTEST-PDM'    '    elif [ -f pdm.lock ]; then soif_test_run=""' case_H3 "a pdm project runs bare pytest"
+mutant MH4  "$HT" '# BL-318-PYTEST-PIPENV' '    elif [ -f Pipfile ]; then soif_test_run=""' case_H4 "a pipenv project runs bare pytest"
+mutant MH4b "$HT" '# BL-318-PYTEST-PIPENV' '    elif [ -f Pipfile.lock ]; then soif_test_run="pipenv run"' case_H4 "the pipenv arm keys on Pipfile.lock, not Pipfile (review round 1's R-3 survivor)"
+mutant MP1  "$HT" '# BL-318-PYTEST-PROBE-FAIL'  '      if false; then' case_H8 "no probe: a pytest uv cannot spawn blocks every source commit as a failed suite (review round 1's R-2)"
+mutant MP2  "$HT" '# BL-318-PYTEST-PROBE-CMD' '      soif_probe="$soif_test_cmd --version"' case_H9 "the probe is pytest --version again: on pytest 8 a suite the commit broke lands as not enforced (review N3)"
+mutant MP3  "$HT" '# BL-318-PYTEST-PROBE-GUARD' '    if true; then' case_H5 "the bare-pytest arm is probed too (review N4's survivor)"
 mutant MW1  "$AI" '# BL-318-TESTCMD-WRITE' '  :' case_U1 "Scout's kept command is never written"
 mutant MW2  "$AI" '# BL-318-TESTCMD-KEEP' '  if false; then' case_U3 "a .claude/test-command the project already has is overwritten"
 mutant MW3  "$AI" '# BL-318-TESTCMD-KEEP' '  if [ -f "$root/$rel" ]; then' case_U3b "a dangling symlink is written through"
-mutant MW4  "$AI" '# BL-318-TESTCMD-ASKED' '  if false; then' case_U4 "a free answer to a question that never named a command is written as one"
+mutant MW4  "$AI" '# BL-318-TESTCMD-ASKED' '  if false; then' case_U4 "a scan that found nothing is not said to have found nothing"
 mutant MW5  "$AI" '# BL-318-TESTCMD-KEPT' '  if false; then' case_U7 "a changed answer is written and run on every commit (review round 1's R-1)"
 mutant MW6  "$AI" '# BL-318-TESTCMD-FLAG-WHY' '      :' case_U6 "the kept Scout flag is not explained"
 mutant MW7  "$AS" '# BL-318-TESTCMD-CALL' '  :' case_A1 "adoption never calls the writer"
 mutant MW7b "$AS" '# BL-318-TESTCMD-CALL' '  :' case_A2 "adoption never calls the writer, seen at the next commit (review round 1's R-4)"
+mutant MN1  "$AI" '# BL-318-TESTCMD-OFFER' "$OLD_OFFER_READ" case_U4 "the offer is read from the interview's prefill, so '(none detected)' is written (review N1)"
+mutant MN1b "$AI" '# BL-318-TESTCMD-OFFER' "$OLD_OFFER_READ" case_A4 "the same, end to end: the file holds '(none detected)' and a failing suite lands (review N1)"
+mutant MN2  "$AI" '# BL-318-TESTCMD-PLACEHOLDER' '  if false; then' case_U8 "npm's placeholder script is written as the test command and blocks every source commit (review N2)"
 mutant MS1  "$AI" '# BL-318-TESTCMD-SAYS' '    if false; then' case_U3 "a kept file's command is not said"
 mutant MS2  "$AI" '# BL-318-TESTCMD-SAYS' '    if true; then' case_U3c "a kept file with nothing runnable is described as running something"
 mutant ML1  "$AI" '# BL-318-TESTCMD-LINK' '    :' case_U3b "a kept symlink's target is not named"
