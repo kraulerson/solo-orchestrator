@@ -8,10 +8,13 @@
 # The session-start version check (session-version-check.sh, from the
 # check-versions.sh row `# BL-318-G5-OFFER`) offers this command when the
 # project's `.claude/manifest.json` -> `frameworkVersion` is older than the
-# clone's FRAMEWORK_VERSION. The agent must not run it: the Guardrails'
-# config-guard blocks the agent writing `.claude/framework/` and
-# `.claude/manifest.json`. The human types it after `!` at the Claude Code
-# prompt, where it runs with no TTY.
+# clone's FRAMEWORK_VERSION. The agent is told not to run it — it replaces the
+# Guardrails that check the agent's own work, so starting it is the human's
+# decision — and the human types it after `!` at the Claude Code prompt, where
+# it runs with no TTY. Nothing here enforces that: the Guardrails' config-guard
+# blocks the agent editing `.claude/framework/` and `.claude/manifest.json`
+# directly, but it reads command text and allows this command (measured,
+# Guardrails 4.3.7; `## BL-318:` G5 residuals).
 #
 # WHY NOT `upgrade-project.sh --sync-framework`. Measured 2026-10-05 against a
 # Guardrails 4.3.0 project and a 4.3.7 clone, run as `!` runs it (stdin not a

@@ -16,9 +16,10 @@
 #     it cannot read -> "cannot tell", never silence and never "up to date".
 #     Only in a project that has `.claude/framework/`.
 #   - session-version-check.sh turns that row into an offer the agent relays
-#     and must not act on itself: the Guardrails' config-guard blocks the
-#     agent writing `.claude/framework/` and `.claude/manifest.json`, so the
-#     human types the command after `!`. Its words are checked against
+#     and must not act on itself (the update replaces the Guardrails that check
+#     the agent's work; config-guard does NOT stop the agent running it — it
+#     blocks direct edits only), so the human types the command after `!`. Its
+#     words are checked against
 #     scripts/lib/bypass-patterns.sh the way `# BL-311-ASSESSMENT-AUTO-MODE`'s
 #     are (tests/test-bl311-e-clone-path.sh C8).
 #   - scripts/refresh-guardrails.sh, shipped to every project, runs ONLY the
@@ -275,6 +276,7 @@ case_S1() {
               "records the new version in .claude/manifest.json" \
               "It does not change .claude/settings.json." \
               "Do NOT run the update yourself" \
+              "it replaces the Guardrails that check your own work, so starting it is the Orchestrator's decision" \
               "type ! and then this exact command at the Claude Code prompt" \
               "every session start until the update is done" \
               "no restart is needed for the new hooks"; do
@@ -302,7 +304,7 @@ case_S3() {   # the detector finds nothing in the offer, or in a relay of it
   word="$(printf '%s\n' "$para" | command grep -oiE 'terminal|shell' | head -1)"
   [ -z "$word" ] || { CASE_DETAIL="the offer names a '$word' route; a relay of it in other words can match terminal_workaround"; return 1; }
   joined="$(printf '%s\n' "$para" | tr '\n' ' ' | tr -s ' ')"
-  relay="Your project's Development Guardrails are 4.3.0 and 4.3.7 is available. I can't run the update myself, because the Guardrails block me from changing .claude/framework/. To update, type ! and then \`bash scripts/refresh-guardrails.sh\` at the Claude Code prompt; it does not change .claude/settings.json. Or skip it and I will carry on."
+  relay="Your project's Development Guardrails are 4.3.0 and 4.3.7 is available. I won't run the update myself: it replaces the Guardrails that check my own work, so it is your call. To update, type ! and then \`bash scripts/refresh-guardrails.sh\` at the Claude Code prompt; it does not change .claude/settings.json. Or skip it and I will carry on."
   hit="$( ( . "$1/scripts/lib/bypass-patterns.sh"
             while IFS= read -r l; do scan_bypass_patterns_all "$l" | sed 's/$/ (a line)/'; done <<< "$para"
             scan_bypass_patterns_all "$joined" | sed 's/$/ (the offer as one line)/'
