@@ -622,9 +622,13 @@ If tools are out of date, the script offers interactive update options:
   ```
 
 - The agent does not run it itself: the update replaces the Guardrails that check the agent's own work, so starting it is your decision. (The Guardrails block the agent editing `.claude/framework/` and `.claude/manifest.json` directly; they do not block this command, so the agent's restraint here is an instruction, not a check.)
-- It copies the clone's Guardrails hooks, rules and gates into `.claude/framework/` and records the new version in `.claude/manifest.json`. It does **not** change `.claude/settings.json` (`## BL-319:` tracks that). It ends with an `[OK]` line, or a `[FAIL]` line naming what did not land.
+- It first runs `git pull --ff-only` on the Guardrails clone. Every project on this machine shares that clone, and the pull can bring a newer version than the one you were offered.
+- Then it copies the clone's Guardrails hooks and rules into `.claude/framework/` and records the new version in `.claude/manifest.json`. It does **not** change `.claude/settings.json` (`## BL-319:` tracks that). It ends with an `[OK]` line, or a `[FAIL]` line naming what did not land.
+- It refuses, changing nothing: a new MAJOR version (a Guardrails migration — the session start reports that case and offers no command), an uncommitted change in the clone's hooks or rules, and a symlink in `.claude/framework/`.
 - The new hooks apply from the agent's next tool call: Claude Code runs each hook from its file every time, so no restart is needed. Only the Guardrails' own session-start message stays the old one until the next session.
 - Say no and the session carries on. The offer comes back at every session start until the versions match, so if a Guardrails hook is blocking you wrongly, start a new session and accept it — or type the command at any time.
+
+`scripts/check-updates.sh` compares the same two versions when you run it by hand, and points at the same command.
 
 When the check cannot read one of the two versions — no `.claude/manifest.json`, no `frameworkVersion` in it, no clone, or a value that is not `MAJOR.MINOR.PATCH` — it says "cannot tell whether an update is available" and why, instead of staying silent.
 

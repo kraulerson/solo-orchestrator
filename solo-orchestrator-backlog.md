@@ -22788,34 +22788,59 @@ G5 status: Open until that PR merges.**
 - **The check.** `check-versions.sh` compares the project's `.claude/manifest.json` `frameworkVersion`
   with the clone's `FRAMEWORK_VERSION`, numerically, part by part (`# BL-318-G5-CMP`), accepting only
   `MAJOR.MINOR.PATCH` (`# BL-318-G5-VALID`), and only in a project with `.claude/framework/`
-  (`# BL-318-G5-FRAMEWORK-DIR`). Behind: a `[WARN]` and `bash scripts/refresh-guardrails.sh` under
-  "Update commands" (`# BL-318-G5-OFFER`). No manifest, no key, no clone, or a value that is not a
-  version: "cannot tell whether an update is available" with the reason, never silence and never "up
-  to date".
+  (`# BL-318-G5-FRAMEWORK-DIR`). Behind within one MAJOR version: a `[WARN]` and
+  `bash scripts/refresh-guardrails.sh` under "Update commands" (`# BL-318-G5-OFFER`). A newer MAJOR
+  version: a `[WARN]` that names `migrations/` and no command (`# BL-318-G5-MAJOR`, review round 1
+  R-3). No manifest, no key, no clone, or a value that is not a version: "cannot tell whether an update
+  is available" with the reason, never silence and never "up to date". A value read from the manifest
+  is shown as `[0-9A-Za-z._+-]` only, at most 40 characters (`# BL-318-G5-SAFE`, R-7): before that,
+  `"frameworkVersion": "BELOW MINIMUM"` made the session start print "URGENT — … Do NOT proceed".
 - **The offer.** `session-version-check.sh` takes the row out of the generic text, whose question is
   "Would you like me to run these updates now", and makes it on its own (`# BL-318-G5-SESSION-OFFER`):
   both versions, what the update changes, that settings are untouched, and that the agent must not run
   it, because it replaces the Guardrails that check the agent's own work — the human types it after `!`
-  (`# BL-318-G5-SESSION-ROUTE`). Its words name no terminal or shell, and the suite checks each line,
-  the whole offer and a relay of it against `scripts/lib/bypass-patterns.sh`.
+  (`# BL-318-G5-SESSION-ROUTE`). It also says the command first pulls the shared clone and can
+  install a newer version than offered (R-4). Its words name no terminal or shell and carry no flag,
+  and the suite checks each line, the whole offer and a relay of it against
+  `scripts/lib/bypass-patterns.sh`.
+- **The relay (review round 1, R-2).** Claude Code's documentation calls `!` "shell mode", so the
+  natural relay ("Type `!` at the Claude Code prompt, then `bash scripts/refresh-guardrails.sh`, to run
+  it in shell mode.") matched `terminal_workaround` and the real `scripts/hooks/bypass-detector.sh`
+  raised the sentinel, which then blocks commits. The detector now pins this exact command beside the
+  assessment finisher (`SOIF_RELAY_GUARDRAILS_SHA256`, `# BL-318-G5-HANDOFF-MATCH`), under every
+  condition of the hand-to-human line: the same sentence with another command, an argument, a chained
+  command, or the agent saying it will type it, still raises.
 - **The command.** `scripts/refresh-guardrails.sh`, shipped to every project (`# BL-318-G5-SHIP`),
-  runs only the clone's own `refresh_cdf_assets` and then checks the result: every copied file
-  byte-identical (`# BL-318-G5-RECEIPT-FILES`), hooks and gates executable (`# BL-318-G5-RECEIPT-EXEC`),
-  the manifest naming the clone's version (`# BL-318-G5-RECEIPT-VERSION`). Anything short of that is
-  `[FAIL]` and a non-zero exit.
+  refuses before writing anything: a symlink on the write path (`# BL-318-G5-REFRESH-LINK-DIR`,
+  `# BL-318-G5-REFRESH-LINK-FILE`, R-8b); an uncommitted change in what the clone copies
+  (`# BL-318-G5-REFRESH-DIRTY`, R-8a — the manifest would record a commit that lacks it, and every
+  later check would call the project current); a different MAJOR version, checked after its own pull
+  of the clone so the version checked is the one that would be installed (`# BL-318-G5-REFRESH-PULL`,
+  `# BL-318-G5-REFRESH-MAJOR`, R-3). Then it runs only the clone's own `refresh_cdf_assets` and checks
+  the result: every copied file of every kind byte-identical (`# BL-318-G5-RECEIPT-KINDS`,
+  `# BL-318-G5-RECEIPT-FILES`), hook scripts executable (`# BL-318-G5-RECEIPT-EXEC`), the manifest
+  naming the clone's version (`# BL-318-G5-RECEIPT-VERSION`). Anything short of that is `[FAIL]` and a
+  non-zero exit. `scripts/check-updates.sh` now points at it too and no longer reads a project ahead of
+  the clone as needing an update (`# BL-318-G5-CU-REMEDY`, `# BL-318-G5-CU-AHEAD`, R-6).
 - **Why not `upgrade-project.sh --sync-framework`.** Measured with stdin not a TTY (how a command typed
   after `!` runs) against a Guardrails 4.3.0 project and a 4.3.7 clone: it does apply the refresh, and
   in the same run it re-synced 70 of 74 vendored scripts, backfilled `scripts/lib/` files, the skills
-  and `.gitignore`, and stamped `soloFrameworkCommit` — 85 paths. On real 4.3.0 and 4.3.7 Guardrails
-  files the new command changed 16 (13 hooks, 2 rules, the manifest) and left `.claude/settings.json`
-  byte-identical. `--backfill-only` runs the same backfills before the same refresh.
+  and `.gitignore`, and stamped `soloFrameworkCommit` — 85 paths. On real Guardrails files the new
+  command changed 16 paths and left `.claude/settings.json` byte-identical: 12 hooks changed or added,
+  2 rules, the manifest, and a mode-only change (`+x`) on `hooks/_preflight.sh`. That fixture took its
+  4.3.0 files from CDF `0396a1a` with `git archive`, which keeps git's 644 mode for that file; a project
+  the Guardrails installer set up already has it executable, so there the count is 15 (the reviewer's,
+  on `ea2025a`, the same 4.3.0 file set) against 4.3.7 at `e1e2fa1`. `--backfill-only` runs the same
+  backfills before the same refresh.
 - **No restart.** Claude Code starts each hook as a new process from its path in
   `.claude/settings.json`. Measured: the registered hook command printed the 4.3.0 text before the
   update and the 4.3.7 text on the next call after it. The Guardrails' own session-start message was
   printed once, at the session's start, and changes at the next session.
-- **Tests.** `tests/test-bl318-g5-guardrails-refresh.sh`: 29 cases and 26 mutants. Its end-to-end case
-  needs the real `cdf-refresh.sh` and SKIPS where no clone supplies it (CI has none); the command's own
-  guards run against stub upstreams everywhere.
+- **Tests.** `tests/test-bl318-g5-guardrails-refresh.sh`: 46 cases and 43 mutants. E1, the end to end
+  against the real `cdf-refresh.sh`, SKIPS where no clone supplies it (CI has none); E0 runs the same
+  end to end against a faithful stub upstream everywhere (review round 1, R-1: before it, nothing in the
+  PR lane proved the command could succeed or leave `settings.json` alone), and so do the command's own
+  guards and the real-detector relay cases.
 
 **G5 residuals (not fixed):**
 - **Nothing stops the agent running the update itself.** The offer tells it not to, and that is the only
@@ -22825,8 +22850,13 @@ G5 status: Open until that PR merges.**
   no protected path. Enforcing ask-first needs a check that refuses this command from the agent's Bash
   tool while a command typed after `!` still runs; this branch builds none, and no way to tell the two
   apart was measured.
-- **The clone pull has no bound.** `refresh_cdf_assets` (upstream CDF) runs `git pull --ff-only` with
-  no timeout, so a network that hangs holds the `!` command until the user interrupts it.
+- **The clone pulls have no bound.** The command's own pull (`GIT_TERMINAL_PROMPT=0`, so it never
+  waits on a credential prompt) and `refresh_cdf_assets`'s (upstream CDF) run `git pull --ff-only`
+  with no timeout, so a network that hangs holds the `!` command until the user interrupts it.
+- **The relay exemption is as narrow as the finisher's.** A relay line is exempt only when it names
+  `!` and the Claude Code prompt; "run it in shell mode with `bash scripts/refresh-guardrails.sh`" on
+  its own still raises the sentinel (fails closed, as for the finisher). The offer's own wording names
+  both, so a relay that follows it is clean.
 - **It compares with the clone on disk.** A clone behind its remote at the project's own version makes
   no offer; the clone row asks for `git pull` first and the next session offers the update. The
   refresh pulls first, so it can install a newer version than the offer named; its `[OK]` line reports
@@ -22841,6 +22871,11 @@ G5 status: Open until that PR merges.**
   registered keeps running its old code. Both are `## BL-319:`.
 
 **Handed to the Development Guardrails (CDF), not fixed here:**
+- G5 review round 1, R-5: CDF's own session-start hook says "Framework N commits behind. Run: cd
+  ~/.claude-dev-framework && git pull && cd - && bash ~/.claude-dev-framework/scripts/sync.sh", and
+  `sync.sh` regenerates the hook registrations in `.claude/settings.json`. In the same session the G5
+  offer says the agent must not run the update itself and that the update does not change settings.
+  The two messages contradict each other; CDF's should point at the project's own update route.
 - The agent cannot commit. After approval, `enforce-evaluate` requires `mark-evaluated.sh`, and
   `config-guard` forbids running it. `config-guard` also forbids `git add` of the `.claude/` state
   files the finisher tells the operator to stage (findings 23, 30).

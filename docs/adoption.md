@@ -294,10 +294,15 @@ bash scripts/refresh-guardrails.sh
 ```
 
 The agent is told not to run it for you: it replaces the Guardrails that check
-the agent's own work, so starting it is your decision. The command copies the
-clone's Guardrails hooks, rules and gates into `.claude/framework/` and records
-the new version in `.claude/manifest.json`; it does not change
-`.claude/settings.json`. The new hooks apply from the agent's next tool call,
+the agent's own work, so starting it is your decision. The command first runs
+`git pull --ff-only` on the Guardrails clone, which every project on this
+machine shares, so it can install a newer version than the one offered. Then it
+copies the clone's Guardrails hooks and rules into `.claude/framework/` and
+records the new version in `.claude/manifest.json`; it does not change
+`.claude/settings.json`. It refuses a new MAJOR version (that is a migration,
+and the session start says so instead of offering the command), an uncommitted
+change in the clone's hooks or rules, and a symlink in `.claude/framework/`,
+changing nothing. The new hooks apply from the agent's next tool call,
 so no restart is needed. Say no and the offer comes back at the next session
 start, so a session that a Guardrails defect is blocking can be restarted and
 the fix accepted then. Commit `.claude/framework/` and `.claude/manifest.json`
