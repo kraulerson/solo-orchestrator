@@ -22802,7 +22802,11 @@ G5 status: Open until that PR merges.**
   (`# BL-318-G5-SESSION-ROUTE`). It also says the command first pulls the shared clone and can
   install a newer version than offered (R-4). Its words name no terminal or shell and carry no flag,
   and the suite checks each line, the whole offer and a relay of it against
-  `scripts/lib/bypass-patterns.sh`.
+  `scripts/lib/bypass-patterns.sh`. A Guardrails row with no command (a new MAJOR version, or
+  "cannot tell") leaves the generic block too and is told as a notice the agent must not act on
+  (`# BL-318-G5-SESSION-NOTICE-SPLIT`, final check N1): under the generic "Would you like me to run
+  these updates now" it invited the agent to offer a migration, and after a refused update has pulled
+  the shared clone, every other project on the machine shows that row.
 - **The relay (review round 1, R-2).** Claude Code's documentation calls `!` "shell mode", so the
   natural relay ("Type `!` at the Claude Code prompt, then `bash scripts/refresh-guardrails.sh`, to run
   it in shell mode.") matched `terminal_workaround` and the real `scripts/hooks/bypass-detector.sh`
@@ -22811,12 +22815,13 @@ G5 status: Open until that PR merges.**
   condition of the hand-to-human line: the same sentence with another command, an argument, a chained
   command, or the agent saying it will type it, still raises.
 - **The command.** `scripts/refresh-guardrails.sh`, shipped to every project (`# BL-318-G5-SHIP`),
-  refuses before writing anything: a symlink on the write path (`# BL-318-G5-REFRESH-LINK-DIR`,
+  refuses before writing anything in the project: a symlink on the write path (`# BL-318-G5-REFRESH-LINK-DIR`,
   `# BL-318-G5-REFRESH-LINK-FILE`, R-8b); an uncommitted change in what the clone copies
   (`# BL-318-G5-REFRESH-DIRTY`, R-8a — the manifest would record a commit that lacks it, and every
-  later check would call the project current); a different MAJOR version, checked after its own pull
-  of the clone so the version checked is the one that would be installed (`# BL-318-G5-REFRESH-PULL`,
-  `# BL-318-G5-REFRESH-MAJOR`, R-3). Then it runs only the clone's own `refresh_cdf_assets` and checks
+  later check would call the project current; untracked files count); a different MAJOR version,
+  upgrade or downgrade, checked after its own pull of the clone so the version checked is the one that
+  would be installed (`# BL-318-G5-REFRESH-PULL`, `# BL-318-G5-REFRESH-MAJOR`, R-3). That pull may
+  already have moved the shared clone when it refuses. Then it runs only the clone's own `refresh_cdf_assets` and checks
   the result: every copied file of every kind byte-identical (`# BL-318-G5-RECEIPT-KINDS`,
   `# BL-318-G5-RECEIPT-FILES`), hook scripts executable (`# BL-318-G5-RECEIPT-EXEC`), the manifest
   naming the clone's version (`# BL-318-G5-RECEIPT-VERSION`). Anything short of that is `[FAIL]` and a
@@ -22836,7 +22841,7 @@ G5 status: Open until that PR merges.**
   `.claude/settings.json`. Measured: the registered hook command printed the 4.3.0 text before the
   update and the 4.3.7 text on the next call after it. The Guardrails' own session-start message was
   printed once, at the session's start, and changes at the next session.
-- **Tests.** `tests/test-bl318-g5-guardrails-refresh.sh`: 46 cases and 43 mutants. E1, the end to end
+- **Tests.** `tests/test-bl318-g5-guardrails-refresh.sh`: 48 cases and 48 mutants. E1, the end to end
   against the real `cdf-refresh.sh`, SKIPS where no clone supplies it (CI has none); E0 runs the same
   end to end against a faithful stub upstream everywhere (review round 1, R-1: before it, nothing in the
   PR lane proved the command could succeed or leave `settings.json` alone), and so do the command's own

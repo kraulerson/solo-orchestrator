@@ -300,9 +300,10 @@ machine shares, so it can install a newer version than the one offered. Then it
 copies the clone's Guardrails hooks and rules into `.claude/framework/` and
 records the new version in `.claude/manifest.json`; it does not change
 `.claude/settings.json`. It refuses a new MAJOR version (that is a migration,
-and the session start says so instead of offering the command), an uncommitted
-change in the clone's hooks or rules, and a symlink in `.claude/framework/`,
-changing nothing. The new hooks apply from the agent's next tool call,
+and the session start tells you so instead of offering the command), an
+uncommitted change in the clone's hooks or rules, and a symlink in
+`.claude/framework/`. When it refuses, nothing in this project is changed; the
+shared clone may already have been pulled. The new hooks apply from the agent's next tool call,
 so no restart is needed. Say no and the offer comes back at the next session
 start, so a session that a Guardrails defect is blocking can be restarted and
 the fix accepted then. Commit `.claude/framework/` and `.claude/manifest.json`
