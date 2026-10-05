@@ -2312,12 +2312,16 @@ project that is already adopted. Or run the scanners by hand on each commit:
   that answer, nothing is written**: the question is about testing in general,
   and a sentence in that file would run on every commit. A `.claude/test-command`
   you already have is left exactly as it is, and the run says what it will run.
-  Nothing is written either when the scan found no test command. The run's "The
-  test command your commits run" section says which of these happened, and gives
-  the one line that writes a command yourself. With no file, the hook finds a
+  Nothing is written either when the scan found no test command (the interview
+  shows "(none detected)"), or when the script it found is npm's placeholder
+  (`echo "Error: no test specified" && exit 1`), which would block every source
+  commit. The run's "The test command your commits run" section says which of
+  these happened. When you changed the answer, it also gives the one line that
+  writes a command yourself. With no file, the hook finds a
   command itself: pytest runs through uv, poetry, pdm or pipenv when that tool's
-  file is there, once `--version` shows pytest starts in it — if it cannot, the
-  commit lands with a loud PROJECT TESTS NOT ENFORCED. A project adopted before
+  file is there, once importing pytest through that tool works — if it cannot,
+  the commit lands with a loud PROJECT TESTS NOT ENFORCED. A suite that is there
+  but broken still blocks. A project adopted before
   2026-10-03 has no file, and for a Python project its older hook runs a bare
   `pytest`. Write the file, or refresh the hook from the project's folder with
   `bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework`. It asks

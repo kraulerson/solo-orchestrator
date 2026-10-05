@@ -22737,17 +22737,24 @@ preference, which made every reply carry one anyway.
 | **G5** | The run used Guardrails 4.3.0 (`0396a1a`) while the CDF clone is `2f7ef3a`, so no Guardrails fix since then reached this adoptee. | Adoption's "already installed" arm (`adopt_guardrails_resolve`) keeps an adoptee's older Guardrails install and never refreshes it. **Design question for Karl:** refresh on adoption (and how to archive what it replaces), or point the operator at the CDF upgrade. | Stage 1 log |
 | **G6** | Three small ones. (a) Scout and adoption report "deploys on a branch push" for a `ci.yml` with no deploy step: line 149 is Nuitka's `--no-deployment-flag`. (b) Adoption runs `claude mcp add` mid-interview, yet a later refusal says "Nothing was committed and nothing was written". That is true of the project, not of Claude Code's user configuration. (c) The assessment records `adoptedAtCommit` as the pre-adoption HEAD. **That is by design** (`adoption-stamp.sh`: "the PRE-ADOPTION TIP, i.e. the parent the adoption commit will land on"). Only the finisher's wording "the commit this project was adopted at" invites the misreading. | (a) the deploy detector matches the word inside a flag. (b) the refusal's sentence does not count writes outside the project. (c) wording only. | 5, 12, 19 |
 
-**G1, as built (branch `fix/bl318-g1-test-command`, review round 2).**
-- Adoption writes `.claude/test-command` only when the operator **kept** the scan's offer: the recorded
-  answer equals the report's offer. The offer is one of Scout's fixed command strings, written verbatim
-  with its no-rewrite flag (`# BL-318-TESTCMD-KEPT`, `adopt_write_test_command`).
+**G1, as built (branch `fix/bl318-g1-test-command`, after the final check).**
+- Adoption writes `.claude/test-command` only when the operator **kept** the scan's offer. The recorded
+  answer must equal Scout's `stack.testCommand.value` (`# BL-318-TESTCMD-OFFER`), which is one of Scout's
+  fixed command strings or null. It is written verbatim with its no-rewrite flag (`# BL-318-TESTCMD-KEPT`,
+  `adopt_write_test_command`).
+- Nothing is written when Scout found no command. The interview shows "(none detected)" there, which
+  round 2 compared against and wrote (`# BL-318-TESTCMD-ASKED`).
+- Nothing is written when the offer is npm's placeholder script, which would block every source commit
+  (`# BL-318-TESTCMD-PLACEHOLDER`, the hook's own `no test specified` needle).
 - A **changed** answer is never written (the coordinator's decision on review round 1's R-1). Round 1
   wrote `pytest; bugs in GitHub Issues`, and a commit with a failing pytest then landed. The run says
   what runs instead and gives the one `echo` line that writes a command.
 - A file the project already has is kept, and the run says what the check will run from it.
-- The hook's own pytest fallback goes through uv, poetry, pdm or pipenv, and first probes
-  `<command> --version` (`# BL-318-PYTEST-PROBE`). Pytest that cannot start there is not enforced,
-  loudly, instead of every source commit being blocked as a failed suite.
+- The hook's own pytest fallback goes through uv, poetry, pdm or pipenv. It first probes
+  `<runner> python -c 'import pytest'` (`# BL-318-PYTEST-PROBE-CMD`); round 2's `pytest --version`
+  loaded plugins on pytest 8.x, so a broken suite read as missing. Pytest absent from that
+  environment is not enforced, loudly, instead of every source commit being blocked as a failed
+  suite. A suite that is there but broken still blocks.
 
 **Residuals (not fixed):**
 - **A written file gets no probe.** A kept `uv run --frozen pytest` whose pytest is not in the
