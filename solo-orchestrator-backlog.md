@@ -22780,6 +22780,46 @@ preference, which made every reply carry one anyway.
   check finds nothing to run while `package.json` carries npm's placeholder. In a Python project whose
   `package.json` came from `npm init`, the hook's own fallback still runs pytest.
 
+**G2, as built (branch `fix/bl318-g2-resume-adoptee`; PR to be cited).**
+- **The route.** In `## BL-202:` branch 2 of `scripts/resume.sh`, an adopted project at phase 0 with its
+  intake done now gets its own Section 13, whether or not it kept a `PRODUCT_MANIFESTO.md`
+  (`# BL-318-G2-ADOPTEE-PHASE0`). The test is adoption's stamp, `.adoption.adopted == true` in
+  `.claude/manifest.json`, read as state the way `# BL-242-RESUME-ASSESSMENT` reads it. An adoptee whose
+  assessment is not recorded never reaches it, because that branch exits first. Adoption archives a copy
+  of an adoptee's manifesto and leaves the file in place, so the old "no manifesto" test sent every
+  adoptee built with an older Solo to the classic prompt. Greenfield routing is unchanged: with a
+  manifesto, the classic prompt; without one, Section 13.
+- **Why the paragraph came out three times.** Each field took the first CLAUDE.md line that contained its
+  words (`grep -i "features built"`). The template's Context Health Check bullet says "Summarize features
+  built, features remaining, current data model, and known issues". So one line matched three fields, and
+  the sed that strips "Label:" found no colon and stripped nothing. A field is now read only from a
+  "Label:" line, with markdown bold allowed on either side of the colon (`# BL-318-G2-FIELD-LABEL`). That
+  also drops the stray `**` the addendum's own `- **Features built:** …` format used to leave in the value.
+- **No filler.** A field CLAUDE.md does not record is left out (`# BL-318-G2-FIELD-OMIT`). When none is
+  recorded, one plain line says so (`# BL-318-G2-FIELDS-NONE`). With no CLAUDE.md at all, one line says
+  that, and the closing no longer tells the agent to read it (`# BL-318-G2-NO-CLAUDE-FIELDS`,
+  `# BL-318-G2-NO-CLAUDE-CLOSING`). The "Current State section is stale" sentence is printed only when
+  CLAUDE.md has a Current State heading (`# BL-318-G2-CURRENT-STATE`); the framework's template has none.
+- **Measured on the k-pdf shape** (the run's git bundle checked out at `62946e1`: adopted, assessed, its
+  own manifesto). Before: the classic prompt, the paragraph three times, "Last session: (not found in
+  CLAUDE.md)". After: the project's Section 13, verbatim. The same checkout moved to phase 1 now gets the
+  classic prompt with one plain line where the four fields were.
+- **Tests.** `tests/test-bl318-g2-resume-adoptee.sh`: 10 cases and 13 mutants on one real adoption and the
+  real Act 4 finisher. `tests/edge-cases-scripts.sh` E12a and E12b pinned the removed filler and now pin
+  the plain lines.
+
+**G2 residuals (not fixed):**
+- **The assessment does not update Section 13.** The Phase 0 prompt is Section 13 as adoption wrote it. It
+  still says the judgement cells are blank and "nobody has been asked them yet", and that adoption "did
+  not ask for" the data classification. By then Act 4 has written the answers into
+  `.claude/intake-progress.json` and the classification where the phase gate reads it, so the agent may
+  ask again what was already answered. The guide promises this prompt, so G2 prints it as written.
+- **The session-start hook still keys on the manifesto.** `scripts/session-intake-check.sh` relays "READY
+  FOR PHASE 0" only when `PRODUCT_MANIFESTO.md` is absent. On the k-pdf shape it stays silent (measured:
+  no output), so the user is not pointed at `resume.sh`, though `resume.sh` gives the right answer when
+  run. For an adoptee that has not been assessed and has no manifesto, it says `resume.sh` prints
+  Section 13, while `resume.sh` prints the assessment prompt (measured on a fresh adoption).
+
 **G5, decided (Karl, 2026-10-05) and built (branch `fix/bl318-g5-guardrails-refresh`; PR to be cited).
 G5 status: Open until that PR merges.**
 - **The ruling.** Option (b), ask first — but at **every** Claude Code session start, not once, so a
@@ -22874,6 +22914,18 @@ G5 status: Open until that PR merges.**
 - **Hooks are copied, not registered; removed hooks stay.** A release that adds a hook needs a
   settings change to run it, and the refresh never deletes a hook the clone dropped — one still
   registered keeps running its old code. Both are `## BL-319:`.
+- **The dirty-clone refusal follows the user's git setting (PR #497, review round 3).**
+  `# BL-318-G5-REFRESH-PORCELAIN` runs `git status --porcelain`, which honours
+  `status.showUntrackedFiles=no`. Under that setting an untracked file in the clone's hooks or rules is not
+  listed, so the refusal misses it (measured: `?? hooks/new.sh` by default, nothing with the setting).
+  Fix: `--untracked-files=all`.
+- **A home folder whose name contains "shell" or "terminal" can raise a false bypass alarm (PR #497,
+  review round 3).** The
+  GUARDRAILS NOTICE puts the clone path right after "Do NOT run anything about it yourself:". Pasted as
+  one paragraph with a home folder such as `/Users/shelley`, the text matches `terminal_workaround` and
+  the sentinel is raised (measured against `scripts/lib/bypass-patterns.sh`; the same text with
+  `/Users/karl` does not match). It is a false alarm: nothing is let through. The suite's S3 does not
+  scan the notice.
 
 **Handed to the Development Guardrails (CDF), not fixed here:**
 - G5 review round 1, R-5: CDF's own session-start hook says "Framework N commits behind. Run: cd
