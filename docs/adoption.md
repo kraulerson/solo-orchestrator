@@ -293,8 +293,8 @@ you to type `!` and then this command at the Claude Code prompt:
 bash scripts/refresh-guardrails.sh
 ```
 
-The agent cannot run it for you: the Guardrails stop it changing
-`.claude/framework/` and `.claude/manifest.json`. The command copies the
+The agent is told not to run it for you: it replaces the Guardrails that check
+the agent's own work, so starting it is your decision. The command copies the
 clone's Guardrails hooks, rules and gates into `.claude/framework/` and records
 the new version in `.claude/manifest.json`; it does not change
 `.claude/settings.json`. The new hooks apply from the agent's next tool call,

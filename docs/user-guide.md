@@ -621,7 +621,7 @@ If tools are out of date, the script offers interactive update options:
   bash scripts/refresh-guardrails.sh
   ```
 
-- The agent does not run it itself. The Guardrails stop it changing `.claude/framework/` and `.claude/manifest.json`, so the update is yours to start.
+- The agent does not run it itself: the update replaces the Guardrails that check the agent's own work, so starting it is your decision. (The Guardrails block the agent editing `.claude/framework/` and `.claude/manifest.json` directly; they do not block this command, so the agent's restraint here is an instruction, not a check.)
 - It copies the clone's Guardrails hooks, rules and gates into `.claude/framework/` and records the new version in `.claude/manifest.json`. It does **not** change `.claude/settings.json` (`## BL-319:` tracks that). It ends with an `[OK]` line, or a `[FAIL]` line naming what did not land.
 - The new hooks apply from the agent's next tool call: Claude Code runs each hook from its file every time, so no restart is needed. Only the Guardrails' own session-start message stays the old one until the next session.
 - Say no and the session carries on. The offer comes back at every session start until the versions match, so if a Guardrails hook is blocking you wrongly, start a new session and accept it — or type the command at any time.

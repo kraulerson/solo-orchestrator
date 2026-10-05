@@ -22795,10 +22795,9 @@ G5 status: Open until that PR merges.**
 - **The offer.** `session-version-check.sh` takes the row out of the generic text, whose question is
   "Would you like me to run these updates now", and makes it on its own (`# BL-318-G5-SESSION-OFFER`):
   both versions, what the update changes, that settings are untouched, and that the agent must not run
-  it — the human types it after `!` (`# BL-318-G5-SESSION-ROUTE`), because the Guardrails' config-guard
-  blocks the agent writing `.claude/framework/` and `.claude/manifest.json`. Its words name no terminal
-  or shell, and the suite checks each line, the whole offer and a relay of it against
-  `scripts/lib/bypass-patterns.sh`.
+  it, because it replaces the Guardrails that check the agent's own work — the human types it after `!`
+  (`# BL-318-G5-SESSION-ROUTE`). Its words name no terminal or shell, and the suite checks each line,
+  the whole offer and a relay of it against `scripts/lib/bypass-patterns.sh`.
 - **The command.** `scripts/refresh-guardrails.sh`, shipped to every project (`# BL-318-G5-SHIP`),
   runs only the clone's own `refresh_cdf_assets` and then checks the result: every copied file
   byte-identical (`# BL-318-G5-RECEIPT-FILES`), hooks and gates executable (`# BL-318-G5-RECEIPT-EXEC`),
@@ -22819,6 +22818,13 @@ G5 status: Open until that PR merges.**
   guards run against stub upstreams everywhere.
 
 **G5 residuals (not fixed):**
+- **Nothing stops the agent running the update itself.** The offer tells it not to, and that is the only
+  line. Measured against Guardrails 4.3.7's config-guard: it blocks `cp x
+  .claude/framework/hooks/config-guard.sh` and a rewrite of `.claude/manifest.json` (exit 2), but allows
+  `bash scripts/refresh-guardrails.sh` (exit 0), because it reads the command's text and this text names
+  no protected path. Enforcing ask-first needs a check that refuses this command from the agent's Bash
+  tool while a command typed after `!` still runs; this branch builds none, and no way to tell the two
+  apart was measured.
 - **The clone pull has no bound.** `refresh_cdf_assets` (upstream CDF) runs `git pull --ff-only` with
   no timeout, so a network that hangs holds the `!` command until the user interrupts it.
 - **It compares with the clone on disk.** A clone behind its remote at the project's own version makes
@@ -22868,6 +22874,6 @@ Solo's own hooks (`session-version-check.sh` and the other session scripts, regi
 same file, and CDF's installer replaces `hooks` wholesale. A refresh must change only the Guardrails'
 entries. Undecided: how those entries are identified (the installer does not mark them); what happens
 to one the user edited; whether the refresh calls CDF's own settings merge or a Solo-side one; and
-whether the replaced file is archived the way adoption archives it. The agent cannot write the file
-(config-guard and the deny rules forbid it), so the route is G5's: offered, and typed by the human
-after `!`.
+whether the replaced file is archived the way adoption archives it. The agent cannot edit the file
+directly (config-guard and the deny rules forbid it), and a script it ran would not be stopped either
+(G5's first residual), so the route is G5's: offered, and typed by the human after `!`.
