@@ -26,14 +26,18 @@
 #      python template byte for byte, so every T and B case below reads the
 #      file adoption wrote; adoption's own words are checked too.
 #   T  the written workflow: triggers, name, the setup-uv pin, the steps each
-#      installer runs, and that no project tool runs ungated
-#   B  the shipped shell, executed as Actions runs it (bash -eo pipefail): the
-#      installer decision over six fixture trees, and the lockfile check
+#      installer runs, that no project tool runs ungated, and that nothing can
+#      skip the decision step or let its failure through (review round 1, R-1)
+#   B  the shipped shell, executed as Actions runs a `shell: bash` step (bash
+#      --noprofile --norc -eo pipefail; each executed step must declare
+#      `shell: bash`, R-4): the installer decision over six fixture trees, the
+#      fail-closed step (R-1), the lockfile check, and the uv license check
+#      leaving the project's own package out (R-2)
 #   D  the guides' sentences about when the framework's CI runs
 #   M  mutants. Template and doc mutants edit a copy and re-run the named case
 #      on it (adoption copies the template verbatim, which A1/A2 prove and MA1
 #      guards); adoption mutants edit a mirror of the tree and re-run adoption.
-#      Each checks its edit changed exactly one line, by text.
+#      Each checks its edit changed exactly the lines it means to, by text.
 #
 # Greenfield `init.sh` copies the same template verbatim to ci.yml
 # (`generate_ci`'s `cp`); it is not driven here, which keeps this suite out of
@@ -76,16 +80,18 @@ check() {
 TPL_REL="templates/pipelines/ci/github/python.yml"
 GATE_UV="steps.deps.outputs.installer == 'uv'"
 GATE_PIP="steps.deps.outputs.installer == 'pip'"
+GATE_NONE="steps.deps.outputs.installer != 'uv' && steps.deps.outputs.installer != 'pip'"
 WF_NAME="Solo Orchestrator checks"
 
 # steps_tsv FILE — one line per step of the `test` job:
-#   index <TAB> name <TAB> id <TAB> if <TAB> uses <TAB> env <TAB> run
+#   index <TAB> name <TAB> id <TAB> if <TAB> uses <TAB> env <TAB> run <TAB> coe <TAB> shell
+# coe is the whole `continue-on-error:` line when the step has one.
 # env entries and run-block lines are joined with \037. A block line keeps any
 # indentation beyond the block's own, so a command nested in an `if` does not
 # read as a top-level one.
 steps_tsv() {
   LC_ALL=C awk '
-    function flush() { if (n > 0) printf "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", n, nm, id, ifv, uses, env, run }
+    function flush() { if (n > 0) printf "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", n, nm, id, ifv, uses, env, run, coe, sh }
     function key(s) {
       mode = ""
       if (s ~ /^name: /)                   nm = substr(s, 7)
@@ -95,10 +101,12 @@ steps_tsv() {
       else if (s ~ /^run: \|[[:space:]]*$/) mode = "run"
       else if (s ~ /^run: /)               run = substr(s, 6)
       else if (s ~ /^env:[[:space:]]*$/)   mode = "env"
+      else if (s ~ /^continue-on-error:/)  coe = s
+      else if (s ~ /^shell: /)             sh = substr(s, 8)
     }
     /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { flush(); n = 0; injob = ($0 ~ /^  test:/); next }
     !injob { next }
-    /^      - / { flush(); n++; nm = ""; id = ""; ifv = ""; uses = ""; env = ""; run = ""; mode = ""; key(substr($0, 9)); next }
+    /^      - / { flush(); n++; nm = ""; id = ""; ifv = ""; uses = ""; env = ""; run = ""; coe = ""; sh = ""; mode = ""; key(substr($0, 9)); next }
     n > 0 && /^        [^ #]/ { key(substr($0, 9)); next }
     n > 0 && mode == "run" && /^          / { l = substr($0, 11); run = (run == "" ? l : run "\037" l); next }
     n > 0 && mode == "env" && /^          [^ #]/ { l = substr($0, 11); env = (env == "" ? l : env "\037" l); next }
@@ -245,8 +253,9 @@ case_T3() {   # setup-uv: one step, SHA-pinned with its version, uv-gated, after
     && [ -n "$i_deps" ] && [ -n "$i_uv" ] && [ -n "$i_sync" ] \
     && [ "$i_deps" -lt "$i_uv" ] && [ "$i_uv" -lt "$i_sync" ]
 }
-# _shape — a run line with its license deny list folded to <LIST> (T6 owns the list).
-_shape() { sed 's/--fail-on="[^"]*"/--fail-on=<LIST>/'; }
+# _shape — a run line, or a logged argv (no quotes), with its license deny list
+# folded to <LIST> (T6 owns the list).
+_shape() { sed -e 's/--fail-on="[^"]*"/--fail-on=<LIST>/' -e 's/--fail-on=[^"<].*$/--fail-on=<LIST>/'; }
 case_T4() {   # the uv path: the lockfile, never rewritten, and every tool through uv run
   local f="$1" got="" want=""
   got="$(runs_gated "$f" "$GATE_UV" | _shape)"
@@ -256,7 +265,10 @@ uv pip install ruff pytest pip-audit pip-licenses
 uv run --frozen ruff check .
 uv run --frozen pytest
 uv run --frozen pip-audit
-uv run --frozen pip-licenses --fail-on=<LIST>
+self="$(uv version --frozen 2>/dev/null | awk 'NR == 1 { print $1 }')" || self=""
+set --
+[ -z "$self" ] || set -- --ignore-packages "$self"
+uv run --frozen pip-licenses "$@" --fail-on=<LIST>
 W
 )"
   CASE_DETAIL="uv-gated runs: [$(printf '%s' "$got" | tr '\n' '|')]"
@@ -290,10 +302,19 @@ case_T5b() {  # no step outside the two gates runs an installer or a project too
 case_T6() {   # both license steps carry the deny list the template had before G3
   local f="$1" want="" uv="" pip=""
   want='GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3);GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v2.1 (LGPLv2.1);GNU Lesser General Public License v3 (LGPLv3);Server Side Public License (SSPL);European Union Public Licence 1.1 (EUPL 1.1);European Union Public Licence 1.2 (EUPL 1.2)'
-  uv="$(runs_gated "$f" "$GATE_UV" | sed -n 's/^uv run --frozen pip-licenses --fail-on="\([^"]*\)"$/\1/p')"
+  uv="$(runs_gated "$f" "$GATE_UV" | sed -n 's/^uv run --frozen pip-licenses "$@" --fail-on="\([^"]*\)"$/\1/p')"
   pip="$(runs_gated "$f" "$GATE_PIP" | sed -n 's/^pip-licenses --fail-on="\([^"]*\)"$/\1/p')"
   CASE_DETAIL="uv=[$uv] pip=[$pip]"
   [ "$uv" = "$want" ] && [ "$pip" = "$want" ]
+}
+
+case_T7() {   # review round 1, R-1: nothing can skip the decision or let its failure through
+  local f="$1" rows="" dif="" coes=""
+  rows="$(steps_tsv "$f")"
+  dif="$(printf '%s\n' "$rows" | awk -F'\t' '$3 == "deps" { print "[" $4 "]"; exit }')"
+  coes="$(printf '%s\n' "$rows" | awk -F'\t' '$8 != "" { print ($2 != "" ? $2 : $5) ": " $8 }')"
+  CASE_DETAIL="deps if=$dif continue-on-error on: [$(printf '%s' "$coes" | tr '\n' '|')]"
+  [ "$dif" = "[]" ] && [ -z "$coes" ]
 }
 
 echo
@@ -306,6 +327,7 @@ check "T4 the uv path runs uv sync --frozen, then every tool through uv run --fr
 check "T5 the requirements.txt path is kept" case_T5 "$SG"
 check "T5b no step outside the two gates runs an installer or a project tool" case_T5b "$SG"
 check "T6 both license steps carry the deny list the template had before G3" case_T6 "$SG"
+check "T7 the decision step has no if:, and no step in the job carries continue-on-error" case_T7 "$SG"
 
 # ════════════════════════════════════════════════════════════════════════════
 # B — the shipped shell, executed
@@ -316,15 +338,26 @@ _body() {
   [ "$2" = name ] && col=2
   step_field "$1" "$col" "$3" 7 | tr '\037' '\n'
 }
+# _shell_ok FILE COL VALUE — the step must declare `shell: bash`, or the harness
+# (bash -eo pipefail) is not how the runner would execute it (R-4).
+_shell_ok() {
+  local sh=""
+  sh="$(step_field "$1" "$2" "$3" 9)"
+  [ "$sh" = "bash" ] && return 0
+  CASE_DETAIL="step [$3] declares shell=[$sh], not bash — the runner would not use -o pipefail"
+  return 1
+}
 # _decide FILE FILES... — run the decision step in a tree holding FILES. Sets
 # D_RC, D_OUT (stdout+stderr) and D_GH (what it wrote to GITHUB_OUTPUT).
 D_RC=0; D_OUT=""; D_GH=""
 _decide() {
   local f="$1" d="" x=""; shift
+  D_RC=0; D_OUT=""; D_GH=""
   d="$(newtmp)"
   _body "$f" id deps > "$d/.step.sh"
   for x in "$@"; do printf 'x\n' > "$d/$x"; done
   : > "$d/.gh-output"
+  _shell_ok "$f" 3 deps || { D_RC=98; return 0; }
   D_OUT="$( cd "$d" && GITHUB_OUTPUT="$d/.gh-output" bash --noprofile --norc -eo pipefail .step.sh 2>&1 )"; D_RC=$?
   D_GH="$(cat "$d/.gh-output")"
   CASE_DETAIL="files=[$*] rc=$D_RC output=[$D_GH] said=[$(printf '%s' "$D_OUT" | tr '\n' '|')]"
@@ -353,9 +386,11 @@ case_B6() {   # pyproject.toml alone (a poetry or plain project): the error name
 I_RC=0; I_OUT=""; I_CALLS=""
 _integrity() {
   local f="$1" inst="$2" urc="$3" d="" s="" x=""; shift 3
+  I_RC=0; I_OUT=""; I_CALLS=""
   d="$(newtmp)"; s="$(newtmp)"
   _body "$f" name "Security - Lockfile integrity" > "$d/.step.sh"
   for x in "$@"; do printf 'x\n' > "$d/$x"; done
+  _shell_ok "$f" 2 "Security - Lockfile integrity" || { I_RC=98; I_CALLS="(not run)"; return 0; }
   printf '#!/bin/sh\necho "$*" >> "%s/calls"\nexit %s\n' "$s" "$urc" > "$s/uv"; chmod +x "$s/uv"
   I_OUT="$( cd "$d" && INSTALLER="$inst" PATH="$s:$PATH" bash --noprofile --norc -eo pipefail .step.sh 2>&1 )"; I_RC=$?
   I_CALLS="$(cat "$s/calls" 2>/dev/null)"
@@ -376,6 +411,66 @@ case_B7() {   # the lockfile check reads the decision, checks uv.lock with --che
   [ -z "$bad" ]
 }
 
+# case_B8 — review round 1, R-1: the fail-closed step. Every `if:` that reads
+# the decision is one of three exact forms, so the steps each answer runs can be
+# read off them: with no answer ('') only the fail-closed step runs, and its
+# script fails the job with an ::error::; with uv or pip it does not run.
+case_B8() {
+  local f="$1" rows="" odd="" fc="" i_deps="" i_fc="" none_runs="" uv_hit="" out="" rc=0 d=""
+  rows="$(steps_tsv "$f")"
+  odd="$(printf '%s\n' "$rows" | GU="$GATE_UV" GP="$GATE_PIP" GN="$GATE_NONE" awk -F'\t' '
+    index($4, "steps.deps.outputs") && $4 != ENVIRON["GU"] && $4 != ENVIRON["GP"] && $4 != ENVIRON["GN"] { print $2 ": " $4 }')"
+  none_runs="$(printf '%s\n' "$rows" | GN="$GATE_NONE" awk -F'\t' '$4 == ENVIRON["GN"] { print $2 }')"
+  fc="$(printf '%s\n' "$none_runs" | head -1)"
+  i_deps="$(printf '%s\n' "$rows" | awk -F'\t' '$3 == "deps" { print $1; exit }')"
+  i_fc="$(printf '%s\n' "$rows" | GN="$GATE_NONE" awk -F'\t' '$4 == ENVIRON["GN"] { print $1; exit }')"
+  CASE_DETAIL="unknown gates=[$(printf '%s' "$odd" | tr '\n' '|')] runs-with-no-installer=[$(printf '%s' "$none_runs" | tr '\n' '|')] deps=#$i_deps fail-closed=#$i_fc"
+  [ -z "$odd" ] && [ -n "$fc" ] && [ "$(printf '%s\n' "$none_runs" | command grep -c .)" -eq 1 ] || return 1
+  [ -n "$i_deps" ] && [ "$i_fc" = "$((i_deps + 1))" ] || { CASE_DETAIL="$CASE_DETAIL [not the step right after the decision]"; return 1; }
+  _shell_ok "$f" 2 "$fc" || return 1
+  d="$(newtmp)"
+  _body "$f" name "$fc" > "$d/.step.sh"
+  out="$( cd "$d" && bash --noprofile --norc -eo pipefail .step.sh 2>&1 )"; rc=$?
+  CASE_DETAIL="$CASE_DETAIL rc=$rc said=[$(printf '%s' "$out" | tr '\n' '|')]"
+  [ "$rc" -ne 0 ] && printf '%s\n' "$out" | _has '^::error::.*chose no installer'
+}
+# _license FILE VERSION_OUT RUN_RC — run the uv license step with a stub uv:
+# `uv version …` prints VERSION_OUT and exits 0 (or, when VERSION_OUT is empty,
+# says what uv says with no [project] table and exits 2); every other call
+# exits RUN_RC. Sets L_RC, L_OUT and L_CALLS.
+L_RC=0; L_OUT=""; L_CALLS=""
+_license() {
+  local f="$1" vout="$2" rrc="$3" d="" s=""
+  L_RC=0; L_OUT=""; L_CALLS=""
+  d="$(newtmp)"; s="$(newtmp)"
+  _shell_ok "$f" 2 "Security - License check (uv)" || { L_RC=98; L_CALLS="(not run)"; return 0; }
+  _body "$f" name "Security - License check (uv)" > "$d/.step.sh"
+  cat > "$s/uv" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >> "$s/calls"
+if [ "\$1" = version ]; then
+  if [ -n "$vout" ]; then printf '%s\n' "$vout"; exit 0; fi
+  echo "error: No project table found in: pyproject.toml" >&2; exit 2
+fi
+exit $rrc
+STUB
+  chmod +x "$s/uv"
+  L_OUT="$( cd "$d" && PATH="$s:$PATH" bash --noprofile --norc -eo pipefail .step.sh 2>&1 )"; L_RC=$?
+  L_CALLS="$(cat "$s/calls" 2>/dev/null)"
+  CASE_DETAIL="version-out=[$vout] run-rc=$rrc rc=$L_RC calls=[$(printf '%s' "$L_CALLS" | _shape | tr '\n' '|')] said=[$(printf '%s' "$L_OUT" | tr '\n' '|')]"
+}
+case_B9() {   # review round 1, R-2: the project's own package is left out of the uv license check, by the name uv reports
+  local f="$1" bad=""
+  _license "$f" "kp2-pkg 0.1.0" 0
+  [ "$L_RC" -eq 0 ] && [ "$(printf '%s\n' "$L_CALLS" | _shape)" = "$(printf 'version --frozen\nrun --frozen pip-licenses --ignore-packages kp2-pkg --fail-on=<LIST>')" ] || bad="$bad [named: $CASE_DETAIL]"
+  _license "$f" "" 0
+  [ "$L_RC" -eq 0 ] && [ "$(printf '%s\n' "$L_CALLS" | _shape)" = "$(printf 'version --frozen\nrun --frozen pip-licenses --fail-on=<LIST>')" ] || bad="$bad [no name: $CASE_DETAIL]"
+  _license "$f" "kp2-pkg 0.1.0" 1
+  [ "$L_RC" -eq 1 ] || bad="$bad [a denied dependency no longer fails the step: $CASE_DETAIL]"
+  CASE_DETAIL="$bad"
+  [ -z "$bad" ]
+}
+
 echo
 echo "=== B — the shipped shell, executed as Actions runs it ==="
 check "B1 uv.lock with pyproject.toml: installer=uv" case_B1 "$SG"
@@ -385,6 +480,8 @@ check "B4 none of them: the step fails with an ::error:: naming requirements.txt
 check "B5 uv.lock alone: not a uv project; the ::error:: names requirements.txt and pyproject.toml" case_B5 "$SG"
 check "B6 pyproject.toml alone: the ::error:: names requirements.txt and uv.lock" case_B6 "$SG"
 check "B7 the lockfile check: uv lock --check for a uv project, a warning when it fails, the old arms for the rest" case_B7 "$SG"
+check "B8 with no installer chosen only the fail-closed step runs, right after the decision, and it fails the job" case_B8 "$SG"
+check "B9 the uv license check leaves out the project's own package by uv's name for it, and still fails on a denied dependency" case_B9 "$SG"
 
 # ════════════════════════════════════════════════════════════════════════════
 # D — the guides
@@ -406,10 +503,19 @@ case_D2() {   # docs/user-guide.md's Tier 1 sentence
     && ! printf '%s' "$line" | _has -F 'run automatically on every push'
 }
 
+case_D3() {   # docs/governance-framework.md's CI/CD row (review round 1, R-3)
+  local f="$1" row=""
+  row="$(command grep -F '| **CI/CD** |' "$f")"
+  CASE_DETAIL="row=[$row]"
+  printf '%s' "$row" | _has -F 'on GitHub, on a push to `main` and on pull requests to `main`' \
+    && ! printf '%s' "$row" | _has -F 'license checking on every push'
+}
+
 echo
 echo "=== D — the guides ==="
 check "D1 docs/adoption.md: the GitHub row says a push to main and pull requests to main, and the name" case_D1 "$REPO_ROOT/docs/adoption.md"
 check "D2 docs/user-guide.md: Tier 1 says when GitHub runs it" case_D2 "$REPO_ROOT/docs/user-guide.md"
+check "D3 docs/governance-framework.md: the CI/CD row says when GitHub runs it" case_D3 "$REPO_ROOT/docs/governance-framework.md"
 
 # ════════════════════════════════════════════════════════════════════════════
 # M — mutants
@@ -476,6 +582,35 @@ tswap() {
   mv "$f.mut" "$f"
   _killed "$id" "$killer" "$what" "$f"
 }
+# tins ID REL ANCHOR LINE KILLER WHAT — insert LINE after the ONE line holding
+# ANCHOR in a copy of REL (exactly one line added, and it is LINE).
+tins() {
+  local id="$1" rel="$2" anchor="$3" line="$4" killer="$5" what="$6" d="" f="" n="" added=""
+  d="$(newtmp)"; f="$d/${rel##*/}"
+  cp -p "$REPO_ROOT/$rel" "$f" || { fail_ "$id" "could not copy $rel"; return; }
+  n="$(A="$anchor" awk 'index($0, ENVIRON["A"]) { c++ } END { print c + 0 }' "$f")"
+  [ "$n" = "1" ] || { fail_ "$id" "mutant did not land: anchor on $n line(s) (need 1)"; return; }
+  A="$anchor" L="$line" awk '{ print } index($0, ENVIRON["A"]) { print ENVIRON["L"] }' "$f" > "$f.mut" || { fail_ "$id" "insert failed"; return; }
+  added="$(diff "$f" "$f.mut" | command grep '^>')"
+  [ "$added" = "> $line" ] || { fail_ "$id" "mutant did not land: added [$added]"; return; }
+  mv "$f.mut" "$f"
+  _killed "$id" "$killer" "$what" "$f"
+}
+# tdel ID REL ANCHOR KILLER WHAT — delete the step whose line holds ANCHOR (the
+# ONE such line) up to the next step, in a copy of REL.
+tdel() {
+  local id="$1" rel="$2" anchor="$3" killer="$4" what="$5" d="" f="" n="" gone=""
+  d="$(newtmp)"; f="$d/${rel##*/}"
+  cp -p "$REPO_ROOT/$rel" "$f" || { fail_ "$id" "could not copy $rel"; return; }
+  n="$(A="$anchor" awk 'index($0, ENVIRON["A"]) { c++ } END { print c + 0 }' "$f")"
+  [ "$n" = "1" ] || { fail_ "$id" "mutant did not land: anchor on $n line(s) (need 1)"; return; }
+  A="$anchor" awk 'index($0, ENVIRON["A"]) { skip = 1; print "      # (step deleted by the mutant)"; next }
+    skip && /^      - / { skip = 0 } !skip { print }' "$f" > "$f.mut" || { fail_ "$id" "delete failed"; return; }
+  gone="$(diff "$f" "$f.mut" | command grep -c '^<')"
+  [ "$gone" -ge 3 ] && ! A="$anchor" _has -F "$anchor" "$f.mut" || { fail_ "$id" "mutant did not land: $gone line(s) removed"; return; }
+  mv "$f.mut" "$f"
+  _killed "$id" "$killer" "$what" "$f"
+}
 # amutant ID REL ANCHOR OLD NEW KILLER WHAT — the same in a mirror of the tree,
 # then a real uv adoption driven from the mirror.
 amutant() {
@@ -527,6 +662,17 @@ tmutant MB6  "$T" 'id: deps' 'echo "installer=uv"' 'echo "installer=pip"' case_B
 tmutant MB7  "$T" 'id: deps' 'elif [ -f requirements.txt ]; then' 'elif [ -f requirements.in ]; then' case_B2 "a requirements.txt project is not recognised"
 tmutant MB8  "$T" 'if [ "$INSTALLER" = "uv" ]; then' 'uv lock --check ||' 'uv lock ||' case_B7 "the lockfile check rewrites uv.lock"
 tmutant MB9  "$T" '- name: Security - Lockfile integrity' 'INSTALLER: ${{ steps.deps.outputs.installer }}' 'INSTALLER: uv' case_B7 "the lockfile check does not read the decision"
+# Review round 1.
+tins    MR1a "$T" '        id: deps' '        continue-on-error: true' case_T7 "R-1 mutA: the decision step can fail and be let through, so every gated step skips on a green job"
+tins    MR1b "$T" '        id: deps' "        if: github.event_name == 'push'" case_T7 "R-1 mutB: the decision step is skipped on pull requests, so every gated step skips"
+tdel    MR1c "$T" '- name: Stop if no installer was chosen' case_B8 "R-1: the fail-closed step is removed"
+tmutant MR1d "$T" '- name: Stop if no installer was chosen' 'exit 1' 'exit 0' case_B8 "R-1: the fail-closed step no longer fails"
+tins    MR1e "$T" '- name: Stop if no installer was chosen' '        continue-on-error: true' case_T7 "R-1: the fail-closed step's failure is let through"
+tmutant MR4  "$T" 'id: deps' 'shell: bash' 'shell: sh' case_B1 "R-4: the decision step runs without pipefail, unlike the suite"
+tmutant MR2a "$T" '[ -z "$self" ] || set -- --ignore-packages "$self"' '[ -z "$self" ] || set -- --ignore-packages "$self"' ':' case_B9 "R-2: the project's own package is judged by its own license again"
+tmutant MR2b "$T" '- name: Security - License check (uv)' ' || self=""' '' case_B9 "R-2: a project uv cannot name stops the license check"
+tmutant MR2c "$T" '- name: Security - License check (uv)' '{ print $1 }' '{ print $2 }' case_B9 "R-2: the version is left out instead of the name"
+tmutant MD3  docs/governance-framework.md '| **CI/CD** |' 'license checking in CI: on GitHub, on a push to `main` and on pull requests to `main` (a push to any other branch runs nothing); on GitLab and Bitbucket, on every push.' 'license checking on every push.' case_D3 "R-3: the governance doc says every push again"
 tmutant MD1  "$AD" '| GitHub | `.github/workflows/solo-gates.yml` |' 'Yes, on a push to `main` and on pull requests to `main`' 'Yes, from your next push' case_D1 "the guide says the framework's CI runs from your next push again"
 tmutant MD2  "$UG" '**Tier 1 — Mechanically enforced (CI pipeline).**' 'in your CI: on GitHub, on a push to `main` and on pull requests to `main` (a push to any other branch runs nothing); on GitLab and Bitbucket, on every push.' 'on every push.' case_D2 "the user guide says every push again"
 

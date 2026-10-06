@@ -1072,7 +1072,7 @@ jobs:
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
             tests/test-bl312-tldr-mode.sh                 # ~100s local, measured (100s and 105s after review round 1) — five completed adoptions and two refused, eight adoption mutants, 34 mutants in all; here, not in `rest` (518s of 720s on PR #494) or `mcp` (349s, four files)
             tests/test-bl311-d-relayed-escape.sh          # 34s and 33s on PR #498 and main run 37400574352 — from `rest`, its second pole, moved with bl296 (to `commit-hooks`) so `rest` drops ~112s, to ~525s of 720s on PR #498's figures; this leg's job ran 457s and 456s on those runs
-            tests/test-bl318-g3-ci-template.sh            # 32-33s local, measured — two real adoptions and two under mutants, 20 cases and 26 mutants; here, not in `rest` (job 638s of 720s on PR #498) or `mcp` (job 521s on main run 37400574352); this leg's job ran 457s on PR #498
+            tests/test-bl318-g3-ci-template.sh            # 35s local, measured after review round 1 — two real adoptions and two under mutants, 24 cases and 36 mutants; here, not in `rest` (job 638s of 720s on PR #498) or `mcp` (job 521s on main run 37400574352); this leg's job ran 457s on PR #498
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the

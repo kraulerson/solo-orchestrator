@@ -30,9 +30,11 @@ jobs:
       # reads. A uv project (uv.lock with pyproject.toml beside it) installs
       # from its lockfile; any other project from requirements.txt. With
       # neither, the job stops here and says what is missing: a skipped install
-      # would let the checks below run against nothing.
+      # would let the checks below run against nothing. `shell: bash` gives the
+      # step -o pipefail as well as -e, which is how the suite executes it.
       - name: Find the dependency file
         id: deps
+        shell: bash
         run: |
           if [ -f uv.lock ] && [ -f pyproject.toml ]; then
             echo "installer=uv" >> "$GITHUB_OUTPUT"
@@ -45,6 +47,17 @@ jobs:
             echo "::error::No dependency file to install from. This workflow installs a uv project from uv.lock and pyproject.toml together, and any other project from requirements.txt. Missing: $missing."
             exit 1
           fi
+
+      # BL-318-G3-FAIL-CLOSED: every install, lint, test and security step below
+      # is gated on the decision. If the decision step is ever skipped, or fails
+      # and is let through, the installer is empty and all of them would skip,
+      # leaving a green job that checked nothing. This step turns that red.
+      - name: Stop if no installer was chosen
+        if: steps.deps.outputs.installer != 'uv' && steps.deps.outputs.installer != 'pip'
+        shell: bash
+        run: |
+          echo "::error::The \"Find the dependency file\" step chose no installer (it was skipped, or failed and was let through), so no install, lint, test or security check would run."
+          exit 1
 
       - name: Install uv
         if: steps.deps.outputs.installer == 'uv'
@@ -107,9 +120,20 @@ jobs:
         run: pip-audit
 
       # BL-318-G3-LICENSES: the same deny list on both paths.
+      # BL-318-G3-SELF-LICENSE: `uv sync` installs a packaged project itself, so
+      # pip-licenses would list it and fail it on its own license. The deny list
+      # is for dependencies (the pip path never installs the project), so the
+      # project is left out under the name `uv version` reports ("<name>
+      # <version>", the name normalised as pip-licenses compares it). With no
+      # name to report (no [project] table), nothing is left out.
       - name: Security - License check (uv)
         if: steps.deps.outputs.installer == 'uv'
-        run: uv run --frozen pip-licenses --fail-on="GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3);GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v2.1 (LGPLv2.1);GNU Lesser General Public License v3 (LGPLv3);Server Side Public License (SSPL);European Union Public Licence 1.1 (EUPL 1.1);European Union Public Licence 1.2 (EUPL 1.2)"
+        shell: bash
+        run: |
+          self="$(uv version --frozen 2>/dev/null | awk 'NR == 1 { print $1 }')" || self=""
+          set --
+          [ -z "$self" ] || set -- --ignore-packages "$self"
+          uv run --frozen pip-licenses "$@" --fail-on="GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3);GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v2.1 (LGPLv2.1);GNU Lesser General Public License v3 (LGPLv3);Server Side Public License (SSPL);European Union Public Licence 1.1 (EUPL 1.1);European Union Public Licence 1.2 (EUPL 1.2)"
         # MPL-2.0 has file-level copyleft — review on a case-by-case basis if detected
 
       - name: Security - License check (pip)
@@ -124,6 +148,7 @@ jobs:
           # pyproject.toml (it never writes); `uv sync --frozen` above installed
           # the lockfile as it is, without checking.
           INSTALLER: ${{ steps.deps.outputs.installer }}
+        shell: bash
         run: |
           if [ "$INSTALLER" = "uv" ]; then
             uv lock --check || echo "::warning::uv lock --check failed: uv.lock may not match pyproject.toml (see the output above). Run uv lock and commit uv.lock."
