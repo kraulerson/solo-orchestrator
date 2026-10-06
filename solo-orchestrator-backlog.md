@@ -22780,7 +22780,7 @@ preference, which made every reply carry one anyway.
   check finds nothing to run while `package.json` carries npm's placeholder. In a Python project whose
   `package.json` came from `npm init`, the hook's own fallback still runs pytest.
 
-**G2, as built (branch `fix/bl318-g2-resume-adoptee`; PR to be cited).**
+**G2, as built (PR #498, merged as `73ce079`).**
 - **The route.** In `## BL-202:` branch 2 of `scripts/resume.sh`, an adopted project at phase 0 with its
   intake done gets its own Section 13 while its `PRODUCT_MANIFESTO.md` is still byte-identical to the one
   in the commit adoption was anchored on (`# BL-318-G2-ADOPTEE-PHASE0`). The anchor is the stamp's
@@ -22876,10 +22876,37 @@ preference, which made every reply carry one anyway.
   to the template before G3 — `name: CI` beside k-pdf's own `name: CI`, and `pip install -r
   requirements.txt` in a project that has no such file. k-pdf's own CI shows `uv run pip-audit` working in
   a uv environment (run 37053715877: it ran, and failed on 29 known vulnerabilities, a finding).
-- **Tests.** `tests/test-bl318-g3-ci-template.sh`: 20 cases and 26 mutants. Two real adoptions (a uv
+- **Review round 1.**
+  - **R-1: the decision could be bypassed silently.** One added line on the decision step —
+    `continue-on-error: true`, or an `if:` such as `github.event_name == 'push'` — left the installer
+    empty. Every gated step then skipped, and the job could go green having run no install, lint, test
+    or security check. Both mutants passed every suite that read the file. Now the suite asserts the
+    decision step has no `if:` and that no step in the job carries `continue-on-error` (the same pin
+    bl147's `Cw6-strict-no-coe` puts on the phase-gate step). The template also fails closed: the step
+    right after the decision, "Stop if no installer was chosen" (`# BL-318-G3-FAIL-CLOSED`), runs only
+    when the installer is neither `uv` nor `pip`, and fails the job with an `::error::`.
+  - **R-2: a packaged uv project failed on its own license.** `uv sync` installs a project that has a
+    `[build-system]` into its environment, so pip-licenses listed it. Measured offline with uv 0.11.3
+    and pip-licenses 5.5.5: a fixture classified GPLv3 failed with "fail-on license GNU General Public
+    License v3 (GPLv3) was found for package kp2:0.1.0", rc 1. The uv license step now leaves the
+    project out under the name `uv version --frozen` prints (`# BL-318-G3-SELF-LICENSE`). That output
+    is "<name> <version>", with the name PEP 503-normalised (`Kp2_Pkg` prints as `kp2-pkg`), and
+    pip-licenses normalises both sides before it compares. With no `[project]` table, uv exits 2 and
+    nothing is left out. The same fixtures now pass (rc 0), with the step's own script run by the real
+    uv. The pip path never installs the project, so the two paths now judge the same packages.
+  - **R-3:** `docs/governance-framework.md`'s CI/CD row said "license checking on every push"; it now
+    uses the Tier 1 wording.
+  - **R-4:** the steps the suite executes (the decision, the fail-closed step, the uv license check and
+    the lockfile check) declare `shell: bash`. With no `shell:`, GitHub runs `bash -e {0}`, which has no
+    pipefail, so the suite's `bash -eo pipefail` was not how the runner would run them. The suite now
+    refuses to execute a step that does not declare it.
+- **Tests.** `tests/test-bl318-g3-ci-template.sh`: 24 cases and 36 mutants. Two real adoptions (a uv
   project and a requirements.txt project, each with its own workflow named `CI`) write the file every
-  other case reads; the decision step and the lockfile step run as Actions runs them, over six trees. On
-  the base, 19 of the 20 cases fail; T1 (the triggers are unchanged) passes there by design.
+  other case reads. The decision step runs over six trees, and the fail-closed, lockfile and uv license
+  steps run with stub tools, all as a `shell: bash` step runs on Actions. On `73ce079` 19 of the first 20
+  cases fail (T1, the triggers are unchanged, passes there by design). On review round 1's base,
+  `9830322`, 12 of the 24 fail; T7 passes there, and its mutants (`continue-on-error` or an `if:` on the
+  decision step) are what prove it.
 
 **G3 residuals (not fixed):**
 - **The phase-gate token setup makes the same promise.** `scripts/check-gate.sh --setup-ci-token` prints
@@ -22897,6 +22924,9 @@ preference, which made every reply carry one anyway.
   class as G1's first residual.
 - **Projects adopted before G3 keep their old file.** Adoption never overwrites an existing
   `solo-gates.yml` (`# BL-242-CI-DEST`), and nothing offers the new one.
+- **Two check runs named `test`.** The framework's jobs are still `test` and `sast`, so an adoptee whose
+  own workflow has a job named `test`, and requires it as a status check, gets two check runs named
+  `test`. That predates G3, which renamed only the workflow.
 - **Not run on a runner.** No workflow run of the new template has happened. It was checked by a YAML parse
   (PyYAML 6.0.3) and by the suite; `actionlint` is not installed here.
 
