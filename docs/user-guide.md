@@ -639,8 +639,9 @@ If tools are out of date, the script offers interactive update options:
 
 - The agent does not run it itself: the update replaces the Guardrails that check the agent's own work, so starting it is your decision. (The Guardrails block the agent editing `.claude/framework/` and `.claude/manifest.json` directly; they do not block this command, so the agent's restraint here is an instruction, not a check.)
 - It first runs `git pull --ff-only` on the Guardrails clone. Every project on this machine shares that clone, and the pull can bring a newer version than the one you were offered.
-- Then it copies the clone's Guardrails hooks and rules into `.claude/framework/` and records the new version in `.claude/manifest.json`. It does **not** change `.claude/settings.json` (`## BL-319:` tracks that). It ends with an `[OK]` line, or a `[FAIL]` line naming what did not land.
-- It refuses a new MAJOR version (a Guardrails migration — the session start reports that case as a notice and offers no command), an uncommitted change in the clone's hooks or rules, and a symlink in `.claude/framework/`. When it refuses, nothing in this project is changed; the shared clone may already have been pulled.
+- Then it copies the clone's Guardrails hooks and rules into `.claude/framework/` and records the new version in `.claude/manifest.json`. In `.claude/settings.json` it only adds the Guardrails hook registrations the project lacks — 4.4.0's `record-approval.sh`, which reads your answer to the agent's approval question, is one — and lists each; it removes, reorders and rewrites nothing there (`## BL-320:`; the rest of refreshing settings is `## BL-319:`). It ends with an `[OK]` line, or a `[FAIL]` line naming what did not land.
+- The same check names a project whose Guardrails are below 4.4.0 — the minimum for this framework's approval questions — and offers the refresh to a project at 4.4.0 or later that lacks one of those registrations.
+- It refuses a new MAJOR version (a Guardrails migration — the session start reports that case as a notice and offers no command), an uncommitted change in the clone's hooks or rules, a symlink in `.claude/framework/`, and Guardrails 4.4.0 or later over this project's own question writer when that writer predates them (`## BL-320:` — the session start names the framework sync instead, which updates both). When it refuses, nothing in this project is changed; the shared clone may already have been pulled.
 - The new hooks apply from the agent's next tool call: Claude Code runs each hook from its file every time, so no restart is needed. Only the Guardrails' own session-start message stays the old one until the next session.
 - Say no and the session carries on. The offer comes back at every session start until the versions match, so if a Guardrails hook is blocking you wrongly, start a new session and accept it — or type the command at any time.
 
@@ -667,13 +668,27 @@ When something needs attention, the session start hands the agent a message it m
 
   - **`Qdrant MCP: NOT registered with Claude Code`** or **`Context7 MCP: NOT registered with Claude Code`.** The memory server or the documentation server is not set up for Claude Code. The session works without it — it is not checked until it is registered. Set it up when convenient (the [CLI Setup Addendum](cli-setup-addendum.md) gives the commands), or skip it.
 - **`URGENT — VERSION CHECK FAILED`, with a tool marked `BELOW MINIMUM`.** A tool is older than the oldest version the framework accepts, and the agent is told not to do any work until you deal with it. Update it first: say yes when the agent offers the command listed under the warning, then start a new session so the check runs again.
-- **`GUARDRAILS UPDATE OFFER`.** Your project's Development Guardrails are older than the copy on this computer. Usually say yes, at a moment when nothing is half-done. You type it, not the agent: `!` and then the command the offer shows, at the Claude Code prompt — today that is the one below. Then commit `.claude/framework/` and `.claude/manifest.json`. If a Guardrails check is blocking you when it should not, this update may be the fix. Say no and it asks again at the next session start. More under *This project's Development Guardrails*, above.
+- **`GUARDRAILS UPDATE OFFER`.** Your project's Development Guardrails are older than the copy on this computer. Usually say yes, at a moment when nothing is half-done. You type it, not the agent: `!` and then the command the offer shows, at the Claude Code prompt — today that is the one below. Then commit `.claude/framework/` and `.claude/manifest.json` (and `.claude/settings.json`, when the command says it added a registration). The offer also comes when the Guardrails version is current but a hook registration is missing (the line says `hook registrations is missing from .claude/settings.json`, or `are missing`). If a Guardrails check is blocking you when it should not, this update may be the fix. Say no and it asks again at the next session start. More under *This project's Development Guardrails*, above.
 
   ```bash
   bash scripts/refresh-guardrails.sh
   ```
 
 - **`GUARDRAILS NOTICE`, saying `a new MAJOR version`.** A much newer Guardrails version is on this computer. Moving to it is a migration, not an update, so there is no command to offer. Carry on: your project keeps the version it has, and nothing breaks. Do not let the agent attempt the migration; read the notes in the `migrations/` folder the notice names, or ask for help, before you do it yourself.
+- **A Guardrails line saying `is below 4.4.0, the minimum for this framework's approval questions`.** Until the project's Guardrails are 4.4.0 or later, a commit cannot be approved by answering the agent's question with an option id: the agent approves its own commits the older way. Beside a `GUARDRAILS UPDATE OFFER`, accept the offer. In a `GUARDRAILS NOTICE` there is nothing newer in the Guardrails clone to install: update the clone first (every project on this computer uses it), and the next session start offers this project's update:
+
+  ```bash
+  git -C ~/.claude-dev-framework pull --ff-only
+  ```
+
+- **`GUARDRAILS NOTICE`, saying `still write the older approval question`.** The Guardrails clone holds 4.4.0 or later, but this project's own Solo scripts predate the approval question that version answers. Updating the Guardrails alone would leave no way to approve a commit by reply, so it is not offered (and `scripts/refresh-guardrails.sh` refuses it). Update both together with the framework sync, from the project's folder — the notice prints the command, and [Keeping your project current](#keeping-your-project-current---sync-framework) explains it:
+
+  ```bash
+  bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework
+  ```
+
+  A project synced before this check existed has no such notice: its Guardrails update offer installs 4.4.0 anyway, after which no reply can approve a commit. The same framework sync repairs it.
+
 - **`GUARDRAILS NOTICE`, saying `cannot tell whether an update is available`.** The check could not read one of the two versions; the reason follows the dash. Carry on: it only means no update can be offered. If the reason says there is no Guardrails clone, get one:
 
   ```bash

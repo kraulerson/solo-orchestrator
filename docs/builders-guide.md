@@ -939,7 +939,7 @@ If the Superpowers plugin is installed (see CLI Setup Addendum, Section 1), it s
 
 **With Superpowers:** The agent will use subagent-driven development (spawning focused subagents per task with two-stage review), follow strict TDD discipline (RED-GREEN-REFACTOR, test before code), and manage feature branches via git worktrees. The Orchestrator's role shifts from directing each step to reviewing at decision gates and validating the agent's self-review output. Note: Superpowers is a workflow accelerator that strongly encourages best practices — it is not an independently verifiable enterprise compliance control. The Orchestrator's review at decision gates and the CI/CD pipeline remain the actual quality gates.
 
-**Without Superpowers:** The Build Loop below works as written — the agent executes sequentially with the Orchestrator directing each step. That is the methodology on its own. In a Claude Code project with the Development Guardrails installed (`init.sh` installs them in every new project; adoption does when their clone is on the computer), Superpowers is required: the Guardrails block every edit to a source file until a Superpowers skill has run in the session. Install it with `claude plugin install --scope user superpowers@claude-plugins-official`, then start a new Claude Code session.
+**Without Superpowers:** The Build Loop below works as written — the agent executes sequentially with the Orchestrator directing each step. That is the methodology on its own. In a Claude Code project with the Development Guardrails installed (`init.sh` installs them in every new project; adoption does when their clone is on the computer), Superpowers is required: the Guardrails block every edit to a source file until a Superpowers skill has run in the session. Install it with `claude plugin install --scope user superpowers@claude-plugins-official`, then start a new Claude Code session. If Claude Code answers that the marketplace `claude-plugins-official` is not found — on a computer where it has never run an interactive session — add the marketplace first with `claude plugin marketplace add anthropics/claude-plugins-official`, then install.
 
 ### Vendored Skills (`.claude/skills/`)
 
@@ -1140,13 +1140,9 @@ Provide the Project Bible and direct the agent to:
 - Verify rollback/revert works
 - **Test backup and restore now** — don't wait until Phase 4
 
-**5. Install pre-commit hooks:**
+**5. Pre-commit hooks:**
 
-Use a hook manager (husky, pre-commit framework, or equivalent for your ecosystem):
-```bash
-# Example: gitleaks pre-commit
-echo 'gitleaks git --staged' > .husky/pre-commit
-```
+`init.sh` (and adoption) already install this project's commit-time checks in `.git/hooks/` — gitleaks among them. Do not add a hook manager that sets git's `core.hooksPath` (husky 5 and later does): git then runs hooks only from that folder, so the installed checks stop running without a word, and the Development Guardrails refuse the agent setting that key at all. A check of your own goes beside the installed ones in `.git/hooks/`, and writing git hooks is the Orchestrator's step, not the agent's (see *Git hooks are the Orchestrator's to change*, under Structured Decision Points).
 
 **6. Configure CI/CD pipeline:**
 
@@ -1239,28 +1235,37 @@ See `init.sh --help-non-interactive` for the full schema, defaults table, and pe
 
 ### Structured Decision Points: The Pending-Approval Sentinel
 
-During the Build Loop you occasionally face blocking decisions that need orchestrator input: commit structure (single vs. split), merge strategy, scope cuts. When those decisions are offered as structured options (A/B/C), write `.claude/pending-approval.json` via `scripts/pending-approval.sh --offer …` to signal that the agent is deliberately holding. Delete it via `--resolve` once the orchestrator picks.
+During the Build Loop you occasionally face blocking decisions that need orchestrator input: whether to commit, commit structure (single vs. split), merge strategy, scope cuts. When those decisions are offered as structured options, the agent records the question in `.claude/pending-approval.json` with `scripts/pending-approval.sh --offer …` and stops. With the Development Guardrails 4.4.0 and later this is also the only way an agent's commit gets approved: the Orchestrator answers the recorded question with an option id.
 
 **Why this matters.** Observed on lancache (2026-04-24): an agent offered commit-structure options (A1/A2/A3), received an ambiguous response ("Complete these, then finish."), and rationalized the response as implicit approval for the recommended option — a unilateral commit without an explicit pick. Root cause: the stop-hook kept firing "Complete these, then finish" every turn, amplifying pressure until the agent broke its own rule. The fix is mechanical: a sentinel file that both enforcement points (CDF stop-hook, Solo pre-commit-gate) honor as "user is deciding — do not advance."
 
 **What the sentinel does.** When `.claude/pending-approval.json` exists:
-- The CDF stop-hook (4.2.3+) exits silently — no block JSON, no stderr advisory, no pressure loop.
+- The Development Guardrails' stop hook lets the agent stop and wait — no block, no "commit before finishing" pressure loop.
 - Solo's `scripts/pre-commit-gate.sh` blocks `git commit` and `gh pr create` — no irreversible action slips through.
+- With the Guardrails 4.4.0 and later, their `record-approval.sh` reads the Orchestrator's reply to it, and only a pick of one of its options approves a commit.
 
-Both enforcement points defer to the same file. The sentinel is the single source of truth for "user is deciding."
+The sentinel is the single source of truth for "user is deciding."
 
-**Lifecycle.**
-1. Agent offers structured options to the user.
-2. Agent writes the sentinel: `scripts/pending-approval.sh --offer "…" --options "…" --recommendation "…"`. Writes are atomic (tempfile + `mv`) so consumers never see a half-written file.
-3. File exists while the user deliberates. Both enforcement points hold.
-4. User picks. Agent deletes the sentinel: `scripts/pending-approval.sh --resolve` (user answered) or `--clear` (agent aborting the question). Both commands behave identically — the distinction is semantic, for audit readability.
-5. Enforcement points resume normal behavior.
+**The question's format (schema 2).** Each option has an id — one letter and one or two digits, such as `A1` — the text the Orchestrator reads, and what picking it does: it approves committing the staged change, or it approves nothing. An option approves the commit only when `--approves` names it; at least one option must approve nothing; ids are unique ignoring case. `--offer` refuses a question that breaks a rule, and refuses an approving question when nothing is staged. (The older format, `"A1: text"` strings, is still read by `--status` and `--validate`; the Guardrails 4.4.0 cannot take an answer to it.)
 
-**Sub-command reference.** `scripts/pending-approval.sh --help` lists the full API: `--offer`, `--resolve`, `--clear`, `--status`, `--validate`. `--status` is useful after session recovery ("is there a live sentinel from before?"). `--validate` lints a sentinel path (default `.claude/pending-approval.json`) for CI or debugging use.
+**Lifecycle, for a commit (Guardrails 4.4.0 and later).**
+1. The agent stages exactly the change it means to commit (`git add <files>`).
+2. It records the question — `scripts/pending-approval.sh --offer "Commit the fix?" --options "A1: Commit the staged fix" "A2: Hold — do not commit" --approves A1 --recommendation A1` — tells the Orchestrator its evaluation and the options, and stops. Writes are atomic (tempfile + `mv`), so no reader sees a half-written file.
+3. The Orchestrator replies with the option id first — `A1`, or `A1 — go ahead`. The Guardrails show the question, what each option does, the staged change and the git hooks that will run, and ask for the id again. That reply does not reach the agent.
+4. The Orchestrator replies `A1` again. The Guardrails record the pick in `.claude/approvals.jsonl` and remove the question. A reply that does not start with an option id approves nothing, and a pick that approves nothing approves nothing.
+5. The agent commits with a lone `git commit -m "subject" -m "body"` — one `-m` per paragraph; no `-a`, no paths, no `$(cat <<EOF …)` message, nothing chained with `&&` or `;`. While an approval is open the Guardrails refuse any other shape, and a change to the stage, HEAD, a git hook or the git config cancels it. Afterwards they record whether the committed tree is the tree that was approved; a mismatch becomes an `approval_mismatch` row in `.claude/bypass-audit.json` at the next session start.
+
+The same steps serve a question that approves nothing (merge or rebase, a scope cut): no staging, no `--approves`, and the pick is recorded and the question removed the same way. With Guardrails older than 4.4.0 the Orchestrator answers in their own words, and the agent clears the question with `scripts/pending-approval.sh --resolve` and records the approval itself with `mark-evaluated.sh`. This framework needs 4.4.0 for the reply route (`SOIF_GUARDRAILS_MIN` in `scripts/lib/guardrails.sh`); every session start of an older project offers the update.
+
+**Headless runs.** A program that writes the Orchestrator's turns (`claude -p`) must send both replies into the session that asked — `claude -p --resume <session-id> "A1"`, or `--continue` — with the id first, twice. A fresh `claude -p "A1"` is a new session, and its reply can only start the confirmation again.
+
+**Sub-command reference.** `scripts/pending-approval.sh --help` lists the full API: `--offer` (with `--approves`), `--resolve`, `--clear`, `--status`, `--validate`. `--clear` withdraws an unanswered question. `--resolve` removes a question still on disk and closes the audit-log rows of a bypass question the Orchestrator answered, reading the pick from `.claude/approvals.jsonl`; its `--decision accept|decline` is accepted only with Guardrails older than 4.4.0, which record no pick. `--status` shows the question and what each option does, which is useful after session recovery. `--validate` lints a sentinel path (default `.claude/pending-approval.json`) for CI or debugging use.
 
 **Double-offer is refused.** If a sentinel already exists, `--offer` refuses with an error listing the existing question. Resolve or clear first. This prevents memory-holing an earlier question that the user might still be deciding on.
 
-**Staleness.** Orphaned sentinels (from a crashed agent session) are not auto-cleaned. Run `scripts/pending-approval.sh --clear` or `rm .claude/pending-approval.json` if one is stuck. This matches the CDF stop-hook's behavior; both consumers share the same recovery path.
+**Staleness.** Orphaned sentinels (from a crashed agent session) are not auto-cleaned. Run `scripts/pending-approval.sh --clear` if one is stuck. This matches the Guardrails stop hook's behavior; both readers share the same recovery path.
+
+**Git hooks are the Orchestrator's to change.** The Development Guardrails 4.4.0 protect `.git/hooks/`, `.git/config` and `.git/info/` from the agent, refuse an agent command that sets git config which runs code (`core.hooksPath`, `hook.*`, `filter.*`, `core.editor`, `credential.helper`, `gpg.program`, `include.path` / `includeIf.*`, shell aliases), and cancel an open approval when a hook or the config changes. Solo's own installers write git hooks: `scripts/install-filesystem-gates.sh`, `scripts/install-contributor-hooks.sh` (this framework's repository only), `scripts/upgrade-project.sh`, `scripts/verify-install.sh --auto-fix` and `scripts/reconfigure-project.sh --enforcement-level`. The Orchestrator runs them — typed after `!` at the Claude Code prompt, or outside Claude Code — and never while a question is pending. A check inside those scripts could not enforce this: the agent can edit `scripts/`. The Guardrails' digests are what make an agent-run installer harmless to an approval: they cancel it.
 
 **When NOT to use the sentinel.** Simple confirm-y/n questions (e.g., "Proceed with the refactor?") don't need the sentinel — just ask. The sentinel is for *structured* decisions where a specific pick is required and an accidental advance would be harmful. Overuse dilutes its signal; under-use causes incidents like lancache.
 

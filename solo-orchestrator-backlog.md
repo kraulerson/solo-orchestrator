@@ -624,6 +624,7 @@ PostToolUse + Stop bypass-shaped-language detector writes structured rows to `.c
 **Plan:** `docs/superpowers/plans/2026-04-28-bl029-bypass-audit-plan.md`
 **Spec:** Agent-5 calibration deliverable at `Reports/uat-2026-04-27-calibration/results/agent-5.json`
 **Audit follow-up:** PR #46 corrected hook envelope schema (`tool_result` → `tool_response`, `transcript` → `last_assistant_message`) and updated plan docs to match canonical Claude Code schema.
+**Later change (2026-10-06, `## BL-320:`):** the confirmation-phrase sentinel is retired. The bypass detector's question is schema 2 and is answered by option id (A1 accepts, A2 declines, neither approves a commit) through the Development Guardrails 4.4.0's `record-approval.sh`, which counts only a reply that starts with an option id, asks for it twice and shows what each option does — the job the typed phrase did. The decision is read from the Guardrails' `.claude/approvals.jsonl`, not from the agent's `--resolve --decision`. The history above is kept as it was.
 
 ---
 
@@ -23232,3 +23233,180 @@ to one the user edited; whether the refresh calls CDF's own settings merge or a 
 whether the replaced file is archived the way adoption archives it. The agent cannot edit the file
 directly (config-guard and the deny rules forbid it), and a script it ran would not be stopped either
 (G5's first residual), so the route is G5's: offered, and typed by the human after `!`.
+
+**Partly delivered by `## BL-320:` (2026-10-06, Karl's c2).** Approval design B (Guardrails 4.4.0) needs
+`record-approval.sh` registered, so the ADD half is built: `soif_cdf_register_hooks`
+(`scripts/lib/guardrails.sh`, `# BL-320-REG-APPEND`) runs the clone's own `generate_settings_json` on the
+manifest's `activeHooks` and appends every entry whose hook file the project has and which no entry of the same
+event already runs — never removing, reordering or rewriting an entry, Solo's or the user's, and putting back
+one a user removed (accepted). `scripts/refresh-guardrails.sh` and `upgrade-project.sh` run it and name each
+addition, and the session start offers the refresh to a current project that lacks a registration. That answers
+"how the entries are identified" for additions (by hook file, per event) and "CDF's merge or Solo's" (Solo's;
+CDF's replaces the whole `hooks` key). Still open here: removing entries for hooks a release dropped, updating an
+entry whose matcher a release changed, the deny rules (4.4.0's four new ones, and removing the legacy
+`Write(...)` rules), archiving the replaced file, and adoption's "already installed" arm, which registers nothing.
+
+## BL-320: Solo's side of the Development Guardrails 4.4.0 approval design B — a schema-2 question, its answer by option id, the hook that reads it registered, and an init that asks before it pulls
+
+**Logged:** 2026-10-06 (Karl's go, before the third dogfood run)
+**Category:** Bug (correctness) + Feature
+**Severity:** High — with Guardrails 4.4.0 on CDF `main`, a project whose Solo scripts predate this entry cannot get a commit approved by the user's reply
+**Status:** Open — built on branch `feat/bl320-approval-schema2`, awaiting review and a PR
+
+**What changed upstream.** Development Guardrails (CDF) 4.4.0 (`aba947b`, CDF PR #26) approves an agent's
+commit only when the USER answers a question recorded in `.claude/pending-approval.json` with an option id,
+twice: their `record-approval.sh` (a UserPromptSubmit hook) shows the question, each option's effect, the staged
+change and the git hooks that will run, then takes the pick, binds an approval marker to HEAD, the index tree and
+digests of the git hooks and config, and appends the pick to `.claude/approvals.jsonl`. `mark-evaluated.sh` is the
+user's override only (it refuses under `CLAUDECODE`). The spec is CDF's
+`docs/superpowers/specs/2026-10-05-approval-via-pending-question-design.md` rev. 5; the hand-off was
+`~/dogfood-2026-10/SOLO-HANDOFF-approval-B.md` (outside the repo). Dogfood run 2 rows 20, 21, 23, 29 and 30 are
+the failures it answers.
+
+**What Solo had, measured before the change.** `scripts/pending-approval.sh --offer` and
+`scripts/escalate-to-user.sh` wrote schema 1 (`"A1: text"` strings), which 4.4.0's reader rejects ("it is not
+schema 2"); so did `scripts/hooks/bypass-detector.sh` — a third writer the hand-off did not list. Solo's own
+`scripts/pre-commit-gate.sh` rendered a schema-2 question as malformed and told the agent to `rm` it (`jq` exits 5
+on object options), and `upgrade-project.sh`'s hold printed a `jq` error. A project brought to 4.4.0 by
+`scripts/refresh-guardrails.sh` or `upgrade-project.sh` got `record-approval.sh` as a file but never registered
+it (`refresh_cdf_assets` copies files only), so no reply could approve anything. `init.sh` pulled the shared clone
+unasked on every run.
+
+**Compatibility, by the project's own scripts and its Guardrails.** New scripts with 4.4.0+ and the hook
+registered: approved by the user's two replies, then a lone `git commit -m`. New scripts with 4.4.0+ and the hook
+unregistered: the user's override only, until the refresh registers it. New scripts with an older Guardrails: the
+agent approves its own commits the older way (the texts say so by version). Old scripts with 4.4.0+: only a
+schema-2 question the agent writes by hand (CDF's block text gives the shape), or the override.
+
+**Decided (Karl, 2026-10-06):** (c2) register EVERY missing Guardrails hook entry, accepting that this can put
+back one a user removed; (d) at a terminal `init.sh` asks, and Enter means yes; bypass questions are answered by
+option id and audited from `.claude/approvals.jsonl`, retiring `## BL-029:`'s typed phrase; `--offer` refuses an
+approving question when nothing is staged (implemented for a question with `--approves`; a decision that approves
+nothing needs nothing staged). The minimum Guardrails version is one constant; all five hook installers become
+human steps by documentation only.
+
+**As built.**
+- **One lib, shipped** (`scripts/lib/guardrails.sh`, `# BL-320-SHIP`): `SOIF_GUARDRAILS_MIN="4.4.0"`, the
+  version compare, the route a question takes (`soif_gr_route`: pick / legacy / unknown, `# BL-320-ROUTE`),
+  CDF's schema-2 rules (`soif_pa_v2_problems`: ids `# BL-320-V2-ID`, uniqueness ignoring case
+  `# BL-320-V2-UNIQUE`, an option that approves nothing `# BL-320-V2-NONE`), each option with its effect
+  (`# BL-320-PA-LINES`), the registration and the clone update below. `adopt-project.sh` sources it.
+- **The writer.** `--offer` writes schema 2 (`# BL-320-OFFER-SCHEMA`), validates with CDF's rules before the
+  file lands, takes a repeatable `--approves ID` (`# BL-320-OFFER-APPROVES-ID`) and refuses it with nothing
+  staged (`# BL-320-OFFER-STAGED`). `--status` and `--validate` read both schemas; schema 1 fails `--validate`
+  under 4.4.0+ (`# BL-320-VALIDATE-V1`). `--resolve` and `--clear` only clean up: under 4.4.0+ `--resolve
+  --decision` is refused (`# BL-320-RESOLVE-DECISION`), and `--resolve` closes bypass rows from the user's pick
+  (`# BL-320-RESOLVE-RECONCILE`). `escalate-to-user.sh` passes `--approves` through (`# BL-320-ESC-APPROVES`)
+  and records the schema-2 options and the question's sha256 in its row.
+- **The bypass question.** The detector writes schema 2 (`# BL-320-DETECT-SCHEMA2`): A1 accepts, A2 declines,
+  neither approves a commit, marked `"source": "bypass-detector"`. Its rows are written after the question and
+  carry its sha256 (`# BL-320-DETECT-BIND`); a second proposal while that question is open binds to it, and one
+  while a commit question is open binds to nothing (`# BL-320-DETECT-COVER`). `bypass_audit_close_from_approvals`
+  (`scripts/lib/bypass-audit.sh`) closes exactly the rows a pick answers (`# BL-320-AUDIT-BIND`), A1 to
+  accepted/bypassed and anything else to declined/abandoned (`# BL-320-AUDIT-MAP`). BL-029's typed phrase
+  is retired: the Guardrails' id-first, asked-twice reply is the defence it was.
+- **The holds.** `pre-commit-gate.sh` renders both schemas with each option's effect (`# BL-320-GATE-RENDER`)
+  and gives the route by version (`# BL-320-GATE-ROUTE`): under 4.4.0+ the user answers by option id, the
+  agent does not remove the question and commits with a lone `git commit -m "subject" -m "body"`; a schema-1
+  question there is withdrawn and asked again; older versions keep `--resolve`. `upgrade-project.sh`'s hold
+  renders schema 2 (`# BL-320-UP-SENTINEL-RENDER`).
+- **Registration (c2, the part of `## BL-319:` this needs).** `soif_cdf_register_hooks` runs the clone's own
+  `generate_settings_json` on the manifest's `activeHooks` and appends, one group per missing event and matcher,
+  each entry whose hook file the project has (`# BL-320-REG-FILE`) and whose file no entry of that event already
+  runs (`# BL-320-REG-HAVE`, any spelling, any matcher). Nothing existing is removed, reordered or rewritten
+  (`# BL-320-REG-APPEND`); a symlinked settings file (`# BL-320-REG-LINK`) or one that is not a JSON object of
+  lists (`# BL-320-REG-JSON`) is refused, writing nothing; the write is a temp file renamed over it; each
+  addition is printed. `refresh-guardrails.sh` runs it after its receipt (`# BL-320-RG-REGISTER`) and refuses up
+  front without the lib (`# BL-320-RG-LIB`); `upgrade-project.sh` runs it after its refresh, non-fatally
+  (`# BL-320-UP-REGISTER`).
+- **The mixed install is refused.** `scripts/pending-approval.sh` now says which schema it writes
+  (`SOIF_APPROVAL_SCHEMA=2`, `# BL-320-PA-SCHEMA-MARK`), and `soif_gr_writer_schema` reads that line from the
+  project's own copy. Where Guardrails at or above the minimum would land beside a writer without it,
+  `refresh-guardrails.sh` refuses before writing anything (`# BL-320-RG-MIXED`) and the session start offers no
+  Guardrails-only update but a notice naming the framework sync, which moves both halves
+  (`bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework`, `# BL-320-CV-MIXED`).
+- **The session start.** `check-versions.sh` names a project below 4.4.0 (`# BL-320-CV-MIN`, worded "below",
+  never the URGENT "BELOW MINIMUM") and offers the refresh to a current project that lacks a registration,
+  naming it (`# BL-320-CV-REG`); `session-version-check.sh` carries every Guardrails row into the offer, says
+  the settings file only gains missing registrations, and tells a below-minimum notice to update the clone.
+- **Governance.** `detect-out-of-band-commits.sh` (SessionStart) closes bypass rows from picks
+  (`# BL-320-OOB-RECONCILE`) and records each `matched: false` commit in `.claude/approvals.jsonl` once
+  (`# BL-320-OOB-DEDUP`) as a new `approval_mismatch` row (`# BL-320-OOB-MISMATCH`).
+- **init.sh asks first** (`# BL-320-INIT-PULL`): `soif_guardrails_clone_update` shows the clone's version and,
+  after a fetch that cannot prompt, the available one, then asks `[Y/n]` (`# BL-320-PULL-ASK`); with no
+  terminal, CI, `SOIF_NONINTERACTIVE` or `--non-interactive` it neither fetches nor pulls and prints the command
+  (`# BL-320-PULL-TTY`). A clone below the minimum is named either way (`# BL-320-PULL-MIN`); so is an adopted
+  install (`# BL-320-ADOPT-MIN`, also in the Adoption Record).
+- **Docs.** Builder's Guide "Structured Decision Points" (stage, ask with `--approves`, id twice, lone commit,
+  headless `--resume`, git hooks are the Orchestrator's), Phase 2 step 5 no longer suggests a hook manager that
+  sets `core.hooksPath`, and its Superpowers line carries the marketplace fallback; the CLAUDE.md template;
+  `docs/adoption.md` section 7; the user guide; `docs/audit-log-lifecycle.md`; README's Guardrails row.
+
+**Tests.** `tests/test-bl320-approval-schema2.sh` (unit lane): 45 cases and 41 mutants, each mutant killed by a
+named case. The dogfood round trip E1 runs against the real Guardrails hooks copied from the clone and SKIPS where
+none is at 4.4.0 or later (CI has none); R10 checks the registration against the clone's real generator the same
+way. Updated: `test-pending-approval.sh` (P10), `test-bypass-sentinel.sh` (T2b), `test-bl029-integration.sh` (T3,
+T6), `test-bl311-d-relayed-escape.sh` (M16 follows the moved line), `test-bl318-g5-guardrails-refresh.sh`
+(fixtures at or above the minimum where a case means "current", the offer's settings sentence, the lib shipped
+beside the refresh), `test-bl318-g4g6.sh` (P9 also checks the Builder's Guide).
+
+**Residuals (not fixed):**
+- **Scripts the agent runs are not checked by the Guardrails' text guards** (the spec's R-23). The installers are
+  human steps by documentation only; a refusal inside an agent-editable `scripts/` file would not be a control,
+  and the Guardrails' hook and config digests cancel any open approval an installer would disturb.
+- **The PreToolUse subject read takes the last `-m`.** `bl006_check`, `lints_check` and `_tdd_extract_subject`
+  in `pre-commit-gate.sh` read `-m "a" -m "b"` as subject `b` (measured). The commit-msg hook reads the real
+  message and backstops the TDD and Build Loop message checks; the docs now recommend that form, so the
+  PreToolUse read should take the first `-m`.
+- **Registration leaves `## BL-319:`'s other halves:** an entry for a hook a release dropped stays; an entry whose
+  matcher a release changed is not updated; 4.4.0's four new deny rules are not added and the legacy `Write(...)`
+  rules are not removed; adoption's "already" arm registers nothing.
+- **A bypass row recorded while a commit question was open** is bound to nothing and stays PENDING under 4.4.0+
+  (the agent's `--decision` is refused there).
+- **A project synced between `## BL-318:` G5 (PR #497) and this entry cannot be protected from this side.** Its
+  own `check-versions.sh` and `refresh-guardrails.sh` are the G5 copies: once the shared clone reaches 4.4.0, the
+  session start offers the Guardrails-only update, and accepting it installs the 4.4.0 hooks beside the schema-1
+  writer, with `record-approval.sh` unregistered. Every agent commit is then blocked and no reply can approve it;
+  the user's override (`mark-evaluated.sh` in a terminal of their own, then `scripts/pending-approval.sh
+  --resolve`) still works. The way out is the framework sync, which brings the schema-2 writer, the guarded
+  scripts and the registration together: `bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework`.
+  `docs/adoption.md` section 7 and the user guide say so.
+- **The headless driver** that answers approval questions lives outside the repo (the dogfood runbook): it must
+  send both replies into the asking session (`claude -p --resume <id>`), id first.
+- **Owner decision 2b** (a Solo git `pre-commit` hook comparing `git write-tree` with the approval marker, so `-a`
+  and pathspecs could pass when they produce the approved tree) is a follow-up, not built.
+- **init.sh's fetch** for the available version has no time bound on a network that hangs (no `timeout` here);
+  `GIT_TERMINAL_PROMPT=0` only stops it waiting on credentials.
+- **A relay of an installer command** ("type `!` and then …") is not pinned in the bypass detector the way the
+  Guardrails refresh is, so an agent's relay of one can raise a false bypass question (fails closed).
+
+## BL-321: a git `pre-commit` hook that checks the commit against the approved tree, so `-a` and pathspecs can pass when they commit exactly what was approved
+
+**Logged:** 2026-10-06 (from `## BL-320:`; Karl's owner decision 2b, 2026-10-05)
+**Category:** Feature (enforcement)
+**Severity:** Medium
+**Status:** Open — DEFERRED (decided 2026-10-05 by Karl in the Development Guardrails' approval design B: "(a) now, (b) as a Solo follow-up")
+
+**What.** A Solo-installed git `pre-commit` hook that compares `git write-tree` — the tree the commit will
+actually contain, with `-a` and pathspecs already applied — with the tree in the Development Guardrails' approval
+marker (`/tmp/.claude_evaluated_<hash>`, written by their `record-approval.sh` on the user's pick, 4.4.0 and
+later), and refuses the commit when they differ.
+
+**Why.** Guardrails 4.4.0 pin an approved commit by shape instead (their spec's D4: a lone `git commit` with
+message options only, no `-a`, no pathspec, no `--amend`), because they cannot see the tree a commit will hold
+before git builds it. A hook inside git can. It would let `-a` and pathspecs through whenever they produce exactly
+the approved tree, and it would turn the spec's residual "6a" — a git hook that was present (and shown to the user)
+at approval time and alters the stage during the commit — from detected after the fact (`matched: false` in
+`.claude/approvals.jsonl`, recorded by `## BL-320:` as an `approval_mismatch` row) into prevented.
+
+**Sources.** CDF `docs/superpowers/specs/2026-10-05-approval-via-pending-question-design.md` rev. 5: D4 ("Not
+adopted. A git `pre-commit` hook comparing `git write-tree` against the marker would cover `-a` and pathspecs
+exactly, but CDF does not own `.git/hooks`"), D8 row 6a, and "Owner decisions" 2(b). The hand-off
+`~/dogfood-2026-10/SOLO-HANDOFF-approval-B.md` (outside the repo), item 8.
+
+**Open questions for the build.** Where the hook reads the marker (the marker's name is a hash of the project
+path, computed the Guardrails' way); ordering against Solo's other pre-commit checks (it must run last, after any
+hook that can change the stage); what it does with no marker (nothing: the Guardrails' own check refuses the commit
+first); that installing it changes the hooks digest an open approval is bound to (install it as a human step, never
+while a question is pending); and whether the Guardrails would then relax their shape rule, which is CDF's
+decision.
