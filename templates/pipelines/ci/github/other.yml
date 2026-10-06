@@ -1,5 +1,6 @@
 # solo-orchestrator: platforms=web,desktop,mobile,mcp_server
-name: CI
+# BL-318-G3-NAME: not CI. Adoption installs this beside a project's own workflows, often named CI.
+name: Solo Orchestrator checks
 
 # TODO: Customize these steps for your language and toolchain.
 # This is a skeleton — uncomment and fill in the appropriate commands.

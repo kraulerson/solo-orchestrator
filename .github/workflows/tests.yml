@@ -628,6 +628,7 @@ jobs:
             tests/test-bl318-g1-test-command.sh
             tests/test-bl318-g5-guardrails-refresh.sh
             tests/test-bl318-g2-resume-adoptee.sh
+            tests/test-bl318-g3-ci-template.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1029,6 +1030,10 @@ jobs:
             tests/test-brownfield-wp9c-session-layer.sh  # new — six real adoptions
             tests/test-brownfield-wp7f-provenance.sh   # new — one real adoption, then the checker and the finisher
             tests/test-brownfield-wp7e-ci-carveout.sh  # new — real adoptions, CI files read and one written
+            # From `rest`, 2026-10-05: that leg's job ran 638s of 720s on PR #498 (89%) and
+            # 624s on main run 37400574352, and this suite was its longest pole both times.
+            # This leg's job ran 450s and 388s on those runs.
+            tests/test-bl296-adopt-guardrails.sh       # 79s and 77s on those two runs — real adoptions through the Guardrails installer
           )
           # ── `mcp` and `mcp-mutants` — the BL-311 group A suite, in two files
           # (2026-09-30). The history, all on PR #477:
@@ -1066,6 +1071,8 @@ jobs:
           pin_mcp_mutants=(                               # 400s on PR #490's run, 355s on PR #494's, of 720s
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
             tests/test-bl312-tldr-mode.sh                 # ~100s local, measured (100s and 105s after review round 1) — five completed adoptions and two refused, eight adoption mutants, 34 mutants in all; here, not in `rest` (518s of 720s on PR #494) or `mcp` (349s, four files)
+            tests/test-bl311-d-relayed-escape.sh          # 34s and 33s on PR #498 and main run 37400574352 — from `rest`, its second pole, moved with bl296 (to `commit-hooks`) so `rest` drops ~112s, to ~525s of 720s on PR #498's figures; this leg's job ran 457s and 456s on those runs
+            tests/test-bl318-g3-ci-template.sh            # 35s local, measured after review round 1 — two real adoptions and two under mutants, 24 cases and 36 mutants; here, not in `rest` (job 638s of 720s on PR #498) or `mcp` (job 521s on main run 37400574352); this leg's job ran 457s on PR #498
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the

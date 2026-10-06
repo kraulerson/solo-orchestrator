@@ -1,6 +1,12 @@
 # solo-orchestrator: platforms=web,desktop,mcp_server
-name: CI
+# BL-318-G3-NAME: not `CI`. Adoption installs this file beside a project's own
+# workflows, and a project's own is often named CI; two workflows of one name
+# cannot be told apart in the Actions tab or in a pull request's checks.
+name: Solo Orchestrator checks
 
+# Runs on a push to main and on pull requests to main; a push to any other
+# branch runs nothing. A repository whose main branch has another name changes
+# both `branches:` lines.
 on:
   push:
     branches: [main]
@@ -20,16 +26,77 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install dependencies
+      # BL-318-G3-INSTALLER: the ONE decision every install and tool step below
+      # reads. A uv project (uv.lock with pyproject.toml beside it) installs
+      # from its lockfile; any other project from requirements.txt. With
+      # neither, the job stops here and says what is missing: a skipped install
+      # would let the checks below run against nothing. `shell: bash` gives the
+      # step -o pipefail as well as -e, which is how the suite executes it.
+      - name: Find the dependency file
+        id: deps
+        shell: bash
+        run: |
+          if [ -f uv.lock ] && [ -f pyproject.toml ]; then
+            echo "installer=uv" >> "$GITHUB_OUTPUT"
+          elif [ -f requirements.txt ]; then
+            echo "installer=pip" >> "$GITHUB_OUTPUT"
+          else
+            missing="requirements.txt"
+            [ -f uv.lock ] || missing="$missing, uv.lock"
+            [ -f pyproject.toml ] || missing="$missing, pyproject.toml"
+            echo "::error::No dependency file to install from. This workflow installs a uv project from uv.lock and pyproject.toml together, and any other project from requirements.txt. Missing: $missing."
+            exit 1
+          fi
+
+      # BL-318-G3-FAIL-CLOSED: every install, lint, test and security step below
+      # is gated on the decision. If the decision step is ever skipped, or fails
+      # and is let through, the installer is empty and all of them would skip,
+      # leaving a green job that checked nothing. This step turns that red.
+      - name: Stop if no installer was chosen
+        if: steps.deps.outputs.installer != 'uv' && steps.deps.outputs.installer != 'pip'
+        shell: bash
+        run: |
+          echo "::error::The \"Find the dependency file\" step chose no installer (it was skipped, or failed and was let through), so no install, lint, test or security check would run."
+          exit 1
+
+      - name: Install uv
+        if: steps.deps.outputs.installer == 'uv'
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      # BL-318-G3-UV-SYNC: --frozen installs exactly what uv.lock records and
+      # never rewrites it. The dev tools go into the same project environment,
+      # where `uv run` finds them; a tool the project already pins stays at
+      # its version, and uv.lock is not touched.
+      - name: Install dependencies (uv)
+        if: steps.deps.outputs.installer == 'uv'
+        run: uv sync --frozen
+
+      - name: Install dev tools (uv)
+        if: steps.deps.outputs.installer == 'uv'
+        run: uv pip install ruff pytest pip-audit pip-licenses
+
+      - name: Install dependencies (pip)
+        if: steps.deps.outputs.installer == 'pip'
         run: pip install -r requirements.txt
 
-      - name: Install dev tools
+      - name: Install dev tools (pip)
+        if: steps.deps.outputs.installer == 'pip'
         run: pip install ruff pytest pip-audit pip-licenses
 
-      - name: Lint
+      - name: Lint (uv)
+        if: steps.deps.outputs.installer == 'uv'
+        run: uv run --frozen ruff check .
+
+      - name: Lint (pip)
+        if: steps.deps.outputs.installer == 'pip'
         run: ruff check .
 
-      - name: Test
+      - name: Test (uv)
+        if: steps.deps.outputs.installer == 'uv'
+        run: uv run --frozen pytest
+
+      - name: Test (pip)
+        if: steps.deps.outputs.installer == 'pip'
         run: pytest
 
       - name: Security - Secret detection (gitleaks)
@@ -44,16 +111,48 @@ jobs:
           tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
           ./gitleaks git --redact --exit-code 1
 
-      - name: Security - Dependency audit
+      - name: Security - Dependency audit (uv)
+        if: steps.deps.outputs.installer == 'uv'
+        run: uv run --frozen pip-audit
+
+      - name: Security - Dependency audit (pip)
+        if: steps.deps.outputs.installer == 'pip'
         run: pip-audit
 
-      - name: Security - License check
+      # BL-318-G3-LICENSES: the same deny list on both paths.
+      # BL-318-G3-SELF-LICENSE: `uv sync` installs a packaged project itself, so
+      # pip-licenses would list it and fail it on its own license. The deny list
+      # is for dependencies (the pip path never installs the project), so the
+      # project is left out under the name `uv version` reports ("<name>
+      # <version>", the name normalised as pip-licenses compares it). With no
+      # name to report (no [project] table), nothing is left out.
+      - name: Security - License check (uv)
+        if: steps.deps.outputs.installer == 'uv'
+        shell: bash
+        run: |
+          self="$(uv version --frozen 2>/dev/null | awk 'NR == 1 { print $1 }')" || self=""
+          set --
+          [ -z "$self" ] || set -- --ignore-packages "$self"
+          uv run --frozen pip-licenses "$@" --fail-on="GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3);GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v2.1 (LGPLv2.1);GNU Lesser General Public License v3 (LGPLv3);Server Side Public License (SSPL);European Union Public Licence 1.1 (EUPL 1.1);European Union Public Licence 1.2 (EUPL 1.2)"
+        # MPL-2.0 has file-level copyleft — review on a case-by-case basis if detected
+
+      - name: Security - License check (pip)
+        if: steps.deps.outputs.installer == 'pip'
         run: pip-licenses --fail-on="GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3);GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v2.1 (LGPLv2.1);GNU Lesser General Public License v3 (LGPLv3);Server Side Public License (SSPL);European Union Public Licence 1.1 (EUPL 1.1);European Union Public Licence 1.2 (EUPL 1.2)"
         # MPL-2.0 has file-level copyleft — review on a case-by-case basis if detected
 
       - name: Security - Lockfile integrity
+        env:
+          # BL-318-G3-LOCK-CHECK: the installer the decision step chose. For uv,
+          # `uv lock --check` reports a uv.lock that no longer matches
+          # pyproject.toml (it never writes); `uv sync --frozen` above installed
+          # the lockfile as it is, without checking.
+          INSTALLER: ${{ steps.deps.outputs.installer }}
+        shell: bash
         run: |
-          if [ -f "requirements.txt" ] && grep -q -- '--hash' requirements.txt; then
+          if [ "$INSTALLER" = "uv" ]; then
+            uv lock --check || echo "::warning::uv lock --check failed: uv.lock may not match pyproject.toml (see the output above). Run uv lock and commit uv.lock."
+          elif [ -f "requirements.txt" ] && grep -q -- '--hash' requirements.txt; then
             pip install --require-hashes -r requirements.txt --dry-run 2>/dev/null || echo "::warning::Hash verification failed — review requirements.txt hashes"
           elif [ -f "Pipfile.lock" ]; then
             pipenv verify 2>/dev/null || echo "::warning::Pipfile.lock integrity check unavailable (pipenv not installed)"

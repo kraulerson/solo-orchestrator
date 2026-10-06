@@ -797,7 +797,7 @@ All Solo Orchestrator applications must comply with:
 | **Logging** | Structured logs feeding into the enterprise SIEM or centralized logging platform. |
 | **Monitoring** | Error tracking (Sentry or equivalent) with alerts routed to the Orchestrator and backup maintainer. |
 | **Repository** | Private repository on the organization's approved platform (GitHub, GitLab, Azure DevOps). |
-| **CI/CD** | Automated testing, SAST scanning, dependency auditing, and license checking on every push. |
+| **CI/CD** | Automated testing, SAST scanning, dependency auditing, and license checking in CI: on GitHub, on a push to `main` and on pull requests to `main` (a push to any other branch runs nothing); on GitLab and Bitbucket, on every push. |
 
 ### Shared Starter Template
 

@@ -22780,7 +22780,7 @@ preference, which made every reply carry one anyway.
   check finds nothing to run while `package.json` carries npm's placeholder. In a Python project whose
   `package.json` came from `npm init`, the hook's own fallback still runs pytest.
 
-**G2, as built (branch `fix/bl318-g2-resume-adoptee`; PR to be cited).**
+**G2, as built (PR #498, merged as `73ce079`).**
 - **The route.** In `## BL-202:` branch 2 of `scripts/resume.sh`, an adopted project at phase 0 with its
   intake done gets its own Section 13 while its `PRODUCT_MANIFESTO.md` is still byte-identical to the one
   in the commit adoption was anchored on (`# BL-318-G2-ADOPTEE-PHASE0`). The anchor is the stamp's
@@ -22840,6 +22840,95 @@ preference, which made every reply carry one anyway.
   guide promises this prompt, so G2 prints it as written.
 - **A manifesto that was never committed before adoption counts as Phase 0's.** The anchor commit does not
   hold it, so the route reads it as Phase 0's output and gives the classic prompt, as before G2.
+- **R-G2-5 (PR #498): the session-start hook ignores an open delta.** `# BL-318-G2-HOOK-BROUGHT` ignores
+  `# DELTA-RESUME-EXEMPTION`. An inProduction adoptee with an open hotfix delta at phase 0 is told "READY
+  FOR PHASE 0" by the session-start hook while `resume.sh` prints the delta. The greenfield arm had the
+  same gap before.
+
+**G3, as built (branch `fix/bl318-g3-ci-template`; PR to be cited).**
+- **When it runs.** The triggers are unchanged: a push to `main` and pull requests to `main`. The words
+  now say so, and that a push to any other branch runs nothing: adoption's own note
+  (`# BL-318-G3-RUNS-WHEN`, which reads the workflow's name from the file it installs), the GitHub row
+  of the "Runs?" table in `docs/adoption.md`, the Tier 1 sentence in `docs/user-guide.md` (on GitLab and
+  Bitbucket a greenfield pipeline does run on every push, and it says so), and
+  `docs/audit-log-lifecycle.md`. Adoption's note and the table also say what a repository whose main
+  branch has another name must change.
+- **The name.** All ten GitHub CI templates are `name: Solo Orchestrator checks` (`# BL-318-G3-NAME`),
+  because adoption installs whichever one matches the project's language. Nothing depended on `CI`:
+  branch protection sets `"contexts":[]` (`scripts/host-drivers/github.sh`), and no script, lint or test
+  reads the workflow's name. A greenfield `ci.yml` gets the same name, since `generate_ci` copies the
+  same template. "checks", not "gates": the messaging standard keeps "gate" for the phase gate.
+- **The install.** One step, "Find the dependency file" (`# BL-318-G3-INSTALLER`), decides once: a
+  `uv.lock` with a `pyproject.toml` means uv; otherwise `requirements.txt` means pip; with neither the step
+  fails with an `::error::` that names the missing files, so nothing runs against an empty install. Every
+  install and tool step is gated on that one output with a YAML `if:`. Adoption and `init.sh` both copy
+  the template verbatim, so nothing is chosen at render time. The uv path is `astral-sh/setup-uv` at
+  `c18668ad3cf93ea998bef934396af7bb5c839dc7` (v10.2.0, the latest release, published 2026-09-21; a
+  lightweight tag on that commit, an immutable release, a verified commit — read with `gh api`), then
+  `uv sync --frozen`, then the dev tools with `uv pip install` into the same environment, then
+  `uv run --frozen` for ruff, pytest, pip-audit and pip-licenses (`# BL-318-G3-UV-SYNC`). The lockfile
+  step runs `uv lock --check` for a uv project and warns when it fails (`# BL-318-G3-LOCK-CHECK`); it used
+  to say "No hash-pinned lockfile found" to every uv project. The license deny list is unchanged and both
+  license steps carry it (`# BL-318-G3-LICENSES`). A job-level `env:` holding it was tried first:
+  `tests/test-bl147-ci-template-integrity.sh` `Cw6-strict-job` refused it, because that pin allows only
+  `runs-on` and `steps` on the job that runs the phase gate.
+- **Measured on the k-pdf shape** (the run's git bundle, `8d0b2be`): its `solo-gates.yml` is byte-identical
+  to the template before G3 — `name: CI` beside k-pdf's own `name: CI`, and `pip install -r
+  requirements.txt` in a project that has no such file. k-pdf's own CI shows `uv run pip-audit` working in
+  a uv environment (run 37053715877: it ran, and failed on 29 known vulnerabilities, a finding).
+- **Review round 1.**
+  - **R-1: the decision could be bypassed silently.** One added line on the decision step —
+    `continue-on-error: true`, or an `if:` such as `github.event_name == 'push'` — left the installer
+    empty. Every gated step then skipped, and the job could go green having run no install, lint, test
+    or security check. Both mutants passed every suite that read the file. Now the suite asserts the
+    decision step has no `if:` and that no step in the job carries `continue-on-error` (the same pin
+    bl147's `Cw6-strict-no-coe` puts on the phase-gate step). The template also fails closed: the step
+    right after the decision, "Stop if no installer was chosen" (`# BL-318-G3-FAIL-CLOSED`), runs only
+    when the installer is neither `uv` nor `pip`, and fails the job with an `::error::`.
+  - **R-2: a packaged uv project failed on its own license.** `uv sync` installs a project that has a
+    `[build-system]` into its environment, so pip-licenses listed it. Measured offline with uv 0.11.3
+    and pip-licenses 5.5.5: a fixture classified GPLv3 failed with "fail-on license GNU General Public
+    License v3 (GPLv3) was found for package kp2:0.1.0", rc 1. The uv license step now leaves the
+    project out under the name `uv version --frozen` prints (`# BL-318-G3-SELF-LICENSE`). That output
+    is "<name> <version>", with the name PEP 503-normalised (`Kp2_Pkg` prints as `kp2-pkg`), and
+    pip-licenses normalises both sides before it compares. With no `[project]` table, uv exits 2 and
+    nothing is left out. The same fixtures now pass (rc 0), with the step's own script run by the real
+    uv. The pip path never installs the project, so the two paths now judge the same packages.
+  - **R-3:** `docs/governance-framework.md`'s CI/CD row said "license checking on every push"; it now
+    uses the Tier 1 wording.
+  - **R-4:** the steps the suite executes (the decision, the fail-closed step, the uv license check and
+    the lockfile check) declare `shell: bash`. With no `shell:`, GitHub runs `bash -e {0}`, which has no
+    pipefail, so the suite's `bash -eo pipefail` was not how the runner would run them. The suite now
+    refuses to execute a step that does not declare it.
+- **Tests.** `tests/test-bl318-g3-ci-template.sh`: 24 cases and 36 mutants. Two real adoptions (a uv
+  project and a requirements.txt project, each with its own workflow named `CI`) write the file every
+  other case reads. The decision step runs over six trees, and the fail-closed, lockfile and uv license
+  steps run with stub tools, all as a `shell: bash` step runs on Actions. On `73ce079` 19 of the first 20
+  cases fail (T1, the triggers are unchanged, passes there by design). On review round 1's base,
+  `9830322`, 12 of the 24 fail; T7 passes there, and its mutants (`continue-on-error` or an `if:` on the
+  decision step) are what prove it.
+
+**G3 residuals (not fixed):**
+- **The phase-gate token setup makes the same promise.** `scripts/check-gate.sh --setup-ci-token` prints
+  "The next push enforces the check.", `docs/builders-guide.md` quotes it, and the ten templates' phase-gate
+  comment says the backstop "enforces on the very next push". On GitHub only a push to `main` or a pull
+  request to `main` runs it. The output is pinned by `tests/test-walk006-ci-protection-scope.sh` and the
+  comment block by bl147's `Cw6` cases, so G3 leaves both.
+- **The GitLab and Bitbucket Python templates still skip a uv install in silence.** They run
+  `pip install -r requirements.txt 2>/dev/null || true`. Adoption installs them as files that do not run
+  until the operator wires them in; a greenfield project on those hosts runs them.
+- **A repository whose main branch is not `main` gets a workflow that never runs.** The words now say so;
+  nothing detects it.
+- **`uv sync --frozen` installs the default groups only.** A project that keeps pytest or its plugins in an
+  optional extra or another group gets a bare pytest from the dev-tools step, without them — the same
+  class as G1's first residual.
+- **Projects adopted before G3 keep their old file.** Adoption never overwrites an existing
+  `solo-gates.yml` (`# BL-242-CI-DEST`), and nothing offers the new one.
+- **Two check runs named `test`.** The framework's jobs are still `test` and `sast`, so an adoptee whose
+  own workflow has a job named `test`, and requires it as a status check, gets two check runs named
+  `test`. That predates G3, which renamed only the workflow.
+- **Not run on a runner.** No workflow run of the new template has happened. It was checked by a YAML parse
+  (PyYAML 6.0.3) and by the suite; `actionlint` is not installed here.
 
 **G5, decided (Karl, 2026-10-05) and built. G5 resolved by PR #497 (merged as `f5b1671`); its residuals
 are below.**

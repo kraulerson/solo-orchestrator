@@ -102,7 +102,7 @@ Throughout the rest of this section, the tier breakdown describes the **shape of
 - `light`: every tier applies to Claude. Your terminal commits skip Tier 2 hooks but are still captured by Tier 1 CI and recorded post-hoc by the audit detector.
 - `no`: every tier applies to Claude. Your terminal commits are entirely unchecked by the framework.
 
-**Tier 1 — Mechanically enforced (CI pipeline).** These checks run automatically on every push. They block merges when they fail. You cannot accidentally bypass them.
+**Tier 1 — Mechanically enforced (CI pipeline).** These checks run automatically in your CI: on GitHub, on a push to `main` and on pull requests to `main` (a push to any other branch runs nothing); on GitLab and Bitbucket, on every push. They block merges when they fail. You cannot accidentally bypass them.
 
 | Control | Mechanism |
 |---|---|

@@ -4,7 +4,7 @@
 
 ## Why this file exists
 
-The framework's central enforcement guarantee — described in `docs/user-guide.md` and `docs/builders-guide.md` — is **"you can route around the block, you cannot route around the audit."** Hooks can be bypassed. The CI pipeline catches some bypasses but runs only on push. The local append-only ledger is the durable record of every bypass that mattered: who tried it, when, what the framework decided, what the operator did with the proposal.
+The framework's central enforcement guarantee — described in `docs/user-guide.md` and `docs/builders-guide.md` — is **"you can route around the block, you cannot route around the audit."** Hooks can be bypassed. The CI pipeline catches some bypasses but runs only once code reaches the host (on GitHub: a push to `main` or a pull request to `main`). The local append-only ledger is the durable record of every bypass that mattered: who tried it, when, what the framework decided, what the operator did with the proposal.
 
 The W7 use case (successor handoff under the Solo Orchestrator governance framework — see `docs/governance-framework.md`) depends on this log being readable, unambiguous, and complete. A successor must be able to reconstruct, from the in-repo ledger alone, the operator's history of enforcement decisions on the project.
 
