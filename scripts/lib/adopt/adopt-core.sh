@@ -115,7 +115,11 @@ adopt_refuse() {
   # said "nothing was written". Same class as the claim it replaced. The flag is
   # set by every writer the moment it has touched the tree, so this reads a fact
   # rather than a proxy for one.
-  if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] || [ "$_n" -gt 0 ] || adopt_has_touched_disk; then
+  # `## BL-318:` G6(b), review round 1 (R-6): A RUN THAT REGISTERED AN MCP SERVER
+  # HAS BEGUN. The server is in the operator's Claude Code configuration, so
+  # "refused" (the tool declined to start and changed nothing) would be false;
+  # it is a block, and the arm below says it changed nothing in the project.
+  if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] || [ "$_n" -gt 0 ] || adopt_has_touched_disk || [ -n "${ADOPT_MCP_REGISTERED:-}" ]; then   # BL-318-G6-BLOCK-LABEL
     printf '\n[BLOCKED] %s\n' "$1" >&2
     # INSIDE THE REHEARSAL, THE CAUSE AND NOTHING ELSE. Everything below states
     # what was written to "this project" — and during the rehearsal that is the
@@ -135,10 +139,12 @@ adopt_refuse() {
     # printed "did not begin. Nothing was committed and nothing was written" —
     # on every `--finish` whose commit-time scanners could not be installed,
     # directly under a commit that had just landed 85 files. Measured by review.
-    if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] && [ "$_n" -eq 0 ] && ! adopt_has_touched_disk \
-       && [ "${ADOPT_COMMITTED:-0}" -ne 1 ]; then   # BL-242-REFUSE-AFTER-COMMIT
+    # NOT ONLY A FORCED BLOCK (`## BL-318:` G6(b), review round 1, R-6): a stop
+    # after an MCP registration reaches this arm too, and the project is just as
+    # untouched; before, every way in here was forced, so the condition named it.
+    if [ "$_n" -eq 0 ] && ! adopt_has_touched_disk && [ "${ADOPT_COMMITTED:-0}" -ne 1 ]; then   # BL-242-REFUSE-AFTER-COMMIT # BL-318-G6-NOTHING-ARM
       _adopt_refuse_nothing_written
-      _adopt_refuse_outside
+      _adopt_refuse_outside   # BL-318-G6-OUTSIDE-NOTHING
       return 1
     fi
     if [ "${ADOPT_COMMITTED:-0}" -eq 1 ]; then
@@ -169,12 +175,14 @@ adopt_refuse() {
       printf '          had already ATTEMPTED writes to this project. Check `.claude/adoption-archive/`\n' >&2
       printf '          and `git status --ignored --untracked-files=all` before re-running.\n' >&2
     fi
-    _adopt_refuse_outside
+    _adopt_refuse_outside   # BL-318-G6-OUTSIDE-BLOCKED
   else
+    # A refusal changed nothing anywhere: with a registration the run takes the
+    # [BLOCKED] arm above (its label condition names ADOPT_MCP_REGISTERED), so
+    # there is nothing outside the project to name here.
     printf '\n[REFUSED] %s\n' "$1" >&2
     [ "${ADOPT_REHEARSING:-0}" -eq 1 ] && return 1   # BL-242-REHEARSAL-CAUSE-ONLY
     _adopt_refuse_nothing_written
-    _adopt_refuse_outside
   fi
   return 1
 }
@@ -197,9 +205,10 @@ _adopt_refuse_nothing_written() {
 # _adopt_refuse_outside — what this run changed OUTSIDE the project, said by
 # name (`# BL-318-G6-OUTSIDE`). Only what scripts/lib/adopt/adopt-mcp.sh
 # recorded in ADOPT_MCP_REGISTERED — attempted by this run and shown registered
-# by its receipt — is claimed. Every arm that ends the run prints it: a block
-# after the commit is still a run that registered the server, and the operator
-# deciding whether to re-run needs to know the registration stays.
+# by its receipt — is claimed. Every [BLOCKED] arm prints it (a registration
+# always takes that label): a block after the commit is still a run that
+# registered the server, and the operator deciding whether to re-run needs to
+# know the registration stays.
 _adopt_refuse_outside() {
   [ -n "${ADOPT_MCP_REGISTERED:-}" ] || return 0   # BL-318-G6-OUTSIDE-IF
   local _names="" _name=""

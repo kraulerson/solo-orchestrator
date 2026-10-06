@@ -14,8 +14,16 @@
 #           has none, and the repository it came from is private).
 #       D2  the same shape written here — Nuitka's flag on a line of its own in
 #           a bash array — and three more flag spellings: neither fires.
-#       D3  seven real deploy steps, one workflow each: both fire on every one.
+#       D3  fifteen real deploy steps, one workflow each: both fire on every one.
+#           Review round 1 added eight: a flag BEFORE the deploy word on the same
+#           line (R-1: netlify, kubectl, a `;` chain, rsync), a flag's `=value`
+#           that names the deploy (R-2: ansible `--tags=deploy`, nx
+#           `--target=deploy`), a deploy glued to a flag by `&&` (R-2), and a
+#           flag whose whole name is `deploy` (`./scripts/ci.sh --deploy`).
 #       D4  adoption reports the deploy STEP's line, not an earlier flag's.
+#       D5  the two detectors' flag rules stay byte-identical (review round 1,
+#           R-7): the strip pattern and the whole-name pattern, each read off
+#           its marker line in both files.
 #   B*  G6(b): a refusal says "nothing was written to this project", and when
 #       the run registered an MCP server with Claude Code it says so, by name,
 #       with the commands to see and remove it (`# BL-318-G6-OUTSIDE`).
@@ -27,6 +35,10 @@
 #           refusal claims nothing.
 #       B4  Context7 was registered BEFORE the run: only Qdrant is named.
 #       B5  a BLOCKED refusal (the run had touched the project) names it too.
+#       B6  a forced block (`adopt_block`, the `# BL-242-REFUSE-AFTER-COMMIT`
+#           arm) after a registration names it too (review round 1, R-4).
+#       Since review round 1 (R-6) a stop after a registration is labelled
+#       [BLOCKED], not [REFUSED]: the run had begun (`# BL-318-G6-BLOCK-LABEL`).
 #   C*  G6(c): wording only — "the commit adoption started from", never "the
 #       commit this project was adopted at" (`adoptedAtCommit` is the
 #       PRE-ADOPTION tip by design, scripts/lib/adoption-stamp.sh).
@@ -47,6 +59,14 @@
 #           text the session-start scripts really print.
 #       P6  the phase-0 paragraph cites `check_commit_ready`, which lets every
 #           commit through below phase 2.
+#       P7  the override says to clear the recorded question first, with a
+#           command pending-approval.sh has (review round 1, R-3: Solo's own
+#           check blocks every commit while .claude/pending-approval.json exists).
+#       P8  no doc calls Superpowers optional, init.sh does not call it
+#           "recommended", and README's adoption sentence says when it blocks
+#           (review round 1, R-5).
+#       P9  every place that gives the Superpowers install also gives the
+#           marketplace command for a machine that lacks it (review round 1, R-8).
 #   M*  mutation proofs, one per code guard, each killed by a named case, in a
 #       mirror of the tree (the mirror-and-mutate pattern of
 #       tests/test-bl318-g1-test-command.sh).
@@ -191,6 +211,31 @@ mk_detector_project() {   # DIR
 }
 DP="$WORK/detectors"; mk_detector_project "$DP" || { echo "FATAL: detector fixture"; exit 1; }
 TP_FILES="tp-job.yml tp-script.yml tp-pages.yml tp-ghpages.yml tp-firebase.yml tp-named.yml tp-mixed.yml"
+# Review round 1: R-1's four (a flag before the word, on the same line), R-2's
+# three (a flag's `=value`, and a command glued to a flag), and a flag named
+# `deploy` itself.
+TP_R1_LINES="$(cat <<'L'
+tp-netlify.yml|npx -y netlify-cli deploy --prod
+tp-kubectl.yml|kubectl apply -f k8s/deployment.yaml
+tp-chain.yml|make --quiet;make deploy
+tp-rsync.yml|rsync -az --delete dist/ deploy@host:/srv/app/
+tp-ansible.yml|ansible-playbook -i inventory/prod site.yml --tags=deploy
+tp-nx.yml|npx nx affected --target=deploy --parallel=1
+tp-glued.yml|npm ci --silent&&./deploy.sh production
+tp-flagname.yml|./scripts/ci.sh --deploy
+L
+)"
+while IFS='|' read -r _f _l; do
+  [ -n "$_f" ] || continue
+  wf "$DP" "$_f" "  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - run: $_l"
+  TP_FILES="$TP_FILES $_f"
+done <<EOF
+$TP_R1_LINES
+EOF
+( cd "$DP" && git add -- .github && git commit -q --no-verify -m "chore: more workflows" ) >/dev/null 2>&1
 
 case_D1() {   # FW — k-pdf's real ci.yml
   local fw="$1" k="" f="" a="" s="" scan="" bad=""
@@ -249,6 +294,24 @@ case_D4() {   # FW — adoption names the deploy step's line
   [ -n "$want" ] && [ "$got" = "$want" ]
 }
 
+# The flag rules, read off their marker lines: the strip pattern (inside gsub) and
+# the whole-name pattern (the one a `~` tests) of each detector.
+flag_re()  { command grep -F -- "$2" "$1" | sed -n 's/.*gsub(\/\(.*\)\/, " ", [a-z]*).*/\1/p' | head -1; }
+whole_re() { command grep -F -- "$2" "$1" | sed -n 's/.* ~ \/\(.*\)\/ { [a-z]* = [a-z]* " deploy" }.*/\1/p' | head -1; }
+case_D5() {   # FW — one rule, two copies
+  local fw="$1" a="" s="" aw="" sw="" bad=""
+  a="$(flag_re "$fw/scripts/lib/adopt/adopt-ci.sh" '# BL-318-G6-DEPLOY-FLAG')"
+  s="$(flag_re "$fw/scripts/lib/scout/scout-collisions.sh" '# BL-318-G6-DEPLOY-FLAG-SCOUT')"
+  aw="$(whole_re "$fw/scripts/lib/adopt/adopt-ci.sh" '# BL-318-G6-DEPLOY-WHOLE')"
+  sw="$(whole_re "$fw/scripts/lib/scout/scout-collisions.sh" '# BL-318-G6-DEPLOY-WHOLE-SCOUT')"
+  [ -n "$a" ] && [ -n "$s" ] || bad="$bad [a strip pattern could not be read: adopt='$a' scout='$s']"
+  [ -n "$aw" ] && [ -n "$sw" ] || bad="$bad [a whole-name pattern could not be read: adopt='$aw' scout='$sw']"
+  [ "$a" = "$s" ] || bad="$bad [the strip patterns differ: adopt='$a' scout='$s']"
+  [ "$aw" = "$sw" ] || bad="$bad [the whole-name patterns differ: adopt='$aw' scout='$sw']"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
 echo
 echo "=== D — G6(a): a word inside a command-line flag is not a deploy ==="
 if [ -f "$KPDF_BUNDLE" ]; then
@@ -257,8 +320,9 @@ else
   skip "D1 k-pdf's real ci.yml" "no bundle at $KPDF_BUNDLE (CI has none; D2 carries the same shape)"
 fi
 check "D2 Nuitka's --no-deployment-flag and three more flag spellings: neither detector fires" case_D2 "$REPO_ROOT"
-check "D3 seven real deploy steps (a job, a script, two Pages actions, firebase, a step name, one beside a flag): both detectors fire on each" case_D3 "$REPO_ROOT"
+check "D3 fifteen real deploy steps (a job, a script, two Pages actions, firebase, a step name, one beside a flag, and review round 1's eight): both detectors fire on each" case_D3 "$REPO_ROOT"
 check "D4 adoption reports the deploy step's line, not the earlier flag's" case_D4 "$REPO_ROOT"
+check "D5 the two detectors' flag rules are byte-identical (strip and whole-name patterns)" case_D5 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
 # B — G6(b), what the refusal says about writes outside the project
@@ -339,9 +403,9 @@ ADOPT_FRAMEWORK_ROOT="$1"; ADOPT_CORE_LIB_DIR="$1/scripts/lib"; ADOPT_WORK="$2"
 adopt_stdin_init
 adopt_mcp_resolve "$3" > "$2/step.out" 2>&1
 [ "${4:-}" = touched ] && adopt_touched_disk
-ADOPT_OPERATION="Adoption" adopt_refuse "harness cause"
+if [ "${4:-}" = block ]; then ADOPT_OPERATION="Adoption" adopt_block "harness cause"; else ADOPT_OPERATION="Adoption" adopt_refuse "harness cause"; fi
 HARN
-b_step() {   # b_step FW ANSWER [touched] — the refusal text in $C/out
+b_step() {   # b_step FW ANSWER [touched|block] — the refusal text in $C/out
   ( cd "$P" && printf '%s\n' "$2" | env PATH="$STUBS:$PATH" HOME="$H" CLAUDE_CONFIG_DIR="$CFG" STUB_STATE="$ST" \
       SOIF_ADOPT_MCP= SOIF_ADOPT_QDRANT_WAIT=2 bash "$WORK/harness.sh" "$1" "$C/w" "$P" "${3:-}" ) > "$C/out" 2>&1
 }
@@ -363,7 +427,7 @@ case_B1() {   # FW — the dogfood shape, end to end
   local rc=$?
   o="$C/out"
   [ "$rc" -eq 1 ] || bad="$bad [rc $rc, want 1]"
-  command grep -q 'REFUSED\] This question has no default' "$o" || bad="$bad [not refused at a mandatory question: $(command grep -E 'REFUSED|BLOCKED' "$o" | head -1)]"
+  command grep -q 'BLOCKED\] This question has no default' "$o" || bad="$bad [not stopped, as a block, at a mandatory question: $(command grep -E 'REFUSED|BLOCKED' "$o" | head -1)]"
   jq -e '.mcpServers.context7 and .mcpServers.qdrant' "$CFG/.claude.json" >/dev/null 2>&1 || bad="$bad [fixture: the run did not register both]"
   command grep -qF "$NOTHING_TO_PROJECT" "$o" || bad="$bad [no 'nothing was written to this project']"
   command grep -qxF "          Adoption did not begin. $OLD_SENTENCE" "$o" && bad="$bad [the old sentence is still printed]"
@@ -384,6 +448,7 @@ case_B2() {   # FW — skip: nothing outside is named
   local fw="$1" bad=""
   b_case b2 || { CASE_DETAIL="fixture"; return 1; }
   b_step "$fw" "skip it"
+  command grep -q '^\[REFUSED\] harness cause' "$C/out" || bad="$bad [nothing ran, so it is a refusal, not a block]"
   command grep -qxF "          Adoption did not begin. $NOTHING_TO_PROJECT" "$C/out" || bad="$bad [no 'did not begin. $NOTHING_TO_PROJECT']"
   command grep -q 'claude mcp remove' "$C/out" && bad="$bad [names a registration that never happened]"
   command grep -q '\[mcp\] \[add\]' "$ST/calls.log" && bad="$bad [fixture: something was registered]"
@@ -397,6 +462,7 @@ case_B3() {   # FW — the commands fail: nothing is claimed
   : > "$ST/claude-fails"
   b_step "$fw" "set it up now"
   command grep -q '\[mcp\] \[add\]' "$ST/calls.log" || bad="$bad [fixture: no add was attempted]"
+  command grep -q '^\[REFUSED\] harness cause' "$C/out" || bad="$bad [nothing was registered, so it is a refusal, not a block]"
   command grep -qF "$NOTHING_TO_PROJECT" "$C/out" || bad="$bad [no 'nothing was written to this project']"
   command grep -q 'claude mcp remove' "$C/out" && bad="$bad [claims a registration the receipt does not show]"
   CASE_DETAIL="${bad:-} out: $(tr '\n' '|' < "$C/out" | cut -c1-300)"
@@ -409,6 +475,9 @@ case_B4() {   # FW — registered before the run: not this run's
   b_register context7
   b_step "$fw" "set it up now"
   says_registered "$C/out" qdrant || bad="$bad [qdrant, which this run registered, is not named]"
+  command grep -q '^\[BLOCKED\] harness cause' "$C/out" || bad="$bad [a stop after a registration is not labelled a block]"
+  command grep -qxF "          Adoption stopped before it changed this project. $NOTHING_TO_PROJECT" "$C/out" || bad="$bad [no 'stopped before it changed this project']"
+  command grep -q 'ATTEMPTED' "$C/out" && bad="$bad [says it attempted writes to the project]"
   command grep -q 'claude mcp remove -s user context7' "$C/out" && bad="$bad [context7 was registered before the run, and is named as this run's]"
   CASE_DETAIL="${bad:-} out: $(tr '\n' '|' < "$C/out" | cut -c1-300)"
   [ -z "$bad" ]
@@ -425,6 +494,18 @@ case_B5() {   # FW — a BLOCKED refusal names it too
   [ -z "$bad" ]
 }
 
+case_B6() {   # FW — the forced-block arm after a registration (review round 1, R-4)
+  local fw="$1" bad=""
+  b_case b6 || { CASE_DETAIL="fixture"; return 1; }
+  b_step "$fw" "set it up now" block
+  command grep -q '^\[BLOCKED\] harness cause' "$C/out" || bad="$bad [fixture: not a block]"
+  command grep -qxF "          Adoption stopped before it changed this project. $NOTHING_TO_PROJECT" "$C/out" || bad="$bad [no 'stopped before it changed this project']"
+  says_registered "$C/out" context7 || bad="$bad [context7 not named after adopt_block]"
+  says_registered "$C/out" qdrant || bad="$bad [qdrant not named after adopt_block]"
+  CASE_DETAIL="${bad:-} out: $(tr '\n' '|' < "$C/out" | cut -c1-300)"
+  [ -z "$bad" ]
+}
+
 echo
 echo "=== B — G6(b): the refusal is true about writes outside the project ==="
 check "B1 the dogfood shape (whole adoption): servers registered, then refused — 'nothing was written to this project', both named, with claude mcp list / remove; the project untouched; its ci.yml read as clean" case_B1 "$REPO_ROOT"
@@ -432,6 +513,7 @@ check "B2 skip: the refusal names nothing outside the project" case_B2 "$REPO_RO
 check "B3 the claude commands fail: nothing is claimed" case_B3 "$REPO_ROOT"
 check "B4 Context7 registered before the run: only Qdrant is named" case_B4 "$REPO_ROOT"
 check "B5 a BLOCKED refusal names the registration too" case_B5 "$REPO_ROOT"
+check "B6 a forced block after a registration names it too" case_B6 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
 # C — G6(c), the stamp's words
@@ -578,6 +660,41 @@ case_P6() {   # FW — the phase-0 paragraph's citation is true
   [ -z "$bad" ]
 }
 
+case_P7() {   # FW — the override clears the recorded question first
+  local fw="$1" o="" bad=""
+  o="$(awk '/^\*\*The override\.\*\*/{on=1} on && /^\*\*The commit.s own checks\.\*\*/{exit} on' "$fw/docs/adoption.md")"
+  [ -n "$o" ] || { CASE_DETAIL="no 'The override.' paragraph in section 7"; return 1; }
+  printf '%s' "$o" | command grep -qF 'bash scripts/pending-approval.sh --resolve' || bad="$bad [the override does not clear the recorded question]"
+  command grep -qE '^[[:space:]]+--resolve' "$fw/scripts/pending-approval.sh" || bad="$bad [pending-approval.sh has no --resolve]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
+case_P8() {   # FW — Superpowers is nowhere optional
+  local fw="$1" bad="" hits=""
+  hits="$(command grep -n -i 'superpowers' "$fw/docs/user-guide.md" | command grep -i 'optional')"
+  [ -z "$hits" ] || bad="$bad [user-guide.md calls it optional: $(printf '%s' "$hits" | head -2 | tr '\n' '|')]"
+  command grep -A3 'Superpowers plugin not found' "$fw/init.sh" | command grep -qi 'recommended' && bad="$bad [init.sh still calls it recommended]"
+  command grep -q 'Superpowers plugin not found' "$fw/init.sh" || bad="$bad [fixture: init.sh's message is gone]"
+  section "$fw/README.md" '^### Adoption — the second way in$' | tr '\n' ' ' | command grep -q 'when the Development Guardrails are installed' \
+    || bad="$bad [README's adoption sentence says it blocks without saying when]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
+MKT_CMD='claude plugin marketplace add anthropics/claude-plugins-official'
+case_P9() {   # FW — the marketplace line goes with every install
+  local fw="$1" f="" n_sp="" n_mk="" bad=""
+  for f in README.md docs/adoption.md docs/user-guide.md; do
+    n_sp="$(command grep -cF "$SP_CMD" "$fw/$f")"
+    n_mk="$(command grep -cF "$MKT_CMD" "$fw/$f")"
+    [ "$n_sp" -ge 1 ] || bad="$bad [$f gives no install]"
+    [ "$n_mk" -ge 1 ] || bad="$bad [$f gives the install but not the marketplace command]"
+  done
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
 echo
 echo "=== P — G4: what the docs claim, checked ==="
 check "P1 adoption.md 'What you need' names Superpowers, its exact command (the tool matrix's) and the block without it" case_P1 "$REPO_ROOT"
@@ -590,6 +707,9 @@ else
 fi
 check "P5 the session-start guidance names each kind of message, and each is real script output" case_P5 "$REPO_ROOT"
 check "P6 the phase-0 paragraph cites check_commit_ready, which lets every commit through below phase 2" case_P6 "$REPO_ROOT"
+check "P7 the override clears the recorded question first (bash scripts/pending-approval.sh --resolve)" case_P7 "$REPO_ROOT"
+check "P8 Superpowers is not called optional or recommended anywhere it is required" case_P8 "$REPO_ROOT"
+check "P9 every Superpowers install comes with the marketplace command" case_P9 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
 # M — every G6 code guard is load-bearing
@@ -619,6 +739,15 @@ mutant() {   # mutant ID REL MARKER REPLACEMENT KILLER WHAT
   m="$(newtmp)/mirror"
   mk_mirror "$REPO_ROOT" "$m" || { fail_ "$id" "could not build a mirror"; return; }
   why="$(mutate "$m/$rel" "$mark" "$repl")" || { fail_ "$id" "mutant did not land: $why"; return; }
+  # A detector mutant is awk inside a quoted string, which `bash -n` cannot see:
+  # run the mutant detector once, and an awk that does not parse (exit 2) would
+  # make every case fail, so it would read as a kill. Refuse it instead.
+  local arc=0
+  case "$rel" in
+    "$AC") ( . "$m/$AC" && _adopt_ci_rules /dev/null ) >/dev/null 2>&1 || arc=$? ;;
+    "$SC") ( . "$m/$SC" && _scout_deploy_word /dev/null ) >/dev/null 2>&1 || arc=$? ;;
+  esac
+  [ "$arc" -ne 2 ] || { fail_ "$id" "the mutant's awk does not parse — a kill would prove nothing"; return; }
   CASE_DETAIL=""
   if "$killer" "$m"; then
     fail_ "$id" "$what — SURVIVED: ${killer#case_} still passes against the mutant ($CASE_DETAIL)"
@@ -633,21 +762,47 @@ ACO=scripts/lib/adopt/adopt-core.sh
 A4=scripts/lib/adopt/adopt-act4.sh
 # The detectors as they were: every "deploy" counts.
 AC_OLD='    { word = line }'
-SC_OLD='  grep -qiE '"'"'(^|[^a-z])deploy'"'"' "$1" 2>/dev/null'
-# Over-stripping: any dash starts a "flag", so a hyphenated action name loses its deploy.
+SC_OLD='    { l = " " tolower($0); w = l }'
 # Read from heredocs with `read`, not `$(cat <<…)`: bash 3.2 mis-parses a lone
 # quote inside a heredoc inside a command substitution.
+# Over-stripping: any dash starts a "flag", so a hyphenated action name loses its deploy.
 IFS= read -r AC_OVER <<'R' || :
-    { word = " " line; gsub(/-+[a-z0-9][^[:space:]"'\'',)]*/, " ", word) }
+    { word = " " line; gsub(/-+[a-z0-9][^[:space:]"'\'',)=;&|<>]*/, " ", word) }
 R
 IFS= read -r SC_OVER <<'R' || :
-  LC_ALL=C awk '{ w = " " tolower($0); gsub(/-+[a-z0-9][^[:space:]"'\'',)]*/, " ", w); if (w ~ /[^a-z]deploy/) { f = 1; exit } } END { exit f ? 0 : 1 }' "$1" 2>/dev/null
+    { l = " " tolower($0); w = l; gsub(/-+[a-z0-9][^[:space:]"'\'',)=;&|<>]*/, " ", w) }
+R
+# Review round 1, R-1: a flag no longer ends at whitespace, so it swallows its line.
+IFS= read -r AC_NOSPACE <<'R' || :
+    { word = " " line; gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^"'\'',)=;&|<>]*/, " ", word) }
+R
+IFS= read -r SC_NOSPACE <<'R' || :
+    { l = " " tolower($0); w = l; gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^"'\'',)=;&|<>]*/, " ", w) }
+R
+# Review round 1, R-2: the first cut's end class — a flag takes its =value and a glued command.
+IFS= read -r AC_R2 <<'R' || :
+    { word = " " line; gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^[:space:]"'\'',)]*/, " ", word) }
+R
+IFS= read -r SC_R2 <<'R' || :
+    { l = " " tolower($0); w = l; gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^[:space:]"'\'',)]*/, " ", w) }
+R
+# One copy's whole-name pattern drifts (`:` dropped from its class): D5 must see it.
+IFS= read -r AC_WHOLE_DRIFT <<'R' || :
+    (" " line) ~ /[[:space:]"'\''(,=]--?deploy([^a-z0-9_.-]|$)/ { word = word " deploy" }
 R
 mutant MA1 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_OLD" case_D2 "adoption counts the word inside a flag again (the dogfood false positive)"
 mutant MA2 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_OLD" case_D4 "adoption reports the flag's line again"
 mutant MA3 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_OVER" case_D3 "adoption strips from any dash and misses github-pages-deploy-action"
+mutant MA5 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_NOSPACE" case_D3 "adoption: a flag swallows the rest of its line (review round 1, R-1)"
+mutant MA6 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_R2" case_D3 "adoption: a flag takes its =value and a glued command (review round 1, R-2)"
+mutant MA7 "$AC" '# BL-318-G6-DEPLOY-WHOLE' '    { }' case_D3 "adoption: a flag named deploy no longer counts"
+mutant MA8 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_R2" case_D5 "adoption's strip pattern drifts from Scout's (review round 1, R-7)"
+mutant MA9 "$AC" '# BL-318-G6-DEPLOY-WHOLE' "$AC_WHOLE_DRIFT" case_D5 "adoption's whole-name pattern drifts from Scout's (review round 1, R-7)"
 mutant MS1 "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_OLD" case_D2 "Scout counts the word inside a flag again"
 mutant MS2 "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_OVER" case_D3 "Scout strips from any dash and misses github-pages-deploy-action"
+mutant MS4 "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_NOSPACE" case_D3 "Scout: a flag swallows the rest of its line (review round 1, R-1)"
+mutant MS5 "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_R2" case_D3 "Scout: a flag takes its =value and a glued command (review round 1, R-2)"
+mutant MS6 "$SC" '# BL-318-G6-DEPLOY-WHOLE-SCOUT' '    { }' case_D3 "Scout: a flag named deploy no longer counts"
 if [ -f "$KPDF_BUNDLE" ]; then
   mutant MA4 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_OLD" case_D1 "adoption flags k-pdf's real ci.yml again"
   mutant MS3 "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_OLD" case_D1 "Scout flags k-pdf's real ci.yml again"
@@ -660,6 +815,10 @@ mutant MB5 "$ACO" '# BL-318-G6-OUTSIDE-IF' '  return 0' case_B1 "the refusal nev
 mutant MB6 "$ACO" '# BL-318-G6-OUTSIDE-IF' '  return 0' case_B5 "a BLOCKED refusal never names it"
 mutant MB7 "$ACO" '# BL-318-G6-NOTHING-LINE' '    printf '"'"'          %s did not begin. Nothing was committed and nothing was written.\n'"'"' "${ADOPT_OPERATION:-Adoption}" >&2' case_B2 "the refusal says nothing was written, without 'to this project'"
 mutant MB8 "$ACO" '# BL-318-G6-NOTHING-BEGIN' '  if true; then' case_B1 "a run that registered a server still says adoption did not begin"
+mutant MB9 "$ACO" '# BL-318-G6-OUTSIDE-NOTHING' '      :' case_B6 "the forced-block arm drops the registration note (review round 1, R-4)"
+mutant MB10 "$ACO" '# BL-318-G6-OUTSIDE-BLOCKED' '    :' case_B5 "the arm for a touched project drops the registration note"
+mutant MB11 "$ACO" '# BL-318-G6-BLOCK-LABEL' '  if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] || [ "$_n" -gt 0 ] || adopt_has_touched_disk; then' case_B4 "a stop after a registration is labelled REFUSED again (review round 1, R-6)"
+mutant MB12 "$ACO" '# BL-318-G6-NOTHING-ARM' '    if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] && [ "$_n" -eq 0 ] && ! adopt_has_touched_disk && [ "${ADOPT_COMMITTED:-0}" -ne 1 ]; then' case_B4 "a block after a registration says the run ATTEMPTED writes to the project"
 mutant MC1 "$A4" '# BL-242-ACT4-REFUSE-COMMIT' '    ( if (.adoptedAtCommit | type) != "string" or .adoptedAtCommit != $stamp then "adoptedAtCommit is not the commit this project was adopted at (\($stamp))" else empty end ),' case_C2 "the finisher says 'the commit this project was adopted at' again"
 
 echo
