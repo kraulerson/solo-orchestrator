@@ -56,6 +56,19 @@ _adopt_ci_files() {
 # whole file read as clean — and the Adoption Record committed "No CI file of
 # yours matched" about a file with a force-push in it (review, measured). The
 # byte locale reads every file; the rc catches whatever still fails.
+#
+# `## BL-318:` G6(a) — A WORD INSIDE A COMMAND-LINE FLAG IS NOT A DEPLOY. The
+# deploy rule matched "deploy" anywhere on a line, so k-pdf's ci.yml, which has
+# no deploy step, was reported as "deploys on a branch push" for line 149:
+# Nuitka's `--no-deployment-flag=excluded-module-usage` (dogfood run 2, findings
+# 5 and 12). The rule now reads each line with its flags removed: a token that
+# starts with `-` or `--` and a letter or digit, after whitespace, a quote, `(`,
+# `,` or `=`, up to the next whitespace, quote, `,` or `)` — so the flag's
+# `=value` goes with it. A dash inside a word does not start a flag, so
+# `github-pages-deploy-action`, `gh-deploy` and `./deploy.sh` still count, and
+# so does `firebase deploy --only hosting`, whose word is outside the flag. The
+# line is read with a leading space so a flag at the start is caught without an
+# anchor inside a group, which not every awk accepts.
 _adopt_ci_rules() {                                    # BL-242-CI-RULES
   local f="$1"
   [ -r "$f" ] || return 1
@@ -67,7 +80,8 @@ _adopt_ci_rules() {                                    # BL-242-CI-RULES
     line ~ /git push[^#]*(--force|--force-with-lease|[[:space:]]-f([[:space:]]|$))|filter-repo|filter-branch/ { print "force-push\t" NR }
     line ~ /continue-on-error:[[:space:]]*true|allow_failure:[[:space:]]*true/ { print "check-skipping\t" NR }
     line ~ /^[[:space:]]*if:[[:space:]]*(\$\{\{[[:space:]]*)?always\(\)/ { print "check-skipping\t" NR }
-    line ~ /deploy/ && !seen_deploy { seen_deploy = NR }
+    { word = " " line; gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^[:space:]"'\'',)]*/, " ", word) }   # BL-318-G6-DEPLOY-FLAG
+    word ~ /deploy/ && !seen_deploy { seen_deploy = NR }
     line ~ /(^|[^a-z])(tags|workflow_dispatch|release):/ { gated = 1 }
     line ~ /^[[:space:]]*(on:[[:space:]]*\[?[^#]*push|push:|- push)/ { on_push = 1 }
     END { if (seen_deploy && on_push && !gated) print "deploy-on-push\t" seen_deploy }

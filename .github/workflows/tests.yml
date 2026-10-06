@@ -629,6 +629,7 @@ jobs:
             tests/test-bl318-g5-guardrails-refresh.sh
             tests/test-bl318-g2-resume-adoptee.sh
             tests/test-bl318-g3-ci-template.sh
+            tests/test-bl318-g4g6.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1034,6 +1035,7 @@ jobs:
             # 624s on main run 37400574352, and this suite was its longest pole both times.
             # This leg's job ran 450s and 388s on those runs.
             tests/test-bl296-adopt-guardrails.sh       # 79s and 77s on those two runs — real adoptions through the Guardrails installer
+            tests/test-bl318-g4g6.sh                   # 52s local, measured — one real adoption plus two under mutants, 16 mutants (on CI D1, P4 and D1's two mutants skip: no bundle, no clone); here because this leg's job ran 387s of 720s on PR #499, the most room of any leg (`rest` 497s)
           )
           # ── `mcp` and `mcp-mutants` — the BL-311 group A suite, in two files
           # (2026-09-30). The history, all on PR #477:

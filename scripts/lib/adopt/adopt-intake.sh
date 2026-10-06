@@ -252,7 +252,8 @@ adopt_provenance_errors() {
   ' "$f")"
   if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
   # The SHAPE passed; now the MEANING. A calendar day, not 2026-02-30, and —
-  # when the caller knows it — the commit this project was adopted at.
+  # when the caller knows it — the commit adoption started from (the stamp's
+  # adoptedAtCommit: the tip before the adoption commit, `## BL-318:` G6(c)).
   day="$(LC_ALL=C awk '{sub(/\r$/,"")} /^reconstructed-at: /{print $2; exit}' "$f")"
   # The same `isoday` the dispositions validator uses.
   if ! printf '%s' "$day" | jq -Re '((try ((. + "T00:00:00Z") | fromdateiso8601 | todate | .[0:10]) catch "") == .)' >/dev/null 2>&1; then
@@ -262,7 +263,7 @@ adopt_provenance_errors() {
     sha="$(LC_ALL=C awk '{sub(/\r$/,"")} /^source: existing codebase at /{print $5; exit}' "$f")"
     case "$want" in
       "$sha"*) : ;;
-      *) printf 'the header names commit %s, but this project was adopted at %.12s\n' "$sha" "$want" ;;
+      *) printf 'the header names commit %s, but adoption started from %.12s\n' "$sha" "$want" ;;
     esac
   fi
 }

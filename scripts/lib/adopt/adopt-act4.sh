@@ -58,7 +58,7 @@ _adopt_act4_record_errors() {
   jq -r --arg stamp "$stamp" --arg tax "$tax" --arg keys "$ADOPT_ACT4_ANSWER_KEYS" '
     def axes: ["interview.users","interview.availability","interview.exposure","interview.scalability","interview.dataClassification","interview.inProduction"];
     ( if .schemaVersion != 1 then "schemaVersion is not 1" else empty end ),
-    ( if (.adoptedAtCommit | type) != "string" or .adoptedAtCommit != $stamp then "adoptedAtCommit is not the commit this project was adopted at (\($stamp))" else empty end ),   # BL-242-ACT4-REFUSE-COMMIT
+    ( if (.adoptedAtCommit | type) != "string" or .adoptedAtCommit != $stamp then "adoptedAtCommit is not the commit adoption started from (\($stamp), the tip just before the adoption commit)" else empty end ),   # BL-242-ACT4-REFUSE-COMMIT
     ( if (.interview | type) != "object" then "interview is missing or not an object" else empty end ),
     ( if (.interview.inProduction | type) != "boolean" then "interview.inProduction is missing or not true/false" else empty end ),   # BL-242-ACT4-REFUSE-INPROD
     ( if (.interview.dataClassification | type) != "string" or ((.interview.dataClassification) as $c | ($tax | split(" ") | index([$c]))) == null then "interview.dataClassification is not one of: \($tax)" else empty end ),   # BL-242-ACT4-REFUSE-DC
@@ -263,7 +263,7 @@ _adopt_act4_merge() {
 adopt_write_assessment_prompt() {                      # BL-242-ASSESSMENT-PROMPT
   local root="$1" commit
   commit="$(jq -r '.adoption.adoptedAtCommit // ""' "$root/.claude/manifest.json" 2>/dev/null)"
-  [ -n "$commit" ] || { adopt_refuse "the assessment prompt needs the adoption commit, and the stamp has none"; return 1; }
+  [ -n "$commit" ] || { adopt_refuse "the assessment prompt needs the commit adoption started from (adoptedAtCommit), and the stamp has none"; return 1; }
   adopt_write_file "$root" ".claude/adoption/assessment-prompt.md" <<PROMPT || return 1
 This project was just adopted into the Solo Orchestrator framework. You are running its ASSESSMENT
 (Act 3 of adoption). Nothing is decided yet, and the project rests at phase 0 whatever you find.

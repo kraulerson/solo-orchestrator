@@ -171,6 +171,18 @@ VOCABIN
 # Their failure direction is a false POSITIVE (a row to dismiss), never a false
 # negative that quietly certifies a pipeline that undermines the gates.
 #
+# _scout_deploy_word FILE — rc 0 iff a line of FILE names a deploy OUTSIDE a
+# command-line flag. `## BL-318:` G6(a): the rule used to grep the whole file
+# for "deploy" after any non-letter, so a dash counted, and k-pdf's ci.yml —
+# no deploy step, one Nuitka `--no-deployment-flag=excluded-module-usage` —
+# was reported as a deploy reached by a branch push (dogfood run 2, findings 5
+# and 12). Flags are removed first, by the same rule adoption's detector uses
+# (`# BL-318-G6-DEPLOY-FLAG` in scripts/lib/adopt/adopt-ci.sh, which says what
+# counts as a flag); after that the word is matched as before.
+_scout_deploy_word() {
+  LC_ALL=C awk '{ w = " " tolower($0); gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^[:space:]"'\'',)]*/, " ", w); if (w ~ /[^a-z]deploy/) { f = 1; exit } } END { exit f ? 0 : 1 }' "$1" 2>/dev/null   # BL-318-G6-DEPLOY-FLAG-SCOUT
+}
+
 # _scout_ci_rule_line RULE FILE — the first line number matching RULE, or empty.
 _scout_ci_rule_line() {
   local rule="$1" file="$2" n=""
@@ -184,7 +196,7 @@ _scout_ci_rule_line() {
       # the Phase 3->4 gate entirely: code reaches production without crossing
       # it. The presence of `tags:` or `workflow_dispatch` is treated as the
       # release lane being in play, which is deliberately generous.
-      if grep -qiE '(^|[^a-z])deploy' "$file" 2>/dev/null \
+      if _scout_deploy_word "$file" \
          && grep -qE '^[[:space:]]*push:' "$file" 2>/dev/null \
          && grep -qE '^[[:space:]]*branches:' "$file" 2>/dev/null \
          && ! grep -qE '^[[:space:]]*tags:|workflow_dispatch' "$file" 2>/dev/null; then

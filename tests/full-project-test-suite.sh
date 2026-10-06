@@ -1013,6 +1013,14 @@ run_child_suite "tests/test-bl318-g2-resume-adoptee.sh" \
 run_child_suite "tests/test-bl318-g3-ci-template.sh" \
   "BL-318 G3: the framework's CI says when it runs, is named Solo Orchestrator checks, and installs a uv project with uv sync --frozen" \
   "BL-318 G3 CI-template tests FAILED (run tests/test-bl318-g3-ci-template.sh for details)"
+# BL-318 G6 (and G4's checkable doc claims): the deploy detectors counted the
+# word inside Nuitka's --no-deployment-flag; a refusal said "nothing was
+# written" after the run had registered MCP servers in the user's Claude Code
+# configuration; the finisher called adoptedAtCommit "the commit this project
+# was adopted at" when it is the commit adoption started from.
+run_child_suite "tests/test-bl318-g4g6.sh" \
+  "BL-318 G4/G6: a flag is not a deploy; a refusal names what the run registered outside the project; adoptedAtCommit's words; the doc claims hold" \
+  "BL-318 G4/G6 tests FAILED (run tests/test-bl318-g4g6.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

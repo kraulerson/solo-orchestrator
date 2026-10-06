@@ -377,7 +377,7 @@ s1_first_sites=$(_sites "$L_STATE" 'BL-242-APPROVAL-LOG-FIRST')
 # `--finish` able to re-stage an adoption whose commit was refused
 # (`## BL-291:`). WP7/1 then inserts `adoption_record` (`# BL-242-RECORD-STAGE`)
 # between `manifest` and `write_set` — AFTER `manifest` because the record takes
-# the commit it was adopted at from the STAMP that stage writes, rather than
+# the commit adoption started from, from the STAMP that stage writes, rather than
 # from a second `git rev-parse HEAD`. WP12b inserts `framework_docs`
 # (`# BL-242-DOCS-STAGE-ORDER`) between `manifest` and `adoption_record`, so
 # the record stays the last word in the log. WP7/4 then puts `dispositions`

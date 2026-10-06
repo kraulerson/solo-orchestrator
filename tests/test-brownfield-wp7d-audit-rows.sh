@@ -17,7 +17,7 @@
 #       down. A stranger FINGERPRINT never gets this far: the validator refuses
 #       it as stale (§6.3), which the dispositions-template suite pins.
 #   R4  every adoption writes the `adoption` row, naming the tier and the
-#       commit it was adopted at, and the ledger is committed
+#       commit adoption started from, and the ledger is committed
 #   R5  a clean personal adoption still writes the join table, with its scan
 #       block and empty lists (§6.3: "required even at findingCount 0")
 #   R6  a personal adoption with NO scanner records its acknowledgement in the

@@ -793,8 +793,8 @@ adopt_write_adoption_record() {                       # BL-242-RECORD-WRITE
   adopt_note "what was archived, and what this build does not yet know."
   # ── THE `adoption` EVENT (§8.9) ───────────────────────────────────────────
   # One `adoption_event` row with `details.event: "adoption"`, the first of the
-  # five events and the one that names the act itself: the tier, the commit it
-  # was adopted at (from the stamp, the record's own source), where the
+  # five events and the one that names the act itself: the tier, the commit
+  # adoption started from (from the stamp, the record's own source), where the
   # archive is, and what the scan said. It DEGRADES LOUDLY rather than
   # refusing, for the collision row's reason: the Adoption Record just above it
   # and the stamp are the primary records, so a lost row thins the trail

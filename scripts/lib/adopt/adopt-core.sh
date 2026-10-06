@@ -137,7 +137,8 @@ adopt_refuse() {
     # directly under a commit that had just landed 85 files. Measured by review.
     if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] && [ "$_n" -eq 0 ] && ! adopt_has_touched_disk \
        && [ "${ADOPT_COMMITTED:-0}" -ne 1 ]; then   # BL-242-REFUSE-AFTER-COMMIT
-      printf '          %s did not begin. Nothing was committed and nothing was written.\n' "${ADOPT_OPERATION:-Adoption}" >&2
+      _adopt_refuse_nothing_written
+      _adopt_refuse_outside
       return 1
     fi
     if [ "${ADOPT_COMMITTED:-0}" -eq 1 ]; then
@@ -168,12 +169,53 @@ adopt_refuse() {
       printf '          had already ATTEMPTED writes to this project. Check `.claude/adoption-archive/`\n' >&2
       printf '          and `git status --ignored --untracked-files=all` before re-running.\n' >&2
     fi
+    _adopt_refuse_outside
   else
     printf '\n[REFUSED] %s\n' "$1" >&2
     [ "${ADOPT_REHEARSING:-0}" -eq 1 ] && return 1   # BL-242-REHEARSAL-CAUSE-ONLY
-    printf '          %s did not begin. Nothing was committed and nothing was written.\n' "${ADOPT_OPERATION:-Adoption}" >&2
+    _adopt_refuse_nothing_written
+    _adopt_refuse_outside
   fi
   return 1
+}
+
+# `## BL-318:` G6(b) — "NOTHING WAS WRITTEN" IS ABOUT THIS PROJECT, AND SAYS SO.
+# Adoption's MCP step can run `claude mcp add` before a later question refuses,
+# and the refusal then said "Adoption did not begin. Nothing was committed and
+# nothing was written." over two servers registered in the operator's user
+# configuration (dogfood run 2, finding 12). The sentence now names the project,
+# and a run that registered a server says it stopped rather than that it did
+# not begin.
+_adopt_refuse_nothing_written() {
+  if [ -z "${ADOPT_MCP_REGISTERED:-}" ]; then   # BL-318-G6-NOTHING-BEGIN
+    printf '          %s did not begin. Nothing was committed and nothing was written to this project.\n' "${ADOPT_OPERATION:-Adoption}" >&2   # BL-318-G6-NOTHING-LINE
+  else
+    printf '          %s stopped before it changed this project. Nothing was committed and nothing was written to this project.\n' "${ADOPT_OPERATION:-Adoption}" >&2
+  fi
+}
+
+# _adopt_refuse_outside — what this run changed OUTSIDE the project, said by
+# name (`# BL-318-G6-OUTSIDE`). Only what scripts/lib/adopt/adopt-mcp.sh
+# recorded in ADOPT_MCP_REGISTERED — attempted by this run and shown registered
+# by its receipt — is claimed. Every arm that ends the run prints it: a block
+# after the commit is still a run that registered the server, and the operator
+# deciding whether to re-run needs to know the registration stays.
+_adopt_refuse_outside() {
+  [ -n "${ADOPT_MCP_REGISTERED:-}" ] || return 0   # BL-318-G6-OUTSIDE-IF
+  local _names="" _name=""
+  case "$ADOPT_MCP_REGISTERED" in
+    *" "*) _names="$(printf '%s' "$ADOPT_MCP_REGISTERED" | sed 's/ / and /')" ;;
+    *)     _names="$ADOPT_MCP_REGISTERED" ;;
+  esac
+  printf '          Outside this project, this run DID register %s with Claude Code, in your\n' "$_names" >&2
+  printf '          user configuration, which every project on this machine reads. The registration\n' >&2
+  printf '          stays; a new run finds it and does not offer it again. To see what is registered:\n' >&2
+  printf '            claude mcp list\n' >&2
+  printf '          To undo what this run registered:\n' >&2
+  for _name in $ADOPT_MCP_REGISTERED; do
+    printf '            claude mcp remove -s user %s\n' "$_name" >&2
+  done
+  return 0
 }
 
 # The mandatory-question refusal, spelled ONCE so the transcript is consistent.

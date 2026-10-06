@@ -60,7 +60,7 @@ _adopt_state_order() {
   # installer REPLACES .claude/manifest.json; the stamp stage then merges into it.
   printf '%s\n' phase_state intake dispositions guardrails manifest   # BL-242-DISPOSITIONS-ORDER # BL-296-ADOPT-ORDER # BF-ADOPT-STATE-ORDER
   # AFTER `manifest` AND NOT BEFORE IT. The Adoption Record names the commit
-  # this project was adopted at, and it takes that value from the stamp rather
+  # adoption started from, and it takes that value from the stamp rather
   # than from a second `git rev-parse HEAD` — one fact, one source. The stamp
   # is written by the `manifest` stage, so the record cannot precede it.
   # AFTER `manifest` so the documents are written under a stamped adoption, and

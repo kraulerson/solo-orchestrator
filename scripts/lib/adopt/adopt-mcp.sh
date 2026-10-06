@@ -89,6 +89,16 @@
 # bash-3.2 safe; every local is assigned where it is declared.
 
 ADOPT_MCP_RESULT=""        # the Adoption Record's cell
+# `## BL-318:` G6(b) — the servers THIS RUN registered with Claude Code, by name
+# ("context7", "qdrant", or both, space-separated). A registration lives in the
+# operator's user configuration, outside the project, so a later refusal that
+# says "nothing was written" would be false about it (dogfood run 2, finding 12:
+# `claude mcp add` ran mid-interview, then "Nothing was committed and nothing
+# was written"). adopt_refuse reads this (`# BL-318-G6-OUTSIDE`). A name is
+# recorded only when the run ATTEMPTED its `claude mcp add` AND the receipt shows
+# it registered: an attempt the receipt does not show is not claimed, and a
+# server registered before the run was never attempted, so it is not this run's.
+ADOPT_MCP_REGISTERED=""
 ADOPT_MCP_PLAN=()          # "<server>|<command>" rows this run would execute
 
 ADOPT_MCP_QDRANT_ADD='claude mcp add -s user qdrant -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory -- uvx --python 3.13 mcp-server-qdrant'   # BL-311-MCP-QDRANT-ADD
@@ -402,8 +412,9 @@ _adopt_mcp_describe() {   # _adopt_mcp_describe C7 Q URL
 adopt_mcp_resolve() {                                  # BL-311-MCP-STEP
   local root="$1"
   local st="" c7="" q="" qurl="" c7_why="" q_why="" q_db="" raw="" ans="" row="" srv="" cmd=""
-  local c7_word="" q_word="" q_failed=0 fp_before="" fp_after="" c7_before="" q_before=""
+  local c7_word="" q_word="" q_failed=0 fp_before="" fp_after="" c7_before="" q_before="" added=""
   ADOPT_MCP_PLAN=()
+  ADOPT_MCP_REGISTERED=""
   ADOPT_MCP_QDRANT_BIND="none"; ADOPT_MCP_QDRANT_BIND_WHY=""; ADOPT_MCP_QDRANT_KEY="unread"
   # `SOIF_ADOPT_MCP=off` IS A TEST SEAM, like SOIF_ADOPT_QDRANT and
   # SOIF_ADOPT_GUARDRAILS_DIR. Every adoption suite written before this step
@@ -524,6 +535,7 @@ EOF
         continue
       fi
       adopt_note "Running: $cmd"
+      case "$cmd" in "claude mcp add "*) added="$added $srv" ;; esac   # BL-318-G6-MCP-ATTEMPT
       if ! _adopt_mcp_run "$cmd"; then
         adopt_note "  That did not succeed: $(_adopt_mcp_last_output)"
         [ "$srv" = "qdrant" ] && q_failed=1   # BL-311-MCP-FAIL-STOPS-QDRANT
@@ -559,6 +571,12 @@ EOF
     adopt_blank
     adopt_note "Afterwards:"
     _adopt_mcp_describe "$c7" "$q" "$qurl"
+    # What this run registered: its `claude mcp add` ran here, and the receipt
+    # shows it registered. The plan offers an add only for a server the first
+    # look found unregistered, so a server registered before the run is never
+    # attempted, and never named.
+    case " $added " in *" context7 "*) [ "$c7" = "registered" ] && ADOPT_MCP_REGISTERED="${ADOPT_MCP_REGISTERED:+$ADOPT_MCP_REGISTERED }context7" ;; esac   # BL-318-G6-MCP-REG-C7
+    case " $added " in *" qdrant "*) [ -n "$q" ] && [ "$q" != "unregistered" ] && ADOPT_MCP_REGISTERED="${ADOPT_MCP_REGISTERED:+$ADOPT_MCP_REGISTERED }qdrant" ;; esac   # BL-318-G6-MCP-REG-Q
   elif [ "${#ADOPT_MCP_PLAN[@]}" -gt 0 ]; then
     adopt_note "Skipped. Nothing was run."
   fi
