@@ -632,6 +632,36 @@ If tools are out of date, the script offers interactive update options:
 
 When the check cannot read one of the two versions — no `.claude/manifest.json`, no `frameworkVersion` in it, no clone, or a value that is not `MAJOR.MINOR.PATCH` — it says "cannot tell whether an update is available" and why, instead of staying silent.
 
+#### What to do with each message
+
+When something needs attention, the session start hands the agent a message it must tell you about in its first reply, before any other work. When everything is up to date, there is no message. Each kind, in plain words:
+
+- **`VERSION CHECK`, with warnings, `Update commands (run manually):`, and the question "Would you like me to run these updates now, or skip for this session?"** A tool on your computer has a newer version, or is not installed; each command updates or installs one tool, for every project on the computer. Nothing here stops your work, so **skip** is a safe answer when you are in the middle of something; say yes when you have a few minutes. A `not installed` line for a tool your current work does not use can wait — Snyk, for one, is used by the Phase 3 validation scans, not by a commit. Two lines in this message are exceptions:
+  - **`Superpowers: not installed`.** With the Development Guardrails installed, every edit to a source file is blocked until this Claude Code plugin is there. Install it, then start a new Claude Code session:
+
+    ```bash
+    claude plugin install --scope user superpowers@claude-plugins-official
+    ```
+
+  - **`Qdrant MCP: NOT registered with Claude Code`** or **`Context7 MCP: NOT registered with Claude Code`.** The memory server or the documentation server is not set up for Claude Code. The session works without it — it is not checked until it is registered. Set it up when convenient (the [CLI Setup Addendum](cli-setup-addendum.md) gives the commands), or skip it.
+- **`URGENT — VERSION CHECK FAILED`, with a tool marked `BELOW MINIMUM`.** A tool is older than the oldest version the framework accepts, and the agent is told not to do any work until you deal with it. Update it first: say yes when the agent offers the command listed under the warning, then start a new session so the check runs again.
+- **`GUARDRAILS UPDATE OFFER`.** Your project's Development Guardrails are older than the copy on this computer. Usually say yes, at a moment when nothing is half-done. You type it, not the agent: `!` and then the command the offer shows, at the Claude Code prompt — today that is the one below. Then commit `.claude/framework/` and `.claude/manifest.json`. If a Guardrails check is blocking you when it should not, this update may be the fix. Say no and it asks again at the next session start. More under *This project's Development Guardrails*, above.
+
+  ```bash
+  bash scripts/refresh-guardrails.sh
+  ```
+
+- **`GUARDRAILS NOTICE`, saying `a new MAJOR version`.** A much newer Guardrails version is on this computer. Moving to it is a migration, not an update, so there is no command to offer. Carry on: your project keeps the version it has, and nothing breaks. Do not let the agent attempt the migration; read the notes in the `migrations/` folder the notice names, or ask for help, before you do it yourself.
+- **`GUARDRAILS NOTICE`, saying `cannot tell whether an update is available`.** The check could not read one of the two versions; the reason follows the dash. Carry on: it only means no update can be offered. If the reason says there is no Guardrails clone, get one:
+
+  ```bash
+  git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework
+  ```
+
+  For any other reason the project's `.claude/manifest.json` is not what the check expects. Leave it alone (the Guardrails do not let the agent edit it) and ask for help when convenient.
+
+In a project's first sessions the agent's search of its memory finds nothing; that is normal, because nothing has been stored yet.
+
 #### Extending the Version Check
 
 The version check is data-driven through the tool matrix (`templates/tool-matrix/common.json` and platform-specific files). If you swap a tool (e.g., replace Qdrant with Supabase), update the tool matrix entry — `check-versions.sh` reads the `update_check` method and handles it automatically. No script changes required.
