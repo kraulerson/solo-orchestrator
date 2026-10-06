@@ -186,9 +186,13 @@ bash ~/solo-orchestrator/scripts/adopt-project.sh --scan-report /tmp/scout/scout
 Keep Scout's output **outside** the project, so the survey never lands in the
 tree it describes. `--run-tests` tells you before adopting whether the project's
 own suite passes today — worth knowing, because once adopted a commit that
-touches source code runs that suite and is refused if it fails. Prerequisites
-(`git`, `jq`, `gitleaks`, optionally `semgrep`), what to do when a run stops,
-and how to put a replaced file back are in
+touches source code runs that suite and is refused if it fails. **What adoption
+needs installed** is one list, kept in one place —
+[docs/adoption.md → What you need](docs/adoption.md#what-you-need) — and this
+page does not repeat it, so the two cannot disagree. It includes the
+Superpowers plugin for Claude Code: when the Development Guardrails are
+installed, every edit to a source file is blocked without it. What to do when
+a run stops, and how to put a replaced file back, are in
 [docs/adoption.md → Quick start](docs/adoption.md#quick-start-install-and-use).
 **Asking Claude Code to run these for you?** Claude Code's auto mode can refuse
 scripts from a clone outside the project — it was in the 2026-09-27 test run, where
@@ -261,6 +265,11 @@ not among them. Read them here.
 
 ## Prerequisites
 
+This table is what `init.sh` needs to build a **new** project. **Adopting a
+project you already have?** Use
+[docs/adoption.md → What you need](docs/adoption.md#what-you-need) instead:
+that is the one list for adoption, and it is not copied here.
+
 | Tool | Required | Install |
 |---|---|---|
 | **Git** | Yes | Init script offers to install automatically (brew/apt/dnf). Or install manually: [git-scm.com](https://git-scm.com/downloads) |
@@ -270,9 +279,25 @@ not among them. Read them here.
 | **Git host CLI** (`gh` or `glab`) | Yes, if using GitHub or GitLab (default host: GitHub) | **Install and authenticate BEFORE running init** — not auto-installed. Interactive runs discover a missing/unauthenticated CLI partway through the run, right before repo creation. `--non-interactive` runs preflight CLI *presence* up front and fail fast — but neither mode ever checks authentication ahead of time, so `gh auth login` / `glab auth login` first regardless of mode. `gh` (GitHub): `brew install gh` (macOS) or [Linux install](https://github.com/cli/cli/blob/trunk/docs/install_linux.md), then `gh auth login`. `glab` (GitLab): `brew install glab`, then `glab auth login`. **Bitbucket** needs no CLI (just `curl`, which ships by default on macOS/Linux) — export `BITBUCKET_API_TOKEN` + `BITBUCKET_API_TOKEN_EMAIL` + `BITBUCKET_WORKSPACE` instead (legacy `BITBUCKET_USER`/`BITBUCKET_APP_PASSWORD` also accepted). `--git-host other` needs neither. Full instructions: [CLI Setup Addendum § Git Host CLIs](docs/cli-setup-addendum.md#git-host-clis). |
 | **Docker** | Recommended | Init script offers to install automatically. macOS: choice of Colima (recommended — headless, no license required, auto-starts on boot) or Docker Desktop. Linux: system package with systemd auto-start. Used by Qdrant (persistent semantic memory) and OWASP ZAP (DAST scanning). |
 | **Claude Code** | Recommended | Installed by init script. Framework is optimized for Claude Code; other AI coding agents can use the methodology but the CLI Setup Addendum and Phase 2 workflow accelerators are Claude Code-specific. |
+| **Superpowers** | Yes, before the first change to source code | A plugin for Claude Code. The Development Guardrails block every edit to a source file until a Superpowers skill has run in the session, and without the plugin there is no skill to run. Install it with `claude plugin install --scope user superpowers@claude-plugins-official`, then start a new Claude Code session. |
 | **GPG** | Optional | Used for commit signing. Init's tool plan offers to install it — macOS: `brew install gnupg`; Linux: gnupg/gnupg2 via your package manager (apt/dnf/pacman). |
 
 Init also auto-installs security tooling: Semgrep (SAST), gitleaks (secret detection), Snyk CLI (dependency scanning), Lighthouse (web performance), and OWASP ZAP (DAST, requires Docker).
+
+To install Superpowers (the row above), then start a new Claude Code session:
+
+```bash
+claude plugin install --scope user superpowers@claude-plugins-official
+```
+
+If the install says the marketplace `claude-plugins-official` is not found,
+add it, then run the install again. Claude Code adds that marketplace the first
+time it starts an interactive session, so a computer where it never has lacks
+it:
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+```
 
 ### Windows Users
 
@@ -439,7 +464,6 @@ The init script installs these tools globally on your machine. Each installation
 
 | Tool | Purpose | How to Install |
 |---|---|---|
-| **Superpowers** | Agentic skills plugin for Claude Code (TDD, subagents, debugging) | `claude plugin install --scope user superpowers@claude-plugins-official` |
 | **Context7 MCP** | Live library documentation for the AI agent | `claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp` |
 | **Qdrant MCP** | Persistent semantic memory across sessions | Docker container + MCP server config |
 
@@ -644,7 +668,7 @@ These elements are optimized for Claude Code and require retooling to use a diff
 - **CLI Setup Addendum** → rewrite for new agent's configuration model
 - **Init script CLAUDE.md generation** → rewrite template for new agent
 
-The tooling layer is a workflow accelerator, not a dependency. The Build Loop in Phase 2 works without Superpowers — the agent executes sequentially with the Orchestrator directing each step. Superpowers makes it faster; its absence makes it manual, not impossible.
+The tooling layer is a workflow accelerator, not a dependency. The Build Loop in Phase 2 works without Superpowers — the agent executes sequentially with the Orchestrator directing each step. Superpowers makes it faster; its absence makes it manual, not impossible. That is the methodology on another agent. In a Claude Code project with the Development Guardrails installed, Superpowers is required: the Guardrails block every edit to a source file until a Superpowers skill has run (see [Prerequisites](#prerequisites)).
 
 ### Current Status: Proof of Concept on a Single Vendor
 

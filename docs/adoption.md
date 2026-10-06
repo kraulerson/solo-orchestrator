@@ -30,6 +30,10 @@ Everything on this page is output that was observed, pasted as it printed.
 
 ### What you need
 
+This is the one list of what adoption needs. The README's Prerequisites table
+is for `init.sh`, which builds a new project; you do not need that list to
+adopt, and the README points here rather than repeating this one.
+
 | Tool | Why | If it is missing |
 |---|---|---|
 | `git`, able to resolve a commit identity | Adoption ends in one commit on your current branch | Refused before anything is written. git can often derive an identity from the system when none is configured; the refusal fires only when it cannot |
@@ -40,6 +44,31 @@ Everything on this page is output that was observed, pasted as it printed.
 | A clone of the Development Guardrails at `~/.claude-dev-framework` | The Claude Code rules and hooks a new project gets | Adoption completes without them and prints the two commands that install them later. Adoption never fetches the clone itself. Get it with `git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework` |
 | Docker running the Qdrant database, and the Qdrant MCP server registered with Claude Code (`uvx` launches it) | Memory across Claude Code sessions. Once it is registered, every session in the project must reach it (a successful `qdrant-find`) before it can change a file | Adoption checks it and, when this machine can (the `claude` command, Docker running, `uvx`), offers to set it up — showing the exact commands first. Skipped or impossible, adoption completes and prints the commands for later. See [The memory and documentation servers](#the-memory-and-documentation-servers) |
 | The Context7 MCP server registered with Claude Code (`npx` launches it) | Current library documentation for the agent. Once it is registered, every session must read documentation through it before it changes a file | Checked and offered the same way (needs the `claude` command and `npx`); otherwise its one command is printed |
+| Claude Code (the `claude` command) | The assessment, and every change you make after adoption, is a Claude Code session; Superpowers and the two servers above are added to it | Adoption itself completes, but it cannot offer to set up the two servers, and there is nothing to run the assessment in. See [Claude Code's documentation](https://docs.anthropic.com/en/docs/claude-code) |
+| Superpowers, a plugin for Claude Code | Needed once the Development Guardrails are installed (the clone row above): they block every edit to a source file until a Superpowers skill has run in the session, and without the plugin there is no skill to run | Adoption completes, but in Claude Code every edit to a source file is blocked with `BLOCKED — Source file edit requires the Superpowers workflow, but the Superpowers plugin is not enabled in this Claude Code configuration`. Guardrails older than 4.3.7 say `You MUST invoke superpowers:brainstorming before editing source files` instead, and the agent's attempt to run that skill fails as an unknown skill. Install it with the command below this table, then start a new Claude Code session |
+
+**Installing Superpowers.** One command, for your user, so every project on
+this computer has it:
+
+```bash
+claude plugin install --scope user superpowers@claude-plugins-official
+```
+
+If the install says the marketplace `claude-plugins-official` is not found,
+add it, then run the install again. Claude Code adds that marketplace the first
+time it starts an interactive session, so a computer where it never has lacks
+it:
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+```
+
+Then start a new Claude Code session, as the Guardrails' own message says. To
+check that it is installed:
+
+```bash
+claude plugin list
+```
 
 Your project must be a normal git repository with at least one commit. A linked
 worktree, a submodule, or a repository with `core.hooksPath` configured is
@@ -272,7 +301,22 @@ a stop, or a halt); `2` bad usage.
   hook, then run `bash ~/solo-orchestrator/scripts/adopt-project.sh --finish`
   from the project. It commits exactly the files the first run wrote.
 - **Anything else** prints a `[REFUSED]` or `[BLOCKED]` line naming the cause, and
-  says whether anything was written.
+  says whether anything was written to the project.
+- **If you had answered "set it up now" to the memory and documentation
+  servers**, that step has already run when a later question stops the run. A
+  server it registered is in your Claude Code user configuration, outside the
+  project, and it stays registered. The stop is then labelled `[BLOCKED]`, not
+  `[REFUSED]`, because the run had begun; it says nothing was written to the
+  project, and names each server it registered ("Outside this project, this run
+  DID register …"). Run adoption again and it
+  finds them registered and does not offer to register them again. To see
+  them, or to remove one the message named:
+
+  ```bash
+  claude mcp list
+  claude mcp remove -s user context7
+  claude mcp remove -s user qdrant
+  ```
 
 ### 6. Afterwards
 
@@ -282,6 +326,12 @@ set up only take effect in a session started after adoption: a session that was
 already open has no record of its own start, and the framework's MCP check
 blocks every file edit in it (measured in the 2026-09-27 dogfood run). The run's
 closing block says so too.
+
+**The new session opens with a report on your tools**, and sometimes on the
+Guardrails, which the agent must tell you about before anything else: updates
+it offers to run, a tool below the minimum version, a Guardrails update or
+notice. [What to do with each message](user-guide.md#what-to-do-with-each-message)
+says, in plain words, which you can skip and which you cannot.
 
 **If the project already had the Development Guardrails, that new session may
 offer to update them.** Adoption keeps an existing install as it found it (see
@@ -307,7 +357,9 @@ shared clone may already have been pulled. The new hooks apply from the agent's 
 so no restart is needed. Say no and the offer comes back at the next session
 start, so a session that a Guardrails defect is blocking can be restarted and
 the fix accepted then. Commit `.claude/framework/` and `.claude/manifest.json`
-afterwards. Then:
+afterwards. Moving from a version before 4.4.0 to 4.4.0 or later this way
+changes how you approve a commit: see [7. Your first change](#7-your-first-change).
+Then:
 
 ```bash
 bash scripts/resume.sh
@@ -316,6 +368,9 @@ bash scripts/resume.sh
 It prints the **assessment prompt** — paste it into Claude Code. That session
 asks you what the project is for, gives a verdict with its reasoning, and runs
 the finisher that records it ([The assessment](#the-assessment--act-3-and-act-4--ships-wp12a)).
+Saving what the assessment wrote is the first commit the agent makes in this
+project, so it goes through the approval step in
+[7. Your first change](#7-your-first-change).
 Run `resume.sh` again afterwards and it prints this project's Phase 0 prompt
 (Section 13 of `PROJECT_INTAKE.md`), even if your project brought a
 `PRODUCT_MANIFESTO.md` of its own. Once Phase 0 writes the manifesto, or
@@ -334,6 +389,155 @@ commit-time scanners run. Your replaced files are in
 ```bash
 bash ~/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre-commit
 ```
+
+### 7. Your first change
+
+What to expect the first time the agent commits in an adopted project — the
+assessment's own files first, then your first change to code — and what the
+framework expects of a change while the project is at phase 0. The Guardrails
+behaviour below was read from their hooks (versions 4.3.7 and 4.4.0).
+
+**What the framework expects at phase 0.** The Builder's Guide builds in
+Phase 2: Phase 0 decides what the product is ("If it is not defined in Phase 0,
+the AI is not permitted to build it in Phase 2"), Phase 1 designs it, and the
+`CLAUDE.md` adoption wrote tells the agent to follow the phases in order. No
+check blocks a commit because the project is at phase 0: the Build Loop's
+commit checks start at phase 2 — `check_commit_ready` in
+`scripts/process-checklist.sh` lets every commit through below it, and the
+`feat:` commit-message check does the same. Neither the guide nor the scripts
+say whether a small fix to code the project already had may go in before
+Phase 0 is done. So it is your decision:
+
+- **If it can wait**, do Phase 0 first. This prints the prompt that starts or
+  resumes it:
+
+  ```bash
+  bash scripts/resume.sh
+  ```
+
+- **If the assessment recorded the project as in production and the fix cannot
+  wait**, open a delta: for such a project the delta track opens below phase 4
+  (the in-production paragraph under
+  [The assessment](#the-assessment--act-3-and-act-4--ships-wp12a)):
+
+  ```bash
+  bash scripts/delta.sh --open --describe "what is broken, in your own words"
+  ```
+
+- **Otherwise, if you decide to go ahead**, tell the agent so: it reads the same
+  rule in `CLAUDE.md` and may point it out. The change then goes through every
+  check below.
+
+**Before the agent can edit a source file**, two checks must be met in each
+session:
+
+- **Memory and documentation.** When Qdrant or Context7 is registered, the
+  agent's first file edit in a session is blocked until it has searched its
+  memory (`qdrant-find`) and read documentation through Context7 (`query-docs`;
+  finding the library with `resolve-library-id` is not enough). In a new
+  project the memory search finds nothing at first, and that is normal.
+- **Superpowers.** The Guardrails block every edit to a source file until the
+  agent has run a Superpowers skill in this session. For a change with no
+  approved design that is `superpowers:brainstorming`, which ends with the agent
+  showing you a short design and waiting for your yes; for a design you already
+  approved, a skill that carries it out, such as
+  `superpowers:test-driven-development`. A skill counts until the next
+  successful commit, a new or cleared session, or the end of the session, so
+  after each commit the agent runs one again before its next source edit. Test
+  files are not source files to this check, so the agent can write the failing
+  test first. Without the plugin, see [What you need](#what-you-need).
+
+**The approval step: what the agent asks, and what you approve.** The
+Guardrails block every commit the agent runs until you have approved it. When
+the change is ready, the agent:
+
+1. stages exactly the files it means to commit;
+2. records a question in `.claude/pending-approval.json`, tells you its
+   evaluation (pros, cons, alternatives) and the options, each with an id such
+   as `A1` (commit these files) or `A2` (do not commit yet), and stops.
+
+Each approval covers one commit; the next commit needs a new question. If the
+agent tries to commit before you approve, the commit is blocked with a message
+that starts `BLOCKED — Commit requires`. That is the check doing its job: the
+agent should ask you instead.
+
+**The stop check and the commit check.** At the end of every reply the
+Guardrails' stop check looks for unfinished work. With source changes not yet
+committed and no question recorded, it says
+`Uncommitted source changes. Commit before finishing.` That does not overrule
+the approval step: the same message tells the agent, when the commit is waiting
+on you, to record the question and stop, and once
+`.claude/pending-approval.json` exists the stop check lets the agent stop and
+wait. A reply that ends with a question for you is the expected shape, not a
+stuck agent: answer the question.
+
+**How you answer depends on your Guardrails version.** This prints it:
+
+```bash
+jq -r .frameworkVersion .claude/manifest.json
+```
+
+- **4.4.0 and later.** Reply with the option id first — `A1`, or
+  `A1 — go ahead`. The framework then shows you the question, what each option
+  does, the staged files and the git hooks that will run, ending
+  `Reply with the option id again (for example: A1) to confirm.`; that second
+  reply is the approval. The agent then commits with a plain
+  `git commit -m "…"`. A reply that does not start with an option id approves
+  nothing, and changing what is staged after you approve cancels
+  the approval. Two things can stop this working today:
+  - **`The pending question cannot be answered`** means the question was written
+    in the older format, which this framework's own `scripts/pending-approval.sh`
+    and `scripts/escalate-to-user.sh` still write. Ask the agent to rewrite it;
+    the message gives the agent the format.
+  - **Guardrails brought up to 4.4.0 by `bash scripts/refresh-guardrails.sh`**
+    from an earlier version. That update does not change
+    `.claude/settings.json` (`## BL-319:`), and the hook that reads your reply,
+    `record-approval.sh`, is switched on there. This prints `0` when it is not:
+
+    ```bash
+    grep -c record-approval .claude/settings.json
+    ```
+
+    Then no reply of yours can approve a commit; use the override below for each
+    one. (A project adopted with 4.4.0 already in the clone has it switched on.)
+- **4.3.7.** Answer in your own words. The agent clears the question
+  (`scripts/pending-approval.sh --resolve`), records your approval by running
+  `bash .claude/framework/hooks/mark-evaluated.sh "<what you approved>"` on its
+  own, and commits.
+- **Older than 4.3.7** — the dogfood project's 4.3.0, for one. The Guardrails
+  block the agent from staging `.claude/manifest.json`, which the assessment's
+  finisher lists, and they accept `mark-evaluated.sh` only as a lone command,
+  with nothing chained or redirected, and their block message does not say so;
+  the dogfood agent was blocked twice trying to run it. Accept
+  the Guardrails update the session start offers ([section 6](#6-afterwards)),
+  or stage the files and use the override yourself.
+
+**The override.** You can record an approval yourself, from the project's
+folder, once the change is staged:
+
+```bash
+bash .claude/framework/hooks/mark-evaluated.sh "what you approved, in a few words"
+```
+
+With Guardrails 4.4.0 and later, run it in a separate terminal window: it
+refuses to run inside Claude Code, a command typed after `!` included, and it
+approves only the change staged at that moment. Then clear the question the
+agent recorded — this framework's own commit check blocks every commit while
+`.claude/pending-approval.json` exists, and the override does not remove it:
+
+```bash
+bash scripts/pending-approval.sh --resolve
+```
+
+Then tell the agent to commit it with a plain `git commit -m "…"`.
+
+**The commit's own checks.** Whoever commits, the commit-time checks adoption
+installed run next ([The commit-time scanners](#the-commit-time-scanners--ship-wp73)).
+Among them: your project's own test suite, which blocks a commit it fails
+([Three things to know](#three-things-to-know-before-you-rely-on-it) covers
+when it cannot run), and the test-before-code check — a `fix:`, `feat:` or
+`refactor:` commit that changes code with no test gets a warning on a personal
+project and is blocked on an organizational one.
 
 ---
 
@@ -460,7 +664,7 @@ Who is this project for?
 
 ```text
 [REFUSED] This question has no default and no skip, and no answer was given: who the project is for
-          Adoption did not begin. Nothing was committed and nothing was written.
+          Adoption did not begin. Nothing was committed and nothing was written to this project.
 ```
 
 That answer sets your project's **tier**, and the tier decides how strictly the
@@ -1138,7 +1342,7 @@ coerced:
 
 ```text
 [REFUSED] 'legacy-app' is not one of the answers offered for: who the project is for
-          Adoption did not begin. Nothing was committed and nothing was written.
+          Adoption did not begin. Nothing was committed and nothing was written to this project.
 ```
 
 ---
@@ -1151,7 +1355,8 @@ The secrets dispositions come before `manifest.json`, so an acceptance that
 cannot be recorded stops the run before the project reads as adopted. The framework documents follow `manifest.json` so they are written under a
 stamped adoption, and precede the record so the record stays the last thing in
 the log. The last two are ordered by what they read, not by taste. The **Adoption
-Record** names the commit this project was adopted at and takes that value from
+Record** names the commit adoption started from — the tip the project was on
+when adoption ran, the parent of the adoption commit — and takes that value from
 the adoption *stamp*, which the `manifest.json` stage writes — one fact, one
 source, rather than a second `git rev-parse HEAD` that could disagree. The
 **write set** is last because it records what every stage before it wrote.
@@ -1736,7 +1941,7 @@ Three differences from a new project, on purpose:
 
   ```text
   [REFUSED] .claude/manifest.json is not put back: nothing of yours in it was changed
-            The re-add did not begin. Nothing was committed and nothing was written.
+            The re-add did not begin. Nothing was committed and nothing was written to this project.
             Adoption added this framework's keys beside your Development Guardrails
             settings and changed none of them, so there is nothing of yours to restore.
             The archived copy is the file from before adoption, so putting it back
@@ -1791,7 +1996,8 @@ answers. It is split in two, because half of it is judgement and half is fact:
 
    It **checks the record before it writes anything**, and refuses — naming
    each reason — when the file is not exactly one JSON object, a finding names
-   no requirement, the commit is not the one this project was adopted at,
+   no requirement, `adoptedAtCommit` is not the commit adoption started from
+   (the tip just before the adoption commit, not the adoption commit itself),
    *in production* is not a plain true/false, the data classification is not
    one of the seven, a classification other than `public` has neither a ZDR
    attestation nor a written reason (the Phase 1→2 gate would block it later),
@@ -1802,7 +2008,7 @@ answers. It is split in two, because half of it is judgement and half is fact:
 
    ```text
    [REFUSED] the assessment record was not accepted, and nothing was written
-             The assessment finisher did not begin. Nothing was committed and nothing was written.
+             The assessment finisher did not begin. Nothing was committed and nothing was written to this project.
              - fitness finding F1 names no interview axis in requirementRef — a finding is relative to a stated requirement (§5.3)
              Fix .claude/adoption/assessment-record.json (or the verdict), then run this again.
    ```
@@ -2023,7 +2229,7 @@ Record:
 - **A ledger you already have is appended to, never replaced**; every row in it
   survives.
 - **`.claude/bypass-audit.json`** gains `adoption_event` rows: one
-  `adoption` row naming the tier, the commit it was adopted at and what the
+  `adoption` row naming the tier, the commit adoption started from and what the
   scan said, and one `secrets_disposition` row per **accepted risk** and per
   **acknowledgement**. `rotated` and `false-alarm` accept no risk and write no
   row.
@@ -2229,7 +2435,11 @@ for four ways a pipeline can let code around the framework's checks:
 
 It is a search for known spellings, not a parser, and the run says so. It
 misses what it has no spelling for (`|| true`, a `--mirror` push, a deploy in a
-file that also has a manual trigger), and a file it **cannot read** is reported
+file that also has a manual trigger, a deploy named only inside a longer
+command-line flag such as `-p:DeployOnBuild=true` or `--deploy-to=prod`), and a
+word inside a flag does not count as a deploy: Nuitka's `--no-deployment-flag`
+is not one, while `--deploy` on its own, `--tags=deploy` and a `deploy` command
+after the flags are. A file it **cannot read** is reported
 as unread and recorded that way — never as clean. It
 reports a **line number**, never the line — a workflow can carry a credential.
 For each file with a finding it asks once, **before anything is written**:

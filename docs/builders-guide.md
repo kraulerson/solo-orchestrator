@@ -939,7 +939,7 @@ If the Superpowers plugin is installed (see CLI Setup Addendum, Section 1), it s
 
 **With Superpowers:** The agent will use subagent-driven development (spawning focused subagents per task with two-stage review), follow strict TDD discipline (RED-GREEN-REFACTOR, test before code), and manage feature branches via git worktrees. The Orchestrator's role shifts from directing each step to reviewing at decision gates and validating the agent's self-review output. Note: Superpowers is a workflow accelerator that strongly encourages best practices — it is not an independently verifiable enterprise compliance control. The Orchestrator's review at decision gates and the CI/CD pipeline remain the actual quality gates.
 
-**Without Superpowers:** The Build Loop below works as written — the agent executes sequentially with the Orchestrator directing each step. Superpowers is recommended but not required.
+**Without Superpowers:** The Build Loop below works as written — the agent executes sequentially with the Orchestrator directing each step. That is the methodology on its own. In a Claude Code project with the Development Guardrails installed (`init.sh` installs them in every new project; adoption does when their clone is on the computer), Superpowers is required: the Guardrails block every edit to a source file until a Superpowers skill has run in the session. Install it with `claude plugin install --scope user superpowers@claude-plugins-official`, then start a new Claude Code session.
 
 ### Vendored Skills (`.claude/skills/`)
 

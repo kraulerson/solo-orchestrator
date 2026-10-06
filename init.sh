@@ -476,15 +476,19 @@ check_prerequisites() {
     print_info "Development Guardrails for Claude Code will be installed during project creation"
   fi
 
-  # --- Claude Code Superpowers plugin (recommended) ---
+  # --- Claude Code Superpowers plugin (required once the Guardrails are installed) ---
+  # `## BL-318:` G4 review round 1 (R-5): the Development Guardrails' enforce-superpowers
+  # hook (every profile) blocks every source-file edit until a Superpowers skill has run,
+  # so "recommended" undersold it; the message says so and gives the one command.
   if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
     local sp_installed
     sp_installed=$(jq -r '.enabledPlugins["superpowers@claude-plugins-official"] // false' "$HOME/.claude/settings.json" 2>/dev/null || echo "false")
     if [ "$sp_installed" = "true" ]; then
       print_ok "Superpowers plugin installed"
     else
-      print_warn "Superpowers plugin not found (recommended — agentic skills for development)"
-      echo "  Install: Run claude → /plugins → search 'superpowers' → install"
+      print_warn "Superpowers plugin not found — required: the Development Guardrails block every source-file edit until a Superpowers skill has run"
+      echo "  Install: claude plugin install --scope user superpowers@claude-plugins-official"
+      echo "  (If it says the marketplace is not found: claude plugin marketplace add anthropics/claude-plugins-official)"
     fi
   else
     print_info "Superpowers plugin: cannot check (no Claude settings or jq missing)"

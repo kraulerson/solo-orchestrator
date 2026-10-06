@@ -22701,9 +22701,10 @@ verified here: Kiro uses property-based tests, and ECC sets an 80% coverage targ
 
 ## BL-318: brownfield dogfood run 2 (k-pdf, 2026-10-03) — what still stops a regular user
 
-**Status:** Open — filed 2026-10-03 from the second dogfood run. Groups G1–G4 and G6 can each close by
-their own PR. G5's design was decided by Karl on 2026-10-05 (below), and G5 is resolved by PR #497. The
-entry closes when every group is resolved.
+**Status:** Open — filed 2026-10-03 from the second dogfood run. G1 merged as PR #496, G2 as PR #498, G3
+as PR #499 and G5 as PR #497 (G5's design was decided by Karl on 2026-10-05, below). G4 and G6 are built
+together on branch `fix/bl318-g4-g6-docs-small` (below). The entry stays Open until the third dogfood run
+confirms the fixes, and closes then.
 
 **What ran.** The `## BL-311:` rerun. A headless Claude Code session played the same systems
 technician (not a developer). It installed Solo from the public README at `a07d707`, which carries the
@@ -22845,7 +22846,7 @@ preference, which made every reply carry one anyway.
   FOR PHASE 0" by the session-start hook while `resume.sh` prints the delta. The greenfield arm had the
   same gap before.
 
-**G3, as built (branch `fix/bl318-g3-ci-template`; PR to be cited).**
+**G3, as built (PR #499, merged as `b93b006`).**
 - **When it runs.** The triggers are unchanged: a push to `main` and pull requests to `main`. The words
   now say so, and that a push to any other branch runs nothing: adoption's own note
   (`# BL-318-G3-RUNS-WHEN`, which reads the workflow's name from the file it installs), the GitHub row
@@ -22929,6 +22930,158 @@ preference, which made every reply carry one anyway.
   `test`. That predates G3, which renamed only the workflow.
 - **Not run on a runner.** No workflow run of the new template has happened. It was checked by a YAML parse
   (PyYAML 6.0.3) and by the suite; `actionlint` is not installed here.
+- **N-1 (PR #499's final check; narrow, fails closed).** On a uv project whose version is dynamic
+  (setuptools-scm, hatch-vcs), `uv version --frozen` exits 2, so `# BL-318-G3-SELF-LICENSE` leaves nothing
+  out and a GPL-family project fails its own license check: a loud red, never a false pass. Candidate fix:
+  read `[project].name` with `tomllib`.
+- **N-2 (PR #499's final check; a comment).** The template's comment "the pip path never installs the
+  project" is false when `requirements.txt` has `-e .`. R-2 above repeats it.
+
+**G4, as built (branch `fix/bl318-g4-g6-docs-small`).** Documentation. The claims a script can check are
+pinned by `tests/test-bl318-g4g6.sh` P1–P6.
+- **Superpowers is a prerequisite (finding 27, Solo half).** `docs/adoption.md` "What you need" now lists
+  Claude Code and Superpowers, with `claude plugin install --scope user superpowers@claude-plugins-official`
+  (the tool matrix's own command, P1) in a fenced block, `claude plugin list` to check it, and the block a
+  session prints without it: the 4.3.7 and later text, and 4.3.0's (P4 checks both against the Guardrails
+  hooks). README lists Superpowers under Prerequisites instead of "Optional enhancements" (P3), and its
+  "Methodology vs. Tooling" paragraph says that in a Claude Code project with the Guardrails it is required.
+  The Guardrails arm `enforce-superpowers` in every profile (`profiles/_base.yml`), so a new project needs
+  it too.
+- **One prerequisites list (finding 2).** `docs/adoption.md` "What you need" is the one list for adoption.
+  README's adoption section no longer carries its own partial list (`git`, `jq`, `gitleaks`, optionally
+  `semgrep`) and links there; README's Prerequisites table says it is for `init.sh` and links there too
+  (P2). A link was chosen over two identical lists pinned equal: the two tables answer different questions
+  (a new project, an existing one), and a link cannot drift.
+- **The approval step (findings 20, 21).** New `docs/adoption.md` section "7. Your first change": what the
+  agent asks (it stages, records `.claude/pending-approval.json`, gives options with ids, stops); why an
+  agent commit is blocked before approval (`BLOCKED — Commit requires`); how the stop check's
+  `Uncommitted source changes. Commit before finishing.` and the approval interact; and how to answer, by
+  Guardrails version. It was written from the hooks. The clone is at 4.4.0 (`aba947b`, CDF PR #26, merged
+  2026-10-05), which changed approval after this group was briefed against 4.3.7 (`e1e2fa1`), so the section
+  covers 4.4.0 and later (reply with the option id, then again to confirm; then a lone `git commit -m`),
+  4.3.7 (the agent runs `mark-evaluated.sh` as a lone command), older versions, and the user's override in
+  a separate terminal. Section 6 says the assessment's commit is the first one through it, and that a
+  refresh across 4.4.0 changes how a commit is approved.
+- **The first change at phase 0 (finding 26).** The same section states the rules as written. The Builder's
+  Guide builds in Phase 2, and the adopted `CLAUDE.md` says to follow the phases in order. No check blocks a
+  commit at phase 0: `check_commit_ready` and the `feat:` message check pass everything below phase 2 (P6).
+  Nothing in the guide or the scripts addresses a small fix before Phase 0 ends, and the section says so.
+  The options it gives: do Phase 0 first; open a delta if the assessment recorded the project as in
+  production; or go ahead through the checks.
+- **Review round 1 (R-3, R-5, R-8).** The override now says to clear the recorded question
+  (`bash scripts/pending-approval.sh --resolve`) before telling the agent to commit. Solo's own check blocks
+  every commit while `.claude/pending-approval.json` exists, and 4.4.0's `mark-evaluated.sh` does not remove
+  it (measured on a fixture: blocked "pending user decision" with a schema-2 question; not blocked once
+  resolved; P7). `docs/user-guide.md` no longer calls Superpowers optional anywhere: a "Required:
+  Superpowers" section replaces its "Optional Enhancements" row. `init.sh` says it is required, with the
+  install command, instead of "recommended". README's adoption sentence says it blocks when the Guardrails
+  are installed (P8). Each place that gives the install also gives
+  `claude plugin marketplace add anthropics/claude-plugins-official` for a computer where Claude Code has
+  never run an interactive session, which Claude Code's documentation says lacks the official marketplace
+  (P9).
+- **Session-start messages (finding 14).** `docs/user-guide.md` "What to do with each message", linked
+  from adoption.md section 6, covers each kind in plain words: the update commands, `Superpowers: not
+  installed`, `NOT registered with Claude Code`, `BELOW MINIMUM`, the Guardrails update offer and both
+  Guardrails notices. Every command is fenced. P5 checks that each is text the scripts print.
+
+**G4 residuals (not fixed):**
+- **A project refreshed to Guardrails 4.4.0 cannot approve a commit by reply (measured).**
+  `scripts/refresh-guardrails.sh` does not change `.claude/settings.json`, and 4.4.0's `record-approval.sh`
+  only runs when it is registered there (UserPromptSubmit). Measured on fixtures under a temp HOME with a
+  local clone of the CDF: one adopted against `e1e2fa1` (4.3.7) and refreshed to `aba947b` (4.4.0) had the
+  4.4.0 `enforce-evaluate.sh` and `record-approval.sh` on disk and a byte-identical `settings.json` with no
+  `record-approval`; one adopted against `aba947b` has it registered. In the refreshed project every agent
+  commit needs the user's `mark-evaluated.sh`, run in a separate terminal. Section 7 says how to check
+  (`grep -c record-approval .claude/settings.json`) and what to do. The fix is `## BL-319:`'s.
+- **Solo still writes the approval question in schema 1.** `scripts/pending-approval.sh --offer` and
+  `scripts/escalate-to-user.sh`, which the CLAUDE.md template tells the agent to use, write a question that
+  Guardrails 4.4.0 cannot take an answer to, so the agent must rewrite it as schema 2. That is the Solo side
+  of CDF's approval design B (`~/dogfood-2026-10/SOLO-HANDOFF-approval-B.md`, outside the repo), not G4.
+  When it lands, the two caveats under section 7's 4.4.0 bullet need revisiting.
+- **Not re-run.** The approval round trip has not been run against 4.4.0 with this text; the third dogfood
+  run will.
+
+**G6, as built (branch `fix/bl318-g4-g6-docs-small`).**
+- **(a) A flag is not a deploy (findings 5, 12).** Both detectors now read each line with its command-line
+  flags removed, then match their own words as before: adoption's `deploy` anywhere
+  (`# BL-318-G6-DEPLOY-FLAG`), Scout's after a non-letter (`_scout_deploy_word`,
+  `# BL-318-G6-DEPLOY-FLAG-SCOUT`). A flag is a token that starts `-` or `--` and then a letter or digit,
+  after whitespace, a quote, `(`, `,` or `=`, up to the next whitespace, quote, `,`, `)`, `=` or shell
+  operator (`;`, `&`, `|`, `<`, `>`). A flag whose whole name is `deploy` counts
+  (`# BL-318-G6-DEPLOY-WHOLE`, `# BL-318-G6-DEPLOY-WHOLE-SCOUT`). On k-pdf's real
+  ci.yml at `0bb0465`: before, adoption reported `deploy-on-push` at line 149 and Scout its rule at line 4;
+  after, neither. The real deploys are still caught: a `deploy:` job, `./deploy.sh`,
+  `actions/deploy-pages`, `github-pages-deploy-action`, `firebase deploy --only hosting`, a "Deploy to
+  production" step name, and `wrangler deploy` beside a flag. Adoption now reports the deploy step's line,
+  not an earlier flag's.
+- **(a), review round 1 (R-1, R-2, R-7).** The first cut ran a flag to the next whitespace, quote, `,` or
+  `)`. So it took the flag's `=value` and a command glued on by `&&` or `;`, and five real deploys the base
+  caught were missed by both detectors. Measured at `b93b006` / `d607464` / now, adoption's finding and
+  Scout's line: `ansible-playbook … --tags=deploy` caught / missed / caught; `npx nx affected
+  --target=deploy` the same; `npm ci --silent&&./deploy.sh production` the same; `./scripts/ci.sh --deploy`
+  the same (the whole-name rule); `dotnet publish … -p:DeployOnBuild=true` caught / missed / missed (the
+  residual below). k-pdf's ci.yml stays clean in both. No fixture had put a flag before the deploy word on
+  the same line, so a mutant that dropped whitespace from the flag's end survived; D3 now carries
+  `npx -y netlify-cli deploy --prod`, `kubectl apply -f k8s/deployment.yaml`, `make --quiet;make deploy`,
+  `rsync -az --delete dist/ deploy@host:/srv/app/` and the four above, and D5 holds the two copies of both
+  patterns byte-identical. The comment above Scout's rules now names the one false negative it accepts.
+- **(b) The refusal is true (finding 12).** The "did not begin" sentence now ends "…nothing was written to
+  this project." (`_adopt_refuse_nothing_written`, `# BL-318-G6-NOTHING-LINE`). Adoption's MCP step records
+  in `ADOPT_MCP_REGISTERED` each server whose `claude mcp add` it ran and whose receipt then shows it
+  registered (`# BL-318-G6-MCP-ATTEMPT`, `# BL-318-G6-MCP-REG-C7`, `# BL-318-G6-MCP-REG-Q`). A server
+  registered before the run is never attempted, so it is never named. With a name recorded, the refusal
+  says the run stopped before it changed the project (`# BL-318-G6-NOTHING-BEGIN`). Every arm that can
+  follow a registration also names each server, says the registration is in the user configuration and stays,
+  and prints
+  `claude mcp list` and `claude mcp remove -s user <name>` (`_adopt_refuse_outside`,
+  `# BL-318-G6-OUTSIDE`). On the dogfood shape, "Adoption did not begin. Nothing was committed and nothing
+  was written." became "Adoption stopped before it changed this project. Nothing was committed and nothing
+  was written to this project.", followed by the note. `docs/adoption.md` section 5 says the same, and its
+  four quoted refusals carry the new sentence.
+- **(b), review round 1 (R-4, R-6).** A stop after a registration is now labelled `[BLOCKED]`, not
+  `[REFUSED]` (`# BL-318-G6-BLOCK-LABEL`): the messaging standard's "refuse" means the tool declined to start
+  and changed nothing, and this run had changed the user configuration. It takes the arm that says nothing
+  was written to the project, which no longer requires a forced block (`# BL-318-G6-NOTHING-ARM`); before,
+  only `adopt_block` reached it. Each call that prints the note carries its own marker
+  (`# BL-318-G6-OUTSIDE-NOTHING`, `# BL-318-G6-OUTSIDE-BLOCKED`), and B6 pins the forced-block arm, whose
+  call a mutant could delete unnoticed (R-4). The `[REFUSED]` arm no longer prints the note: no
+  registration reaches it.
+- **(c) Wording (finding 19).** "The commit this project was adopted at" and its variants now read "the
+  commit adoption started from". The change covers the finisher's refusal (`# BL-242-ACT4-REFUSE-COMMIT`),
+  the prompt writer's refusal, the intake provenance check, three code comments, two test comments and three
+  places in `docs/adoption.md`. The Adoption Record's row label "Adopted at commit" is unchanged: it is a
+  record format, and the sentence under it already says the commit is the tip the project sat on when
+  adoption ran.
+- **Tests.** `tests/test-bl318-g4g6.sh` has 22 cases and 29 mutants (after the final check). D1 and its two
+  mutants need the k-pdf bundle and P4 the Guardrails clone, so on CI 20 cases and 27 mutants run. Red on
+  base (`b93b006`), as first built: 2 passed, 31 failed. D3 passed there by design, since it guards the
+  real deploys. MC1 passed there because the base already carries the wording it restores. On review round
+  1's base (`d607464`): 31 passed, 19 failed. The suite is pinned to `commit-hooks`.
+
+**G6 residuals (not fixed):**
+- Scout's deploy rule still reads comment lines; adoption's skips them, as before.
+- **A deploy named only inside a longer flag is not counted.** MSBuild's `-p:DeployOnBuild=true` and a
+  `--deploy-to=prod` are missed by both detectors (the base caught them). That is the trade for not reading
+  Nuitka's `--no-deployment-flag` as a deploy. `docs/adoption.md` lists it, and the comment above Scout's
+  rules says it is the one false negative they accept. A flag named `deploy` alone, a flag's `=deploy` value,
+  and a `deploy` command after the flags are counted.
+- **Narrowing `# BL-318-G6-MCP-REG-Q` survives (review round 1, R-7).** Requiring Qdrant to be
+  `reachable` rather than registered passes the suite. It matters only if the database stops between the
+  step's wait and its receipt; the registration is then not named.
+- **The final check's mB is now pinned, mC is not (improbable).** Dropping `;` from both strip classes
+  survived every suite, because D3's `;` fixture (`make --quiet;make deploy`) had its deploy word after a
+  space; `npm ci --silent;./deploy.sh` read clean in both detectors under that mutant and is caught at the
+  head. The fixture is now `make --quiet;./deploy.sh`, and mutant MAS1 (both copies at once) dies by D3.
+  Dropping `|<>` (mC) still survives: a deploy glued onto a pipe or a redirect with no space.
+- **`dotnet msbuild -t:Deploy` is missed** by both detectors: `:` does not end a flag, so `-t:Deploy` is
+  one flag — the MSBuild-colon class of the documented compound-flag miss above.
+- **`fix_superpowers` in `scripts/verify-install.sh` has no marketplace fallback.** On a computer where the
+  official marketplace is not registered, its install fails, loudly; it does not run
+  `claude plugin marketplace add anthropics/claude-plugins-official` first, as the docs now tell a person
+  to.
+- A `docker run` by the MCP step creates the `qdrant` container, which is outside the project too. The
+  refusal does not name it: only `claude mcp add` registrations are tracked.
+- If the MCP step's receipt cannot be read after an add ran, nothing is claimed either way.
 
 **G5, decided (Karl, 2026-10-05) and built. G5 resolved by PR #497 (merged as `f5b1671`); its residuals
 are below.**

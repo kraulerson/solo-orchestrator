@@ -128,7 +128,7 @@ Throughout the rest of this section, the tier breakdown describes the **shape of
 | SAST quick scan (Semgrep) | Pre-commit hook — blocks commit on findings; CI runs full scan | Pre-commit scans only staged files with `p/owasp-top-ten`. `--no-verify` skips the hook; the CI scan is a hard backstop and (in `strict` mode) the audit detector records the bypass. |
 | TDD ordering check (BL-072) | **`commit-msg`** git hook (covers both agent and human/editor commits) delegating to `pre-commit-gate.sh --terminal-mode --tdd-only`. **Tier-keyed on `deployment`+`poc_mode`:** WARN-only on Personal / Private-POC (and unscaffolded repos); **hard block** (rc=1) on Sponsored-POC / Production. Fires when a `feat`/`fix`/`refactor` commit ships implementation with no matching test. | Heuristic — checks test-file presence, not test quality; excludes `*.md`, lockfiles, and pure deletions. On a hard-block tier, `SOLO_TDD_ATTESTED=1` (recorded to `.claude/process-state.json::tdd_attestations[]`) is the attested escape — an escape that cannot be durably recorded refuses the commit. See the Builder's Guide, "TDD ordering enforcement (BL-072)." |
 | Schema migration check | Pre-commit hook — warns when schema files are edited directly in Phase 2+ | Only active in Phase 2+; initial schema creation in Phase 0-1 is expected |
-| TDD discipline (RED-GREEN-REFACTOR) | Superpowers plugin (optional) | Strongly encourages, does not prevent non-TDD code from being committed |
+| TDD discipline (RED-GREEN-REFACTOR) | Superpowers plugin (required once the Development Guardrails are installed: they block source edits until a Superpowers skill has run) | Strongly encourages, does not prevent non-TDD code from being committed |
 
 **Tier 3 — Guided (LLM instructions and human discipline).** These are rules written in CLAUDE.md, the Builder's Guide, and the Project Bible. The AI agent follows them. You review the output at decision gates. There is no automated backstop if the agent ignores them or you skip the review.
 
@@ -359,7 +359,7 @@ Either way, the **Phase 1→2 gate enforces a verified remote**, keyed on the sa
 
 | File | Created By | You Must | Notes |
 |---|---|---|---|
-| `CLAUDE.md` | init.sh (starter version) | Update at each phase transition and end of each session | The starter version works until you configure optional enhancements. When you add Superpowers, Context7, or Qdrant, replace with the [enhanced template](cli-setup-addendum.md#6-claudemd). |
+| `CLAUDE.md` | init.sh (starter version) | Update at each phase transition and end of each session | The starter version works until you configure the tools in the CLI Setup Addendum. When you add Superpowers, Context7, or Qdrant, replace with the [enhanced template](cli-setup-addendum.md#6-claudemd). |
 | `PROJECT_INTAKE.md` | init.sh (blank template) | Fill out completely before Phase 0 | The primary input to the entire process |
 | `APPROVAL_LOG.md` | init.sh (empty with headers) | Add entries at each phase gate | Append-only — never edit previous entries |
 | `.github/workflows/ci.yml` | init.sh (language-specific) | Nothing — works on first push | Modify only if adding a secondary language |
@@ -374,7 +374,7 @@ Either way, the **Phase 1→2 gate enforces a verified remote**, keyed on the sa
 | `scripts/intake-wizard.sh` | init.sh (copied) | Run to fill out the Intake | Guided script or AI-assisted conversation |
 | `scripts/resume.sh` | init.sh (copied) | Run at session start | Prints the exact first message to paste — state-aware: intake prompt, Phase-0 initialization prompt (Intake §13), or the classic resume prompt |
 | `templates/intake-suggestions/` | init.sh (copied) | Nothing | Context-aware suggestions for the wizard |
-| **Superpowers** | You (optional) | Install plugin, configure in CLAUDE.md | See [CLI Setup Addendum](cli-setup-addendum.md#1-superpowers) |
+| **Superpowers** | You (required: the Development Guardrails block source edits without it) | Install plugin, configure in CLAUDE.md | See [Required: Superpowers](#required-superpowers) |
 | **Context7 MCP** | You (optional) | One command to add MCP server | See [CLI Setup Addendum](cli-setup-addendum.md#4-context7) |
 | **Qdrant MCP** | You (optional) | Docker + MCP server config | See [CLI Setup Addendum](cli-setup-addendum.md#5-qdrant) |
 
@@ -411,6 +411,23 @@ snyk auth                     # Authenticate Snyk CLI
 
 Both are one-time per machine.
 
+### Required: Superpowers
+
+The Development Guardrails that `init.sh` installs block every edit to a source file until a Superpowers skill has run in the Claude Code session, and without the Superpowers plugin there is no skill to run. Install it before the first change to source code, for your user, then start a new Claude Code session:
+
+```bash
+claude plugin install --scope user superpowers@claude-plugins-official
+```
+
+If the install says the marketplace `claude-plugins-official` is not found,
+add it, then run the install again. Claude Code adds that marketplace the first
+time it starts an interactive session, so a computer where it never has lacks
+it:
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+```
+
 ### Optional Enhancements
 
 After init, you can configure additional tooling. These are not required for your first project, but each addresses a specific pain point. **Configure them when you feel the pain, not during initial setup** — except Context7, which is useful from Phase 1.
@@ -418,11 +435,10 @@ After init, you can configure additional tooling. These are not required for you
 | Tool | What It Does | When to Configure | Setup Effort |
 |---|---|---|---|
 | **Context7 MCP** | Gives the AI up-to-date library documentation instead of relying on training data | **Before Phase 1** — helps the AI make accurate architecture and implementation decisions | One command, no prerequisites |
-| **Superpowers** | Agentic skills plugin — strict TDD, subagent-driven development, systematic debugging, git worktrees | **Before Phase 2** — accelerates the Build Loop significantly | One command, no prerequisites |
 | **Qdrant MCP** | Persistent semantic memory across sessions — the AI remembers project decisions and patterns | **Phase 1** — offered automatically when Docker is available. Each project gets an isolated collection. | Requires Docker (Colima or Docker Desktop) |
 | **Development Guardrails for Claude Code** | Git hook-based guardrails for coding standards, security scanning, documentation | Auto-installed by init.sh | Already done |
 
-See the [CLI Setup Addendum](cli-setup-addendum.md) for detailed instructions, or use the [Quick Setup](cli-setup-addendum.md#quick-setup--all-recommended-enhancements) to configure all three at once.
+See the [CLI Setup Addendum](cli-setup-addendum.md) for detailed instructions, or use the [Quick Setup](cli-setup-addendum.md#quick-setup--all-recommended-enhancements) to configure these and Superpowers at once.
 
 ---
 
@@ -631,6 +647,42 @@ If tools are out of date, the script offers interactive update options:
 `scripts/check-updates.sh` compares the same two versions when you run it by hand, and points at the same command.
 
 When the check cannot read one of the two versions — no `.claude/manifest.json`, no `frameworkVersion` in it, no clone, or a value that is not `MAJOR.MINOR.PATCH` — it says "cannot tell whether an update is available" and why, instead of staying silent.
+
+#### What to do with each message
+
+When something needs attention, the session start hands the agent a message it must tell you about in its first reply, before any other work. When everything is up to date, there is no message. Each kind, in plain words:
+
+- **`VERSION CHECK`, with warnings, `Update commands (run manually):`, and the question "Would you like me to run these updates now, or skip for this session?"** A tool on your computer has a newer version, or is not installed; each command updates or installs one tool, for every project on the computer. Nothing here stops your work, so **skip** is a safe answer when you are in the middle of something; say yes when you have a few minutes. A `not installed` line for a tool your current work does not use can wait — Snyk, for one, is used by the Phase 3 validation scans, not by a commit. Two lines in this message are exceptions:
+  - **`Superpowers: not installed`.** With the Development Guardrails installed, every edit to a source file is blocked until this Claude Code plugin is there. Install it, then start a new Claude Code session:
+
+    ```bash
+    claude plugin install --scope user superpowers@claude-plugins-official
+    ```
+
+    If it says the marketplace `claude-plugins-official` is not found, add it first ([Required: Superpowers](#required-superpowers) says why):
+
+    ```bash
+    claude plugin marketplace add anthropics/claude-plugins-official
+    ```
+
+  - **`Qdrant MCP: NOT registered with Claude Code`** or **`Context7 MCP: NOT registered with Claude Code`.** The memory server or the documentation server is not set up for Claude Code. The session works without it — it is not checked until it is registered. Set it up when convenient (the [CLI Setup Addendum](cli-setup-addendum.md) gives the commands), or skip it.
+- **`URGENT — VERSION CHECK FAILED`, with a tool marked `BELOW MINIMUM`.** A tool is older than the oldest version the framework accepts, and the agent is told not to do any work until you deal with it. Update it first: say yes when the agent offers the command listed under the warning, then start a new session so the check runs again.
+- **`GUARDRAILS UPDATE OFFER`.** Your project's Development Guardrails are older than the copy on this computer. Usually say yes, at a moment when nothing is half-done. You type it, not the agent: `!` and then the command the offer shows, at the Claude Code prompt — today that is the one below. Then commit `.claude/framework/` and `.claude/manifest.json`. If a Guardrails check is blocking you when it should not, this update may be the fix. Say no and it asks again at the next session start. More under *This project's Development Guardrails*, above.
+
+  ```bash
+  bash scripts/refresh-guardrails.sh
+  ```
+
+- **`GUARDRAILS NOTICE`, saying `a new MAJOR version`.** A much newer Guardrails version is on this computer. Moving to it is a migration, not an update, so there is no command to offer. Carry on: your project keeps the version it has, and nothing breaks. Do not let the agent attempt the migration; read the notes in the `migrations/` folder the notice names, or ask for help, before you do it yourself.
+- **`GUARDRAILS NOTICE`, saying `cannot tell whether an update is available`.** The check could not read one of the two versions; the reason follows the dash. Carry on: it only means no update can be offered. If the reason says there is no Guardrails clone, get one:
+
+  ```bash
+  git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework
+  ```
+
+  For any other reason the project's `.claude/manifest.json` is not what the check expects. Leave it alone (the Guardrails do not let the agent edit it) and ask for help when convenient.
+
+In a project's first sessions the agent's search of its memory finds nothing; that is normal, because nothing has been stored yet.
 
 #### Extending the Version Check
 

@@ -169,8 +169,30 @@ VOCABIN
 # than a parse of the workflow graph — which is stated here rather than implied,
 # because the operator answers keep-or-retire on the strength of these rows.
 # Their failure direction is a false POSITIVE (a row to dismiss), never a false
-# negative that quietly certifies a pipeline that undermines the gates.
+# negative that quietly certifies a pipeline that undermines the gates — with one
+# exception, chosen and written down. Since `## BL-318:` G6(a) the deploy rule
+# does not read a deploy named only inside a longer command-line flag
+# (MSBuild's `-p:DeployOnBuild=true`, `--deploy-to=prod`): that false negative
+# is the price of not reporting Nuitka's `--no-deployment-flag` as a deploy.
 #
+# _scout_deploy_word FILE — rc 0 iff a line of FILE names a deploy OUTSIDE a
+# command-line flag. `## BL-318:` G6(a): the rule used to grep the whole file
+# for "deploy" after any non-letter, so a dash counted, and k-pdf's ci.yml —
+# no deploy step, one Nuitka `--no-deployment-flag=excluded-module-usage` —
+# was reported as a deploy reached by a branch push (dogfood run 2, findings 5
+# and 12). Flags are removed first, by the same rule adoption's detector uses
+# (`# BL-318-G6-DEPLOY-FLAG` in scripts/lib/adopt/adopt-ci.sh, which says what
+# counts as a flag, and `# BL-318-G6-DEPLOY-WHOLE` for a flag named `deploy`);
+# after that the word is matched as before. Both patterns are byte-identical to
+# adoption's, and tests/test-bl318-g4g6.sh D5 holds them so.
+_scout_deploy_word() {
+  LC_ALL=C awk '
+    { l = " " tolower($0); w = l; gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^[:space:]"'\'',)=;&|<>]*/, " ", w) }   # BL-318-G6-DEPLOY-FLAG-SCOUT
+    l ~ /[[:space:]"'\''(,=]--?deploy([^a-z0-9_.:-]|$)/ { w = w " deploy" }   # BL-318-G6-DEPLOY-WHOLE-SCOUT
+    w ~ /[^a-z]deploy/ { f = 1; exit }
+    END { exit f ? 0 : 1 }' "$1" 2>/dev/null
+}
+
 # _scout_ci_rule_line RULE FILE — the first line number matching RULE, or empty.
 _scout_ci_rule_line() {
   local rule="$1" file="$2" n=""
@@ -184,7 +206,7 @@ _scout_ci_rule_line() {
       # the Phase 3->4 gate entirely: code reaches production without crossing
       # it. The presence of `tags:` or `workflow_dispatch` is treated as the
       # release lane being in play, which is deliberately generous.
-      if grep -qiE '(^|[^a-z])deploy' "$file" 2>/dev/null \
+      if _scout_deploy_word "$file" \
          && grep -qE '^[[:space:]]*push:' "$file" 2>/dev/null \
          && grep -qE '^[[:space:]]*branches:' "$file" 2>/dev/null \
          && ! grep -qE '^[[:space:]]*tags:|workflow_dispatch' "$file" 2>/dev/null; then
