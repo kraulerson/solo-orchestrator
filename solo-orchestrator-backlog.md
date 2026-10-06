@@ -23052,8 +23052,8 @@ pinned by `tests/test-bl318-g4g6.sh` P1–P6.
   places in `docs/adoption.md`. The Adoption Record's row label "Adopted at commit" is unchanged: it is a
   record format, and the sentence under it already says the commit is the tip the project sat on when
   adoption ran.
-- **Tests.** `tests/test-bl318-g4g6.sh` has 22 cases and 28 mutants (after review round 1). D1 and its two
-  mutants need the k-pdf bundle and P4 the Guardrails clone, so on CI 20 cases and 26 mutants run. Red on
+- **Tests.** `tests/test-bl318-g4g6.sh` has 22 cases and 29 mutants (after the final check). D1 and its two
+  mutants need the k-pdf bundle and P4 the Guardrails clone, so on CI 20 cases and 27 mutants run. Red on
   base (`b93b006`), as first built: 2 passed, 31 failed. D3 passed there by design, since it guards the
   real deploys. MC1 passed there because the base already carries the wording it restores. On review round
   1's base (`d607464`): 31 passed, 19 failed. The suite is pinned to `commit-hooks`.
@@ -23068,6 +23068,17 @@ pinned by `tests/test-bl318-g4g6.sh` P1–P6.
 - **Narrowing `# BL-318-G6-MCP-REG-Q` survives (review round 1, R-7).** Requiring Qdrant to be
   `reachable` rather than registered passes the suite. It matters only if the database stops between the
   step's wait and its receipt; the registration is then not named.
+- **The final check's mB is now pinned, mC is not (improbable).** Dropping `;` from both strip classes
+  survived every suite, because D3's `;` fixture (`make --quiet;make deploy`) had its deploy word after a
+  space; `npm ci --silent;./deploy.sh` read clean in both detectors under that mutant and is caught at the
+  head. The fixture is now `make --quiet;./deploy.sh`, and mutant MAS1 (both copies at once) dies by D3.
+  Dropping `|<>` (mC) still survives: a deploy glued onto a pipe or a redirect with no space.
+- **`dotnet msbuild -t:Deploy` is missed** by both detectors: `:` does not end a flag, so `-t:Deploy` is
+  one flag — the MSBuild-colon class of the documented compound-flag miss above.
+- **`fix_superpowers` in `scripts/verify-install.sh` has no marketplace fallback.** On a computer where the
+  official marketplace is not registered, its install fails, loudly; it does not run
+  `claude plugin marketplace add anthropics/claude-plugins-official` first, as the docs now tell a person
+  to.
 - A `docker run` by the MCP step creates the `qdrant` container, which is outside the project too. The
   refusal does not name it: only `claude mcp add` registrations are tracked.
 - If the MCP step's receipt cannot be read after an add ran, nothing is claimed either way.

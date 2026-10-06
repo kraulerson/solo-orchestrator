@@ -16,7 +16,9 @@
 #           a bash array — and three more flag spellings: neither fires.
 #       D3  fifteen real deploy steps, one workflow each: both fire on every one.
 #           Review round 1 added eight: a flag BEFORE the deploy word on the same
-#           line (R-1: netlify, kubectl, a `;` chain, rsync), a flag's `=value`
+#           line (R-1: netlify, kubectl, rsync), a deploy glued to a flag by `;`
+#           (the final check's N-1: `make --quiet;./deploy.sh`, whose word
+#           follows the `;` itself, so only `;` ends that flag), a flag's `=value`
 #           that names the deploy (R-2: ansible `--tags=deploy`, nx
 #           `--target=deploy`), a deploy glued to a flag by `&&` (R-2), and a
 #           flag whose whole name is `deploy` (`./scripts/ci.sh --deploy`).
@@ -64,7 +66,8 @@
 #           check blocks every commit while .claude/pending-approval.json exists).
 #       P8  no doc calls Superpowers optional, init.sh does not call it
 #           "recommended", and README's adoption sentence says when it blocks
-#           (review round 1, R-5).
+#           (review round 1, R-5); nor does the Builder's Guide, which ships to
+#           every project as docs/reference/builders-guide.md (final check).
 #       P9  every place that gives the Superpowers install also gives the
 #           marketplace command for a machine that lacks it (review round 1, R-8).
 #   M*  mutation proofs, one per code guard, each killed by a named case, in a
@@ -217,7 +220,7 @@ TP_FILES="tp-job.yml tp-script.yml tp-pages.yml tp-ghpages.yml tp-firebase.yml t
 TP_R1_LINES="$(cat <<'L'
 tp-netlify.yml|npx -y netlify-cli deploy --prod
 tp-kubectl.yml|kubectl apply -f k8s/deployment.yaml
-tp-chain.yml|make --quiet;make deploy
+tp-chain.yml|make --quiet;./deploy.sh
 tp-rsync.yml|rsync -az --delete dist/ deploy@host:/srv/app/
 tp-ansible.yml|ansible-playbook -i inventory/prod site.yml --tags=deploy
 tp-nx.yml|npx nx affected --target=deploy --parallel=1
@@ -674,6 +677,8 @@ case_P8() {   # FW — Superpowers is nowhere optional
   local fw="$1" bad="" hits=""
   hits="$(command grep -n -i 'superpowers' "$fw/docs/user-guide.md" | command grep -i 'optional')"
   [ -z "$hits" ] || bad="$bad [user-guide.md calls it optional: $(printf '%s' "$hits" | head -2 | tr '\n' '|')]"
+  hits="$(command grep -n -i 'superpowers' "$fw/docs/builders-guide.md" | command grep -i -E 'optional|recommended')"
+  [ -z "$hits" ] || bad="$bad [builders-guide.md calls it optional or recommended: $(printf '%s' "$hits" | head -2 | tr '\n' '|')]"
   command grep -A3 'Superpowers plugin not found' "$fw/init.sh" | command grep -qi 'recommended' && bad="$bad [init.sh still calls it recommended]"
   command grep -q 'Superpowers plugin not found' "$fw/init.sh" || bad="$bad [fixture: init.sh's message is gone]"
   section "$fw/README.md" '^### Adoption — the second way in$' | tr '\n' ' ' | command grep -q 'when the Development Guardrails are installed' \
@@ -708,7 +713,7 @@ fi
 check "P5 the session-start guidance names each kind of message, and each is real script output" case_P5 "$REPO_ROOT"
 check "P6 the phase-0 paragraph cites check_commit_ready, which lets every commit through below phase 2" case_P6 "$REPO_ROOT"
 check "P7 the override clears the recorded question first (bash scripts/pending-approval.sh --resolve)" case_P7 "$REPO_ROOT"
-check "P8 Superpowers is not called optional or recommended anywhere it is required" case_P8 "$REPO_ROOT"
+check "P8 Superpowers is not called optional or recommended anywhere it is required (user guide, Builder's Guide, init.sh, README)" case_P8 "$REPO_ROOT"
 check "P9 every Superpowers install comes with the marketplace command" case_P9 "$REPO_ROOT"
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -748,6 +753,26 @@ mutant() {   # mutant ID REL MARKER REPLACEMENT KILLER WHAT
     "$SC") ( . "$m/$SC" && _scout_deploy_word /dev/null ) >/dev/null 2>&1 || arc=$? ;;
   esac
   [ "$arc" -ne 2 ] || { fail_ "$id" "the mutant's awk does not parse — a kill would prove nothing"; return; }
+  CASE_DETAIL=""
+  if "$killer" "$m"; then
+    fail_ "$id" "$what — SURVIVED: ${killer#case_} still passes against the mutant ($CASE_DETAIL)"
+  else
+    pass "$id (MUTATION) — $what: killed by ${killer#case_}"
+  fi
+}
+# mutant_pair ID REL1 MARK1 REPL1 REL2 MARK2 REPL2 KILLER WHAT — one mutant
+# applied to TWO files in the same mirror: the two detector copies changed
+# together, so D5 (which compares them) cannot be what kills it.
+mutant_pair() {
+  local id="$1" r1="$2" k1="$3" p1="$4" r2="$5" k2="$6" p2="$7" killer="$8" what="$9" m="" why="" arc=0
+  m="$(newtmp)/mirror"
+  mk_mirror "$REPO_ROOT" "$m" || { fail_ "$id" "could not build a mirror"; return; }
+  why="$(mutate "$m/$r1" "$k1" "$p1")" || { fail_ "$id" "mutant did not land in $r1: $why"; return; }
+  why="$(mutate "$m/$r2" "$k2" "$p2")" || { fail_ "$id" "mutant did not land in $r2: $why"; return; }
+  ( . "$m/$AC" && _adopt_ci_rules /dev/null ) >/dev/null 2>&1 || arc=$?
+  [ "$arc" -ne 2 ] || { fail_ "$id" "the adoption mutant's awk does not parse"; return; }
+  arc=0; ( . "$m/$SC" && _scout_deploy_word /dev/null ) >/dev/null 2>&1 || arc=$?
+  [ "$arc" -ne 2 ] || { fail_ "$id" "the Scout mutant's awk does not parse"; return; }
   CASE_DETAIL=""
   if "$killer" "$m"; then
     fail_ "$id" "$what — SURVIVED: ${killer#case_} still passes against the mutant ($CASE_DETAIL)"
@@ -798,6 +823,15 @@ mutant MA6 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_R2" case_D3 "adoption: a flag ta
 mutant MA7 "$AC" '# BL-318-G6-DEPLOY-WHOLE' '    { }' case_D3 "adoption: a flag named deploy no longer counts"
 mutant MA8 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_R2" case_D5 "adoption's strip pattern drifts from Scout's (review round 1, R-7)"
 mutant MA9 "$AC" '# BL-318-G6-DEPLOY-WHOLE' "$AC_WHOLE_DRIFT" case_D5 "adoption's whole-name pattern drifts from Scout's (review round 1, R-7)"
+# The final check's mB: `;` dropped from BOTH strip classes, so a flag runs on
+# through a `;` and the command glued after it.
+IFS= read -r AC_NOSEMI <<'R' || :
+    { word = " " line; gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^[:space:]"'\'',)=&|<>]*/, " ", word) }
+R
+IFS= read -r SC_NOSEMI <<'R' || :
+    { l = " " tolower($0); w = l; gsub(/[[:space:]"'\''(,=]--?[a-z0-9][^[:space:]"'\'',)=&|<>]*/, " ", w) }
+R
+mutant_pair MAS1 "$AC" '# BL-318-G6-DEPLOY-FLAG' "$AC_NOSEMI" "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_NOSEMI" case_D3 "both detectors: a flag runs on through ';' (the final check's mB)"
 mutant MS1 "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_OLD" case_D2 "Scout counts the word inside a flag again"
 mutant MS2 "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_OVER" case_D3 "Scout strips from any dash and misses github-pages-deploy-action"
 mutant MS4 "$SC" '# BL-318-G6-DEPLOY-FLAG-SCOUT' "$SC_NOSPACE" case_D3 "Scout: a flag swallows the rest of its line (review round 1, R-1)"
