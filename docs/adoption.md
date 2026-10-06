@@ -316,7 +316,11 @@ bash scripts/resume.sh
 It prints the **assessment prompt** — paste it into Claude Code. That session
 asks you what the project is for, gives a verdict with its reasoning, and runs
 the finisher that records it ([The assessment](#the-assessment--act-3-and-act-4--ships-wp12a)).
-Run `resume.sh` again afterwards and it opens Phase 0; the agent reads the
+Run `resume.sh` again afterwards and it prints this project's Phase 0 prompt
+(Section 13 of `PROJECT_INTAKE.md`), even if your project brought a
+`PRODUCT_MANIFESTO.md` of its own. Once Phase 0 writes the manifesto, or
+changes the one you brought, `resume.sh` prints the ordinary resume prompt
+instead. The agent reads the
 `CLAUDE.md` adoption wrote. If you
 already had a `CLAUDE.md`, `BUGS.md` or the like, the run named each one it
 replaced — the framework's version is in place and yours is in the archive,
@@ -1111,12 +1115,14 @@ exercised by the test suite rather than assumed:
 
 | Route | What it does |
 |---|---|
-| `bash scripts/resume.sh` | What the run tells you to do next. It prints the initialization prompt from this project's own Section 13, and that prompt names the classification as **not optional**. |
+| `bash scripts/resume.sh` | What the run tells you to do next. Before the assessment it prints the assessment prompt, which asks for the classification; after it, the initialization prompt from this project's own Section 13, which names the classification as **not optional**. |
 | `bash scripts/intake-wizard.sh --resume` | Walks the intake from Section 1, which includes **Section 5 — Data Classification**. |
 | `bash scripts/reconfigure-project.sh --field data_classification --new <value>` | The escape hatch the Phase 1→2 gate names in its own failure message, if you get there first. |
 
-> **Not built yet:** the assessment is Act 3 and it has not shipped, so those
-> cells stay blank until you fill them through one of the routes above. The
+> **The assessment asks for it.** The assessment conversation (Act 3) asks how
+> sensitive the project's data is, and its finisher (Act 4) records the answer
+> where the Phase 1→2 gate reads it ([The assessment](#the-assessment--act-3-and-act-4--ships-wp12a)).
+> Until then the cell stays blank, and the routes above fill it too. The
 > direction is fail-closed: a project with no classification cannot cross its
 > Phase 1→2 gate.
 >
@@ -1825,7 +1831,20 @@ in production — or assessed before the question existed — is refused as befo
 **Either verdict continues from phase 0.** After the assessment, `resume.sh`
 opens Phase 0 — measured on a real adoption, the committed assessment passes the
 project's own commit checks and the next `resume.sh` prints the project's
-Phase 0 prompt.
+Phase 0 prompt. That holds whether or not the project kept a
+`PRODUCT_MANIFESTO.md` of its own: a manifesto still byte-identical to the one
+adoption found is not Phase 0's work (`# BL-318-G2-ADOPTEE-PHASE0`). Before
+`## BL-318:` G2, a project built with an older Solo still had its manifesto, and
+`resume.sh` printed the classic resume prompt instead. Once Phase 0 writes the
+manifesto, or changes the one the project brought, `resume.sh` prints the
+ordinary resume prompt, as for any project mid-Phase 0. Work that does not touch
+the manifesto does not count, so until it changes every session opens with the
+Phase 0 prompt. The session start says the same thing (`# BL-318-G2-HOOK-BROUGHT`),
+and before the assessment it points you at the assessment prompt
+(`# BL-318-G2-HOOK-ASSESSMENT`). The Phase 0 prompt is Section 13 as adoption
+wrote it, and the assessment does not update it. So it still calls the
+judgement cells unasked; the answers given in the assessment are in
+`.claude/intake-progress.json`.
 
 ### The certification pass — RETIRED, not deferred
 

@@ -103,7 +103,33 @@ if [ -z "${pmv_exempt_open:-}" ] && [ -f "PROJECT_INTAKE.md" ] && [ "$PHASE" != 
     echo -e "${CYAN}--- End (a blank Claude Code screen means it is ready and waiting, not stuck) ---${NC}"
     exit 0
   fi
-  if [ ! -f "PRODUCT_MANIFESTO.md" ]; then
+  # BL-318 G2: "Phase 0 never started" is read off the manifesto's absence, and
+  # adoption neither writes nor removes PRODUCT_MANIFESTO.md — so an adoptee
+  # built with an older Solo still has its own, and fell through to the classic
+  # prompt after its assessment (dogfood run 2, finding 24). For an ADOPTED
+  # project the manifesto adoption FOUND is not Phase 0's output: Phase 0 has not
+  # started while the file is still byte-identical to the one in the commit
+  # adoption was anchored on (the stamp's adoptedAtCommit, the pre-adoption tip).
+  # Once Phase 0 rewrites it — or writes one where none was brought — the classic
+  # prompt resumes the work, exactly as for a greenfield project. current_phase
+  # cannot tell the two apart: it stays 0 for the whole of Phase 0.
+  # State only, as in the assessment branch above; an adoptee whose assessment
+  # is not recorded never gets here, because that branch has already exited.
+  # SYNC SIBLINGS: scripts/resume.sh, scripts/session-intake-check.sh (# BL-318-G2-HOOK-BROUGHT).
+  bl318_adoptee=""
+  if [ -f "PRODUCT_MANIFESTO.md" ] && [ -f ".claude/manifest.json" ] \
+     && command -v jq >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+    bl318_anchor=$(jq -r 'if .adoption.adopted == true then (.adoption.adoptedAtCommit // "") else "" end' .claude/manifest.json 2>/dev/null || true)
+    bl318_then=""
+    if [ -n "$bl318_anchor" ]; then   # BL-318-G2-ANCHOR — an empty anchor would make "<anchor>:path" read the INDEX
+      bl318_then=$(git rev-parse -q --verify "${bl318_anchor}:PRODUCT_MANIFESTO.md" 2>/dev/null || true)
+    fi
+    bl318_now=$(git hash-object PRODUCT_MANIFESTO.md 2>/dev/null || true)
+    if [ -n "$bl318_then" ] && [ "$bl318_then" = "$bl318_now" ]; then
+      bl318_adoptee=1                                                  # BL-318-G2-ADOPTEE-PHASE0
+    fi
+  fi
+  if [ ! -f "PRODUCT_MANIFESTO.md" ] || [ -n "$bl318_adoptee" ]; then
     # Extract §13's fenced prompt from the PROJECT's intake (not the template).
     bl202_s13=$(awk '/^## 13\./{f=1; next} f && /^## /{exit} f && /^```/{c = !c; next} f && c' PROJECT_INTAKE.md 2>/dev/null)
     echo -e "${CYAN}--- Copy everything below this line into Claude Code ---${NC}"
@@ -272,36 +298,59 @@ if command -v git &>/dev/null && [ -d ".git" ]; then
   RECENT_COMMITS=$(git log --oneline -3 2>/dev/null || echo "(no commits)")
 fi
 
-# Features built and remaining from CLAUDE.md
-FEATURES_BUILT="(not found in CLAUDE.md)"
-FEATURES_REMAINING="(not found in CLAUDE.md)"
-KNOWN_ISSUES="(not found in CLAUDE.md)"
-LAST_SESSION="(not found in CLAUDE.md)"
-
-if [ -f "CLAUDE.md" ]; then
-  # Extract "Features built:" line
-  line=$(grep -i "features built" CLAUDE.md 2>/dev/null | head -1 || true)
-  if [ -n "$line" ]; then
-    FEATURES_BUILT=$(echo "$line" | sed 's/.*[Ff]eatures built[[:space:]]*:[[:space:]]*//')
-  fi
-
-  # Extract "Features remaining:" line
-  line=$(grep -i "features remaining" CLAUDE.md 2>/dev/null | head -1 || true)
-  if [ -n "$line" ]; then
-    FEATURES_REMAINING=$(echo "$line" | sed 's/.*[Ff]eatures remaining[[:space:]]*:[[:space:]]*//')
-  fi
-
-  # Extract "Known issues:" line
-  line=$(grep -i "known issues" CLAUDE.md 2>/dev/null | head -1 || true)
-  if [ -n "$line" ]; then
-    KNOWN_ISSUES=$(echo "$line" | sed 's/.*[Kk]nown issues[[:space:]]*:[[:space:]]*//')
-  fi
-
-  # Extract "Last session summary:" line
-  line=$(grep -i "last session" CLAUDE.md 2>/dev/null | head -1 || true)
-  if [ -n "$line" ]; then
-    LAST_SESSION=$(echo "$line" | sed 's/.*[Ll]ast session[[:space:]]*\(summary[[:space:]]*\)\{0,1\}:[[:space:]]*//')
-  fi
+# What CLAUDE.md records about the work: the "## Current State" bullets the CLI
+# setup addendum describes (`- **Features built:** …`). The framework's own
+# CLAUDE.md template carries none of them.
+#
+# BL-318 G2: a field is read only from a "Label:" line — the label, then a
+# colon, with markdown bold allowed on either side of it. This used to take ANY
+# line naming the words, and the template's Context Health Check bullet says
+# "Summarize features built, features remaining, current data model, and known
+# issues": one line, three matches, no colon for the sed to strip, so the whole
+# paragraph became three fields (dogfood run 2, finding 24).
+_resume_field() {   # <lower-case label, an awk ERE> — prints the value, or nothing
+  [ -f "CLAUDE.md" ] || return 0
+  RF_LABEL="$1" awk 'BEGIN { re = ENVIRON["RF_LABEL"] "[*_]*[ \t]*:[*_]*[ \t]*" }   # BL-318-G2-FIELD-LABEL
+    { l = tolower($0)
+      if (match(l, re)) { v = substr($0, RSTART + RLENGTH); sub(/[ \t]+$/, "", v); print v; exit } }' \
+    CLAUDE.md 2>/dev/null || true
+}
+# A field CLAUDE.md does not record is left out, never filled in: four
+# "(not found in CLAUDE.md)" lines told the agent nothing four times.
+STATE_FIELDS=""
+_resume_add() {   # <label as printed> <value>
+  [ -n "$2" ] || return 0                                              # BL-318-G2-FIELD-OMIT
+  STATE_FIELDS="${STATE_FIELDS}**$1:** $2
+"
+}
+_resume_add "Features built" "$(_resume_field 'features built')"
+_resume_add "Features remaining" "$(_resume_field 'features remaining')"
+_resume_add "Known issues" "$(_resume_field 'known issues')"
+_resume_add "Last session" "$(_resume_field 'last session( summary)?')"
+# Does CLAUDE.md have a "Current State" section (a heading, not the words in prose)?
+CS_SECTION=""
+if [ -f "CLAUDE.md" ] && grep -qiE '^#+[[:space:]]*current state' CLAUDE.md 2>/dev/null; then   # BL-318-G2-CURRENT-STATE
+  CS_SECTION=1
+fi
+# Said once, plainly, when there is nothing to show.
+if [ ! -f "CLAUDE.md" ]; then   # BL-318-G2-NO-CLAUDE-FIELDS
+  STATE_FIELDS="There is no CLAUDE.md in this project, so nothing here records what has been built or where the last session stopped. Ask me before assuming either.
+"
+elif [ -z "$STATE_FIELDS" ] && [ -n "$CS_SECTION" ]; then              # BL-318-G2-FIELDS-IN-SECTION
+  # A section that holds its fields as nested bullets or a table has no
+  # "Label: value" line to read — point at it rather than call it empty.
+  STATE_FIELDS="CLAUDE.md has a \"Current State\" section: read it for what has been built, what remains, the known issues and where the last session stopped.
+"
+elif [ -z "$STATE_FIELDS" ]; then                                      # BL-318-G2-FIELDS-NONE
+  STATE_FIELDS="CLAUDE.md does not record what has been built, what remains, the known issues or where the last session stopped. Ask me where we left off before assuming any of it.
+"
+fi
+# The closing names a "Current State" section only when CLAUDE.md has one.
+CLOSING="Read CLAUDE.md for full project context. Continue from where we left off."
+if [ ! -f "CLAUDE.md" ]; then   # BL-318-G2-NO-CLAUDE-CLOSING
+  CLOSING="Continue from where we left off."
+elif [ -n "$CS_SECTION" ]; then
+  CLOSING="$CLOSING If CLAUDE.md's \"Current State\" section is stale or incomplete, ask me to clarify before proceeding."
 fi
 
 # --- Output the prompt ---
@@ -329,17 +378,13 @@ cat <<PROMPT
 We are resuming work on this project. Here is the current state:
 
 **Phase:** $PHASE
-**Features built:** $FEATURES_BUILT
-**Features remaining:** $FEATURES_REMAINING
-**Known issues:** $KNOWN_ISSUES
-**Last session:** $LAST_SESSION
-
+${STATE_FIELDS}
 **Recent commits:**
 $RECENT_COMMITS
 
 **Tool versions:** $VERSION_STATUS
 
-Read CLAUDE.md for full project context. Continue from where we left off. If CLAUDE.md's "Current State" section is stale or incomplete, ask me to clarify before proceeding.
+$CLOSING
 PROMPT
 
 echo ""

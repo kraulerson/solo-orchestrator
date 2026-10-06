@@ -22702,8 +22702,8 @@ verified here: Kiro uses property-based tests, and ECC sets an 80% coverage targ
 ## BL-318: brownfield dogfood run 2 (k-pdf, 2026-10-03) — what still stops a regular user
 
 **Status:** Open — filed 2026-10-03 from the second dogfood run. Groups G1–G4 and G6 can each close by
-their own PR. G5's design was decided by Karl on 2026-10-05 (below). The entry closes when every group
-is resolved.
+their own PR. G5's design was decided by Karl on 2026-10-05 (below), and G5 is resolved by PR #497. The
+entry closes when every group is resolved.
 
 **What ran.** The `## BL-311:` rerun. A headless Claude Code session played the same systems
 technician (not a developer). It installed Solo from the public README at `a07d707`, which carries the
@@ -22780,8 +22780,69 @@ preference, which made every reply carry one anyway.
   check finds nothing to run while `package.json` carries npm's placeholder. In a Python project whose
   `package.json` came from `npm init`, the hook's own fallback still runs pytest.
 
-**G5, decided (Karl, 2026-10-05) and built (branch `fix/bl318-g5-guardrails-refresh`; PR to be cited).
-G5 status: Open until that PR merges.**
+**G2, as built (branch `fix/bl318-g2-resume-adoptee`; PR to be cited).**
+- **The route.** In `## BL-202:` branch 2 of `scripts/resume.sh`, an adopted project at phase 0 with its
+  intake done gets its own Section 13 while its `PRODUCT_MANIFESTO.md` is still byte-identical to the one
+  in the commit adoption was anchored on (`# BL-318-G2-ADOPTEE-PHASE0`). The anchor is the stamp's
+  `adoptedAtCommit`, the pre-adoption tip (`git rev-parse <anchor>:PRODUCT_MANIFESTO.md` against
+  `git hash-object PRODUCT_MANIFESTO.md`); measured on k-pdf, `3635951` holds the brought manifesto,
+  blob `9723450`. Adoption archives a copy of an adoptee's manifesto and leaves the file in place, so the
+  old "no manifesto" test sent every adoptee built with an older Solo to the classic prompt. Once Phase 0
+  rewrites that file, or writes one where none was brought, the classic prompt resumes the work, as for a
+  greenfield project. An empty anchor is never used, since `<empty>:path` reads the index
+  (`# BL-318-G2-ANCHOR`). An adoptee whose assessment is not recorded never reaches the route, because
+  `# BL-242-RESUME-ASSESSMENT` exits first. Greenfield routing is unchanged.
+- **Review round 1, R-G2-1.** The first cut keyed on the stamp alone. `current_phase` stays 0 for the
+  whole of Phase 0 (only `process-checklist.sh --start-phase1` raises it, after the 0→1 gate), so every
+  adoptee got "run Phase 0 … from the beginning" at every Phase 0 session. Measured on an adoptee that
+  brought no manifesto and drafted one in session 1: `f5b1671` gave session 2 the classic prompt, `fd03921`
+  gave it Section 13, and the fix gives it the classic prompt.
+- **The session-start hook agrees with `resume.sh`.** `scripts/session-intake-check.sh` used the same
+  "no manifesto" test. For an adoptee that had not been assessed and had no manifesto, it said "READY FOR
+  PHASE 0" and seeded "show me the Phase 0 first prompt", while `resume.sh` printed the assessment
+  prompt; on the k-pdf shape it said nothing. It now points an adoptee whose assessment is pending at the
+  assessment prompt (`# BL-318-G2-HOOK-ASSESSMENT`), and says Phase 0 is ready while a brought manifesto
+  is untouched (`# BL-318-G2-HOOK-BROUGHT`). Its greenfield output is unchanged, and the suite pins it to
+  the pre-change hook's output.
+- **Why the paragraph came out three times.** Each field took the first CLAUDE.md line that contained its
+  words (`grep -i "features built"`). The template's Context Health Check bullet says "Summarize features
+  built, features remaining, current data model, and known issues". So one line matched three fields, and
+  the sed that strips "Label:" found no colon and stripped nothing. A field is now read only from a
+  "Label:" line, with markdown bold allowed on either side of the colon (`# BL-318-G2-FIELD-LABEL`). That
+  also drops the stray `**` the addendum's own `- **Features built:** …` format used to leave in the value.
+- **No filler.** A field CLAUDE.md does not record is left out (`# BL-318-G2-FIELD-OMIT`). When none is
+  recorded, one plain line says so (`# BL-318-G2-FIELDS-NONE`). If CLAUDE.md has a "Current State"
+  heading but no "Label:" lines under it (a table, or labels with their values on nested bullets), the
+  prompt points at that section instead (`# BL-318-G2-FIELDS-IN-SECTION`, R-G2-3). A real `init.sh`
+  scaffold has no Current State section at all (measured), so that shape comes from a section an operator
+  or agent wrote. With no CLAUDE.md at all, one line says that, and the closing no longer tells the agent
+  to read it (`# BL-318-G2-NO-CLAUDE-FIELDS`, `# BL-318-G2-NO-CLAUDE-CLOSING`). The "Current State section
+  is stale" sentence is printed only when CLAUDE.md has that heading (`# BL-318-G2-CURRENT-STATE`).
+- **Measured on the k-pdf shape** (the run's git bundle). At `62946e1` (adopted, assessed, its own
+  manifesto): before, the classic prompt, with the paragraph three times and "Last session: (not found in
+  CLAUDE.md)"; after, the project's Section 13, verbatim. At `8d0b2be` the manifesto is still the brought
+  one, so it is still Section 13 (the residual below). The session-start hook said nothing at `62946e1`;
+  now it says Phase 0 has not started.
+- **Tests.** `tests/test-bl318-g2-resume-adoptee.sh`: 28 cases and 30 mutants, on two real adoptions (one
+  that brought a manifesto, one that brought none) and the real Act 4 finisher. The mutants include review
+  round 1's four survivors (R-G2-4), which now die on behaviour. `tests/edge-cases-scripts.sh` E12a and
+  E12b pinned the removed filler and now pin the plain lines.
+
+**G2 residuals (not fixed):**
+- **An adoptee that brought a manifesto gets Section 13 until that file changes.** Phase 0 work that does
+  not touch the manifesto does not move it on. Measured: k-pdf at `8d0b2be`, a code commit made after the
+  assessment, still gets Section 13. The file is the only Phase 0 output the route can see.
+- **The assessment does not update Section 13.** The Phase 0 prompt is Section 13 as adoption wrote it. It
+  still says the judgement cells are blank and "nobody has been asked them yet", and that adoption "did
+  not ask for" the data classification. By then Act 4 has written the answers into
+  `.claude/intake-progress.json` and the classification where the phase gate reads it. So an agent may ask
+  again what was already answered, at each session until Phase 0 writes or changes the manifesto. The
+  guide promises this prompt, so G2 prints it as written.
+- **A manifesto that was never committed before adoption counts as Phase 0's.** The anchor commit does not
+  hold it, so the route reads it as Phase 0's output and gives the classic prompt, as before G2.
+
+**G5, decided (Karl, 2026-10-05) and built. G5 resolved by PR #497 (merged as `f5b1671`); its residuals
+are below.**
 - **The ruling.** Option (b), ask first — but at **every** Claude Code session start, not once, so a
   user blocked by a Guardrails defect can restart the session and accept the fix. The update does not
   touch `.claude/settings.json`; refreshing settings is its own entry, `## BL-319:` (deferred).
@@ -22874,6 +22935,18 @@ G5 status: Open until that PR merges.**
 - **Hooks are copied, not registered; removed hooks stay.** A release that adds a hook needs a
   settings change to run it, and the refresh never deletes a hook the clone dropped — one still
   registered keeps running its old code. Both are `## BL-319:`.
+- **The dirty-clone refusal follows the user's git setting (PR #497, review round 3).**
+  `# BL-318-G5-REFRESH-PORCELAIN` runs `git status --porcelain`, which honours
+  `status.showUntrackedFiles=no`. Under that setting an untracked file in the clone's hooks or rules is not
+  listed, so the refusal misses it (measured: `?? hooks/new.sh` by default, nothing with the setting).
+  Fix: `--untracked-files=all`.
+- **A home folder whose name contains "shell" or "terminal" can raise a false bypass alarm (PR #497,
+  review round 3).** The
+  GUARDRAILS NOTICE puts the clone path right after "Do NOT run anything about it yourself:". Pasted as
+  one paragraph with a home folder such as `/Users/shelley`, the text matches `terminal_workaround` and
+  the sentinel is raised (measured against `scripts/lib/bypass-patterns.sh`; the same text with
+  `/Users/karl` does not match). It is a false alarm: nothing is let through. The suite's S3 does not
+  scan the notice.
 
 **Handed to the Development Guardrails (CDF), not fixed here:**
 - G5 review round 1, R-5: CDF's own session-start hook says "Framework N commits behind. Run: cd
