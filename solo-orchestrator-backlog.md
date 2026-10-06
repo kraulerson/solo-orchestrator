@@ -23300,11 +23300,16 @@ human steps by documentation only.
   and records the schema-2 options and the question's sha256 in its row.
 - **The bypass question.** The detector writes schema 2 (`# BL-320-DETECT-SCHEMA2`): A1 accepts, A2 declines,
   neither approves a commit, marked `"source": "bypass-detector"`. Its rows are written after the question and
-  carry its sha256 (`# BL-320-DETECT-BIND`); a second proposal while that question is open binds to it, and one
-  while a commit question is open binds to nothing (`# BL-320-DETECT-COVER`). `bypass_audit_close_from_approvals`
-  (`scripts/lib/bypass-audit.sh`) closes exactly the rows a pick answers (`# BL-320-AUDIT-BIND`), A1 to
-  accepted/bypassed and anything else to declined/abandoned (`# BL-320-AUDIT-MAP`). BL-029's typed phrase
-  is retired: the Guardrails' id-first, asked-twice reply is the defence it was.
+  carry its sha256 (`# BL-320-DETECT-BIND`); a second proposal while a question labelled as the detector's is
+  open binds to that question (`# BL-320-DETECT-COVER`). The label is a field the agent can write, so it binds
+  rows and decides nothing (review round 1, R-2: an agent's commit question carrying the label bound the rows,
+  and the user's commit approval then closed them as "accepted"). `bypass_audit_close_from_approvals`
+  (`scripts/lib/bypass-audit.sh`) finds the pick by that sha256 and decides from what the user was shown and
+  picked, as the Guardrails recorded it: the question starts with the detector's prefix (`# BL-320-AUDIT-Q`),
+  the option approves nothing (`# BL-320-AUDIT-NONE`), and its text is the detector's A1 text — accepted,
+  bypassed (`# BL-320-AUDIT-MAP`) — or A2 text — declined, abandoned (`# BL-320-AUDIT-DEC`). Any other pick
+  leaves the row PENDING. The wording lives once, in `scripts/lib/bypass-audit.sh`, and the detector asks with
+  it. BL-029's typed phrase is retired: the Guardrails' id-first, asked-twice reply is the defence it was.
 - **The holds.** `pre-commit-gate.sh` renders both schemas with each option's effect (`# BL-320-GATE-RENDER`)
   and gives the route by version (`# BL-320-GATE-ROUTE`): under 4.4.0+ the user answers by option id, the
   agent does not remove the question and commits with a lone `git commit -m "subject" -m "body"`; a schema-1
@@ -23337,12 +23342,28 @@ human steps by documentation only.
   terminal, CI, `SOIF_NONINTERACTIVE` or `--non-interactive` it neither fetches nor pulls and prints the command
   (`# BL-320-PULL-TTY`). A clone below the minimum is named either way (`# BL-320-PULL-MIN`); so is an adopted
   install (`# BL-320-ADOPT-MIN`, also in the Adoption Record).
+- **Review round 1 (the same branch, new commits).** R-3: `upgrade-project.sh` ships the writers' closure on
+  every path — `lib/guardrails.sh` (`# BL-320-UP-CLOSURE-GR`), `lib/bypass-audit.sh` and `lib/bypass-patterns.sh`
+  (`# BL-320-UP-CLOSURE-BA`) join the BL-088 list — and a tier change refreshes the bypass detector with
+  `pending-approval.sh` (`# BL-320-UP-DETECTOR`); `--resolve --decision` fails closed unless the Guardrails are
+  known to be older than the minimum (`# BL-320-RESOLVE-DECISION`), and `--resolve` beside a `bypass-audit.sh`
+  that predates the reader says so (`# BL-320-RESOLVE-READER`). R-4: the upgrade's Guardrails refresh pulls the
+  clone, then refuses a mixed install and names the framework sync (`# BL-320-UP-MIXED`), and `--sync-framework`
+  syncs the scripts before it refreshes (`# BL-320-SYNC-ORDER`). R-5: the registration is tested by running
+  `--backfill-only`, not by reading the function. R-1: both question writers' temp files end in their Xs
+  (`# BL-320-OFFER-TMP`, `# BL-320-DETECT-TMP`; BSD mktemp randomises only trailing Xs, so a stale
+  `pending-approval.XXXXXX.tmp` stopped every later question) and a question the detector cannot write is a
+  `detector_error` row (`# BL-320-DETECT-ERR`). R-7: the registration re-reads `settings.json` before it reports
+  (`# BL-320-REG-RECEIPT`); a mismatch row is reported as recorded only when it is in the file
+  (`# BL-320-OOB-LANDED`); the writers' schema line is read anchored and as a number, from `pending-approval.sh`
+  and the detector (`# BL-320-WRITER-ANCHOR`, `# BL-320-WRITER-NUM`, `# BL-320-WRITER-DETECTOR`); the clone's
+  fetch and pull run ssh in BatchMode unless the user set their own ssh command (`# BL-320-SSH-BATCH`).
 - **Docs.** Builder's Guide "Structured Decision Points" (stage, ask with `--approves`, id twice, lone commit,
   headless `--resume`, git hooks are the Orchestrator's), Phase 2 step 5 no longer suggests a hook manager that
   sets `core.hooksPath`, and its Superpowers line carries the marketplace fallback; the CLAUDE.md template;
   `docs/adoption.md` section 7; the user guide; `docs/audit-log-lifecycle.md`; README's Guardrails row.
 
-**Tests.** `tests/test-bl320-approval-schema2.sh` (unit lane): 45 cases and 41 mutants, each mutant killed by a
+**Tests.** `tests/test-bl320-approval-schema2.sh` (unit lane): 58 cases and 60 mutants, each mutant killed by a
 named case. The dogfood round trip E1 runs against the real Guardrails hooks copied from the clone and SKIPS where
 none is at 4.4.0 or later (CI has none); R10 checks the registration against the clone's real generator the same
 way. Updated: `test-pending-approval.sh` (P10), `test-bypass-sentinel.sh` (T2b), `test-bl029-integration.sh` (T3,
@@ -23363,14 +23384,16 @@ beside the refresh), `test-bl318-g4g6.sh` (P9 also checks the Builder's Guide).
   rules are not removed; adoption's "already" arm registers nothing.
 - **A bypass row recorded while a commit question was open** is bound to nothing and stays PENDING under 4.4.0+
   (the agent's `--decision` is refused there).
-- **A project synced between `## BL-318:` G5 (PR #497) and this entry cannot be protected from this side.** Its
-  own `check-versions.sh` and `refresh-guardrails.sh` are the G5 copies: once the shared clone reaches 4.4.0, the
-  session start offers the Guardrails-only update, and accepting it installs the 4.4.0 hooks beside the schema-1
-  writer, with `record-approval.sh` unregistered. Every agent commit is then blocked and no reply can approve it;
-  the user's override (`mark-evaluated.sh` in a terminal of their own, then `scripts/pending-approval.sh
-  --resolve`) still works. The way out is the framework sync, which brings the schema-2 writer, the guarded
-  scripts and the registration together: `bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework`.
-  `docs/adoption.md` section 7 and the user guide say so.
+- **A project whose own scripts predate this entry cannot be protected from this side** (review round 1, R-6).
+  Its own copies install Guardrails 4.4.0 beside the schema-1 writer, with `record-approval.sh` unregistered,
+  by two routes once the shared clone reaches 4.4.0: the G5 session-start offer (`refresh-guardrails.sh`, in a
+  project synced since PR #497), and its own `upgrade-project.sh` — on `--backfill-only`, which the pre-G5
+  `check-updates.sh` tells users to run, and on any tier change run from the project's copy. Every agent commit
+  is then blocked and no reply can approve it; the user's override (`mark-evaluated.sh` in a terminal of their
+  own, then `scripts/pending-approval.sh --resolve`) still works. The way out is the framework sync, run from
+  the NEW framework copy, which brings the schema-2 writers, the guarded scripts and the registration together:
+  `bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework`. The new framework's own
+  `upgrade-project.sh` no longer does this (R-3, R-4). `docs/adoption.md` section 7 and the user guide say so.
 - **The headless driver** that answers approval questions lives outside the repo (the dogfood runbook): it must
   send both replies into the asking session (`claude -p --resume <id>`), id first.
 - **Owner decision 2b** (a Solo git `pre-commit` hook comparing `git write-tree` with the approval marker, so `-a`
@@ -23379,6 +23402,11 @@ beside the refresh), `test-bl318-g4g6.sh` (P9 also checks the Builder's Guide).
   `GIT_TERMINAL_PROMPT=0` only stops it waiting on credentials.
 - **A relay of an installer command** ("type `!` and then …") is not pinned in the bypass detector the way the
   Guardrails refresh is, so an agent's relay of one can raise a false bypass question (fails closed).
+- **A forged label still binds rows.** An agent can label its own question as the detector's; the rows of a
+  proposal raised while it is open are bound to it and, since no pick on it is a bypass decision, stay PENDING
+  (review round 1, R-2 — they can no longer be closed as accepted).
+- **A user's own ssh command can still prompt.** BatchMode is added only when the user set no ssh command of
+  their own (`GIT_SSH_COMMAND`, `GIT_SSH`, `core.sshCommand`), which are left as they are.
 
 ## BL-321: a git `pre-commit` hook that checks the commit against the approved tree, so `-a` and pathspecs can pass when they commit exactly what was approved
 

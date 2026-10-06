@@ -687,7 +687,7 @@ When something needs attention, the session start hands the agent a message it m
   bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework
   ```
 
-  A project synced before this check existed has no such notice: its Guardrails update offer installs 4.4.0 anyway, after which no reply can approve a commit. The same framework sync repairs it.
+  A project whose scripts predate this check has no such notice, and two of its own scripts can install 4.4.0 anyway: its Guardrails update offer, and its own `upgrade-project.sh` (`--backfill-only`, or a track or deployment change run from the project's copy). After that no reply can approve a commit. The same framework sync, run from the framework's up-to-date clone, repairs it; the framework's own `upgrade-project.sh` refuses the Guardrails-only refresh and names the sync.
 
 - **`GUARDRAILS NOTICE`, saying `cannot tell whether an update is available`.** The check could not read one of the two versions; the reason follows the dash. Carry on: it only means no update can be offered. If the reason says there is no Guardrails clone, get one:
 

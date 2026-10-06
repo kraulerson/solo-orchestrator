@@ -513,9 +513,11 @@ jq -r .frameworkVersion .claude/manifest.json
     do. (A project created or adopted with 4.4.0 already in the clone has it.)
     When the project's own scripts are older than the 4.4.0 question, the
     session start offers no Guardrails-only update at all and names the
-    framework sync, which brings both; a project whose scripts are older still
-    than that check gets the Guardrails-only offer anyway, and the same sync
-    repairs it.
+    framework sync, which brings both. A project whose scripts are older still
+    can install 4.4.0 alone two ways — its own copy of that offer, and its own
+    `upgrade-project.sh` (`--backfill-only`, or a track or deployment change
+    run from the project's copy) — and the same sync, run from the framework's
+    up-to-date clone, repairs it.
 - **4.3.7.** Answer in your own words. The agent clears the question
   (`scripts/pending-approval.sh --resolve`), records your approval by running
   `bash .claude/framework/hooks/mark-evaluated.sh "<what you approved>"` on its
