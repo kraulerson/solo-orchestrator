@@ -53,7 +53,13 @@
 #       5. Phase 0, intake filled, and PRODUCT_MANIFESTO.md ALREADY PRESENT —
 #          this one clears every early guard and exits at the last `if`, which
 #          is exactly why the stdin read must live inside emit_state (see
-#          # BL-202-LAZY-STDIN) and not at file scope.
+#          # BL-202-LAZY-STDIN) and not at file scope. (BL-318 G2: unless the
+#          project is adopted and that manifesto is still the one adoption
+#          found — then Phase 0 has not started, and it speaks.)
+# An ADOPTED project whose assessment is not recorded is pointed at the
+# assessment prompt instead, before the intake is looked at: that is what
+# scripts/resume.sh prints for it (`# BL-242-RESUME-ASSESSMENT`), and this hook
+# used to promise it Section 13 (BL-318 G2, `# BL-318-G2-HOOK-ASSESSMENT`).
 # Fail-open is absolute: every path exits 0, and no silent path reads stdin.
 #
 # Detection is MODE-AGNOSTIC — the blank-table-cell count over
@@ -131,6 +137,27 @@ emit_state() {
 }
 # BL-202-INITIAL-MSG-END
 
+# BL-318 G2: an adopted project whose assessment is not recorded. resume.sh
+# checks this before its intake branches and prints the assessment prompt, so
+# this hook checks it first too and says so. State only, the same predicate as
+# `# BL-242-RESUME-ASSESSMENT` (resume.sh adds `current_phase == 0`; the phase
+# guard above already holds that here).
+assessment_context() {
+  cat <<EOF
+ADOPTION ASSESSMENT PENDING — relay this to the operator as your FIRST response.
+
+This project was adopted into the framework and its assessment has not been recorded yet.
+The exact first message to paste is printed by: bash scripts/resume.sh
+(It is the assessment prompt adoption wrote, .claude/adoption/assessment-prompt.md.)
+If the operator asks you directly, offer to start the assessment from that prompt now.
+EOF
+}
+if [ -f ".claude/manifest.json" ] \
+   && jq -e '.adoption.adopted == true and .adoption.assessment == null' .claude/manifest.json >/dev/null 2>&1; then   # BL-318-G2-HOOK-ASSESSMENT
+  emit_state "$(assessment_context)" "I just opened this project. Run bash scripts/resume.sh and show me the assessment prompt so I can get started."
+  exit 0
+fi
+
 # BL-202-INTAKE-DETECT-BEGIN
 # BL-202-INTAKE-PREDICATE (SYNC SIBLINGS: scripts/validate.sh, scripts/session-intake-check.sh, scripts/resume.sh) — count only truly-blank cells: '\| *\|$'. The old '|\| *$' alternative matched EVERY table row (constant 258 on real intakes — review R-BL202-1).
 blank_cells=$(grep -cE '\| *\|$' PROJECT_INTAKE.md 2>/dev/null || true)
@@ -161,11 +188,12 @@ if [ "$blank_cells" -gt 20 ]; then
 fi
 # BL-202-INTAKE-DETECT-END
 
-ready_context() {
+ready_context() {   # [why Phase 0 has not started] — the default is the greenfield reason, unchanged
+  local why="${1:-no PRODUCT_MANIFESTO.md}"
   cat <<EOF
 READY FOR PHASE 0 — relay this to the operator as your FIRST response.
 
-The intake looks complete and Phase 0 has not started yet (no PRODUCT_MANIFESTO.md).
+The intake looks complete and Phase 0 has not started yet (${why}).
 The exact first message to paste is printed by: bash scripts/resume.sh
 (It is the Agent Initialization Prompt from PROJECT_INTAKE.md Section 13.)
 If the operator asks you directly, offer to begin Phase 0 from that prompt now.
@@ -175,5 +203,20 @@ EOF
 # Intake looks filled; has Phase 0 produced anything yet?
 if [ ! -f "PRODUCT_MANIFESTO.md" ]; then
   emit_state "$(ready_context)" "I just opened this project. Run bash scripts/resume.sh and show me the Phase 0 first prompt so I can get started."
+elif [ -f ".claude/manifest.json" ] && command -v git >/dev/null 2>&1; then
+  # BL-318 G2: an adopted project's manifesto, still byte-identical to the one
+  # in the commit adoption was anchored on, is not Phase 0's output — resume.sh
+  # prints Section 13 for it, so say so here too. Same predicate as resume.sh's
+  # `# BL-318-G2-ADOPTEE-PHASE0`. SYNC SIBLINGS: scripts/resume.sh, scripts/session-intake-check.sh.
+  # (An adoptee is assessed by now: the pending case exited above.)
+  sic_anchor=$(jq -r 'if .adoption.adopted == true then (.adoption.adoptedAtCommit // "") else "" end' .claude/manifest.json 2>/dev/null || true)
+  sic_then=""
+  if [ -n "$sic_anchor" ]; then   # BL-318-G2-HOOK-ANCHOR — an empty anchor would make "<anchor>:path" read the INDEX
+    sic_then=$(git rev-parse -q --verify "${sic_anchor}:PRODUCT_MANIFESTO.md" 2>/dev/null || true)
+  fi
+  sic_now=$(git hash-object PRODUCT_MANIFESTO.md 2>/dev/null || true)
+  if [ -n "$sic_then" ] && [ "$sic_then" = "$sic_now" ]; then   # BL-318-G2-HOOK-BROUGHT
+    emit_state "$(ready_context "the PRODUCT_MANIFESTO.md here is still the one the project had when it was adopted")" "I just opened this project. Run bash scripts/resume.sh and show me the Phase 0 first prompt so I can get started."
+  fi
 fi
 exit 0

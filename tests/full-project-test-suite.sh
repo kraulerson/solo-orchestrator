@@ -1005,7 +1005,7 @@ run_child_suite "tests/test-bl318-g5-guardrails-refresh.sh" \
 # not Phase 0's, because branch 2 required no PRODUCT_MANIFESTO.md; and that
 # prompt filled three fields with CLAUDE.md's Context Health Check paragraph.
 run_child_suite "tests/test-bl318-g2-resume-adoptee.sh" \
-  "BL-318 G2: an assessed adoptee gets its Phase 0 prompt; the classic prompt prints no filler" \
+  "BL-318 G2: an adoptee gets its Phase 0 prompt until Phase 0 writes its manifesto; the session-start hook agrees; the classic prompt prints no filler" \
   "BL-318 G2 resume-adoptee tests FAILED (run tests/test-bl318-g2-resume-adoptee.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.

@@ -103,18 +103,31 @@ if [ -z "${pmv_exempt_open:-}" ] && [ -f "PROJECT_INTAKE.md" ] && [ "$PHASE" != 
     echo -e "${CYAN}--- End (a blank Claude Code screen means it is ready and waiting, not stuck) ---${NC}"
     exit 0
   fi
-  # BL-318 G2: "Phase 0 never started" was read off the manifesto's absence, and
-  # adoption neither writes nor removes PRODUCT_MANIFESTO.md — so every adoptee
-  # built with an older Solo still has one and fell through to the classic
-  # prompt after its assessment (dogfood run 2, finding 24). An ADOPTED project
-  # at phase 0 has not started Phase 0 whatever files it brought, so it gets its
-  # Section 13 too. The predicate is the adoption stamp, state only, as in the
-  # assessment branch above; an adoptee whose assessment is not recorded never
-  # gets here, because that branch has already exited.
+  # BL-318 G2: "Phase 0 never started" is read off the manifesto's absence, and
+  # adoption neither writes nor removes PRODUCT_MANIFESTO.md — so an adoptee
+  # built with an older Solo still has its own, and fell through to the classic
+  # prompt after its assessment (dogfood run 2, finding 24). For an ADOPTED
+  # project the manifesto adoption FOUND is not Phase 0's output: Phase 0 has not
+  # started while the file is still byte-identical to the one in the commit
+  # adoption was anchored on (the stamp's adoptedAtCommit, the pre-adoption tip).
+  # Once Phase 0 rewrites it — or writes one where none was brought — the classic
+  # prompt resumes the work, exactly as for a greenfield project. current_phase
+  # cannot tell the two apart: it stays 0 for the whole of Phase 0.
+  # State only, as in the assessment branch above; an adoptee whose assessment
+  # is not recorded never gets here, because that branch has already exited.
+  # SYNC SIBLINGS: scripts/resume.sh, scripts/session-intake-check.sh (# BL-318-G2-HOOK-BROUGHT).
   bl318_adoptee=""
-  if [ -f ".claude/manifest.json" ] && command -v jq >/dev/null 2>&1 \
-     && jq -e '.adoption.adopted == true' .claude/manifest.json >/dev/null 2>&1; then
-    bl318_adoptee=1                                                    # BL-318-G2-ADOPTEE-PHASE0
+  if [ -f "PRODUCT_MANIFESTO.md" ] && [ -f ".claude/manifest.json" ] \
+     && command -v jq >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+    bl318_anchor=$(jq -r 'if .adoption.adopted == true then (.adoption.adoptedAtCommit // "") else "" end' .claude/manifest.json 2>/dev/null || true)
+    bl318_then=""
+    if [ -n "$bl318_anchor" ]; then   # BL-318-G2-ANCHOR — an empty anchor would make "<anchor>:path" read the INDEX
+      bl318_then=$(git rev-parse -q --verify "${bl318_anchor}:PRODUCT_MANIFESTO.md" 2>/dev/null || true)
+    fi
+    bl318_now=$(git hash-object PRODUCT_MANIFESTO.md 2>/dev/null || true)
+    if [ -n "$bl318_then" ] && [ "$bl318_then" = "$bl318_now" ]; then
+      bl318_adoptee=1                                                  # BL-318-G2-ADOPTEE-PHASE0
+    fi
   fi
   if [ ! -f "PRODUCT_MANIFESTO.md" ] || [ -n "$bl318_adoptee" ]; then
     # Extract §13's fenced prompt from the PROJECT's intake (not the template).
@@ -314,9 +327,19 @@ _resume_add "Features built" "$(_resume_field 'features built')"
 _resume_add "Features remaining" "$(_resume_field 'features remaining')"
 _resume_add "Known issues" "$(_resume_field 'known issues')"
 _resume_add "Last session" "$(_resume_field 'last session( summary)?')"
+# Does CLAUDE.md have a "Current State" section (a heading, not the words in prose)?
+CS_SECTION=""
+if [ -f "CLAUDE.md" ] && grep -qiE '^#+[[:space:]]*current state' CLAUDE.md 2>/dev/null; then   # BL-318-G2-CURRENT-STATE
+  CS_SECTION=1
+fi
 # Said once, plainly, when there is nothing to show.
 if [ ! -f "CLAUDE.md" ]; then   # BL-318-G2-NO-CLAUDE-FIELDS
   STATE_FIELDS="There is no CLAUDE.md in this project, so nothing here records what has been built or where the last session stopped. Ask me before assuming either.
+"
+elif [ -z "$STATE_FIELDS" ] && [ -n "$CS_SECTION" ]; then              # BL-318-G2-FIELDS-IN-SECTION
+  # A section that holds its fields as nested bullets or a table has no
+  # "Label: value" line to read — point at it rather than call it empty.
+  STATE_FIELDS="CLAUDE.md has a \"Current State\" section: read it for what has been built, what remains, the known issues and where the last session stopped.
 "
 elif [ -z "$STATE_FIELDS" ]; then                                      # BL-318-G2-FIELDS-NONE
   STATE_FIELDS="CLAUDE.md does not record what has been built, what remains, the known issues or where the last session stopped. Ask me where we left off before assuming any of it.
@@ -326,7 +349,7 @@ fi
 CLOSING="Read CLAUDE.md for full project context. Continue from where we left off."
 if [ ! -f "CLAUDE.md" ]; then   # BL-318-G2-NO-CLAUDE-CLOSING
   CLOSING="Continue from where we left off."
-elif grep -qiE '^#+[[:space:]]*current state' CLAUDE.md 2>/dev/null; then   # BL-318-G2-CURRENT-STATE
+elif [ -n "$CS_SECTION" ]; then
   CLOSING="$CLOSING If CLAUDE.md's \"Current State\" section is stale or incomplete, ask me to clarify before proceeding."
 fi
 
