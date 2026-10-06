@@ -23363,7 +23363,14 @@ human steps by documentation only.
   sets `core.hooksPath`, and its Superpowers line carries the marketplace fallback; the CLAUDE.md template;
   `docs/adoption.md` section 7; the user guide; `docs/audit-log-lifecycle.md`; README's Guardrails row.
 
-**Tests.** `tests/test-bl320-approval-schema2.sh` (unit lane): 58 cases and 60 mutants, each mutant killed by a
+- **Final check (N-1 to N-3).** The upgrade's pull before the mixed check is pinned (`# BL-320-UP-PULL`):
+  without it a clone behind a new release reads its old version and the refresh's own pull installs 4.4.0 beside
+  the old writer. When that pull fails (offline, or an ssh remote that needs a passphrase) and the project's
+  writer is old, the refresh is skipped too, naming the sync (`# BL-320-UP-UNREACHABLE`). A bypass row is closed
+  only by a pick made after the row was raised (`# BL-320-AUDIT-AFTER`): the agent could write an answered
+  question's bytes back so that a later proposal bound to its sha256 and took the old acceptance.
+
+**Tests.** `tests/test-bl320-approval-schema2.sh` (unit lane): 61 cases and 63 mutants, each mutant killed by a
 named case. The dogfood round trip E1 runs against the real Guardrails hooks copied from the clone and SKIPS where
 none is at 4.4.0 or later (CI has none); R10 checks the registration against the clone's real generator the same
 way. Updated: `test-pending-approval.sh` (P10), `test-bypass-sentinel.sh` (T2b), `test-bl029-integration.sh` (T3,
@@ -23405,6 +23412,14 @@ beside the refresh), `test-bl318-g4g6.sh` (P9 also checks the Builder's Guide).
 - **A forged label still binds rows.** An agent can label its own question as the detector's; the rows of a
   proposal raised while it is open are bound to it and, since no pick on it is a bypass decision, stay PENDING
   (review round 1, R-2 — they can no longer be closed as accepted).
+- **`.claude/bypass-audit.json` is not write-protected.** config-guard protects `.claude/approvals.jsonl`, not
+  the audit log, so an agent can edit a row (its time, its binding, its outcome) directly. The ordering rule
+  (`# BL-320-AUDIT-AFTER`) and the wording rule hold against a replayed question, not against an edited log.
+- **`refresh-guardrails.sh` has the unreachable-clone gap the upgrade closes.** Its own pre-pull failing (offline,
+  or an ssh remote that needs a passphrase) leaves its mixed check reading the clone's current version, and the
+  pull inside CDF's `refresh_cdf_assets` may then install a newer one. The deletion of that pre-pull is pinned
+  (`# BL-318-G5-REFRESH-PULL`, killed by the G5 suite's E15); its failure is not handled as the upgrade's is
+  (`# BL-320-UP-UNREACHABLE`).
 - **A user's own ssh command can still prompt.** BatchMode is added only when the user set no ssh command of
   their own (`GIT_SSH_COMMAND`, `GIT_SSH`, `core.sshCommand`), which are left as they are.
 
