@@ -340,7 +340,11 @@ BYPASS_DECLINE_TEXT="Decline it"
 # read from what the user was shown and picked, which the Guardrails copy into
 # the record: the question starts with the detector's prefix, the option
 # approves nothing, and its text is the detector's A1 text (accepted) or A2
-# text (declined). Any other pick leaves the row PENDING. The agent's own
+# text (declined) — and the pick was made AFTER the row was raised (final
+# check, N-3: the agent can write an answered question's bytes back, so a later
+# proposal binds to its sha256; both times are the UTC "%Y-%m-%dT%H:%M:%SZ"
+# the detector and the Guardrails write, which compare correctly as strings).
+# Any other pick leaves the row PENDING. The agent's own
 # --decision is not consulted. Prints how many rows it closed; 0 when there is
 # nothing to read. Returns 1 only on a write failure.
 bypass_audit_close_from_approvals() {
@@ -379,8 +383,9 @@ bypass_audit_close_from_approvals() {
           | (first($picks[] | select($s != "" and .s == $s)) // {}) as $k
           | (($k.q // "") | startswith($qp)) as $isq   # BL-320-AUDIT-Q
           | (($k.a // "") == "none") as $none   # BL-320-AUDIT-NONE
-          | (if $isq and $none and $k.t == $acc then "accepted"   # BL-320-AUDIT-MAP
-             elif $isq and $none and $k.t == $dec then "declined"   # BL-320-AUDIT-DEC
+          | ((.timestamp // "") as $rt | $rt != "" and (($k.at // "") > $rt)) as $after   # BL-320-AUDIT-AFTER
+          | (if $isq and $none and $after and $k.t == $acc then "accepted"   # BL-320-AUDIT-MAP
+             elif $isq and $none and $after and $k.t == $dec then "declined"   # BL-320-AUDIT-DEC
              else "PENDING" end) as $ur
           | if $ur == "PENDING" then . else
               (.user_response = $ur

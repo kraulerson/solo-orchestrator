@@ -169,17 +169,27 @@ _up_mixed_skip() {
   print_info "Update both together with the framework sync, from this project's folder (the path to your own clone of the framework, if it is elsewhere):"
   print_info "  bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework"
 }
+# The clone cannot be updated without a prompt (offline, or an ssh remote that
+# needs a passphrase — final check, N-2): the version CDF's own pull would then
+# install is unknown, so a project whose writer is old is not refreshed either.
+_up_unreachable_skip() {
+  print_warn "Development Guardrails NOT refreshed: the Guardrails clone could not be updated without a prompt (offline, or its remote needs a passphrase), so the version this refresh would install is unknown — and this project's Solo scripts still write the older approval question, which Guardrails 4.4.0 and later cannot take an answer to (BL-320)."
+  print_info "Update both together with the framework sync, from this project's folder (the path to your own clone of the framework, if it is elsewhere):"
+  print_info "  bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework"
+}
 _refresh_cdf_assets_solo() {
-  local _up_cdf="" _up_want=""
+  local _up_cdf="" _up_want="" _up_pulled=1 _up_w=""
   if [ -f "$SCRIPT_DIR/lib/cdf-refresh.sh" ]; then
     print_step "Refreshing CDF framework assets (BL-001)"
     _up_cdf="${CDF_HOME:-$HOME/.claude-dev-framework}"   # BL-320-UP-CLONE
     if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ]; then
       # shellcheck source=scripts/lib/guardrails.sh
       . "$SCRIPT_DIR/lib/guardrails.sh"
-      [ ! -d "$_up_cdf/.git" ] || soif_gr_git_noprompt -C "$_up_cdf" pull --ff-only --quiet >/dev/null 2>&1 || :
+      [ ! -d "$_up_cdf/.git" ] || soif_gr_git_noprompt -C "$_up_cdf" pull --ff-only --quiet >/dev/null 2>&1 || _up_pulled=0   # BL-320-UP-PULL
       _up_want="$(tr -d '[:space:]' < "$_up_cdf/FRAMEWORK_VERSION" 2>/dev/null || :)"
       soif_gr_mixed "$PROJECT_ROOT" "$_up_want" && { _up_mixed_skip "$_up_want"; return 0; }   # BL-320-UP-MIXED
+      _up_w="$(soif_gr_writer_schema "$PROJECT_ROOT")"
+      [ "$_up_pulled" = 1 ] || [ "$_up_w" = none ] || [ "$_up_w" -ge 2 ] || { _up_unreachable_skip; return 0; }   # BL-320-UP-UNREACHABLE
     fi
     # shellcheck source=/dev/null
     . "$SCRIPT_DIR/lib/cdf-refresh.sh"

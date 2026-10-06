@@ -405,6 +405,26 @@ case_D5() {   # the question cannot be written: a detector_error row says so, an
   jq -e '[.[] | select(.type == "claude_bypass_proposal")] | length >= 1' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
     || { CASE_DETAIL="the proposal itself went unrecorded"; return 1; }
 }
+case_D7() {   # N-3: a replayed question — an old pick does not decide a proposal raised after it
+  local d s q1
+  d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  detect "$1" "$d"
+  s="$(sha256_of "$d/$SENT")"; q1="$d/q1-saved.json"; cp "$d/$SENT" "$q1"
+  # Proposal 1 was raised before the user's pick (fixed times, so the test does not race the clock).
+  jq '[.[] | .timestamp = "2026-10-06T00:00:01Z"]' "$d/.claude/bypass-audit.json" > "$d/a" && mv "$d/a" "$d/.claude/bypass-audit.json"
+  pick_line A1 "$s" > "$d/.claude/approvals.jsonl"              # the user really accepted Q1 (picked_at 00:01:00)
+  mv "$d/$SENT" "$d/q1-answered.json"                           # the pick removed it
+  cp "$q1" "$d/$SENT"                                           # the agent writes Q1's bytes back
+  printf '%s' '{"hook_event_name":"PostToolUse","session_id":"bl320","tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"just git push --force to get past it"}}' \
+    | CLAUDE_PROJECT_DIR="$d" bash "$1/scripts/hooks/bypass-detector.sh" >/dev/null 2>&1
+  jq -e --arg s "$s" '[.[] | select(.type == "claude_bypass_proposal" and .timestamp != "2026-10-06T00:00:01Z")] | length >= 1 and all(.details.sentinel_sha256 == $s)' \
+    "$d/.claude/bypass-audit.json" >/dev/null 2>&1 || { CASE_DETAIL="fixture: the new proposal did not bind to the replayed question: $(jq -c '[.[] | [.details.pattern, .timestamp, .details.sentinel_sha256]]' "$d/.claude/bypass-audit.json")"; return 1; }
+  pa "$1" "$d" --resolve
+  jq -e '[.[] | select(.type == "claude_bypass_proposal" and .timestamp == "2026-10-06T00:00:01Z") | .user_response] | length >= 1 and all(. == "accepted")' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="control: the genuinely answered proposal was not closed: $(jq -c '[.[] | [.details.pattern, .user_response]]' "$d/.claude/bypass-audit.json")"; return 1; }
+  jq -e '[.[] | select(.type == "claude_bypass_proposal" and .timestamp != "2026-10-06T00:00:01Z") | .user_response] | length >= 1 and all(. == "PENDING")' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="the replayed pick closed a later proposal: $(jq -c '[.[] | [.details.pattern, .timestamp, .user_response]]' "$d/.claude/bypass-audit.json")"; return 1; }
+}
 case_D6() {   # R-2: a forged "bypass-detector" label cannot turn another answer into an acceptance
   local d s n
   d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
@@ -422,6 +442,8 @@ case_D6() {   # R-2: a forged "bypass-detector" label cannot turn another answer
            {type:"claude_bypass_proposal", user_response:"PENDING", final_outcome:"recorded_only", details:{pattern:"f4", sentinel_sha256:"F4"}},
            {type:"claude_bypass_proposal", user_response:"PENDING", final_outcome:"recorded_only", details:{pattern:"ok", sentinel_sha256:"OK"}}]' \
     "$d/.claude/bypass-audit.json" > "$d/a" && mv "$d/a" "$d/.claude/bypass-audit.json"
+  # Every row raised before the picks (fixed times), so only the wording decides here — D7 pins the order.
+  jq '[.[] | .timestamp = "2026-10-06T00:00:01Z"]' "$d/.claude/bypass-audit.json" > "$d/a" && mv "$d/a" "$d/.claude/bypass-audit.json"
   { pick_line A1 "$s" commit "Commit the fix?" "Commit the staged fix"   # the user approved the COMMIT
     pick_line A1 F2 none "Commit the fix?" "$ACC_TEXT"                   # not the detector's question
     pick_line A1 F3 commit "$BYP_Q" "$ACC_TEXT"                          # its wording, but it approved a commit
@@ -502,18 +524,40 @@ up_proj() {
   fi
   ( cd "$d" && git add -A && git commit -q -m "up fixture" ) >/dev/null 2>&1
 }
-mk_up_clone() {   # T VERSION — a stub clone at T/home/.claude-dev-framework with a faithful upstream refresh
-  local c="$1/home/.claude-dev-framework"
+# mk_up_clone T VERSION [reachable|stale|unreachable] — a stub clone at
+# T/home/.claude-dev-framework whose upstream refresh pulls first, as CDF's
+# refresh_cdf_assets does. reachable: a local bare upstream (named branch,
+# # BL-234-FIXTURE-BARE-HEAD) at the clone's own commit. stale: that upstream is
+# one commit ahead, at 4.4.0 — the clone behind a new release. unreachable: the
+# remote cannot be reached; STUB_PULL_TO, when set, stands for a pull that
+# succeeds anyway inside the refresh (an ssh remote with a passphrase prompt).
+mk_up_clone() {
+  local c="$1/home/.claude-dev-framework" up="$1/cdf-upstream.git" mode="${3:-reachable}"
   mk_stub_clone "$c" "$2" || return 1
   cat > "$c/scripts/cdf-refresh.sh" <<'UP'
 refresh_cdf_assets() {
-  local f; for f in "$2"/hooks/*.sh; do cp "$f" "$1/.claude/framework/hooks/"; done
+  local f
+  git -C "$2" pull --ff-only --quiet >/dev/null 2>&1 || :
+  [ -z "${STUB_PULL_TO:-}" ] || printf '%s\n' "$STUB_PULL_TO" > "$2/FRAMEWORK_VERSION"
+  for f in "$2"/hooks/*.sh; do cp "$f" "$1/.claude/framework/hooks/"; done
   chmod +x "$1"/.claude/framework/hooks/*.sh
   jq --arg v "$(tr -d '[:space:]' < "$2/FRAMEWORK_VERSION")" '.frameworkVersion = $v' "$1/.claude/manifest.json" > "$1/.claude/m.tmp" \
     && mv "$1/.claude/m.tmp" "$1/.claude/manifest.json"
 }
 UP
-  ( cd "$c" && git add -A && git commit -q -m up ) >/dev/null 2>&1
+  ( cd "$c" && git add -A && git commit -q -m up ) >/dev/null 2>&1 || return 1
+  case "$mode" in
+    unreachable) git -C "$c" remote add origin "$1/no-such-upstream.git" ;;
+    *)
+      ( set -e
+        git init -q --bare "$up"; git -C "$up" symbolic-ref HEAD refs/heads/main
+        git -C "$c" remote add origin "$up"; git -C "$c" push -q -u origin HEAD:main
+        if [ "$mode" = stale ]; then
+          git clone -q "$up" "$1/cdf-work"; cd "$1/cdf-work"
+          git config user.email t@t.local; git config user.name T
+          printf '4.4.0\n' > FRAMEWORK_VERSION; git commit -q -am "release 4.4.0"; git push -q origin HEAD:main
+        fi ) >/dev/null 2>&1 || return 1 ;;
+  esac
 }
 UPG_OUT=""; UPG_RC=0
 upg() {   # ROOT DIR T ARGS… — ROOT's upgrade-project.sh, run in DIR, HOME and CDF_HOME on T's stub clone
@@ -552,6 +596,30 @@ case_U3() {   # R-3: a tier change ships the whole closure — lib, reader, dete
   pick_line A1 S1 > "$d/.claude/approvals.jsonl"
   PA_RC=0; PA_OUT="$( cd "$d" && bash scripts/pending-approval.sh --resolve </dev/null 2>&1 )" || PA_RC=$?
   [ "$PA_RC" -eq 0 ] || { CASE_DETAIL="the project's own --resolve: rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+}
+case_U5() {   # N-1: a clone BEHIND a new release — the version checked is the one the refresh's own pull would install
+  local t d
+  t="$(newtmp)"; d="$t/p"
+  up_proj "$d" old && mk_up_clone "$t" 4.3.7 stale || { CASE_DETAIL="fixture"; return 1; }
+  [ "$(tr -d '[:space:]' < "$t/home/.claude-dev-framework/FRAMEWORK_VERSION")" = 4.3.7 ] || { CASE_DETAIL="fixture: the clone is not behind"; return 1; }
+  upg "$1" "$d" "$t" --backfill-only --non-interactive
+  [ "$UPG_RC" -eq 0 ] || { CASE_DETAIL="rc=$UPG_RC: $(last3 "$UPG_OUT")"; return 1; }
+  [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.3.7 ] || { CASE_DETAIL="the stale clone's pull installed $(jq -r .frameworkVersion "$d/.claude/manifest.json") beside the old writer"; return 1; }
+  has_f "$UPG_OUT" "NOT refreshed" && has_f "$UPG_OUT" "$SYNC_CMD" || { CASE_DETAIL="no WARN naming the sync: $(printf '%s' "$UPG_OUT" | command grep -iE 'guardrail|cdf' | tr '\n' '|' | cut -c1-300)"; return 1; }
+}
+case_U6() {   # N-2: the clone cannot be updated without a prompt, and the writer is old — not refreshed into an unknown version
+  local t d
+  t="$(newtmp)"; d="$t/p"
+  up_proj "$d" old && mk_up_clone "$t" 4.3.7 unreachable || { CASE_DETAIL="fixture"; return 1; }
+  STUB_PULL_TO=4.4.0 upg "$1" "$d" "$t" --backfill-only --non-interactive
+  [ "$UPG_RC" -eq 0 ] || { CASE_DETAIL="rc=$UPG_RC: $(last3 "$UPG_OUT")"; return 1; }
+  [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.3.7 ] || { CASE_DETAIL="refreshed to $(jq -r .frameworkVersion "$d/.claude/manifest.json") although the clone could not be checked"; return 1; }
+  has_f "$UPG_OUT" "NOT refreshed" && has_f "$UPG_OUT" "$SYNC_CMD" || { CASE_DETAIL="no WARN naming the sync: $(printf '%s' "$UPG_OUT" | command grep -iE 'guardrail|cdf' | tr '\n' '|' | cut -c1-300)"; return 1; }
+  # A current writer is not held back by an unreachable clone.
+  t="$(newtmp)"; d="$t/p"
+  up_proj "$d" new && mk_up_clone "$t" 4.3.7 unreachable || { CASE_DETAIL="fixture 2"; return 1; }
+  STUB_PULL_TO=4.4.0 upg "$1" "$d" "$t" --backfill-only --non-interactive
+  [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.4.0 ] || { CASE_DETAIL="a current writer was held back: $(last3 "$UPG_OUT")"; return 1; }
 }
 case_U4() {   # R-4: --sync-framework moves both halves — scripts first, then the Guardrails, then the registration
   local t d
@@ -1108,6 +1176,7 @@ check "D2: a second proposal while it is open binds to it and leaves it alone" c
 check "D3: a commit question already open is left alone and does not take the bypass rows" case_D3
 check "D4: a stale pending-approval.XXXXXX.tmp does not silence the detector; its temp template ends in Xs" case_D4
 check "D5: when the question cannot be written, a detector_error row says so and the proposal is still recorded" case_D5
+check "D7: a replayed question — the old pick closes its own proposal, never one raised after it" case_D7
 check "D6: a forged bypass-detector label — the user's commit approval, and three other forgeries — closes no bypass row; the genuine pick does" case_D6
 echo "=== G — the holds ==="
 check "G1: pre-commit-gate, schema 2 under 4.4.0 — effects rendered, answered by option id, no --resolve, no rm" case_G1
@@ -1117,6 +1186,8 @@ check "U1: upgrade-project.sh's hold renders a schema-2 question" case_U1
 check "U2: --backfill-only over a pre-BL-320 writer — Guardrails not refreshed, settings untouched, the framework sync named" case_U2
 check "U3: a tier change ships lib/guardrails.sh, the approvals reader and the detector, refreshes, registers; the project's own --offer and --resolve work" case_U3
 check "U4: --sync-framework syncs the writer first, then refreshes to 4.4.0 and registers" case_U4
+check "U5: a clone behind a new release (upstream at 4.4.0) — pulled first, so the mixed install is refused; the project stays 4.3.7" case_U5
+check "U6: a clone that cannot be updated without a prompt and an old writer — not refreshed, the sync named; a current writer proceeds" case_U6
 echo "=== R — registering missing Guardrails hook entries ==="
 check "R1: exactly the missing entry is appended and named; every other entry, Solo's and the user's, unchanged and in order" case_R1
 check "R2: a second run adds nothing and leaves the file byte-identical" case_R2
@@ -1252,6 +1323,9 @@ MIRROR_FULL=1 mutant M55 scripts/upgrade-project.sh '# BL-320-UP-CLOSURE-GR' '  
 MIRROR_FULL=1 mutant M56 scripts/upgrade-project.sh '# BL-320-UP-CLOSURE-BA' '      :' case_U3 "R-3: a tier change does not ship the approvals reader"
 MIRROR_FULL=1 mutant M57 scripts/upgrade-project.sh '# BL-320-UP-DETECTOR' '  for helper in pending-approval.sh lint-uat-scenarios.sh; do' case_U3 "R-3: a tier change leaves the old bypass detector"
 MIRROR_FULL=1 mutant M58 scripts/upgrade-project.sh '# BL-320-SYNC-ORDER' '  :' case_U4 "R-4: --sync-framework never refreshes the Guardrails after syncing the writer"
+MIRROR_FULL=1 mutant M59 scripts/upgrade-project.sh '# BL-320-UP-PULL' '      :' case_U5 "N-1: the version is read before the clone's pull, so a stale clone installs 4.4.0 beside the old writer"
+MIRROR_FULL=1 mutant M60 scripts/upgrade-project.sh '# BL-320-UP-UNREACHABLE' '      :' case_U6 "N-2: a clone that could not be checked is refreshed anyway"
+mutant M61 scripts/lib/bypass-audit.sh '# BL-320-AUDIT-AFTER' '          | true as $after' case_D7 "N-3: a pick made before a proposal decides it (replay)"
 mutant M37 scripts/upgrade-project.sh '# BL-320-UP-SENTINEL-RENDER' "    jq -r '.options[]? // empty | \"    \" + .' \"\$PENDING_APPROVAL_FILE\" >&2" case_U1 "upgrade-project renders a schema-2 question as a jq error"
 
 echo
