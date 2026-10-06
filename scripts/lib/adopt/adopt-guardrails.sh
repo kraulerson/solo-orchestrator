@@ -48,6 +48,25 @@ ADOPT_GUARDRAILS_RESULT=""   # what the Adoption Record says
 
 _adopt_guardrails_dir() { printf '%s' "${SOIF_ADOPT_GUARDRAILS_DIR:-$HOME/.claude-dev-framework}"; }
 
+# `## BL-320:` Guardrails below SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh)
+# cannot take the user's answer to an approval question, so the agent's commits
+# are approved the older way. Adoption keeps an adoptee's own install and does
+# not pull (both deliberate, above); it says so, in its output and in the
+# Adoption Record, and the session start offers the update.
+_adopt_guardrails_say_below_min() {
+  ADOPT_GUARDRAILS_RESULT="$ADOPT_GUARDRAILS_RESULT; below the $SOIF_GUARDRAILS_MIN minimum for approval questions (the session start offers the update)"
+  adopt_note "These Guardrails ($1) are older than $SOIF_GUARDRAILS_MIN, the minimum for this framework's"
+  adopt_note "approval questions: until they are updated, a commit cannot be approved by answering the"
+  adopt_note "agent's question with an option id. Each Claude Code session start offers the update."
+}
+_adopt_guardrails_min_note() {   # ROOT
+  local v=""
+  command -v soif_gr_below_min >/dev/null 2>&1 || return 0
+  v="$(jq -r '(.frameworkVersion // empty) | tostring' "$1/.claude/manifest.json" 2>/dev/null || :)"
+  soif_gr_below_min "$v" && _adopt_guardrails_say_below_min "$v"   # BL-320-ADOPT-MIN
+  return 0
+}
+
 # adopt_guardrails_resolve ROOT — before any write: is there a usable clone,
 # and does the project already carry the Guardrails?      # BL-296-ADOPT-RESOLVE
 adopt_guardrails_resolve() {
@@ -82,6 +101,7 @@ adopt_write_guardrails() {
         adopt_note "Their settings in .claude/manifest.json (profile $(jq -r '.profile // "none"' "$root/.claude/manifest.json" 2>/dev/null), $(jq -r '(.activeRules // []) | length' "$root/.claude/manifest.json" 2>/dev/null) rules, $(jq -r '(.activeHooks // []) | length' "$root/.claude/manifest.json" 2>/dev/null) hooks) are kept:"
         adopt_note "adoption adds this framework's keys beside them and changes none of theirs."
       fi
+      _adopt_guardrails_min_note "$root"
       return 0 ;;
     absent)
       adopt_note "NOT INSTALLED: there is no clone of the Guardrails at ~/.claude-dev-framework, and"
@@ -199,5 +219,6 @@ FILES
   fi
   adopt_note "Installed the Guardrails (version $ver, profile $(jq -r '.profile // "unknown"' "$root/.claude/manifest.json" 2>/dev/null)) —"
   adopt_note "the same installer a new project runs. Its rules and hooks are in .claude/framework/."
+  _adopt_guardrails_min_note "$root"
   return 0
 }

@@ -15,6 +15,7 @@ The W7 use case (successor handoff under the Solo Orchestrator governance framew
 - **Writer:** the *contract* writer is `scripts/lib/bypass-audit.sh::bypass_audit_append`, and it is the only writer that validates the ledger's shape before appending (refusing empty / `null` / multi-document / non-array loudly, with the file untouched). **Seven inline `jq '. + [$r]'` sites in five files still bypass it** — see `## BL-227:`, which carries the derivation command; an earlier version of this line claimed every writer went through the library, and a grep refutes it. Direct edits are not part of the contract.
 - **Atomic append:** `bypass_audit_append` holds a portable `mkdir`-based advisory lock for the read-modify-write window, then writes via an adjacent `mktemp` so the final `mv` is a same-filesystem atomic rename. A SIGKILL during the write window leaves the previous valid ledger untouched.
 - **Pending-row resolution:** `bypass_audit_close_pending` flips PENDING rows whose `type == "claude_bypass_proposal"` to `accepted/bypassed` or `declined/abandoned`. It is intentionally scoped to that row type — escalations are not collapsed into the same lifecycle.
+- **The user's pick decides (Development Guardrails 4.4.0 and later, `## BL-320:`).** `bypass_audit_close_from_approvals` closes PENDING `claude_bypass_proposal` rows from the pick the Guardrails recorded in `.claude/approvals.jsonl` — a file the agent cannot write — never from the agent's `--decision`, which `scripts/pending-approval.sh --resolve` refuses there. Each row carries `details.sentinel_sha256`, the sha256 of the bypass question the detector raised (or found open and labelled as its own), and the pick record carries the sha256 the Guardrails read; that finds the pick. The decision is read from what the operator was shown and picked, as the Guardrails recorded it — the question starts with the detector's prefix, the option approves nothing, and its text is the detector's A1 text (accepted) or A2 text (declined) — because the label is a field the agent can write (review round 1, R-2). Any other pick leaves the row PENDING. It runs from `--resolve` and at every session start (`scripts/detect-out-of-band-commits.sh`).
 
 The lock is portable (works on macOS where `flock` is absent by default). Multiple PostToolUse / Stop / SessionStart hooks running concurrently across sessions do not race.
 
@@ -42,7 +43,7 @@ Each type has a distinct lifecycle. Reading the log effectively means knowing th
 The Claude session attempted (or proposed) a framework bypass — most commonly `--no-verify`, `--force` push, or running a forbidden script directly. Written by the BL-029 bypass-detector hook (`scripts/hooks/bypass-detector.sh`).
 
 - **Writer:** PostToolUse hook on Bash and Stop hook on session end.
-- **Lifecycle:** starts as `user_response: "PENDING", final_outcome: "n/a"`. Resolves when the operator runs `scripts/escalate-to-user.sh --resolve --decision <accept|decline>` (or when an automated finalize runs at session end).
+- **Lifecycle:** starts as `user_response: "PENDING", final_outcome: "n/a"`. The detector raises one schema-2 question for the proposal — `A1` accepts it, `A2` declines it, and neither approves a commit (BL-029's typed confirmation phrase was retired by `## BL-320:`). With the Development Guardrails 4.4.0 and later the operator answers by replying with the option id, twice, and the row resolves from that pick (above): `A1` to `accepted`/`bypassed` and `A2` to `declined`/`abandoned` when the pick record carries the detector's own wording, with `details.decided_by`, `details.pick` and `details.picked_at` added; any other pick leaves it PENDING. With older Guardrails it resolves when the agent runs `scripts/pending-approval.sh --resolve --decision <accept|decline>`. A row recorded while a question of another kind was open (a commit question) is not bound to it and stays PENDING.
 - **`actor`:** always `claude`.
 - **`details`:** includes the matched pattern, the Bash command (redacted), and the assistant-message text fragment that triggered the detector.
 
@@ -91,6 +92,15 @@ The framework gave the operator a choice and is recording the outcome. Distinct 
 - **Writer:** `scripts/escalate-to-user.sh`.
 - **Lifecycle:** starts as `user_response: "PENDING"`. Resolves to `accepted/escalated` or `declined/escalated` when the operator picks an option. `final_outcome` is always `escalated` (never collapsed into `bypassed` / `abandoned` — see the D2 fix in `bypass_audit_close_pending`).
 - **`actor`:** `framework`.
+
+### `approval_mismatch`
+
+A commit whose tree is not the tree the operator approved (`## BL-320:`). The Development Guardrails 4.4.0 and later bind an approval to the staged change the operator was shown, and after the commit they append `{event: "commit", commit, approved_tree, committed_tree, matched}` to `.claude/approvals.jsonl`. `matched: false` means something — a git hook that was already present when the operator approved, say — changed the stage during the commit.
+
+- **Written by:** `scripts/detect-out-of-band-commits.sh` (SessionStart), once per commit.
+- **Actor:** `framework`. **`user_response`:** `n/a`. **`final_outcome`:** `recorded_only`.
+- **Details:** `commit`, `approved_tree`, `committed_tree`, `at`.
+- The Guardrails' own stop hook tells the session the commit happened in; this row is the record a successor reads. Treat it as a governance violation: the commit holds something nobody approved.
 
 ### `detector_error`
 
@@ -159,8 +169,8 @@ The user-guide table gives you the high-level matrix. The audit log's *content* 
 
 | Level | Rows written | Notes |
 | - | - | - |
-| `strict` | `claude_bypass_proposal`, `relayed_framework_escape`, `terminal_commit_blocked`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is installed; a user-terminal commit the gate BLOCKS produces a `terminal_commit_blocked` row, while a clean pass writes **no** ledger row — only a non-tracked `.claude/last-gate-pass.txt` receipt (BL-161), so the tracked ledger records real events only. `--no-verify` skips the hook but the next SessionStart writes `out_of_band_commit` for the same SHA. (`terminal_commit_passed` is a legacy type — no longer written, still recognized in historical ledgers.) |
-| `light` | `claude_bypass_proposal`, `relayed_framework_escape`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is NOT installed, so no `terminal_commit_blocked` / `terminal_commit_passed` rows. The SessionStart detector still runs and records every new SHA as `out_of_band_commit` (since none are blocked or passed by the gate). |
+| `strict` | `claude_bypass_proposal`, `relayed_framework_escape`, `terminal_commit_blocked`, `out_of_band_commit`, `approval_mismatch`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is installed; a user-terminal commit the gate BLOCKS produces a `terminal_commit_blocked` row, while a clean pass writes **no** ledger row — only a non-tracked `.claude/last-gate-pass.txt` receipt (BL-161), so the tracked ledger records real events only. `--no-verify` skips the hook but the next SessionStart writes `out_of_band_commit` for the same SHA. (`terminal_commit_passed` is a legacy type — no longer written, still recognized in historical ledgers.) |
+| `light` | `claude_bypass_proposal`, `relayed_framework_escape`, `out_of_band_commit`, `approval_mismatch`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is NOT installed, so no `terminal_commit_blocked` / `terminal_commit_passed` rows. The SessionStart detector still runs and records every new SHA as `out_of_band_commit` (since none are blocked or passed by the gate). |
 | `no` | `claude_bypass_proposal`, `relayed_framework_escape`, `enforcement_level_set`, `escalation` | Only Claude-side events are recorded. The SessionStart detector exits early. A successor reading the log can see the level transition that disabled the user-terminal audit. |
 
 `enforcement_level_set` is written on every level transition regardless of source level — even `strict → no` records the transition before silencing the detector, so the timeline is intact.

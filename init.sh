@@ -111,6 +111,9 @@ source "$SCRIPT_DIR/scripts/lib/tldr-mode.sh"
 # The session layer (permissions, hook roster, vendored skills) — shared with
 # the adoption driver so both give a project the same one (§10-WP9c).
 source "$SCRIPT_DIR/scripts/lib/claude-settings.sh"
+# `## BL-320:` the Development Guardrails' minimum version, approval questions,
+# hook registrations and the ask-first update of their shared clone.
+source "$SCRIPT_DIR/scripts/lib/guardrails.sh"
 
 # BL-199 (2026-07-29): the anchor a bare/relative --project-dir resolves
 # against. It is the PARENT OF THE DIRECTORY CONTAINING init.sh — NOT the cwd.
@@ -1551,6 +1554,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/tdd-classify.sh"      scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/phase2-state.sh"      scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/cdf-refresh.sh"       scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/guardrails.sh"        scripts/lib/   # BL-320-SHIP
   cp "$SCRIPT_DIR/scripts/lib/adoption-stamp.sh"    scripts/lib/
   # ── DELTA-INSTALL-BEGIN ────────────────────────────────────────────────────
   # THE POST-1.0 DELTA MODULE (design 2026-08-02-delta-track-v1 §3.1, §11-WP8).
@@ -1797,17 +1801,18 @@ create_project() {
 
   print_info "Installing Development Guardrails for Claude Code..."
   if command -v git &>/dev/null; then
-    # Step 1: Check if framework is already installed; if so, pull latest
+    # Step 1: Check if framework is already installed; if so, offer its update
     local framework_valid=false
     if [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
       print_ok "Development Guardrails for Claude Code found at $FRAMEWORK_CLONE"
-      # Pull latest to ensure we have the newest version
-      print_info "Checking for updates..."
-      if git -C "$FRAMEWORK_CLONE" pull --quiet 2>/dev/null; then
-        print_ok "Development Guardrails up to date"
-      else
-        print_warn "Could not pull latest updates (network issue?) — using existing version"
-      fi
+      # `## BL-320:` (Karl, 2026-10-06) ASK FIRST. This used to pull the
+      # clone, unasked, on every init: the clone is shared by every project
+      # on the computer, and it moved three times in one week without anyone
+      # choosing to update it. At a terminal the question shows the installed
+      # version (and the available one) and Enter means yes; with no one to ask
+      # it never pulls, and prints the command. Either way a clone below the
+      # minimum (SOIF_GUARDRAILS_MIN) is named.
+      soif_guardrails_clone_update "$FRAMEWORK_CLONE" "$NON_INTERACTIVE"   # BL-320-INIT-PULL
       framework_valid=true
     fi
 

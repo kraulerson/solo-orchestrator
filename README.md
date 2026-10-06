@@ -458,7 +458,7 @@ The init script installs these tools globally on your machine. Each installation
 
 | Component | Purpose | Install Method |
 |---|---|---|
-| **Development Guardrails for Claude Code** | Git hook-based guardrails: session-start checks, pre-commit hooks, profile-driven rules. Version pinned in `.claude/manifest.json`. | `init.sh` clones [`kraulerson/claude-dev-framework`](https://github.com/kraulerson/claude-dev-framework) to `~/.claude-dev-framework` (reused across projects), then runs its init to install per-project hooks into `.claude/framework/`. |
+| **Development Guardrails for Claude Code** | Git hook-based guardrails: session-start checks, pre-commit hooks, profile-driven rules. Version pinned in `.claude/manifest.json`. | `init.sh` clones [`kraulerson/claude-dev-framework`](https://github.com/kraulerson/claude-dev-framework) to `~/.claude-dev-framework` (reused across projects), then runs its init to install per-project hooks into `.claude/framework/`. When the clone is already there, `init.sh` asks before updating it (Enter means yes); with no terminal to ask at, it leaves it alone and prints the command. This framework needs version 4.4.0 or later for its approval questions. |
 
 **Optional enhancements (user-configured after init):**
 

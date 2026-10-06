@@ -452,9 +452,11 @@ Guardrails block every commit the agent runs until you have approved it. When
 the change is ready, the agent:
 
 1. stages exactly the files it means to commit;
-2. records a question in `.claude/pending-approval.json`, tells you its
-   evaluation (pros, cons, alternatives) and the options, each with an id such
-   as `A1` (commit these files) or `A2` (do not commit yet), and stops.
+2. records a question in `.claude/pending-approval.json`
+   (`scripts/pending-approval.sh --offer`), tells you its evaluation (pros,
+   cons, alternatives) and the options, each with an id such as `A1` (commit
+   these files) or `A2` (do not commit yet), and stops. The question itself
+   says which options approve the commit; at least one approves nothing.
 
 Each approval covers one commit; the next commit needs a new question. If the
 agent tries to commit before you approve, the commit is blocked with a message
@@ -482,28 +484,45 @@ jq -r .frameworkVersion .claude/manifest.json
   does, the staged files and the git hooks that will run, ending
   `Reply with the option id again (for example: A1) to confirm.`; that second
   reply is the approval. The agent then commits with a plain
-  `git commit -m "…"`. A reply that does not start with an option id approves
-  nothing, and changing what is staged after you approve cancels
-  the approval. Two things can stop this working today:
+  `git commit -m "…"` — one `-m` per paragraph, nothing else on the line. A
+  reply that does not start with an option id approves nothing, and changing
+  what is staged after you approve cancels the approval. Two things can still
+  stop this working:
   - **`The pending question cannot be answered`** means the question was written
-    in the older format, which this framework's own `scripts/pending-approval.sh`
-    and `scripts/escalate-to-user.sh` still write. Ask the agent to rewrite it;
-    the message gives the agent the format.
-  - **Guardrails brought up to 4.4.0 by `bash scripts/refresh-guardrails.sh`**
-    from an earlier version. That update does not change
-    `.claude/settings.json` (`## BL-319:`), and the hook that reads your reply,
-    `record-approval.sh`, is switched on there. This prints `0` when it is not:
+    in the older format. This framework's `scripts/pending-approval.sh`,
+    `scripts/escalate-to-user.sh` and bypass detector write the current one
+    (`## BL-320:`); a project whose copies of those scripts are older still
+    writes the old one — its `scripts/pending-approval.sh --help` does not
+    mention `--approves`. Ask the agent to rewrite the question (the message
+    gives it the format), and bring the project's scripts up to date with the
+    same-tier refresh, which you run yourself
+    ([Keeping your project current](user-guide.md#keeping-your-project-current---sync-framework)).
+  - **Guardrails brought up to 4.4.0 from an earlier version.** The hook that
+    reads your reply, `record-approval.sh`, runs only once
+    `.claude/settings.json` registers it. `bash scripts/refresh-guardrails.sh`
+    and `upgrade-project.sh` now add every Guardrails hook registration the
+    project is missing and list each one (`## BL-320:`), but a project updated
+    before they did may lack it. This prints `0` when it is missing:
 
     ```bash
     grep -c record-approval .claude/settings.json
     ```
 
-    Then no reply of yours can approve a commit; use the override below for each
-    one. (A project adopted with 4.4.0 already in the clone has it switched on.)
+    The session start then offers the refresh, which adds only what is
+    missing; accept it, or use the override below for each commit until you
+    do. (A project created or adopted with 4.4.0 already in the clone has it.)
+    When the project's own scripts are older than the 4.4.0 question, the
+    session start offers no Guardrails-only update at all and names the
+    framework sync, which brings both. A project whose scripts are older still
+    can install 4.4.0 alone two ways — its own copy of that offer, and its own
+    `upgrade-project.sh` (`--backfill-only`, or a track or deployment change
+    run from the project's copy) — and the same sync, run from the framework's
+    up-to-date clone, repairs it.
 - **4.3.7.** Answer in your own words. The agent clears the question
   (`scripts/pending-approval.sh --resolve`), records your approval by running
   `bash .claude/framework/hooks/mark-evaluated.sh "<what you approved>"` on its
-  own, and commits.
+  own, and commits. This framework needs 4.4.0 for the reply route above, and
+  every session start offers the update.
 - **Older than 4.3.7** — the dogfood project's 4.3.0, for one. The Guardrails
   block the agent from staging `.claude/manifest.json`, which the assessment's
   finisher lists, and they accept `mark-evaluated.sh` only as a lone command,

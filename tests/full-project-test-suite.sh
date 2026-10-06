@@ -1001,6 +1001,12 @@ run_child_suite "tests/test-bl318-g1-test-command.sh" \
 run_child_suite "tests/test-bl318-g5-guardrails-refresh.sh" \
   "BL-318 G5: the session start offers an older project's Guardrails update; scripts/refresh-guardrails.sh applies only that" \
   "BL-318 G5 Guardrails-refresh tests FAILED (run tests/test-bl318-g5-guardrails-refresh.sh for details)"
+# BL-320: Development Guardrails 4.4.0 approve a commit only on the user's
+# option-id answer to a schema-2 question; Solo wrote schema 1, never registered
+# record-approval.sh on a refreshed project, and pulled the shared clone unasked.
+run_child_suite "tests/test-bl320-approval-schema2.sh" \
+  "BL-320: schema-2 approval questions, the answer by option id, missing Guardrails hooks registered, init asks before it pulls" \
+  "BL-320 approval-schema2 tests FAILED (run tests/test-bl320-approval-schema2.sh for details)"
 # BL-318 G2: after an adoptee's assessment resume.sh printed the classic prompt,
 # not Phase 0's, because branch 2 required no PRODUCT_MANIFESTO.md; and that
 # prompt filled three fields with CLAUDE.md's Context Health Check paragraph.

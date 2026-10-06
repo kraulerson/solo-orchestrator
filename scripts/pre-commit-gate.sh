@@ -916,13 +916,42 @@ fi
 # approval preempts workflow concerns without hiding security violations.
 # See docs/builders-guide.md "Structured Decision Points" for the contract.
 
+# `## BL-320:` the question may be schema 2 (Development Guardrails 4.4.0's
+# approval design B: options {id, text, approves}) or schema 1 ("A1: text"
+# strings). Each option is shown with what picking it does, and the route the
+# agent is given depends on the project's Guardrails version (_pa_route): with
+# 4.4.0 and later the USER answers by replying with the option id, twice, and
+# the Guardrails record the pick and remove the question — so the agent is NOT
+# told to run --resolve (an early --resolve withdraws the user's question).
+# Older versions keep the old route. The lib is loaded guardedly, in this
+# file's idiom: without it the route is "unknown" and the old text is shown.
+if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ]; then
+  # shellcheck source=scripts/lib/guardrails.sh
+  . "$SCRIPT_DIR/lib/guardrails.sh"
+fi
+_pa_route() {   # SENTINEL — pick | legacy | unknown, from the sentinel's project
+  local root
+  root="$(dirname "$(dirname "$1")")"
+  if command -v soif_gr_route >/dev/null 2>&1; then soif_gr_route "$root"; else echo unknown; fi
+}
+
 build_pa_rich_reason() {
   local sentinel="$1" action_label="$2"
-  local question options recommendation offered_at
+  local question options recommendation offered_at route schema hint
   question=$(jq -er '.question' "$sentinel") || return 1
-  options=$(jq -er '.options | map("  " + .) | join("\n")' "$sentinel") || return 1
+  options=$(jq -er 'if .schema == 2 then (.options | map("  \(.id) — \(.text) [\(if .approves == "commit" then "approves committing the staged change" else "approves nothing" end)]")) else (.options | map("  " + .)) end | join("\n")' "$sentinel") || return 1   # BL-320-GATE-RENDER
   recommendation=$(jq -er '.recommendation' "$sentinel") || return 1
   offered_at=$(jq -er '.offered_at' "$sentinel") || return 1
+  schema=$(jq -r 'if .schema == 2 then 2 else 1 end' "$sentinel")
+  route="$(_pa_route "$sentinel")"   # BL-320-GATE-ROUTE
+  if [ "$route" = pick ] && [ "$schema" != 2 ]; then
+    hint="This question is in the older format (schema 1), which the Development Guardrails 4.4.0 and later cannot take an answer to. Withdraw it (scripts/pending-approval.sh --clear), then ask again with scripts/pending-approval.sh --offer, after staging the change."
+  elif [ "$route" = pick ]; then
+    hint="Stop and wait. The user answers by replying with the option id (for example: $recommendation), then again once the Development Guardrails have shown them the question and the staged change; the Guardrails then record the pick and remove this question. Do not remove it yourself. After a pick that approves the commit, commit with a lone git commit -m \"subject\" -m \"body\" (no -a, no paths, nothing else on the line). To withdraw the question instead: scripts/pending-approval.sh --clear"
+  else
+    hint="Wait for the user to pick one, then:
+  scripts/pending-approval.sh --resolve"
+  fi
   cat <<EOF
 pre-commit gate: $action_label blocked — pending user decision.
 
@@ -932,8 +961,7 @@ $options
 Recommendation: $recommendation
 Offered at: $offered_at
 
-Wait for the user to pick one, then:
-  scripts/pending-approval.sh --resolve
+$hint
 EOF
 }
 

@@ -58,6 +58,48 @@ record_error() {
   echo "[FAIL] detect-out-of-band-commits: $reason" >&2
 }
 
+# ── `## BL-320:` what the Development Guardrails recorded in .claude/approvals.jsonl
+# (4.4.0 and later; a file only they write). Runs before every early exit
+# below, so a project with no baseline yet is still read.
+#   1. A bypass question the user answered closes its PENDING rows
+#      (bypass_audit_close_from_approvals), so a decision is never left
+#      waiting on the agent running --resolve.
+#   2. A commit record with matched=false — the commit's tree is not the tree
+#      the user approved (a git hook that was present at approval time changed
+#      the stage during the commit) — is a governance violation: recorded once
+#      per commit as an `approval_mismatch` row. The Guardrails' own stop hook
+#      tells the session it happened in; this row is what a successor reads.
+APPROVALS="$PROJECT_ROOT/.claude/approvals.jsonl"
+if [ -f "$APPROVALS" ]; then
+  if [ -f "$SCRIPT_DIR/lib/bypass-audit.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/lib/bypass-audit.sh"
+    bypass_audit_close_from_approvals "$PROJECT_ROOT" >/dev/null 2>&1 || :   # BL-320-OOB-RECONCILE
+  fi
+  MISMATCHES=0
+  MISMATCH_FAILED=0
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    c="$(printf '%s' "$m" | jq -r '.commit')"
+    jq -e --arg c "$c" 'any(.[]; .type == "approval_mismatch" and .details.commit == $c)' "$AUDIT" >/dev/null 2>&1 && continue   # BL-320-OOB-DEDUP
+    row=$(printf '%s' "$m" | jq -c --arg ts "$(ts)" --arg lvl "$LEVEL" \
+      '{timestamp: $ts, session_id: null, type: "approval_mismatch", actor: "framework", enforcement_level_at_event: $lvl,
+        details: {commit: .commit, approved_tree: .approved_tree, committed_tree: .committed_tree, at: .at},
+        user_response: "n/a", final_outcome: "recorded_only"}')
+    append_audit_row "$row"   # BL-320-OOB-MISMATCH
+    # append_audit_row reports a failure and returns 0 (review round 1, R-7b):
+    # count a row as recorded only when it is in the file.
+    jq -e --arg c "$c" 'type == "array" and any(.[]; .type == "approval_mismatch" and .details.commit == $c)' "$AUDIT" >/dev/null 2>&1 || { MISMATCH_FAILED=$((MISMATCH_FAILED + 1)); continue; }   # BL-320-OOB-LANDED
+    MISMATCHES=$((MISMATCHES + 1))
+  done < <(jq -R -c 'fromjson? | select(type == "object" and .event == "commit" and .matched == false and (.commit | type) == "string")' "$APPROVALS" 2>/dev/null)
+  if [ "$MISMATCHES" -gt 0 ]; then
+    echo "⚠ $MISMATCHES commit(s) do not match the change the user approved (.claude/approvals.jsonl) — recorded to .claude/bypass-audit.json as approval_mismatch. Tell the user." >&2
+  fi
+  if [ "$MISMATCH_FAILED" -gt 0 ]; then
+    echo "⚠ $MISMATCH_FAILED commit(s) do not match the change the user approved (.claude/approvals.jsonl), and its approval_mismatch row could not be recorded: .claude/bypass-audit.json was not changed (the [FAIL] above says why). Tell the user." >&2
+  fi
+fi
+
 # Establish baseline if missing.
 if [ ! -f "$BASELINE_FILE" ]; then
   cd "$PROJECT_ROOT" && git rev-parse HEAD > "$BASELINE_FILE" 2>/dev/null || {
