@@ -82,15 +82,25 @@ soif_gr_route() {
   echo pick
 }
 
-# soif_gr_writer_schema ROOT — the schema ROOT's own question writer produces:
-# 2 when ROOT/scripts/pending-approval.sh carries the `SOIF_APPROVAL_SCHEMA=2`
-# line (`# BL-320-PA-SCHEMA-MARK`), 1 when the script is there without it (it
-# predates BL-320 and writes "A1: text" strings), none when there is no such
-# script (no Solo writer: nothing to mix). Read from the file, never guessed.
+# soif_gr_writer_schema ROOT — the oldest question schema ROOT's own writers
+# produce. Solo has two: scripts/pending-approval.sh (`# BL-320-PA-SCHEMA-MARK`)
+# and scripts/hooks/bypass-detector.sh. Each says which schema it writes on a
+# line that STARTS `SOIF_APPROVAL_SCHEMA=<n>`; a writer without that line
+# predates BL-320 and writes "A1: text" strings, so it counts as 1. Prints the
+# smallest number over the writers present, or none when neither is there (no
+# Solo writer: nothing to mix). Read from the files, never guessed; compared as
+# a number, so a later schema 3 counts as current, not as old.
 soif_gr_writer_schema() {
-  local f="${1:-.}/scripts/pending-approval.sh"
-  [ -f "$f" ] || { echo none; return 0; }
-  if grep -qE '^SOIF_APPROVAL_SCHEMA=2([[:space:]]|$)' "$f" 2>/dev/null; then echo 2; else echo 1; fi
+  local root="${1:-.}" f n min=""
+  local -a files=("$root/scripts/pending-approval.sh")
+  files+=("$root/scripts/hooks/bypass-detector.sh")   # BL-320-WRITER-DETECTOR
+  for f in "${files[@]}"; do
+    [ -f "$f" ] || continue
+    n="$(sed -n 's/^SOIF_APPROVAL_SCHEMA=\([0-9][0-9]*\).*/\1/p' "$f" | head -1)"   # BL-320-WRITER-ANCHOR
+    [ -n "$n" ] || n=1
+    if [ -z "$min" ] || [ "$n" -lt "$min" ]; then min="$n"; fi
+  done
+  printf '%s\n' "${min:-none}"
 }
 
 # soif_gr_mixed ROOT VERSION — true when installing Guardrails VERSION (at or
@@ -98,7 +108,25 @@ soif_gr_writer_schema() {
 # from: the mixed install `## BL-320:` exists to prevent. Both halves must move
 # together, by the framework sync.
 soif_gr_mixed() {
-  soif_gr_xyz_valid "${2:-}" && ! soif_gr_below_min "$2" && [ "$(soif_gr_writer_schema "$1")" = 1 ]
+  local w=""
+  soif_gr_xyz_valid "${2:-}" && ! soif_gr_below_min "$2" || return 1
+  w="$(soif_gr_writer_schema "$1")"
+  [ "$w" != none ] && [ "$w" -lt 2 ]   # BL-320-WRITER-NUM
+}
+
+# soif_gr_git_noprompt [-C DIR] ARGS… — git that cannot stop to ask: no
+# credential prompt (GIT_TERMINAL_PROMPT=0) and, unless the user set their own
+# ssh command (GIT_SSH_COMMAND, GIT_SSH, or core.sshCommand — measured: each is
+# left as it is), ssh in BatchMode, so a passphrase or an unknown host key
+# fails instead of waiting. Review round 1, R-7d.
+soif_gr_git_noprompt() {
+  local dir="."
+  [ "${1:-}" = -C ] && dir="${2:-.}"
+  if [ -z "${GIT_SSH_COMMAND:-}" ] && [ -z "${GIT_SSH:-}" ] && ! git -C "$dir" config --get core.sshCommand >/dev/null 2>&1; then
+    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='ssh -o BatchMode=yes' git "$@"   # BL-320-SSH-BATCH
+    return
+  fi
+  GIT_TERMINAL_PROMPT=0 git "$@"
 }
 
 # soif_pa_schema FILE — 2 for a schema-2 question, 1 for any other JSON object,
@@ -165,7 +193,7 @@ _gr_reg_fail() { echo "[FAIL] $1. Nothing was registered." >&2; }
 soif_cdf_register_hooks() {
   local root="$1" clone="$2" mode="${3:-apply}"
   local st="$root/.claude/settings.json" mf="$root/.claude/manifest.json" shared="$clone/scripts/_shared.sh"
-  local gen entry ev m cmd name missing="" add prog tmp perm n=0
+  local gen entry ev m cmd name missing="" add prog tmp perm lost="" n=0
   local -a active=()
   [ ! -L "$st" ] || { _gr_reg_fail ".claude/settings.json is a symlink, so registering would write through it to wherever it points"; return 1; }   # BL-320-REG-LINK
   [ -f "$st" ] || { _gr_reg_fail "there is no .claude/settings.json to register the Guardrails hooks in"; return 1; }
@@ -209,6 +237,11 @@ soif_cdf_register_hooks() {
   tmp="$(mktemp "$st.XXXXXX")" || { _gr_reg_fail "could not create a temporary file beside .claude/settings.json"; return 1; }
   perm="$(stat -c '%a' "$st" 2>/dev/null || stat -f '%Lp' "$st" 2>/dev/null || echo 644)"
   if jq --argjson add "$add" "$prog" "$st" > "$tmp" 2>/dev/null && chmod "$perm" "$tmp" && mv -f "$tmp" "$st"; then
+    # The receipt (review round 1, R-7a): re-read the file and find every
+    # entry in it, rather than reporting the list this function computed.
+    lost="$(printf '%s' "$missing" | jq -r --slurpfile s "$st" 'select(. as $e | ($s[0].hooks[$e.event] // []) | any(.[]?.hooks[]?; .command == $e.command) | not) | .command' 2>/dev/null)" \
+      || lost="(.claude/settings.json could not be read back)"
+    [ -z "$lost" ] || { [ ! -f "$tmp" ] || rm -f "$tmp"; _gr_reg_fail "the registrations did not land in .claude/settings.json: $(printf '%s' "$lost" | tr '\n' ' ')"; return 1; }   # BL-320-REG-RECEIPT
     echo "Guardrails hook registrations added to .claude/settings.json (nothing else in it changed):"
     printf '%s' "$missing" | jq -r '"  + \(.event)\(if .matcher != "" then " (" + .matcher + ")" else "" end): \(.command)"'
     return 0
@@ -232,12 +265,12 @@ soif_guardrails_clone_update() {
     print_info "Development Guardrails clone at $clone: ${cur:-version unknown}${head:+ ($head)}. Not updated: this run cannot ask first."
     print_info "To update it (every project on this computer uses it): git -C \"$clone\" pull --ff-only"
   else
-    if GIT_TERMINAL_PROMPT=0 git -C "$clone" fetch --quiet >/dev/null 2>&1; then
+    if soif_gr_git_noprompt -C "$clone" fetch --quiet >/dev/null 2>&1; then
       avail="$(git -C "$clone" show '@{upstream}:FRAMEWORK_VERSION' 2>/dev/null | tr -d '[:space:]' || :)"
     fi
     print_info "Development Guardrails clone at $clone: ${cur:-version unknown}${head:+ ($head)} installed${avail:+, $avail available}."
     if prompt_yes_no "Update the shared clone now? Every project on this computer uses it [Y/n]" "Y"; then   # BL-320-PULL-ASK
-      if GIT_TERMINAL_PROMPT=0 git -C "$clone" pull --ff-only --quiet >/dev/null 2>&1; then
+      if soif_gr_git_noprompt -C "$clone" pull --ff-only --quiet >/dev/null 2>&1; then
         cur="$(tr -d '[:space:]' < "$clone/FRAMEWORK_VERSION" 2>/dev/null || :)"
         print_ok "Development Guardrails clone updated: ${cur:-version unknown}"
       else

@@ -132,7 +132,7 @@ DIRTY="$(git -C "$CLONE" status --porcelain -- 'hooks/*.sh' 'hooks/*.txt' 'rules
 # Pull first, so the version checked below is the one that will be installed
 # (refresh_cdf_assets's own pull then has nothing to do). No prompt: there is no
 # one to answer it. A failure is reported by that second pull, as before.
-GIT_TERMINAL_PROMPT=0 git -C "$CLONE" pull --ff-only --quiet >/dev/null 2>&1 || :   # BL-318-G5-REFRESH-PULL
+soif_gr_git_noprompt -C "$CLONE" pull --ff-only --quiet >/dev/null 2>&1 || :   # BL-318-G5-REFRESH-PULL
 
 _rg_xyz() { local re='^[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$'; [[ "${1:-}" =~ $re ]]; }
 INST="$(jq -r '.frameworkVersion // empty' "$PROJECT_ROOT/.claude/manifest.json" 2>/dev/null || :)"

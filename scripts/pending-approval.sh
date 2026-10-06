@@ -221,7 +221,10 @@ cmd_offer() {
   payload=$(jq -n --arg q "$question" --argjson opts "$options_json" --arg rec "$recommendation" --arg at "$now" '{schema: 2, question: $q, options: $opts, recommendation: $rec, offered_at: $at}')   # BL-320-OFFER-SCHEMA
 
   local tmpfile problems
-  tmpfile=$(mktemp "$project_root/.claude/pending-approval.XXXXXX.tmp")
+  # Trailing Xs (review round 1, R-1): BSD mktemp randomises only those, and
+  # with "XXXXXX.tmp" it created that literal name — so a temp file left by an
+  # interrupted offer made every later one fail.
+  tmpfile=$(mktemp "$project_root/.claude/pending-approval.json.XXXXXX")   # BL-320-OFFER-TMP
   printf '%s\n' "$payload" > "$tmpfile"
   problems="$(soif_pa_v2_problems "$tmpfile")"
   if [ -n "$problems" ]; then
@@ -264,7 +267,12 @@ cmd_resolve() {
     return 1
   }
   route="$(_pa_route "$project_root")"
-  [ -z "$decision" ] || [ "$route" != pick ] || { print_fail "--decision is not used with Development Guardrails ${SOIF_GUARDRAILS_MIN:-4.4.0} and later: the user's pick is recorded by the Guardrails in .claude/approvals.jsonl, and --resolve reads it from there. Nothing was changed."; return 1; }   # BL-320-RESOLVE-DECISION
+  # FAILS CLOSED (review round 1, R-3): --decision is the agent's own account of
+  # the user's answer, so it is accepted only where the Guardrails are KNOWN to
+  # be older than the minimum and record no pick. With 4.4.0 or later, with no
+  # readable version, or with scripts/lib/guardrails.sh missing (the route then
+  # reads "unknown"), it is refused.
+  [ -z "$decision" ] || [ "$route" = legacy ] || { print_fail "--decision is not used here: it is accepted only where the Development Guardrails are known to be older than ${SOIF_GUARDRAILS_MIN:-4.4.0}, which record no pick (this project: ${route}). With 4.4.0 and later the user's pick is recorded by the Guardrails in .claude/approvals.jsonl, and --resolve reads it from there. Nothing was changed."; return 1; }   # BL-320-RESOLVE-DECISION
 
   # code-escalate-pending-4 (audit v2, S3): validate --decision
   # BEFORE deleting the sentinel. Pre-fix, cmd_resolve removed the
@@ -325,6 +333,10 @@ cmd_resolve() {
     # shellcheck disable=SC1090
     source "$lib"
     local closed=0
+    if ! command -v bypass_audit_close_from_approvals >/dev/null 2>&1; then
+      [ ! -f "$project_root/.claude/approvals.jsonl" ] || { print_fail "scripts/lib/bypass-audit.sh predates BL-320 and cannot read the user's picks from .claude/approvals.jsonl, so no bypass decision was recorded. Re-sync this project's framework scripts (upgrade-project.sh --sync-framework, from the framework's clone)."; return 1; }   # BL-320-RESOLVE-READER
+      return 0
+    fi
     closed="$(bypass_audit_close_from_approvals "$project_root")" || { print_fail "Could not read the user's picks from .claude/approvals.jsonl into the audit log."; return 1; }   # BL-320-RESOLVE-RECONCILE
     [ "${closed:-0}" = 0 ] || print_ok "Audit log: $closed pending bypass row(s) closed from the user's pick in .claude/approvals.jsonl."
   fi

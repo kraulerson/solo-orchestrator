@@ -34,6 +34,11 @@ fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 setup_project() {
   TMP=$(mktemp -d)
   mkdir -p "$TMP/.claude"
+  # BL-320 (review round 1, R-3): --decision is the agent's own account of the
+  # answer, accepted only where the Development Guardrails are KNOWN to be older
+  # than 4.4.0 (they record no pick). This suite exercises that route, so its
+  # project declares such a version.
+  printf '%s\n' '{"frameworkVersion":"4.3.7"}' > "$TMP/.claude/manifest.json"
 }
 teardown_project() { rm -rf "$TMP"; }
 

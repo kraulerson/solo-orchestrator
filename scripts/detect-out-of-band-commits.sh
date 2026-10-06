@@ -77,6 +77,7 @@ if [ -f "$APPROVALS" ]; then
     bypass_audit_close_from_approvals "$PROJECT_ROOT" >/dev/null 2>&1 || :   # BL-320-OOB-RECONCILE
   fi
   MISMATCHES=0
+  MISMATCH_FAILED=0
   while IFS= read -r m; do
     [ -n "$m" ] || continue
     c="$(printf '%s' "$m" | jq -r '.commit')"
@@ -86,10 +87,16 @@ if [ -f "$APPROVALS" ]; then
         details: {commit: .commit, approved_tree: .approved_tree, committed_tree: .committed_tree, at: .at},
         user_response: "n/a", final_outcome: "recorded_only"}')
     append_audit_row "$row"   # BL-320-OOB-MISMATCH
+    # append_audit_row reports a failure and returns 0 (review round 1, R-7b):
+    # count a row as recorded only when it is in the file.
+    jq -e --arg c "$c" 'type == "array" and any(.[]; .type == "approval_mismatch" and .details.commit == $c)' "$AUDIT" >/dev/null 2>&1 || { MISMATCH_FAILED=$((MISMATCH_FAILED + 1)); continue; }   # BL-320-OOB-LANDED
     MISMATCHES=$((MISMATCHES + 1))
   done < <(jq -R -c 'fromjson? | select(type == "object" and .event == "commit" and .matched == false and (.commit | type) == "string")' "$APPROVALS" 2>/dev/null)
   if [ "$MISMATCHES" -gt 0 ]; then
     echo "⚠ $MISMATCHES commit(s) do not match the change the user approved (.claude/approvals.jsonl) — recorded to .claude/bypass-audit.json as approval_mismatch. Tell the user." >&2
+  fi
+  if [ "$MISMATCH_FAILED" -gt 0 ]; then
+    echo "⚠ $MISMATCH_FAILED commit(s) do not match the change the user approved (.claude/approvals.jsonl), and its approval_mismatch row could not be recorded: .claude/bypass-audit.json was not changed (the [FAIL] above says why). Tell the user." >&2
   fi
 fi
 

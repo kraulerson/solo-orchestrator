@@ -257,7 +257,17 @@ audit_rows() {
     {timestamp:"2026-10-06T00:00:04Z", type:"escalation", user_response:"PENDING", final_outcome:"escalated", details:{question:"q"}}
   ]' > "$1/.claude/bypass-audit.json"
 }
-pick_line() { jq -nc --arg s "$2" --arg p "$1" '{event:"approval", source:"pick", pick:$p, approves:"none", sentinel_sha256:$s, picked_at:"2026-10-06T00:01:00Z", question:"Bypass proposal detected", option_text:"x"}'; }
+# The bypass question's fixed wording, as the detector writes it and the
+# Guardrails copy it into the pick record (D1 pins the detector to these).
+ACC_TEXT='Accept the bypass proposal recorded in .claude/bypass-audit.json (this approves no commit)'
+DEC_TEXT='Decline it'
+BYP_Q='Bypass proposal detected (pattern: no_verify). Review .claude/bypass-audit.json before deciding. Reply with the option id: A1 to accept the proposal, A2 to decline it.'
+# pick_line ID SHA [APPROVES QUESTION TEXT] — a pick record as record-approval.sh writes it.
+pick_line() {
+  local t="$ACC_TEXT"; [ "$1" = A2 ] && t="$DEC_TEXT"
+  jq -nc --arg s "$2" --arg p "$1" --arg a "${3:-none}" --arg q "${4:-$BYP_Q}" --arg t "${5:-$t}" \
+    '{event:"approval", source:"pick", pick:$p, approves:$a, sentinel_sha256:$s, picked_at:"2026-10-06T00:01:00Z", question:$q, option_text:$t}'
+}
 case_W11() {  # bypass decisions come from the user's pick in .claude/approvals.jsonl
   local d a
   d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
@@ -288,6 +298,51 @@ case_W12() {  # escalate-to-user.sh: --approves passes through, after staging
     "$d/.claude/bypass-audit.json" >/dev/null 2>&1 || { CASE_DETAIL="the audit row: $(jq -c '.[-1].details.options' "$d/.claude/bypass-audit.json")"; return 1; }
 }
 
+case_W13() {  # --decision fails CLOSED: no readable Guardrails version, or no lib to read one
+  local d t
+  d="$(newtmp)/p"; fx "$d" NONE || { CASE_DETAIL="fixture"; return 1; }
+  v1_sentinel "$d"; audit_rows "$d"
+  pa "$1" "$d" --resolve --decision accept
+  [ "$PA_RC" -ne 0 ] && [ -f "$d/$SENT" ] && has_f "$PA_OUT" "--decision" \
+    || { CASE_DETAIL="no manifest: rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+  jq -e '[.[] | select(.user_response == "accepted")] | length == 0' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="no manifest: rows were accepted on the agent's word"; return 1; }
+  t="$(newtmp)"; mkdir -p "$t/scripts/lib"
+  cp "$1/scripts/pending-approval.sh" "$t/scripts/" && cp "$1/scripts/lib/helpers-core.sh" "$1/scripts/lib/bypass-audit.sh" "$t/scripts/lib/"
+  d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  v2_sentinel "$d"; audit_rows "$d"
+  pa "$t" "$d" --resolve --decision accept
+  [ "$PA_RC" -ne 0 ] && [ -f "$d/$SENT" ] \
+    || { CASE_DETAIL="lib missing at 4.4.0: rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+  jq -e '[.[] | select(.user_response == "accepted")] | length == 0' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="lib missing: rows were accepted on the agent's word"; return 1; }
+}
+case_W14() {  # --resolve beside a bypass-audit.sh from before BL-320: named, never "command not found"
+  local d t
+  t="$(newtmp)"; mkdir -p "$t/scripts/lib"
+  cp "$1/scripts/pending-approval.sh" "$t/scripts/" && cp "$1/scripts/lib/helpers-core.sh" "$1/scripts/lib/guardrails.sh" "$t/scripts/lib/"
+  printf 'bypass_audit_close_pending() { return 0; }\n' > "$t/scripts/lib/bypass-audit.sh"
+  d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  audit_rows "$d"; pick_line A1 S1 > "$d/.claude/approvals.jsonl"
+  pa "$t" "$d" --resolve
+  [ "$PA_RC" -ne 0 ] && has_f "$PA_OUT" "predates" || { CASE_DETAIL="rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+  has_f "$PA_OUT" "command not found" && { CASE_DETAIL="a bare 'command not found'"; return 1; }
+  return 0
+}
+# tmpl_ok FILE MARKER — the mktemp template on the marked line ends in its Xs
+# (BSD mktemp randomises only TRAILING Xs; GNU does any run, so this is the
+# check that holds on both).
+tmpl_ok() { command grep -F -- "$2" "$1" | command grep -qE 'mktemp "[^"]*X{6}"'; }
+soif_schema_of() { jq -r '.schema // 1' "$1" 2>/dev/null; }
+case_W15() {  # a stale temp file from an interrupted --offer does not stop the next one
+  local d
+  d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  printf 'stale\n' > "$d/.claude/pending-approval.XXXXXX.tmp"
+  pa "$1" "$d" --offer "Merge or rebase?" --options "A1: Merge" "A2: Rebase" --recommendation A2
+  [ "$PA_RC" -eq 0 ] && [ "$(soif_schema_of "$d/$SENT")" = 2 ] || { CASE_DETAIL="rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+  tmpl_ok "$1/scripts/pending-approval.sh" '# BL-320-OFFER-TMP' || { CASE_DETAIL="the --offer temp template does not end in Xs"; return 1; }
+}
+
 # ── D: the bypass detector's question ────────────────────────────────────────
 detect() {   # ROOT DIR — one PostToolUse with a bypass proposal through ROOT's detector
   printf '%s' '{"hook_event_name":"PostToolUse","session_id":"bl320","tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"just use --no-verify to skip it"}}' \
@@ -303,6 +358,8 @@ case_D1() {   # schema 2, answered by id, rows bound to the question, the typed 
          and (.question | test("option id"))' "$d/$SENT" >/dev/null 2>&1 \
     || { CASE_DETAIL="shape: $(tr -d '\n' < "$d/$SENT")"; return 1; }
   command grep -q 'I have read the proposal' "$d/$SENT" && { CASE_DETAIL="the BL-029 typed phrase is still asked for"; return 1; }
+  jq -e --arg a "$ACC_TEXT" --arg d "$DEC_TEXT" --arg q "$BYP_Q" '.options[0].text == $a and .options[1].text == $d and .question == $q' "$d/$SENT" >/dev/null 2>&1 \
+    || { CASE_DETAIL="the question's wording is not the wording the audit decides from: $(jq -c '[.question, .options[].text]' "$d/$SENT")"; return 1; }
   cdf_ok "$d/$SENT" || { CASE_DETAIL="CDF's reader rejects it: $CDF_PROBLEMS"; return 1; }
   s="$(sha256_of "$d/$SENT")"
   jq -e --arg s "$s" '[.[] | select(.type == "claude_bypass_proposal")] | length >= 1 and all(.details.sentinel_sha256 == $s)' \
@@ -325,6 +382,55 @@ case_D3() {   # another question is open: the rows are not bound to it, and it i
   [ "$(sha256_of "$d/$SENT")" = "$s" ] || { CASE_DETAIL="the open question was rewritten"; return 1; }
   jq -e '[.[] | select(.type == "claude_bypass_proposal")] | length >= 1 and all(.details.sentinel_sha256 == null)' \
     "$d/.claude/bypass-audit.json" >/dev/null 2>&1 || { CASE_DETAIL="rows bound to a commit question: $(jq -c '[.[].details.sentinel_sha256]' "$d/.claude/bypass-audit.json")"; return 1; }
+}
+
+case_D4() {   # a stale temp file does not silence the detector (BSD mktemp, trailing Xs)
+  local d
+  d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  printf 'stale\n' > "$d/.claude/pending-approval.XXXXXX.tmp"
+  detect "$1" "$d"
+  [ "$(soif_schema_of "$d/$SENT" 2>/dev/null)" = 2 ] || { CASE_DETAIL="no question raised beside a stale temp file"; return 1; }
+  tmpl_ok "$1/scripts/hooks/bypass-detector.sh" '# BL-320-DETECT-TMP' || { CASE_DETAIL="the detector's temp template does not end in Xs"; return 1; }
+}
+case_D5() {   # the question cannot be written: a detector_error row says so, and the proposal is still recorded
+  local d stub real
+  d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  stub="$(newtmp)"; real="$(command -v mktemp)"
+  printf '#!/bin/sh\ncase "$*" in *pending-approval*) exit 1 ;; esac\nexec "%s" "$@"\n' "$real" > "$stub/mktemp"; chmod +x "$stub/mktemp"
+  printf '%s' '{"hook_event_name":"PostToolUse","session_id":"bl320","tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"just use --no-verify to skip it"}}' \
+    | PATH="$stub:$PATH" CLAUDE_PROJECT_DIR="$d" bash "$1/scripts/hooks/bypass-detector.sh" >/dev/null 2>&1
+  [ ! -f "$d/$SENT" ] || { CASE_DETAIL="fixture: the question was written anyway"; return 1; }
+  jq -e '[.[] | select(.type == "detector_error" and (.details.reason | test("bypass question")))] | length == 1' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="no detector_error row: $(jq -c '[.[].type]' "$d/.claude/bypass-audit.json")"; return 1; }
+  jq -e '[.[] | select(.type == "claude_bypass_proposal")] | length >= 1' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="the proposal itself went unrecorded"; return 1; }
+}
+case_D6() {   # R-2: a forged "bypass-detector" label cannot turn another answer into an acceptance
+  local d s n
+  d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  # The agent records a COMMIT question and labels it as the detector's own.
+  jq -n '{schema: 2, source: "bypass-detector", question: "Commit the fix?",
+          options: [{id: "A1", text: "Commit the staged fix", approves: "commit"}, {id: "A2", text: "Hold", approves: "none"}],
+          recommendation: "A1", offered_at: "2026-10-06T00:00:00Z"}' > "$d/$SENT"
+  s="$(sha256_of "$d/$SENT")"
+  detect "$1" "$d"
+  jq -e --arg s "$s" '[.[] | select(.type == "claude_bypass_proposal")] | length >= 1 and all(.details.sentinel_sha256 == $s)' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="fixture: the rows did not bind to the forged label"; return 1; }
+  # Three other forgeries, each bound to a sha of its own, and a genuine control.
+  jq '. + [{type:"claude_bypass_proposal", user_response:"PENDING", final_outcome:"recorded_only", details:{pattern:"f2", sentinel_sha256:"F2"}},
+           {type:"claude_bypass_proposal", user_response:"PENDING", final_outcome:"recorded_only", details:{pattern:"f3", sentinel_sha256:"F3"}},
+           {type:"claude_bypass_proposal", user_response:"PENDING", final_outcome:"recorded_only", details:{pattern:"f4", sentinel_sha256:"F4"}},
+           {type:"claude_bypass_proposal", user_response:"PENDING", final_outcome:"recorded_only", details:{pattern:"ok", sentinel_sha256:"OK"}}]' \
+    "$d/.claude/bypass-audit.json" > "$d/a" && mv "$d/a" "$d/.claude/bypass-audit.json"
+  { pick_line A1 "$s" commit "Commit the fix?" "Commit the staged fix"   # the user approved the COMMIT
+    pick_line A1 F2 none "Commit the fix?" "$ACC_TEXT"                   # not the detector's question
+    pick_line A1 F3 commit "$BYP_Q" "$ACC_TEXT"                          # its wording, but it approved a commit
+    pick_line A1 F4 none "$BYP_Q" "Commit the staged fix"                # its question, another option
+    pick_line A1 OK; } > "$d/.claude/approvals.jsonl"                    # the genuine pick: the control
+  mv "$d/$SENT" "$d/forged-question.json"                                # the pick removed the question
+  pa "$1" "$d" --resolve
+  n="$(jq '[.[] | select(.type == "claude_bypass_proposal" and .user_response != "PENDING") | .details.pattern] | join(",")' "$d/.claude/bypass-audit.json")"
+  [ "$n" = '"ok"' ] || { CASE_DETAIL="closed: $n (want only the genuine pick's row)"; return 1; }
 }
 
 # ── G: pre-commit-gate.sh's hold ─────────────────────────────────────────────
@@ -370,6 +476,91 @@ case_U1() {   # upgrade-project.sh's hold reads schema 2
   has_f "$out" "A1 — Commit the staged fix [approves committing the staged change]" || { CASE_DETAIL="options: $(printf '%s' "$out" | command grep -A4 'Options' | tr '\n' '|')"; return 1; }
   has_f "$out" "cannot be added" && { CASE_DETAIL="jq error"; return 1; }
   return 0
+}
+
+# ── U: upgrade-project.sh's other paths (R-3, R-4) ───────────────────────────
+# up_proj DIR new|old — an upgradeable project at Guardrails 4.3.7 (record-approval
+# unregistered), light/personal. "old": the scripts a pre-BL-320 project carries —
+# a schema-1 pending-approval.sh, a bypass-audit.sh without the approvals reader,
+# an old detector, no lib/guardrails.sh. "new": this framework's pending-approval.sh.
+up_proj() {
+  local d="$1"
+  reg_proj "$d" || return 1
+  jq '.frameworkVersion = "4.3.7" | .host = "github" | .mode = "personal" | .deployment = "personal" | .poc_mode = null' \
+    "$d/.claude/manifest.json" > "$d/m" && mv "$d/m" "$d/.claude/manifest.json"
+  printf '%s\n' '{"project":"t","framework_version":"1.0","current_phase":0,"track":"light","deployment":"personal","poc_mode":null,"compliance_ready":false,"gates":{"phase_0_to_1":null,"phase_1_to_2":null,"phase_3_to_4":null}}' \
+    > "$d/.claude/phase-state.json"
+  printf '%s\n' '{"phase1_artifacts":{"data_classification":"internal","zdr_attested":true,"zdr_attestation_reason":""}}' > "$d/.claude/process-state.json"
+  printf '%s\n' '{"context":{"track":"light","platform":"web","language":"python"}}' > "$d/.claude/tool-preferences.json"
+  mkdir -p "$d/scripts/lib" "$d/scripts/hooks"
+  if [ "$2" = old ]; then
+    old_writer "$d"
+    printf 'bypass_audit_close_pending() { return 0; }\nbypass_audit_append() { return 0; }\n' > "$d/scripts/lib/bypass-audit.sh"
+    printf '#!/usr/bin/env bash\n# bypass-detector.sh (before BL-320)\nexit 0\n' > "$d/scripts/hooks/bypass-detector.sh"
+  else
+    cp "$REPO_ROOT/scripts/pending-approval.sh" "$d/scripts/pending-approval.sh"
+  fi
+  ( cd "$d" && git add -A && git commit -q -m "up fixture" ) >/dev/null 2>&1
+}
+mk_up_clone() {   # T VERSION — a stub clone at T/home/.claude-dev-framework with a faithful upstream refresh
+  local c="$1/home/.claude-dev-framework"
+  mk_stub_clone "$c" "$2" || return 1
+  cat > "$c/scripts/cdf-refresh.sh" <<'UP'
+refresh_cdf_assets() {
+  local f; for f in "$2"/hooks/*.sh; do cp "$f" "$1/.claude/framework/hooks/"; done
+  chmod +x "$1"/.claude/framework/hooks/*.sh
+  jq --arg v "$(tr -d '[:space:]' < "$2/FRAMEWORK_VERSION")" '.frameworkVersion = $v' "$1/.claude/manifest.json" > "$1/.claude/m.tmp" \
+    && mv "$1/.claude/m.tmp" "$1/.claude/manifest.json"
+}
+UP
+  ( cd "$c" && git add -A && git commit -q -m up ) >/dev/null 2>&1
+}
+UPG_OUT=""; UPG_RC=0
+upg() {   # ROOT DIR T ARGS… — ROOT's upgrade-project.sh, run in DIR, HOME and CDF_HOME on T's stub clone
+  local r="$1" d="$2" t="$3"; shift 3
+  UPG_RC=0
+  UPG_OUT="$( cd "$d" && env -u GITHUB_BASE_REF HOME="$t/home" CDF_HOME="$t/home/.claude-dev-framework" SOIF_NONINTERACTIVE=1 \
+              bash "$r/scripts/upgrade-project.sh" "$@" </dev/null 2>&1 )" || UPG_RC=$?
+}
+registered() { jq -e --arg c "${CMDP}record-approval.sh" 'any(.hooks.UserPromptSubmit[]?.hooks[]?; .command == $c)' "$1/.claude/settings.json" >/dev/null 2>&1; }
+case_U2() {   # R-4: --backfill-only over a pre-BL-320 writer leaves the Guardrails alone and names the sync
+  local t d before
+  t="$(newtmp)"; d="$t/p"
+  up_proj "$d" old && mk_up_clone "$t" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  before="$(cd "$d" && cksum .claude/settings.json .claude/framework/hooks/*.sh)"
+  upg "$1" "$d" "$t" --backfill-only --non-interactive
+  [ "$UPG_RC" -eq 0 ] || { CASE_DETAIL="rc=$UPG_RC: $(last3 "$UPG_OUT")"; return 1; }
+  [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.3.7 ] || { CASE_DETAIL="4.4.0 was installed beside the old writer"; return 1; }
+  [ "$(cd "$d" && cksum .claude/settings.json .claude/framework/hooks/*.sh)" = "$before" ] || { CASE_DETAIL="the Guardrails files or settings changed"; return 1; }
+  has_f "$UPG_OUT" "$SYNC_CMD" || { CASE_DETAIL="the framework sync is not named: $(printf '%s' "$UPG_OUT" | command grep -iE 'guardrail|cdf' | tr '\n' '|' | cut -c1-300)"; return 1; }
+}
+case_U3() {   # R-3: a tier change ships the whole closure — lib, reader, detector — then refreshes, and the project's own writer works
+  local t d
+  t="$(newtmp)"; d="$t/p"
+  up_proj "$d" old && mk_up_clone "$t" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  upg "$1" "$d" "$t" --track standard --non-interactive
+  [ "$UPG_RC" -eq 0 ] || { CASE_DETAIL="rc=$UPG_RC: $(last3 "$UPG_OUT")"; return 1; }
+  command grep -qE '^SOIF_APPROVAL_SCHEMA=2' "$d/scripts/pending-approval.sh" || { CASE_DETAIL="the writer was not refreshed"; return 1; }
+  [ -f "$d/scripts/lib/guardrails.sh" ] || { CASE_DETAIL="scripts/lib/guardrails.sh was not shipped"; return 1; }
+  command grep -q '^bypass_audit_close_from_approvals()' "$d/scripts/lib/bypass-audit.sh" || { CASE_DETAIL="the approvals reader was not shipped"; return 1; }
+  command grep -qE '^SOIF_APPROVAL_SCHEMA=2' "$d/scripts/hooks/bypass-detector.sh" || { CASE_DETAIL="the bypass detector was not refreshed"; return 1; }
+  [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.4.0 ] || { CASE_DETAIL="not refreshed to 4.4.0: $(printf '%s' "$UPG_OUT" | command grep -iE 'guardrail|cdf' | tr '\n' '|' | cut -c1-300)"; return 1; }
+  registered "$d" || { CASE_DETAIL="record-approval.sh not registered"; return 1; }
+  stage "$d"
+  PA_RC=0; PA_OUT="$( cd "$d" && bash scripts/pending-approval.sh --offer "Commit?" --options "A1: Commit" "A2: Hold" --approves A1 --recommendation A1 </dev/null 2>&1 )" || PA_RC=$?
+  [ "$PA_RC" -eq 0 ] && [ "$(soif_schema_of "$d/$SENT")" = 2 ] || { CASE_DETAIL="the project's own --offer: rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+  pick_line A1 S1 > "$d/.claude/approvals.jsonl"
+  PA_RC=0; PA_OUT="$( cd "$d" && bash scripts/pending-approval.sh --resolve </dev/null 2>&1 )" || PA_RC=$?
+  [ "$PA_RC" -eq 0 ] || { CASE_DETAIL="the project's own --resolve: rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+}
+case_U4() {   # R-4: --sync-framework moves both halves — scripts first, then the Guardrails, then the registration
+  local t d
+  t="$(newtmp)"; d="$t/p"
+  up_proj "$d" old && mk_up_clone "$t" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  upg "$1" "$d" "$t" --sync-framework
+  command grep -qE '^SOIF_APPROVAL_SCHEMA=2' "$d/scripts/pending-approval.sh" || { CASE_DETAIL="the writer was not synced: rc=$UPG_RC $(last3 "$UPG_OUT")"; return 1; }
+  [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.4.0 ] || { CASE_DETAIL="the Guardrails were not refreshed: $(printf '%s' "$UPG_OUT" | command grep -iE 'guardrail|cdf' | tr '\n' '|' | cut -c1-300)"; return 1; }
+  registered "$d" || { CASE_DETAIL="record-approval.sh not registered"; return 1; }
 }
 
 # ── R: registering the Guardrails hook entries a project is missing ──────────
@@ -528,11 +719,26 @@ UP
   has_f "$out" "settings.json was not changed" && { CASE_DETAIL="claims settings.json was not changed"; return 1; }
   return 0
 }
-case_R9() {   # upgrade-project.sh registers too, right after its Guardrails refresh
-  local body
-  body="$(awk '/^_refresh_cdf_assets_solo\(\) \{/ { on = 1 } on { print } on && /^\}/ { exit }' "$1/scripts/upgrade-project.sh")"
-  has_f "$body" "solo_refresh_cdf" && has_f "$body" "soif_cdf_register_hooks" \
-    || { CASE_DETAIL="_refresh_cdf_assets_solo: $(printf '%s' "$body" | tr '\n' '|' | cut -c1-300)"; return 1; }
+case_R9() {   # R-5: upgrade-project.sh --backfill-only refreshes AND registers (behaviour, not text)
+  local t d
+  t="$(newtmp)"; d="$t/p"
+  up_proj "$d" new && mk_up_clone "$t" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  upg "$1" "$d" "$t" --backfill-only --non-interactive
+  [ "$UPG_RC" -eq 0 ] || { CASE_DETAIL="rc=$UPG_RC: $(last3 "$UPG_OUT")"; return 1; }
+  [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.4.0 ] || { CASE_DETAIL="not refreshed: $(last3 "$UPG_OUT")"; return 1; }
+  registered "$d" || { CASE_DETAIL="record-approval.sh not registered: $(printf '%s' "$UPG_OUT" | command grep -iE 'regist|FAIL|WARN' | tr '\n' '|' | cut -c1-300)"; return 1; }
+}
+case_R11() {  # R-7a: the registration re-reads settings.json; a write that did not land is a [FAIL]
+  local t d c stub real
+  t="$(newtmp)"; d="$t/p"; c="$t/clone"
+  reg_proj "$d" && mk_stub_clone "$c" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  stub="$(newtmp)"; real="$(command -v mv)"
+  printf '#!/bin/sh\ncase "$*" in *settings.json*) exit 0 ;; esac\nexec "%s" "$@"\n' "$real" > "$stub/mv"; chmod +x "$stub/mv"
+  REG_RC=0
+  REG_OUT="$( ( PATH="$stub:$PATH"; . "$1/scripts/lib/guardrails.sh" && soif_cdf_register_hooks "$d" "$c" ) 2>&1 )" || REG_RC=$?
+  [ "$REG_RC" -ne 0 ] && has_f "$REG_OUT" "[FAIL]" || { CASE_DETAIL="a write that never landed reported as: rc=$REG_RC $REG_OUT"; return 1; }
+  has_f "$REG_OUT" "registrations added" && { CASE_DETAIL="it still claims the additions: $REG_OUT"; return 1; }
+  return 0
 }
 case_R10() {  # the real clone's entries (skipped without a 4.4.0+ clone)
   local t d s
@@ -630,6 +836,21 @@ case_X2() {   # the session start names the sync and offers no Guardrails-only u
   has_f "$out" "GUARDRAILS UPDATE OFFER" && { CASE_DETAIL="an update is offered"; return 1; }
   return 0
 }
+case_X4() {   # R-7c: the schema line is read anchored and as a number, from BOTH writers
+  local d got
+  got_schema() { ( . "$1/scripts/lib/guardrails.sh" && soif_gr_writer_schema "$2" ); }
+  d="$(newtmp)/p"; mkdir -p "$d/scripts/hooks"
+  printf '#!/usr/bin/env bash\n# was SOIF_APPROVAL_SCHEMA=2 once\necho SOIF_APPROVAL_SCHEMA=2\n' > "$d/scripts/pending-approval.sh"
+  got="$(got_schema "$1" "$d")"; [ "$got" = 1 ] || { CASE_DETAIL="a mention off the start of a line read as $got"; return 1; }
+  printf '#!/usr/bin/env bash\nSOIF_APPROVAL_SCHEMA=3\n' > "$d/scripts/pending-approval.sh"
+  got="$(got_schema "$1" "$d")"; [ "$got" = 3 ] || { CASE_DETAIL="a later schema 3 read as $got"; return 1; }
+  ( . "$1/scripts/lib/guardrails.sh" && soif_gr_mixed "$d" 4.4.0 ) && { CASE_DETAIL="schema 3 counted as older than 2"; return 1; }
+  cp "$1/scripts/pending-approval.sh" "$d/scripts/pending-approval.sh"
+  printf '#!/usr/bin/env bash\n# old detector\n' > "$d/scripts/hooks/bypass-detector.sh"
+  got="$(got_schema "$1" "$d")"; [ "$got" = 1 ] || { CASE_DETAIL="an old bypass detector beside a new writer read as $got"; return 1; }
+  cp "$1/scripts/hooks/bypass-detector.sh" "$d/scripts/hooks/bypass-detector.sh"
+  got="$(got_schema "$1" "$d")"; [ "$got" = 2 ] || { CASE_DETAIL="this framework's two writers read as $got"; return 1; }
+}
 case_X3() {   # a project carrying this framework's own pending-approval.sh gets the plain offer
   local d out
   d="$(newtmp)/p"; vproj "$d" 4.3.7 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
@@ -652,6 +873,15 @@ case_O1() {   # matched=false is recorded once; matched=true is not
   [ "$n" = 1 ] || { CASE_DETAIL="$n approval_mismatch rows: $(jq -c '[.[] | .type]' "$d/.claude/bypass-audit.json")"; return 1; }
   jq -e '[.[] | select(.type == "approval_mismatch")][0].details | .commit == "aaa111" and .approved_tree == "t1" and .committed_tree == "t2"' \
     "$d/.claude/bypass-audit.json" >/dev/null 2>&1 || { CASE_DETAIL="details: $(jq -c '.[] | select(.type == "approval_mismatch")' "$d/.claude/bypass-audit.json")"; return 1; }
+}
+case_O3() {   # R-7b: an approval_mismatch row that could not be written is not reported as recorded
+  local d err
+  d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  printf '{}\n' > "$d/.claude/bypass-audit.json"
+  jq -nc '{event:"commit", commit:"aaa111", approved_tree:"t1", committed_tree:"t2", matched:false, at:"x"}' > "$d/.claude/approvals.jsonl"
+  err="$(bash "$1/scripts/detect-out-of-band-commits.sh" "$d" 2>&1 >/dev/null)"
+  has_f "$err" "recorded to .claude/bypass-audit.json" && { CASE_DETAIL="claims it recorded: $err"; return 1; }
+  has_f "$err" "could not be recorded" || { CASE_DETAIL="says nothing of the failure: $err"; return 1; }
 }
 case_O2() {   # the session start also closes bypass rows from the user's pick
   local d
@@ -739,6 +969,20 @@ case_I4() {   # --non-interactive at a terminal: no question, no pull
   [ "$(head_of "$CL")" = "$h" ] || { CASE_DETAIL="--non-interactive pulled"; return 1; }
   has_f "$UPD_OUT" "[Y/n]" && { CASE_DETAIL="--non-interactive asked"; return 1; }
   return 0
+}
+case_I6() {   # R-7d: no SSH prompt either — BatchMode, unless the user set their own ssh command
+  local t stub log
+  t="$(newtmp)"; stub="$t/bin"; log="$t/ssh.args"; mkdir -p "$stub"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexit 255\n' "$log" > "$stub/ssh"; chmod +x "$stub/ssh"
+  ( cd "$t" && git init -q c && git -C c remote add origin "ssh://bl320.invalid/x.git" ) >/dev/null 2>&1
+  run_noprompt() { local r="$1"; shift; ( PATH="$stub:$PATH"; . "$r/scripts/lib/helpers-core.sh"; . "$r/scripts/lib/guardrails.sh"; soif_gr_git_noprompt "$@" ) >/dev/null 2>&1; }
+  : > "$log"; ( unset GIT_SSH_COMMAND GIT_SSH; run_noprompt "$1" -C "$t/c" fetch -q origin )
+  command grep -q 'BatchMode=yes' "$log" || { CASE_DETAIL="ssh was not run in BatchMode: $(cat "$log")"; return 1; }
+  : > "$log"; ( GIT_SSH_COMMAND='ssh -o MyOwn=yes'; export GIT_SSH_COMMAND; run_noprompt "$1" -C "$t/c" fetch -q origin )
+  command grep -q 'MyOwn=yes' "$log" && ! command grep -q 'BatchMode=yes' "$log" || { CASE_DETAIL="the user's GIT_SSH_COMMAND was overridden: $(cat "$log")"; return 1; }
+  : > "$log"; git -C "$t/c" config core.sshCommand 'ssh -o FromConfig=yes'
+  ( unset GIT_SSH_COMMAND GIT_SSH; run_noprompt "$1" -C "$t/c" fetch -q origin )
+  command grep -q 'FromConfig=yes' "$log" && ! command grep -q 'BatchMode=yes' "$log" || { CASE_DETAIL="the user's core.sshCommand was overridden: $(cat "$log")"; return 1; }
 }
 case_I5() {   # init.sh asks through the lib, ships the lib, and no longer pulls on its own
   local i="$1/init.sh"
@@ -855,15 +1099,24 @@ check "W9: --validate — schema 2 by CDF's rules; schema 1 only where the Guard
 check "W10: --resolve --decision refused under 4.4.0 (the pick is recorded by the Guardrails); the 4.3.7 route kept" case_W10
 check "W11: --resolve closes bypass rows from the user's pick in approvals.jsonl, bound by the question's sha256" case_W11
 check "W12: escalate-to-user.sh passes --approves through; its audit row keeps the options" case_W12
+check "W13: --decision fails CLOSED — refused with no readable Guardrails version, and with the lib missing at 4.4.0" case_W13
+check "W14: --resolve beside a bypass-audit.sh from before BL-320 says so (rc 1), never 'command not found'" case_W14
+check "W15: a stale pending-approval.XXXXXX.tmp does not stop --offer; its temp template ends in Xs" case_W15
 echo "=== D — the bypass detector's question ==="
 check "D1: schema 2, two options that approve nothing, answered by id, rows bound to it; the BL-029 typed phrase retired" case_D1
 check "D2: a second proposal while it is open binds to it and leaves it alone" case_D2
 check "D3: a commit question already open is left alone and does not take the bypass rows" case_D3
+check "D4: a stale pending-approval.XXXXXX.tmp does not silence the detector; its temp template ends in Xs" case_D4
+check "D5: when the question cannot be written, a detector_error row says so and the proposal is still recorded" case_D5
+check "D6: a forged bypass-detector label — the user's commit approval, and three other forgeries — closes no bypass row; the genuine pick does" case_D6
 echo "=== G — the holds ==="
 check "G1: pre-commit-gate, schema 2 under 4.4.0 — effects rendered, answered by option id, no --resolve, no rm" case_G1
 check "G2: pre-commit-gate, schema 1 under 4.4.0 — older format, withdraw and ask again" case_G2
 check "G3: pre-commit-gate under 4.3.7 — the old route (--resolve)" case_G3
 check "U1: upgrade-project.sh's hold renders a schema-2 question" case_U1
+check "U2: --backfill-only over a pre-BL-320 writer — Guardrails not refreshed, settings untouched, the framework sync named" case_U2
+check "U3: a tier change ships lib/guardrails.sh, the approvals reader and the detector, refreshes, registers; the project's own --offer and --resolve work" case_U3
+check "U4: --sync-framework syncs the writer first, then refreshes to 4.4.0 and registers" case_U4
 echo "=== R — registering missing Guardrails hook entries ==="
 check "R1: exactly the missing entry is appended and named; every other entry, Solo's and the user's, unchanged and in order" case_R1
 check "R2: a second run adds nothing and leaves the file byte-identical" case_R2
@@ -873,7 +1126,8 @@ check "R5: a symlinked settings.json -> refused loudly, its target untouched" ca
 check "R6: settings.json that is not JSON -> refused, unchanged" case_R6
 check "R7: a hooks section that is not an object -> refused, unchanged" case_R7
 check "R8: refresh-guardrails.sh registers what is missing and names it" case_R8
-check "R9: upgrade-project.sh registers right after its Guardrails refresh" case_R9
+check "R9: upgrade-project.sh --backfill-only refreshes to 4.4.0 and registers record-approval (run, not grepped)" case_R9
+check "R11: the registration re-reads settings.json — a write that never landed is a [FAIL], not 'added'" case_R11
 check "R10: against the real clone's generator: record-approval registered, idempotent" case_R10
 echo "=== V — the session start ==="
 check "V1: below 4.4.0 — named (not as BELOW MINIMUM), in the session offer too" case_V1
@@ -884,22 +1138,31 @@ echo "=== X — a mixed install (4.4.0 Guardrails, a pre-BL-320 writer) ==="
 check "X1: refresh-guardrails.sh refuses 4.4.0 over an old question writer, names the framework sync, changes nothing" case_X1
 check "X2: the session start names the framework sync and offers no Guardrails-only update" case_X2
 check "X3: this framework's own pending-approval.sh is recognised as current — the plain offer" case_X3
+check "X4: the schema line is read anchored and numerically (3 is current), from pending-approval.sh and the bypass detector" case_X4
 echo "=== O — the out-of-band detector ==="
 check "O1: matched=false recorded once as approval_mismatch; matched=true not" case_O1
 check "O2: the session start closes bypass rows from the user's pick" case_O2
+check "O3: a mismatch row that could not be written is reported as such, never as recorded" case_O3
 echo "=== I — init.sh's clone update; adoption ==="
 check "I1: no terminal — no pull, the command printed, the minimum named" case_I1
 check "I2: a terminal, Enter — yes: pulled; current and available shown" case_I2
 check "I3: a terminal, n — kept" case_I3
 check "I4: --non-interactive at a terminal — no question, no pull" case_I4
 check "I5: init.sh asks through the lib, ships it, and no longer pulls on its own" case_I5
+check "I6: the clone's fetch and pull run ssh in BatchMode, unless the user set their own ssh command" case_I6
 check "A1: adoption names a kept install below the minimum, in the Adoption Record too" case_A1
 echo "=== E — the dogfood approval round trip (rows 20, 21, 23, 29, 30), real Guardrails hooks ==="
 check "E1: blocked -> staged -> asked -> stop allowed -> A1 renders -> A1 picks -> lone commit passes -> matched" case_E1
 [ -z "$E_LOG" ] || printf '%s' "$E_LOG" | sed 's/^/      /'
 
 # ── M: mutants ───────────────────────────────────────────────────────────────
-mk_mirror() { mkdir -p "$2" && cp -Rp "$1/scripts" "$1/init.sh" "$2/"; }
+mk_mirror() {
+  mkdir -p "$2" && cp -Rp "$1/scripts" "$1/init.sh" "$2/" || return 1
+  [ "${MIRROR_FULL:-0}" = 1 ] || return 0
+  mkdir -p "$2/templates" && cp -Rp "$1/docs" "$2/" && cp -Rp "$1/templates/generated" "$1/templates/semgrep" "$2/templates/" \
+    && cp -p "$1/templates/project-intake.md" "$2/templates/" \
+    && ( cd "$2" && git init -q && git config user.email m@t.local && git config user.name M && git add -A && git commit -q -m mirror ) >/dev/null 2>&1
+}
 mutate() {   # FILE MARKER REPLACEMENT — exactly one line ends in MARKER; it now reads REPLACEMENT; still parses
   local f="$1" mark="$2" repl="$3" n=""
   [ -f "$f" ] || { echo "no such file: $f"; return 1; }
@@ -939,8 +1202,10 @@ mutant M6  "$PAS" '# BL-320-OFFER-SCHEMA' "  payload=\$(jq -n --arg q \"\$questi
 mutant M7  "$GL"  '# BL-320-PA-LINES' "  jq -r '(.options // [])[] | tostring' \"\$1\" 2>/dev/null" case_W8 "a schema-2 option is shown without its effect"
 mutant M8  "$PAS" '# BL-320-VALIDATE-V1' '    :' case_W9 "schema 1 validates under 4.4.0"
 mutant M9  "$PAS" '# BL-320-RESOLVE-DECISION' '    :' case_W10 "the agent's --decision closes bypass rows under 4.4.0"
-mutant M10 scripts/lib/bypass-audit.sh '# BL-320-AUDIT-BIND' '        and ((.details.sentinel_sha256 | type) == "string")' case_W11 "a pick closes rows of any question"
-mutant M11 scripts/lib/bypass-audit.sh '# BL-320-AUDIT-MAP' '          (if true then "accepted" else "declined" end) as $ur' case_W11 "every pick accepts the bypass"
+mutant M11 scripts/lib/bypass-audit.sh '# BL-320-AUDIT-MAP' '          | (if $isq and $none then "accepted"' case_D6 "R-2: the option's wording is not checked — another option of the question accepts"
+mutant M41 scripts/lib/bypass-audit.sh '# BL-320-AUDIT-Q' '          | true as $isq' case_D6 "R-2: any question with the right option text accepts a bypass"
+mutant M42 scripts/lib/bypass-audit.sh '# BL-320-AUDIT-NONE' '          | true as $none' case_D6 "R-2: a pick that approved a commit accepts a bypass"
+mutant M43 scripts/lib/bypass-audit.sh '# BL-320-AUDIT-DEC' '             elif $isq and $none then "declined"' case_D6 "R-2: any other option declines instead of leaving the row open"
 mutant M12 scripts/hooks/bypass-detector.sh '# BL-320-DETECT-SCHEMA2' 'BD_Q_PROG='"'"'{question: $q, options: ["A1: accept", "A2: decline"], recommendation: "A2", offered_at: $ts}'"'"'' case_D1 "the detector asks in schema 1 again"
 mutant M13 scripts/hooks/bypass-detector.sh '# BL-320-DETECT-BIND' '  COVER_SHA=""' case_D1 "rows are not bound to the question"
 mutant M14 scripts/hooks/bypass-detector.sh '# BL-320-DETECT-COVER' '  COVER_SHA="$(soif_bd_sha256 "$SENTINEL")"' case_D3 "the bypass rows take a commit question's answer"
@@ -954,7 +1219,8 @@ mutant M20 "$GL"  '# BL-320-REG-FILE' '      true' case_R3 "an entry is added fo
 mutant M21 "$GL"  '# BL-320-REG-HAVE' '      false' case_R2 "a second run adds the entries again"
 mutant M22 "$GL"  '# BL-320-REG-APPEND' "  prog='.hooks = ((.hooks // {}) + \$add)'" case_R1 "an event's existing entries are replaced"
 mutant M23 scripts/refresh-guardrails.sh '# BL-320-RG-REGISTER' ':' case_R8 "the refresh leaves the new hook unregistered"
-mutant M24 scripts/upgrade-project.sh '# BL-320-UP-REGISTER' '    :' case_R9 "the upgrade leaves the new hook unregistered"
+mutant M24 scripts/upgrade-project.sh '# BL-320-UP-REGISTER' '      :' case_R9 "the upgrade leaves the new hook unregistered"
+mutant XU1 scripts/upgrade-project.sh '# BL-320-UP-CLONE' '    _up_cdf="$PROJECT_ROOT/.nope"' case_R9 "R-5: the registration looks for the clone in the wrong place"
 mutant M25 scripts/check-versions.sh '# BL-320-CV-MIN' '  :' case_V1 "a project below 4.4.0 is not told"
 mutant M26 scripts/check-versions.sh '# BL-320-CV-REG' '  :' case_V2 "a missing registration is never offered"
 mutant M27 scripts/detect-out-of-band-commits.sh '# BL-320-OOB-MISMATCH' ':' case_O1 "a commit that is not the approved change goes unrecorded"
@@ -967,9 +1233,25 @@ mutant M33 init.sh '# BL-320-INIT-PULL' '      :' case_I5 "init.sh never offers 
 mutant M34 init.sh '# BL-320-SHIP' '  :' case_I5 "the lib is not shipped"
 mutant M35 scripts/escalate-to-user.sh '# BL-320-ESC-APPROVES' '    --approves) shift 2 ;;' case_W12 "an escalation cannot approve a commit"
 mutant M36 scripts/lib/adopt/adopt-guardrails.sh '# BL-320-ADOPT-MIN' '  :' case_A1 "adoption keeps a 4.3.0 install without a word"
+mutant M44 scripts/pending-approval.sh '# BL-320-RESOLVE-DECISION' '  [ -z "$decision" ] || [ "$route" != pick ] || { print_fail "--decision refused"; return 1; }' case_W13 "R-3: --decision fails OPEN on an unknown route"
+mutant M45 scripts/pending-approval.sh '# BL-320-RESOLVE-READER' '    :' case_W14 "R-3: an old bypass-audit.sh ends in 'command not found'"
+mutant M46 scripts/pending-approval.sh '# BL-320-OFFER-TMP' '  tmpfile=$(mktemp "$project_root/.claude/pending-approval.XXXXXX.tmp")' case_W15 "R-1: the --offer template's Xs are not trailing"
+mutant M47 scripts/hooks/bypass-detector.sh '# BL-320-DETECT-TMP' '  SENT_TMP="$(mktemp "$PROJECT_ROOT/.claude/pending-approval.XXXXXX.tmp" 2>/dev/null)" || SENT_TMP=""' case_D4 "R-1: the detector's template's Xs are not trailing"
+mutant M48 scripts/hooks/bypass-detector.sh '# BL-320-DETECT-ERR' '    :' case_D5 "R-1: a question that could not be written is skipped in silence"
+mutant M49 scripts/lib/guardrails.sh '# BL-320-REG-RECEIPT' '  :' case_R11 "R-7a: the additions are reported from the computed list, not the file"
+mutant M50 scripts/detect-out-of-band-commits.sh '# BL-320-OOB-LANDED' '    MISMATCHES=$((MISMATCHES + 1)); continue' case_O3 "R-7b: a row that was never written is reported as recorded"
+mutant XM2 scripts/lib/guardrails.sh '# BL-320-WRITER-ANCHOR' "    n=\"\$(sed -n 's/.*SOIF_APPROVAL_SCHEMA=\\([0-9][0-9]*\\).*/\\1/p' \"\$f\" | head -1)\"" case_X4 "R-7c: a mention anywhere on a line counts"
+mutant M51 scripts/lib/guardrails.sh '# BL-320-WRITER-NUM' '  [ "$w" != none ] && [ "$w" != 2 ]' case_X4 "R-7c: schema 3 reads as old"
+mutant M52 scripts/lib/guardrails.sh '# BL-320-WRITER-DETECTOR' '    :' case_X4 "R-7c: an old bypass detector is not read"
+mutant M53 scripts/lib/guardrails.sh '# BL-320-SSH-BATCH' '    :' case_I6 "R-7d: ssh may prompt for a passphrase or host key"
 mutant M38 scripts/refresh-guardrails.sh '# BL-320-RG-MIXED' ':' case_X1 "4.4.0 is installed beside a writer it cannot answer"
 mutant M39 scripts/check-versions.sh '# BL-320-CV-MIXED' '        :' case_X2 "the Guardrails-only update is offered to a mixed install"
 mutant M40 "$PAS" '# BL-320-PA-SCHEMA-MARK' ':' case_X3 "this framework's own writer reads as an old one"
+MIRROR_FULL=1 mutant M54 scripts/upgrade-project.sh '# BL-320-UP-MIXED' '      :' case_U2 "R-4: --backfill-only installs 4.4.0 beside the old writer"
+MIRROR_FULL=1 mutant M55 scripts/upgrade-project.sh '# BL-320-UP-CLOSURE-GR' '      :' case_U3 "R-3: a tier change does not ship lib/guardrails.sh"
+MIRROR_FULL=1 mutant M56 scripts/upgrade-project.sh '# BL-320-UP-CLOSURE-BA' '      :' case_U3 "R-3: a tier change does not ship the approvals reader"
+MIRROR_FULL=1 mutant M57 scripts/upgrade-project.sh '# BL-320-UP-DETECTOR' '  for helper in pending-approval.sh lint-uat-scenarios.sh; do' case_U3 "R-3: a tier change leaves the old bypass detector"
+MIRROR_FULL=1 mutant M58 scripts/upgrade-project.sh '# BL-320-SYNC-ORDER' '  :' case_U4 "R-4: --sync-framework never refreshes the Guardrails after syncing the writer"
 mutant M37 scripts/upgrade-project.sh '# BL-320-UP-SENTINEL-RENDER' "    jq -r '.options[]? // empty | \"    \" + .' \"\$PENDING_APPROVAL_FILE\" >&2" case_U1 "upgrade-project renders a schema-2 question as a jq error"
 
 echo

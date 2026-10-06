@@ -17,6 +17,10 @@ fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 setup_project() {
   TMPDIR_T=$(mktemp -d)
   mkdir -p "$TMPDIR_T/.claude"
+  # BL-320 (review round 1, R-3): p18/p19 exercise --resolve --decision, which
+  # is accepted only where the Development Guardrails are known to be older
+  # than 4.4.0, so the project declares such a version.
+  printf '%s\n' '{"frameworkVersion":"4.3.7"}' > "$TMPDIR_T/.claude/manifest.json"
 }
 
 teardown_project() {
@@ -209,7 +213,9 @@ p17_atomic_write_code_shape() {
   # final sentinel path. The mv may reference variables ($tmpfile, $sentinel)
   # rather than literals, so accept both shapes.
   local has_mktemp has_mv has_direct_write
-  has_mktemp=$(grep -cE 'mktemp.*pending-approval\.[A-Z0-9]+\.tmp' "$SCRIPT" || true)
+  # BL-320 (review round 1, R-1): the template's Xs are trailing
+  # (pending-approval.json.XXXXXX) — BSD mktemp randomises only those.
+  has_mktemp=$(grep -cE 'mktemp.*pending-approval\.json\.X{6}"' "$SCRIPT" || true)
   case "$has_mktemp" in ''|*[!0-9]*) has_mktemp=0 ;; esac
   has_mv=$(grep -cE '^[[:space:]]*mv[[:space:]]+["$]' "$SCRIPT" || true)
   case "$has_mv" in ''|*[!0-9]*) has_mv=0 ;; esac

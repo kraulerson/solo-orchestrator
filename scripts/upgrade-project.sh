@@ -154,9 +154,33 @@ _upgrade_fail() {
 # Graceful: the wrapper warns + returns 0 when the CDF clone is absent; the
 # `|| print_warn` is belt-and-suspenders so a refresh hiccup can NEVER abort
 # the upgrade — the CDF sync is an ADDITION, not a gate.
+# `## BL-320:` (review round 1, R-4) NOT A MIXED INSTALL. Guardrails 4.4.0 and
+# later take an approval only as the user's answer to a schema-2 question; a
+# project whose own scripts/pending-approval.sh or bypass detector predates that
+# (soif_gr_writer_schema reads their SOIF_APPROVAL_SCHEMA line) would be left
+# with no way to approve a commit by reply. So the refresh is skipped there,
+# loudly, and the framework sync — which moves both halves — is named. The clone
+# is pulled first (as refresh_cdf_assets would), so the version checked is the
+# version that would be installed. On a tier change the writer was refreshed
+# above, and on --sync-framework the scripts are synced before this runs, so
+# only --backfill-only (or an incomplete sync) meets the refusal.
+_up_mixed_skip() {
+  print_warn "Development Guardrails NOT refreshed: this project's Solo scripts still write the older approval question, which Guardrails $1 cannot take an answer to, so installing them alone would leave no way to approve a commit by reply (BL-320)."
+  print_info "Update both together with the framework sync, from this project's folder (the path to your own clone of the framework, if it is elsewhere):"
+  print_info "  bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework"
+}
 _refresh_cdf_assets_solo() {
+  local _up_cdf="" _up_want=""
   if [ -f "$SCRIPT_DIR/lib/cdf-refresh.sh" ]; then
     print_step "Refreshing CDF framework assets (BL-001)"
+    _up_cdf="${CDF_HOME:-$HOME/.claude-dev-framework}"   # BL-320-UP-CLONE
+    if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ]; then
+      # shellcheck source=scripts/lib/guardrails.sh
+      . "$SCRIPT_DIR/lib/guardrails.sh"
+      [ ! -d "$_up_cdf/.git" ] || soif_gr_git_noprompt -C "$_up_cdf" pull --ff-only --quiet >/dev/null 2>&1 || :
+      _up_want="$(tr -d '[:space:]' < "$_up_cdf/FRAMEWORK_VERSION" 2>/dev/null || :)"
+      soif_gr_mixed "$PROJECT_ROOT" "$_up_want" && { _up_mixed_skip "$_up_want"; return 0; }   # BL-320-UP-MIXED
+    fi
     # shellcheck source=/dev/null
     . "$SCRIPT_DIR/lib/cdf-refresh.sh"
     solo_refresh_cdf "$PROJECT_ROOT" "$NON_INTERACTIVE" \
@@ -166,10 +190,8 @@ _refresh_cdf_assets_solo() {
     # the refresh above copies files only. Add the entries the manifest's
     # activeHooks call for and the file lacks — never removing, reordering or
     # rewriting one — and name each. Non-fatal here, like the refresh.
-    if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ] && [ -d "${CDF_HOME:-$HOME/.claude-dev-framework}" ]; then
-      # shellcheck source=scripts/lib/guardrails.sh
-      . "$SCRIPT_DIR/lib/guardrails.sh"
-      soif_cdf_register_hooks "$PROJECT_ROOT" "${CDF_HOME:-$HOME/.claude-dev-framework}" || print_warn "Guardrails hook registrations not checked (non-fatal — upgrade continues); the reason is above"   # BL-320-UP-REGISTER
+    if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ] && [ -d "$_up_cdf" ]; then
+      soif_cdf_register_hooks "$PROJECT_ROOT" "$_up_cdf" || print_warn "Guardrails hook registrations not checked (non-fatal — upgrade continues); the reason is above"   # BL-320-UP-REGISTER
     fi
   fi
 }
@@ -940,13 +962,18 @@ _run_idempotent_backfill() {
   # BL-081 ordering) so BOTH --backfill-only and the full upgrade heal it.
   # Idempotent: cp overwrites identically; the -ef self-copy guard skips the
   # in-framework-repo invocation (source and dest resolve to the same file).
+  #   • scripts/lib/guardrails.sh, lib/bypass-audit.sh, lib/bypass-patterns.sh
+  #     — `## BL-320:` (review round 1, R-3). The refreshed pending-approval.sh
+  #     and bypass detector source them: without guardrails.sh `--offer`
+  #     refuses every question, and a bypass-audit.sh from before BL-320 has no
+  #     reader for the user's picks. A tier change refreshes the writer below,
+  #     so the libs it needs ship here, for every path.
   if [ -d scripts ]; then
     mkdir -p scripts/lib
-    for _bl088_rel in \
-      "lib/tdd-classify.sh" \
-      "lib/phase2-state.sh" \
-      "lib/cdf-refresh.sh" \
-      "run-phase3-validation.sh"; do
+    _bl088_list="lib/tdd-classify.sh lib/phase2-state.sh lib/cdf-refresh.sh run-phase3-validation.sh"
+    _bl088_list="$_bl088_list lib/guardrails.sh"   # BL-320-UP-CLOSURE-GR
+    _bl088_list="$_bl088_list lib/bypass-audit.sh lib/bypass-patterns.sh"   # BL-320-UP-CLOSURE-BA
+    for _bl088_rel in $_bl088_list; do
       _bl088_src="$SCRIPT_DIR/$_bl088_rel"
       _bl088_dst="scripts/$_bl088_rel"
       [ -f "$_bl088_src" ] || continue
@@ -959,7 +986,7 @@ _run_idempotent_backfill() {
       esac
       print_ok "scripts/$_bl088_rel backfilled (BL-088 source-closure)"
     done
-    unset _bl088_rel _bl088_src _bl088_dst
+    unset _bl088_rel _bl088_src _bl088_dst _bl088_list
   fi
 )
 }
@@ -1708,11 +1735,14 @@ _run_sync_framework() {
     print_info "[dry-run] would refresh CDF framework assets (BL-001)."
   else
     _run_idempotent_backfill
-    _refresh_cdf_assets_solo
   fi
 
   # (e) script sync + (f) hooks + doc drift + pin.
   _bl099_sync_scripts        # BL-099-SYNC
+  # `## BL-320:` (review round 1, R-4) the Guardrails AFTER the scripts: the
+  # refresh refuses a mixed install, judged from the project's own question
+  # writer, so the writer must already be the synced one when it looks.
+  [ "$DRY_RUN" = true ] || _refresh_cdf_assets_solo   # BL-320-SYNC-ORDER
   _bl099_sync_commitmsg_hook
   _bl099_sync_precommit_hook
   _bl099_sync_prepush_notice   # BL-243-SYNC-SKIP-LOUD
@@ -3725,9 +3755,13 @@ if [ -d scripts/lib ]; then
 fi
 
 print_step "Refreshing framework helper scripts (BL-009, BL-015)"
+# `## BL-320:` (review round 1, R-3) the bypass detector writes the other
+# approval question; it moves with pending-approval.sh, or the project keeps
+# raising a bypass question the Development Guardrails 4.4.0 cannot answer.
 if [ -d scripts ]; then
-  for helper in pending-approval.sh lint-uat-scenarios.sh; do
+  for helper in pending-approval.sh lint-uat-scenarios.sh hooks/bypass-detector.sh; do   # BL-320-UP-DETECTOR
     if [ -f "$SCRIPT_DIR/$helper" ]; then
+      mkdir -p "scripts/$(dirname "$helper")"
       # When invoked as `bash scripts/upgrade-project.sh` from the project root,
       # $SCRIPT_DIR resolves to scripts/ — the source and destination are the
       # same file. BSD cp returns non-zero on identical source/dest, which under

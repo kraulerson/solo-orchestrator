@@ -21,6 +21,12 @@
 
 set -uo pipefail
 
+# `## BL-320:` the approval-question schema this detector writes. A project's
+# other scripts read this line (scripts/lib/guardrails.sh soif_gr_writer_schema)
+# to tell a writer that predates schema 2. Keep it a plain assignment at the
+# start of a line.
+SOIF_APPROVAL_SCHEMA=2
+
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || echo "")}"
 [ -z "$PROJECT_ROOT" ] && exit 0
 [ ! -d "$PROJECT_ROOT/.claude" ] && exit 0
@@ -619,14 +625,21 @@ done <<< "$PATTERNS"
 # With the Development Guardrails 4.4.0 and later the user answers it by option
 # id; the Guardrails record the pick, with the same sha256, in
 # .claude/approvals.jsonl, and `pending-approval.sh --resolve` (or the next
-# session start) closes exactly these rows from it — never the rows of another
-# question, and never on the agent's word.
+# session start) reads it there. The sha256 only finds the pick; the decision is
+# read from what the user was shown and picked (the question's prefix, the
+# option's wording and its effect), never from the agent's word and never from
+# a label the agent can write (review round 1, R-2).
 SENTINEL="$PROJECT_ROOT/.claude/pending-approval.json"
 soif_bd_sha256() { { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1" 2>/dev/null; } | awk '{print $1; exit}'; }
 COVER_SHA=""
 if [ -f "$SENTINEL" ]; then
-  # An open question: the rows belong to it only when it is this detector's own
-  # bypass question. A commit question's answer is not a bypass decision.
+  # An open question: the rows are bound to it only when it is labelled as this
+  # detector's own bypass question. The label is a field in a file the agent can
+  # write, so it binds rows and decides nothing: the audit closes a row only
+  # from what the user saw and picked — the Guardrails' pick record, whose
+  # question, option text and effect must be the detector's fixed bypass
+  # wording (bypass_audit_close_from_approvals; review round 1, R-2). A forged
+  # label on a commit question leaves the rows PENDING.
   jq -e '.source == "bypass-detector"' "$SENTINEL" >/dev/null 2>&1 && COVER_SHA="$(soif_bd_sha256 "$SENTINEL")"   # BL-320-DETECT-COVER
 # BL-311-RELAYED-NO-SENTINEL — the pending approval asks the operator about a
 # proposal. When every pattern this message matched was a relayed framework
@@ -644,15 +657,23 @@ elif [ -n "$RAISE_PATTERN" ]; then
   # shows the user the question and what each option does. Both options approve
   # nothing in git: accepting a bypass proposal is a recorded decision, not a
   # commit approval.
-  BD_Q_PROG='{schema: 2, source: "bypass-detector", question: $q, options: [{id: "A1", text: $a1, approves: "none"}, {id: "A2", text: "Decline it", approves: "none"}], recommendation: "A2", offered_at: $ts}'   # BL-320-DETECT-SCHEMA2
-  SENT_TMP="$(mktemp "$PROJECT_ROOT/.claude/pending-approval.XXXXXX.tmp" 2>/dev/null)" || SENT_TMP=""
-  if [ -n "$SENT_TMP" ] && jq -n \
-      --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. Reply with the option id: A1 to accept the proposal, A2 to decline it." \
-      --arg a1 "Accept the bypass proposal recorded in .claude/bypass-audit.json (this approves no commit)" \
+  # The wording comes from scripts/lib/bypass-audit.sh, which decides from it.
+  BD_Q_PROG='{schema: 2, source: "bypass-detector", question: $q, options: [{id: "A1", text: $a1, approves: "none"}, {id: "A2", text: $a2, approves: "none"}], recommendation: "A2", offered_at: $ts}'   # BL-320-DETECT-SCHEMA2
+  # Trailing Xs (review round 1, R-1): BSD mktemp randomises only those.
+  SENT_TMP="$(mktemp "$PROJECT_ROOT/.claude/pending-approval.json.XXXXXX" 2>/dev/null)" || SENT_TMP=""   # BL-320-DETECT-TMP
+  # A bypass-audit.sh older than this detector has no fixed wording to ask with:
+  # that is a question that cannot be written, reported below like any other.
+  if [ -n "$SENT_TMP" ] && [ -n "${BYPASS_ACCEPT_TEXT:-}" ] && jq -n \
+      --arg q "${BYPASS_QUESTION_PREFIX:-} (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. Reply with the option id: A1 to accept the proposal, A2 to decline it." \
+      --arg a1 "${BYPASS_ACCEPT_TEXT:-}" --arg a2 "${BYPASS_DECLINE_TEXT:-}" \
       --arg ts "$TS" "$BD_Q_PROG" > "$SENT_TMP" 2>/dev/null && mv -f "$SENT_TMP" "$SENTINEL"; then
     COVER_SHA="$(soif_bd_sha256 "$SENTINEL")"   # BL-320-DETECT-BIND
   else
-    rm -f "${SENT_TMP:-}" 2>/dev/null
+    [ -z "${SENT_TMP:-}" ] || rm -f "$SENT_TMP" 2>/dev/null
+    # Never silent (R-1): the proposal rows below are still written, unbound,
+    # and this row says why no question was raised for them.
+    ERR_ROW="$(jq -nc --arg ts "$TS" --arg sid "$SESSION_ID" --arg lvl "$LEVEL" '{timestamp: $ts, session_id: $sid, type: "detector_error", actor: "framework", enforcement_level_at_event: $lvl, details: {reason: "could not write the bypass question to .claude/pending-approval.json; the proposal rows are recorded without one"}, user_response: "n/a", final_outcome: "n/a"}')"
+    bypass_audit_append "$PROJECT_ROOT" "$ERR_ROW" || true   # BL-320-DETECT-ERR
   fi
 fi
 
