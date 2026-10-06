@@ -2255,10 +2255,16 @@ take your deploy offline:
 
 | Host | Framework CI | Runs? |
 |---|---|---|
-| GitHub | `.github/workflows/solo-gates.yml` | Yes, from your next push — GitHub runs every workflow. It may fail on code that predates adoption; that is a finding, not a breakage. |
+| GitHub | `.github/workflows/solo-gates.yml` | Yes, on a push to `main` and on pull requests to `main` — a push to any other branch runs nothing. It shows in the Actions tab and in a pull request's checks as **Solo Orchestrator checks**, so it cannot be mistaken for a workflow of yours named `CI`. If your main branch has another name, change `main` in its two `branches:` lines. It may fail on code that predates adoption; that is a finding, not a breakage. |
 | GitLab | `.gitlab-ci-solo.yml` | **Not until you add** `include: - local: '.gitlab-ci-solo.yml'` to your `.gitlab-ci.yml`. The run prints the lines — and a warning: GitLab **merges** an included file into yours, and this one sets `image`, `variables`, `cache` and `stages` pipeline-wide and defines jobs named `test` and `lint`. Check those against your file first. |
 | Bitbucket | `bitbucket-pipelines.solo.yml` | **No.** Bitbucket runs only `bitbucket-pipelines.yml`. Sharing a configuration file needs Bitbucket Premium and an exported file whose name ends in `pipelines.yml`, which this is not; copy the steps you want into yours. |
 | none found | nothing | `init.sh` lays no CI down for host `other` either; supply your own. |
+
+For a Python project, the GitHub file installs a uv project (one with `uv.lock`
+and `pyproject.toml`) with `uv sync --frozen`, which never rewrites the lockfile,
+and runs its tools through `uv run --frozen`. Any other Python project installs
+from `requirements.txt`. With neither, its "Find the dependency file" step fails and
+names the missing files (`# BL-318-G3-INSTALLER`).
 
 A file already at the framework's name is yours: left alone, and the run says
 so. The Adoption Record's **Your CI** section names the framework's file (or why
