@@ -190,9 +190,10 @@ touches source code runs that suite and is refused if it fails. **What adoption
 needs installed** is one list, kept in one place —
 [docs/adoption.md → What you need](docs/adoption.md#what-you-need) — and this
 page does not repeat it, so the two cannot disagree. It includes the
-Superpowers plugin for Claude Code: without it, every edit to a source file is
-blocked. What to do when a run stops, and how to put a replaced file back, are
-in [docs/adoption.md → Quick start](docs/adoption.md#quick-start-install-and-use).
+Superpowers plugin for Claude Code: when the Development Guardrails are
+installed, every edit to a source file is blocked without it. What to do when
+a run stops, and how to put a replaced file back, are in
+[docs/adoption.md → Quick start](docs/adoption.md#quick-start-install-and-use).
 **Asking Claude Code to run these for you?** Claude Code's auto mode can refuse
 scripts from a clone outside the project — it was in the 2026-09-27 test run, where
 the agent had cloned the framework itself in that same session — and the agent
@@ -287,6 +288,15 @@ To install Superpowers (the row above), then start a new Claude Code session:
 
 ```bash
 claude plugin install --scope user superpowers@claude-plugins-official
+```
+
+If the install says the marketplace `claude-plugins-official` is not found,
+add it, then run the install again. Claude Code adds that marketplace the first
+time it starts an interactive session, so a computer where it never has lacks
+it:
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
 ```
 
 ### Windows Users

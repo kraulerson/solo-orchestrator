@@ -54,6 +54,15 @@ this computer has it:
 claude plugin install --scope user superpowers@claude-plugins-official
 ```
 
+If the install says the marketplace `claude-plugins-official` is not found,
+add it, then run the install again. Claude Code adds that marketplace the first
+time it starts an interactive session, so a computer where it never has lacks
+it:
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+```
+
 Then start a new Claude Code session, as the Guardrails' own message says. To
 check that it is installed:
 
@@ -296,10 +305,12 @@ a stop, or a halt); `2` bad usage.
 - **If you had answered "set it up now" to the memory and documentation
   servers**, that step has already run when a later question stops the run. A
   server it registered is in your Claude Code user configuration, outside the
-  project, and it stays registered; the refusal says which, by name
-  ("Outside this project, this run DID register …"). Run adoption again and it
+  project, and it stays registered. The stop is then labelled `[BLOCKED]`, not
+  `[REFUSED]`, because the run had begun; it says nothing was written to the
+  project, and names each server it registered ("Outside this project, this run
+  DID register …"). Run adoption again and it
   finds them registered and does not offer to register them again. To see
-  them, or to remove one the refusal named:
+  them, or to remove one the message named:
 
   ```bash
   claude mcp list
@@ -510,8 +521,15 @@ bash .claude/framework/hooks/mark-evaluated.sh "what you approved, in a few word
 
 With Guardrails 4.4.0 and later, run it in a separate terminal window: it
 refuses to run inside Claude Code, a command typed after `!` included, and it
-approves only the change staged at that moment. Then tell the agent to commit
-it with a plain `git commit -m "…"`.
+approves only the change staged at that moment. Then clear the question the
+agent recorded — this framework's own commit check blocks every commit while
+`.claude/pending-approval.json` exists, and the override does not remove it:
+
+```bash
+bash scripts/pending-approval.sh --resolve
+```
+
+Then tell the agent to commit it with a plain `git commit -m "…"`.
 
 **The commit's own checks.** Whoever commits, the commit-time checks adoption
 installed run next ([The commit-time scanners](#the-commit-time-scanners--ship-wp73)).
@@ -2417,7 +2435,11 @@ for four ways a pipeline can let code around the framework's checks:
 
 It is a search for known spellings, not a parser, and the run says so. It
 misses what it has no spelling for (`|| true`, a `--mirror` push, a deploy in a
-file that also has a manual trigger), and a file it **cannot read** is reported
+file that also has a manual trigger, a deploy named only inside a longer
+command-line flag such as `-p:DeployOnBuild=true` or `--deploy-to=prod`), and a
+word inside a flag does not count as a deploy: Nuitka's `--no-deployment-flag`
+is not one, while `--deploy` on its own, `--tags=deploy` and a `deploy` command
+after the flags are. A file it **cannot read** is reported
 as unread and recorded that way — never as clean. It
 reports a **line number**, never the line — a workflow can carry a credential.
 For each file with a finding it asks once, **before anything is written**:

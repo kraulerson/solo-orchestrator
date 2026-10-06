@@ -128,7 +128,7 @@ Throughout the rest of this section, the tier breakdown describes the **shape of
 | SAST quick scan (Semgrep) | Pre-commit hook — blocks commit on findings; CI runs full scan | Pre-commit scans only staged files with `p/owasp-top-ten`. `--no-verify` skips the hook; the CI scan is a hard backstop and (in `strict` mode) the audit detector records the bypass. |
 | TDD ordering check (BL-072) | **`commit-msg`** git hook (covers both agent and human/editor commits) delegating to `pre-commit-gate.sh --terminal-mode --tdd-only`. **Tier-keyed on `deployment`+`poc_mode`:** WARN-only on Personal / Private-POC (and unscaffolded repos); **hard block** (rc=1) on Sponsored-POC / Production. Fires when a `feat`/`fix`/`refactor` commit ships implementation with no matching test. | Heuristic — checks test-file presence, not test quality; excludes `*.md`, lockfiles, and pure deletions. On a hard-block tier, `SOLO_TDD_ATTESTED=1` (recorded to `.claude/process-state.json::tdd_attestations[]`) is the attested escape — an escape that cannot be durably recorded refuses the commit. See the Builder's Guide, "TDD ordering enforcement (BL-072)." |
 | Schema migration check | Pre-commit hook — warns when schema files are edited directly in Phase 2+ | Only active in Phase 2+; initial schema creation in Phase 0-1 is expected |
-| TDD discipline (RED-GREEN-REFACTOR) | Superpowers plugin (optional) | Strongly encourages, does not prevent non-TDD code from being committed |
+| TDD discipline (RED-GREEN-REFACTOR) | Superpowers plugin (required once the Development Guardrails are installed: they block source edits until a Superpowers skill has run) | Strongly encourages, does not prevent non-TDD code from being committed |
 
 **Tier 3 — Guided (LLM instructions and human discipline).** These are rules written in CLAUDE.md, the Builder's Guide, and the Project Bible. The AI agent follows them. You review the output at decision gates. There is no automated backstop if the agent ignores them or you skip the review.
 
@@ -359,7 +359,7 @@ Either way, the **Phase 1→2 gate enforces a verified remote**, keyed on the sa
 
 | File | Created By | You Must | Notes |
 |---|---|---|---|
-| `CLAUDE.md` | init.sh (starter version) | Update at each phase transition and end of each session | The starter version works until you configure optional enhancements. When you add Superpowers, Context7, or Qdrant, replace with the [enhanced template](cli-setup-addendum.md#6-claudemd). |
+| `CLAUDE.md` | init.sh (starter version) | Update at each phase transition and end of each session | The starter version works until you configure the tools in the CLI Setup Addendum. When you add Superpowers, Context7, or Qdrant, replace with the [enhanced template](cli-setup-addendum.md#6-claudemd). |
 | `PROJECT_INTAKE.md` | init.sh (blank template) | Fill out completely before Phase 0 | The primary input to the entire process |
 | `APPROVAL_LOG.md` | init.sh (empty with headers) | Add entries at each phase gate | Append-only — never edit previous entries |
 | `.github/workflows/ci.yml` | init.sh (language-specific) | Nothing — works on first push | Modify only if adding a secondary language |
@@ -374,7 +374,7 @@ Either way, the **Phase 1→2 gate enforces a verified remote**, keyed on the sa
 | `scripts/intake-wizard.sh` | init.sh (copied) | Run to fill out the Intake | Guided script or AI-assisted conversation |
 | `scripts/resume.sh` | init.sh (copied) | Run at session start | Prints the exact first message to paste — state-aware: intake prompt, Phase-0 initialization prompt (Intake §13), or the classic resume prompt |
 | `templates/intake-suggestions/` | init.sh (copied) | Nothing | Context-aware suggestions for the wizard |
-| **Superpowers** | You (optional) | Install plugin, configure in CLAUDE.md | See [CLI Setup Addendum](cli-setup-addendum.md#1-superpowers) |
+| **Superpowers** | You (required: the Development Guardrails block source edits without it) | Install plugin, configure in CLAUDE.md | See [Required: Superpowers](#required-superpowers) |
 | **Context7 MCP** | You (optional) | One command to add MCP server | See [CLI Setup Addendum](cli-setup-addendum.md#4-context7) |
 | **Qdrant MCP** | You (optional) | Docker + MCP server config | See [CLI Setup Addendum](cli-setup-addendum.md#5-qdrant) |
 
@@ -411,6 +411,23 @@ snyk auth                     # Authenticate Snyk CLI
 
 Both are one-time per machine.
 
+### Required: Superpowers
+
+The Development Guardrails that `init.sh` installs block every edit to a source file until a Superpowers skill has run in the Claude Code session, and without the Superpowers plugin there is no skill to run. Install it before the first change to source code, for your user, then start a new Claude Code session:
+
+```bash
+claude plugin install --scope user superpowers@claude-plugins-official
+```
+
+If the install says the marketplace `claude-plugins-official` is not found,
+add it, then run the install again. Claude Code adds that marketplace the first
+time it starts an interactive session, so a computer where it never has lacks
+it:
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+```
+
 ### Optional Enhancements
 
 After init, you can configure additional tooling. These are not required for your first project, but each addresses a specific pain point. **Configure them when you feel the pain, not during initial setup** — except Context7, which is useful from Phase 1.
@@ -418,11 +435,10 @@ After init, you can configure additional tooling. These are not required for you
 | Tool | What It Does | When to Configure | Setup Effort |
 |---|---|---|---|
 | **Context7 MCP** | Gives the AI up-to-date library documentation instead of relying on training data | **Before Phase 1** — helps the AI make accurate architecture and implementation decisions | One command, no prerequisites |
-| **Superpowers** | Agentic skills plugin — strict TDD, subagent-driven development, systematic debugging, git worktrees | **Before Phase 2** — accelerates the Build Loop significantly | One command, no prerequisites |
 | **Qdrant MCP** | Persistent semantic memory across sessions — the AI remembers project decisions and patterns | **Phase 1** — offered automatically when Docker is available. Each project gets an isolated collection. | Requires Docker (Colima or Docker Desktop) |
 | **Development Guardrails for Claude Code** | Git hook-based guardrails for coding standards, security scanning, documentation | Auto-installed by init.sh | Already done |
 
-See the [CLI Setup Addendum](cli-setup-addendum.md) for detailed instructions, or use the [Quick Setup](cli-setup-addendum.md#quick-setup--all-recommended-enhancements) to configure all three at once.
+See the [CLI Setup Addendum](cli-setup-addendum.md) for detailed instructions, or use the [Quick Setup](cli-setup-addendum.md#quick-setup--all-recommended-enhancements) to configure these and Superpowers at once.
 
 ---
 
@@ -641,6 +657,12 @@ When something needs attention, the session start hands the agent a message it m
 
     ```bash
     claude plugin install --scope user superpowers@claude-plugins-official
+    ```
+
+    If it says the marketplace `claude-plugins-official` is not found, add it first ([Required: Superpowers](#required-superpowers) says why):
+
+    ```bash
+    claude plugin marketplace add anthropics/claude-plugins-official
     ```
 
   - **`Qdrant MCP: NOT registered with Claude Code`** or **`Context7 MCP: NOT registered with Claude Code`.** The memory server or the documentation server is not set up for Claude Code. The session works without it — it is not checked until it is registered. Set it up when convenient (the [CLI Setup Addendum](cli-setup-addendum.md) gives the commands), or skip it.

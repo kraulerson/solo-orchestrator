@@ -22968,6 +22968,17 @@ pinned by `tests/test-bl318-g4g6.sh` P1–P6.
   Nothing in the guide or the scripts addresses a small fix before Phase 0 ends, and the section says so.
   The options it gives: do Phase 0 first; open a delta if the assessment recorded the project as in
   production; or go ahead through the checks.
+- **Review round 1 (R-3, R-5, R-8).** The override now says to clear the recorded question
+  (`bash scripts/pending-approval.sh --resolve`) before telling the agent to commit. Solo's own check blocks
+  every commit while `.claude/pending-approval.json` exists, and 4.4.0's `mark-evaluated.sh` does not remove
+  it (measured on a fixture: blocked "pending user decision" with a schema-2 question; not blocked once
+  resolved; P7). `docs/user-guide.md` no longer calls Superpowers optional anywhere: a "Required:
+  Superpowers" section replaces its "Optional Enhancements" row. `init.sh` says it is required, with the
+  install command, instead of "recommended". README's adoption sentence says it blocks when the Guardrails
+  are installed (P8). Each place that gives the install also gives
+  `claude plugin marketplace add anthropics/claude-plugins-official` for a computer where Claude Code has
+  never run an interactive session, which Claude Code's documentation says lacks the official marketplace
+  (P9).
 - **Session-start messages (finding 14).** `docs/user-guide.md` "What to do with each message", linked
   from adoption.md section 6, covers each kind in plain words: the update commands, `Superpowers: not
   installed`, `NOT registered with Claude Code`, `BELOW MINIMUM`, the Guardrails update offer and both
@@ -22995,39 +23006,68 @@ pinned by `tests/test-bl318-g4g6.sh` P1–P6.
   flags removed, then match their own words as before: adoption's `deploy` anywhere
   (`# BL-318-G6-DEPLOY-FLAG`), Scout's after a non-letter (`_scout_deploy_word`,
   `# BL-318-G6-DEPLOY-FLAG-SCOUT`). A flag is a token that starts `-` or `--` and then a letter or digit,
-  after whitespace, a quote, `(`, `,` or `=`, up to the next whitespace, quote, `,` or `)`. On k-pdf's real
+  after whitespace, a quote, `(`, `,` or `=`, up to the next whitespace, quote, `,`, `)`, `=` or shell
+  operator (`;`, `&`, `|`, `<`, `>`). A flag whose whole name is `deploy` counts
+  (`# BL-318-G6-DEPLOY-WHOLE`, `# BL-318-G6-DEPLOY-WHOLE-SCOUT`). On k-pdf's real
   ci.yml at `0bb0465`: before, adoption reported `deploy-on-push` at line 149 and Scout its rule at line 4;
   after, neither. The real deploys are still caught: a `deploy:` job, `./deploy.sh`,
   `actions/deploy-pages`, `github-pages-deploy-action`, `firebase deploy --only hosting`, a "Deploy to
   production" step name, and `wrangler deploy` beside a flag. Adoption now reports the deploy step's line,
   not an earlier flag's.
+- **(a), review round 1 (R-1, R-2, R-7).** The first cut ran a flag to the next whitespace, quote, `,` or
+  `)`. So it took the flag's `=value` and a command glued on by `&&` or `;`, and five real deploys the base
+  caught were missed by both detectors. Measured at `b93b006` / `d607464` / now, adoption's finding and
+  Scout's line: `ansible-playbook … --tags=deploy` caught / missed / caught; `npx nx affected
+  --target=deploy` the same; `npm ci --silent&&./deploy.sh production` the same; `./scripts/ci.sh --deploy`
+  the same (the whole-name rule); `dotnet publish … -p:DeployOnBuild=true` caught / missed / missed (the
+  residual below). k-pdf's ci.yml stays clean in both. No fixture had put a flag before the deploy word on
+  the same line, so a mutant that dropped whitespace from the flag's end survived; D3 now carries
+  `npx -y netlify-cli deploy --prod`, `kubectl apply -f k8s/deployment.yaml`, `make --quiet;make deploy`,
+  `rsync -az --delete dist/ deploy@host:/srv/app/` and the four above, and D5 holds the two copies of both
+  patterns byte-identical. The comment above Scout's rules now names the one false negative it accepts.
 - **(b) The refusal is true (finding 12).** The "did not begin" sentence now ends "…nothing was written to
   this project." (`_adopt_refuse_nothing_written`, `# BL-318-G6-NOTHING-LINE`). Adoption's MCP step records
   in `ADOPT_MCP_REGISTERED` each server whose `claude mcp add` it ran and whose receipt then shows it
   registered (`# BL-318-G6-MCP-ATTEMPT`, `# BL-318-G6-MCP-REG-C7`, `# BL-318-G6-MCP-REG-Q`). A server
   registered before the run is never attempted, so it is never named. With a name recorded, the refusal
-  says the run stopped before it changed the project (`# BL-318-G6-NOTHING-BEGIN`). Every refusal arm also
-  names each server, says the registration is in the user configuration and stays, and prints
+  says the run stopped before it changed the project (`# BL-318-G6-NOTHING-BEGIN`). Every arm that can
+  follow a registration also names each server, says the registration is in the user configuration and stays,
+  and prints
   `claude mcp list` and `claude mcp remove -s user <name>` (`_adopt_refuse_outside`,
   `# BL-318-G6-OUTSIDE`). On the dogfood shape, "Adoption did not begin. Nothing was committed and nothing
   was written." became "Adoption stopped before it changed this project. Nothing was committed and nothing
   was written to this project.", followed by the note. `docs/adoption.md` section 5 says the same, and its
   four quoted refusals carry the new sentence.
+- **(b), review round 1 (R-4, R-6).** A stop after a registration is now labelled `[BLOCKED]`, not
+  `[REFUSED]` (`# BL-318-G6-BLOCK-LABEL`): the messaging standard's "refuse" means the tool declined to start
+  and changed nothing, and this run had changed the user configuration. It takes the arm that says nothing
+  was written to the project, which no longer requires a forced block (`# BL-318-G6-NOTHING-ARM`); before,
+  only `adopt_block` reached it. Each call that prints the note carries its own marker
+  (`# BL-318-G6-OUTSIDE-NOTHING`, `# BL-318-G6-OUTSIDE-BLOCKED`), and B6 pins the forced-block arm, whose
+  call a mutant could delete unnoticed (R-4). The `[REFUSED]` arm no longer prints the note: no
+  registration reaches it.
 - **(c) Wording (finding 19).** "The commit this project was adopted at" and its variants now read "the
   commit adoption started from". The change covers the finisher's refusal (`# BL-242-ACT4-REFUSE-COMMIT`),
   the prompt writer's refusal, the intake provenance check, three code comments, two test comments and three
   places in `docs/adoption.md`. The Adoption Record's row label "Adopted at commit" is unchanged: it is a
   record format, and the sentence under it already says the commit is the tip the project sat on when
   adoption ran.
-- **Tests.** `tests/test-bl318-g4g6.sh` has 17 cases and 16 mutants. D1 and its two mutants need the k-pdf
-  bundle and P4 the Guardrails clone, so on CI 15 cases and 14 mutants run. Red on base (`b93b006`): 2
-  passed, 31 failed. D3 passes there by design, since it guards the real deploys. MC1 passes there because
-  the base already carries the wording it restores. The suite is pinned to `commit-hooks`.
+- **Tests.** `tests/test-bl318-g4g6.sh` has 22 cases and 28 mutants (after review round 1). D1 and its two
+  mutants need the k-pdf bundle and P4 the Guardrails clone, so on CI 20 cases and 26 mutants run. Red on
+  base (`b93b006`), as first built: 2 passed, 31 failed. D3 passed there by design, since it guards the
+  real deploys. MC1 passed there because the base already carries the wording it restores. On review round
+  1's base (`d607464`): 31 passed, 19 failed. The suite is pinned to `commit-hooks`.
 
 **G6 residuals (not fixed):**
 - Scout's deploy rule still reads comment lines; adoption's skips them, as before.
-- A flag whose own word is the deploy (a tool where `--deploy` deploys) no longer counts. The brief
-  accepted that: a word inside a flag does not count.
+- **A deploy named only inside a longer flag is not counted.** MSBuild's `-p:DeployOnBuild=true` and a
+  `--deploy-to=prod` are missed by both detectors (the base caught them). That is the trade for not reading
+  Nuitka's `--no-deployment-flag` as a deploy. `docs/adoption.md` lists it, and the comment above Scout's
+  rules says it is the one false negative they accept. A flag named `deploy` alone, a flag's `=deploy` value,
+  and a `deploy` command after the flags are counted.
+- **Narrowing `# BL-318-G6-MCP-REG-Q` survives (review round 1, R-7).** Requiring Qdrant to be
+  `reachable` rather than registered passes the suite. It matters only if the database stops between the
+  step's wait and its receipt; the registration is then not named.
 - A `docker run` by the MCP step creates the `qdrant` container, which is outside the project too. The
   refusal does not name it: only `claude mcp add` registrations are tracked.
 - If the MCP step's receipt cannot be read after an add ran, nothing is claimed either way.
