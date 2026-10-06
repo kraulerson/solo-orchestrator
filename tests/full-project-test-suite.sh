@@ -1007,6 +1007,12 @@ run_child_suite "tests/test-bl318-g5-guardrails-refresh.sh" \
 run_child_suite "tests/test-bl318-g2-resume-adoptee.sh" \
   "BL-318 G2: an adoptee gets its Phase 0 prompt until Phase 0 writes its manifesto; the session-start hook agrees; the classic prompt prints no filler" \
   "BL-318 G2 resume-adoptee tests FAILED (run tests/test-bl318-g2-resume-adoptee.sh for details)"
+# BL-318 G3: the framework's CI was said to run "from your next push" (it runs on
+# a push to main and on pull requests to main), was named CI beside the
+# adoptee's own CI, and installed from requirements.txt in a uv project.
+run_child_suite "tests/test-bl318-g3-ci-template.sh" \
+  "BL-318 G3: the framework's CI says when it runs, is named Solo Orchestrator checks, and installs a uv project with uv sync --frozen" \
+  "BL-318 G3 CI-template tests FAILED (run tests/test-bl318-g3-ci-template.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

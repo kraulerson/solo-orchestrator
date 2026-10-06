@@ -147,7 +147,7 @@ _adopt_ci_template_name() {
 }
 
 adopt_write_ci() {                                     # BL-242-CI-STAGE
-  local root="$1" report="$2" host lang tmpl dest out
+  local root="$1" report="$2" host lang tmpl dest out wf_name=""
   adopt_head "The framework's CI"
   host="$(jq -r '.host // ""' "$root/.claude/manifest.json" 2>/dev/null)"
   case "$host" in
@@ -181,9 +181,14 @@ adopt_write_ci() {                                     # BL-242-CI-STAGE
   adopt_note "Installed the framework's CI as $dest — its own file, beside yours."
   case "$host" in
     github)
-      adopt_note "GitHub runs every workflow in .github/workflows, so it runs from your next push."
-      adopt_note "It may fail on code that predates adoption; that is a finding, not a breakage —"
-      adopt_note "your own workflows are unchanged." ;;
+      # BL-318-G3-RUNS-WHEN: what the template's `on:` block does — not "from your
+      # next push", which a push to a branch disproved (dogfood run 2, finding 33).
+      # The name is read from the file, so this line cannot drift from it.
+      wf_name="$(LC_ALL=C awk '/^name: /{ sub(/^name: /, ""); print; exit }' "$tmpl" 2>/dev/null)"
+      adopt_note "GitHub runs it on a push to main and on pull requests to main, as \"${wf_name:-its own workflow}\";"
+      adopt_note "a push to any other branch runs nothing. If your main branch has another name, change"
+      adopt_note "main in its two branches: lines. It may fail on code that predates adoption; that is a"
+      adopt_note "finding, not a breakage — your own workflows are unchanged." ;;
     gitlab)
       adopt_say  "   IT DOES NOT RUN YET. GitLab runs only .gitlab-ci.yml. To run it, add this to yours:"
       adopt_say  "     include:"

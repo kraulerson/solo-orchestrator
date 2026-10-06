@@ -628,6 +628,7 @@ jobs:
             tests/test-bl318-g1-test-command.sh
             tests/test-bl318-g5-guardrails-refresh.sh
             tests/test-bl318-g2-resume-adoptee.sh
+            tests/test-bl318-g3-ci-template.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1066,6 +1067,7 @@ jobs:
           pin_mcp_mutants=(                               # 400s on PR #490's run, 355s on PR #494's, of 720s
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
             tests/test-bl312-tldr-mode.sh                 # ~100s local, measured (100s and 105s after review round 1) — five completed adoptions and two refused, eight adoption mutants, 34 mutants in all; here, not in `rest` (518s of 720s on PR #494) or `mcp` (349s, four files)
+            tests/test-bl318-g3-ci-template.sh            # 32-33s local, measured — two real adoptions and two under mutants, 20 cases and 26 mutants; here, not in `rest` (job 638s of 720s on PR #498) or `mcp` (job 521s on main run 37400574352); this leg's job ran 457s on PR #498
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
