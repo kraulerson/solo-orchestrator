@@ -928,7 +928,7 @@ mutant M12b BL-311-HANDOFF-MODE-NAME '(mode|commands?)' '(mode|commands?|window)
 mutant M13 BL-311-RELAY-EVERY-LINE 'return 1   # BL-311-RELAY-EVERY-LINE' 'continue   # BL-311-RELAY-EVERY-LINE' c_every_line
 mutant M14 BL-311-RELAY-STOP-ONLY 'if [ "$EVENT" = "Stop" ]; then' 'if [ -n "$EVENT" ]; then' c_posttooluse
 mutant M15 BL-311-RELAYED-ESCAPE-ROW '.type = "relayed_framework_escape"' '.type = "claude_bypass_proposal"' c_dogfood
-mutant M16 BL-311-RELAYED-NO-SENTINEL '[ -z "$RAISE_PATTERN" ] && exit 0' '[ -z "$RAISE_PATTERN" ] && true' c_dogfood
+mutant M16 BL-311-RELAYED-NO-SENTINEL 'elif [ -n "$RAISE_PATTERN" ]; then' 'elif true; then' c_dogfood
 mutant M17 BL-311-RELAYED-QUESTION-PATTERN 'FIRST_PATTERN="$RAISE_PATTERN"' ': "$RAISE_PATTERN"' c_question
 mutant M18 BL-311-RELAY-ESCAPES-BEGIN "'SOLO_TDD_ATTESTED|SOLO_TDD_REASON|git commit|commit-message'" "'SOLO_TDD_ATTESTED_X|SOLO_TDD_REASON|git commit|commit-message'" c_e_tdd
 mutant M19 BL-311-RELAYED-ESCAPE-ROW '.user_response = "n/a"' '.user_response = "PENDING"' c_dogfood

@@ -12,7 +12,17 @@
 #                                  "terminal_commit_passed" | "out_of_band_commit" |
 #                                  "enforcement_level_set" | "detector_error" | "escalation" |
 #                                  "sast_suppression" | "adoption_event" |
-#                                  "relayed_framework_escape",
+#                                  "relayed_framework_escape" | "approval_mismatch",
+#                                  (BL-320: "approval_mismatch" records a commit
+#                                  whose tree is not the tree the user approved —
+#                                  a matched=false record the Development
+#                                  Guardrails 4.4.0+ wrote to
+#                                  .claude/approvals.jsonl. Written once per
+#                                  commit by detect-out-of-band-commits.sh at
+#                                  session start; actor "framework",
+#                                  user_response "n/a", final_outcome
+#                                  "recorded_only", details {commit,
+#                                  approved_tree, committed_tree, at}.)
 #                                  (BL-311 row 3: "relayed_framework_escape" is a
 #                                  bypass-detector Stop-arm match on text that
 #                                  relays a check's own documented escape — a
@@ -307,4 +317,75 @@ bypass_audit_close_pending() {
 
   rmdir "$lock_dir" 2>/dev/null
   return "$rc"
+}
+
+# bypass_audit_close_from_approvals <project_root>
+# `## BL-320:` with the Development Guardrails 4.4.0 and later, the USER's
+# answer to a question is recorded by the Guardrails (record-approval.sh) in
+# .claude/approvals.jsonl, a file the agent cannot write, and the question is
+# removed. This closes every PENDING claude_bypass_proposal row whose question
+# the user picked an answer to — the row carries details.sentinel_sha256, the
+# sha256 of the question the bypass detector raised or found open, and the
+# pick record carries the sha256 the Guardrails read — so a pick on one
+# question never closes rows of another. The bypass question's options are
+# fixed by the detector: A1 accepts the proposal, any other pick declines it.
+# The agent's own --decision is not consulted. Prints how many rows it
+# closed; 0 when there is nothing to read. Returns 1 only on a write failure.
+bypass_audit_close_from_approvals() {
+  local project_root="${1:-.}"
+  local file="$project_root/.claude/bypass-audit.json"
+  local ap="$project_root/.claude/approvals.jsonl"
+  local picks before after
+  if [ ! -f "$file" ] || [ ! -f "$ap" ]; then echo 0; return 0; fi
+  picks="$(jq -R -c 'fromjson? | select(type == "object" and .event == "approval" and .source == "pick"
+             and (.sentinel_sha256 | type) == "string")
+           | {s: .sentinel_sha256, p: ((.pick // "") | tostring | ascii_upcase), at: ((.picked_at // "") | tostring)}' "$ap" 2>/dev/null \
+           | jq -s -c '.' 2>/dev/null)" || picks='[]'
+  [ -n "$picks" ] || picks='[]'
+  if [ "$picks" = "[]" ]; then echo 0; return 0; fi
+  jq -e 'type == "array"' "$file" >/dev/null 2>&1 || { echo "[FAIL] bypass_audit_close_from_approvals: $file is not a JSON array" >&2; return 1; }
+  before="$(jq '[.[] | select(.type == "claude_bypass_proposal" and .user_response == "PENDING")] | length' "$file")"
+
+  local lock_dir="$file.lockdir" attempts=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      echo "[FAIL] bypass_audit_close_from_approvals: lock timeout (>10s)" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+  local rc=0
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --argjson picks "$picks" '[ .[] |
+        if .type == "claude_bypass_proposal" and .user_response == "PENDING"
+        and ((.details.sentinel_sha256 // "") as $s | any($picks[]; .s == $s))   # BL-320-AUDIT-BIND
+        then
+          (.details.sentinel_sha256 // "") as $s
+          | (first($picks[] | select(.s == $s)) // {p: "", at: ""}) as $k
+          | (
+          (if $k.p == "A1" then "accepted" else "declined" end) as $ur   # BL-320-AUDIT-MAP
+            | .user_response = $ur
+            | .final_outcome = (if $ur == "accepted" then "bypassed" else "abandoned" end)
+            | .details.decided_by = "the user'"'"'s pick in .claude/approvals.jsonl"
+            | .details.pick = $k.p
+            | .details.picked_at = $k.at )
+        else . end ]' "$file" > "$tmp" 2>/dev/null; then
+      _bypass_audit_preserve_mode "$file" "$tmp"
+      mv "$tmp" "$file" || exit 1
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      echo "[FAIL] bypass_audit_close_from_approvals: jq failed" >&2
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
+  rmdir "$lock_dir" 2>/dev/null
+  [ "$rc" -eq 0 ] || return 1
+  after="$(jq '[.[] | select(.type == "claude_bypass_proposal" and .user_response == "PENDING")] | length' "$file")"
+  echo $((before - after))
 }

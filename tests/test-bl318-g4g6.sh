@@ -690,7 +690,9 @@ case_P8() {   # FW — Superpowers is nowhere optional
 MKT_CMD='claude plugin marketplace add anthropics/claude-plugins-official'
 case_P9() {   # FW — the marketplace line goes with every install
   local fw="$1" f="" n_sp="" n_mk="" bad=""
-  for f in README.md docs/adoption.md docs/user-guide.md; do
+  # `## BL-320:` the Builder's Guide gives the install too, so it carries the
+  # marketplace line as well (a leftover of PR #500).
+  for f in README.md docs/adoption.md docs/user-guide.md docs/builders-guide.md; do
     n_sp="$(command grep -cF "$SP_CMD" "$fw/$f")"
     n_mk="$(command grep -cF "$MKT_CMD" "$fw/$f")"
     [ "$n_sp" -ge 1 ] || bad="$bad [$f gives no install]"

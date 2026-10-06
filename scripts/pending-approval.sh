@@ -2,22 +2,41 @@
 # scripts/pending-approval.sh — Solo Orchestrator pending-approval sentinel helper (BL-015)
 #
 # Writes / reads / validates .claude/pending-approval.json to coordinate
-# blocking user decisions across the CDF stop-hook (4.2.3+) and Solo's
+# blocking user decisions across the Development Guardrails (CDF) and Solo's
 # pre-commit-gate. See docs/builders-guide.md § "Structured Decision Points".
 #
-# Schema (CDF 4.2.3 contract):
+# Schema 2 (`## BL-320:` — CDF 4.4.0's approval design B, D1):
 #   {
+#     "schema": 2,
 #     "question": "string (non-empty)",
-#     "options": ["A1: foo", "A2: bar", ...],          # >= 2 entries
-#     "recommendation": "A1",                          # leading id of one option
-#     "offered_at": "2026-04-25T12:00:00Z"             # ISO-8601 UTC
+#     "options": [{"id": "A1", "text": "...", "approves": "commit"},
+#                 {"id": "A2", "text": "...", "approves": "none"}],   # >= 2
+#     "recommendation": "A1",                          # one option's id
+#     "offered_at": "2026-10-06T12:00:00Z"             # ISO-8601 UTC
 #   }
+# Ids are a letter and one or two digits (A1 ... Z99), unique ignoring case. At
+# least one option approves nothing. An option approves a commit only when
+# --approves names it, and such a question is refused unless a change is
+# staged: stage exactly the change, THEN ask. With the Guardrails at
+# SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh) or later the user answers by
+# replying with the option id, twice; the Guardrails' record-approval.sh shows
+# them the staged change, records the pick in .claude/approvals.jsonl and
+# removes this file. --resolve and --clear only clean up.
 #
-# Existence alone signals "user is deciding" — both consumers honor file
+# Schema 1 (the CDF 4.2.3 contract this script wrote before BL-320) is still
+# read by --status and --validate: options were "A1: text" strings.
+#
+# Existence alone signals "user is deciding" — every consumer honors file
 # presence regardless of validity. Malformed files are not auto-cleaned;
-# `rm` manually or use `--clear`.
+# use --clear.
 
 set -euo pipefail
+
+# `## BL-320:` the schema this writer produces. A project's other scripts read
+# this line (scripts/lib/guardrails.sh soif_gr_writer_schema) to tell a writer
+# that predates schema 2 — a project whose Guardrails must not move to 4.4.0
+# without it. Keep it a plain assignment at the start of a line.
+SOIF_APPROVAL_SCHEMA=2   # BL-320-PA-SCHEMA-MARK
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -33,6 +52,19 @@ else
   # ships helpers.
   guard_not_in_framework() { return 0; }
 fi
+
+# `## BL-320:` schema-2 rules and the Guardrails route (pick | legacy |
+# unknown) live in one shared lib. Without it --offer and --validate refuse.
+if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ]; then
+  # shellcheck source=scripts/lib/guardrails.sh
+  . "$SCRIPT_DIR/lib/guardrails.sh"
+fi
+_pa_need_lib() {
+  command -v soif_pa_v2_problems >/dev/null 2>&1 && return 0
+  print_fail "scripts/lib/guardrails.sh is missing, so a question cannot be checked against the Development Guardrails' rules. Re-sync this project's framework scripts."
+  return 1
+}
+_pa_route() { if command -v soif_gr_route >/dev/null 2>&1; then soif_gr_route "$1"; else echo unknown; fi; }
 
 # security-audits-2 (S3, 2026-04-26 audit sweep): the helpers.sh docstring at
 # guard_not_in_framework explicitly names scripts/pending-approval.sh as a
@@ -76,14 +108,24 @@ sentinel_path() {
 
 # --- Subcommand: --offer ---
 
+# _pa_has_staged ROOT — true when the index differs from HEAD (a change is
+# staged). An unstaged edit does not count; outside a git repository nothing is.
+_pa_has_staged() {
+  local rc=0
+  git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || return 1
+  git -C "$1" diff --cached --quiet 2>/dev/null || rc=$?
+  [ "$rc" -eq 1 ]
+}
+
 cmd_offer() {
-  local question="" recommendation=""
-  local -a options=()
+  local question="" recommendation="" opt id text a n_approves=0 ids=""
+  local -a options=() approves=()
 
   while [ $# -gt 0 ]; do
     case "$1" in
       --question)        question="$2"; shift 2 ;;
       --recommendation)  recommendation="$2"; shift 2 ;;
+      --approves)        approves+=("${2:-}"); n_approves=$((n_approves + 1)); shift 2 ;;
       --options)
         shift
         while [ $# -gt 0 ] && [[ "$1" != --* ]]; do
@@ -114,7 +156,29 @@ cmd_offer() {
     print_fail "--offer requires --recommendation."
     return 1
   fi
-  local match=false opt id
+  _pa_need_lib || return 1
+
+  # Each option is "ID: what picking it does". Its effect starts as "none"; an
+  # option approves a commit only when --approves names it.
+  local options_json="[]"
+  for opt in "${options[@]}"; do
+    id="$(leading_id "$opt")"
+    text=""
+    [[ "$opt" == *:* ]] && text="${opt#*:}"
+    text="${text#"${text%%[![:space:]]*}"}"
+    if [ -z "$text" ]; then
+      print_fail "option '$opt' has no text after its id. Write each option as \"A1: what picking it does\"."
+      return 1
+    fi
+    options_json="$(jq -c --arg id "$id" --arg t "$text" '. + [{id: $id, text: $t, approves: "none"}]' <<< "$options_json")"
+    ids="${ids:+$ids, }$id"
+  done
+  for a in ${approves[@]+"${approves[@]}"}; do
+    jq -e --arg a "$a" 'any(.[]; (.id | ascii_upcase) == ($a | ascii_upcase))' <<< "$options_json" >/dev/null || { print_fail "--approves '$a' names no option (the ids are: $ids)."; return 1; }   # BL-320-OFFER-APPROVES-ID
+    options_json="$(jq -c --arg a "$a" 'map(if (.id | ascii_upcase) == ($a | ascii_upcase) then .approves = "commit" else . end)' <<< "$options_json")"
+  done
+
+  local match=false
   for opt in "${options[@]}"; do
     id=$(leading_id "$opt")
     if [ "$id" = "$recommendation" ]; then
@@ -136,41 +200,57 @@ cmd_offer() {
   local sentinel
   sentinel=$(sentinel_path "$project_root")
 
+  # Stage, THEN ask: the Guardrails bind an approval to the staged change the
+  # user is shown, so an approving question with nothing staged approves
+  # nothing — after the user has replied twice. Refused here instead.
+  [ "$n_approves" -eq 0 ] || _pa_has_staged "$project_root" || { print_fail "--approves needs a staged change, and nothing is staged. Stage exactly the change to commit (git add <files>), then ask."; return 1; }   # BL-320-OFFER-STAGED
+
   if [ -f "$sentinel" ]; then
     local existing_q existing_at
     existing_q=$(jq -r '.question // "(unparseable)"' "$sentinel" 2>/dev/null || echo "(unparseable)")
     existing_at=$(jq -r '.offered_at // "(unknown)"' "$sentinel" 2>/dev/null || echo "(unknown)")
     print_fail "A pending approval already exists: \"$existing_q\" (offered $existing_at)."
-    echo "Resolve or clear the existing one first:" >&2
-    echo "  scripts/pending-approval.sh --resolve   # user picked" >&2
-    echo "  scripts/pending-approval.sh --clear     # abort the question" >&2
+    echo "Wait for the user's answer, or withdraw it first:" >&2
+    echo "  scripts/pending-approval.sh --clear     # withdraw the question" >&2
     return 1
   fi
 
   local now
   now=$(iso_timestamp_utc)
-  local options_json
-  options_json=$(printf '%s\n' "${options[@]}" | jq -R . | jq -s .)
   local payload
-  payload=$(jq -n \
-    --arg q "$question" \
-    --argjson opts "$options_json" \
-    --arg rec "$recommendation" \
-    --arg at "$now" \
-    '{question: $q, options: $opts, recommendation: $rec, offered_at: $at}')
+  payload=$(jq -n --arg q "$question" --argjson opts "$options_json" --arg rec "$recommendation" --arg at "$now" '{schema: 2, question: $q, options: $opts, recommendation: $rec, offered_at: $at}')   # BL-320-OFFER-SCHEMA
 
-  local tmpfile
+  local tmpfile problems
   tmpfile=$(mktemp "$project_root/.claude/pending-approval.XXXXXX.tmp")
   printf '%s\n' "$payload" > "$tmpfile"
+  problems="$(soif_pa_v2_problems "$tmpfile")"
+  if [ -n "$problems" ]; then
+    rm -f "$tmpfile"
+    while IFS= read -r a; do [ -n "$a" ] && print_fail "The Development Guardrails could not take an answer to this question: $a."; done <<< "$problems"
+    return 1
+  fi
   mv "$tmpfile" "$sentinel"
 
   print_ok "Pending approval offered: $question"
+  if [ "$(_pa_route "$project_root")" = pick ]; then
+    echo "Stop now and wait. The user answers by replying with the option id first (for example: $recommendation),"
+    echo "then again once the Development Guardrails have shown them the question and the staged change."
+  else
+    echo "Stop now and wait for the user's answer, then: scripts/pending-approval.sh --resolve"
+  fi
 }
 
 # --- Subcommand: --resolve ---
 
+# --resolve: the question is over. It removes a question still on disk (with
+# Guardrails 4.4.0 and later the user's pick has already removed it, so one
+# still there was not answered and is withdrawn), then closes the bypass-audit
+# rows whose question the user picked an answer to, reading the pick from
+# .claude/approvals.jsonl — the file only the Guardrails write.
+# --decision accept|decline is the agent's own account of the answer, used
+# only where the Guardrails record no pick (older than SOIF_GUARDRAILS_MIN).
 cmd_resolve() {
-  local project_root decision=""
+  local project_root decision="" route
   # Parse optional --decision <accept|decline>.
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -178,6 +258,13 @@ cmd_resolve() {
       *) shift ;;
     esac
   done
+
+  project_root=$(find_project_root) || {
+    print_fail "Not in a Solo project — no .claude/ directory found in \$PWD or any parent."
+    return 1
+  }
+  route="$(_pa_route "$project_root")"
+  [ -z "$decision" ] || [ "$route" != pick ] || { print_fail "--decision is not used with Development Guardrails ${SOIF_GUARDRAILS_MIN:-4.4.0} and later: the user's pick is recorded by the Guardrails in .claude/approvals.jsonl, and --resolve reads it from there. Nothing was changed."; return 1; }   # BL-320-RESOLVE-DECISION
 
   # code-escalate-pending-4 (audit v2, S3): validate --decision
   # BEFORE deleting the sentinel. Pre-fix, cmd_resolve removed the
@@ -200,15 +287,15 @@ cmd_resolve() {
     esac
   fi
 
-  project_root=$(find_project_root) || {
-    print_fail "Not in a Solo project — no .claude/ directory found in \$PWD or any parent."
-    return 1
-  }
   local sentinel
   sentinel=$(sentinel_path "$project_root")
   if [ -f "$sentinel" ]; then
     rm -f "$sentinel"
-    print_ok "Pending approval resolved."
+    if [ "$route" = pick ]; then
+      print_ok "Pending question withdrawn: the user had not answered it, so nothing was approved."
+    else
+      print_ok "Pending approval resolved."
+    fi
   else
     print_info "No pending approval."
   fi
@@ -218,8 +305,8 @@ cmd_resolve() {
   # Without this, audit rows stay PENDING forever and the W7 successor-
   # handoff use case (audit log as historical governance record) is
   # half-built.
+  local lib="$SCRIPT_DIR/lib/bypass-audit.sh"
   if [ -n "$decision" ]; then
-    local lib="$SCRIPT_DIR/lib/bypass-audit.sh"
     if [ -f "$lib" ]; then
       # shellcheck disable=SC1090
       source "$lib"
@@ -231,6 +318,15 @@ cmd_resolve() {
         return 1
       fi
     fi
+  fi
+
+  # `## BL-320:` the user's own pick decides a bypass question.
+  if [ -f "$lib" ]; then
+    # shellcheck disable=SC1090
+    source "$lib"
+    local closed=0
+    closed="$(bypass_audit_close_from_approvals "$project_root")" || { print_fail "Could not read the user's picks from .claude/approvals.jsonl into the audit log."; return 1; }   # BL-320-RESOLVE-RECONCILE
+    [ "${closed:-0}" = 0 ] || print_ok "Audit log: $closed pending bypass row(s) closed from the user's pick in .claude/approvals.jsonl."
   fi
 }
 
@@ -276,7 +372,11 @@ cmd_status() {
   at=$(jq -r '.offered_at // "(missing)"' "$sentinel")
   echo "Pending question: \"$q\""
   echo "Options:"
-  jq -r '.options[]? // empty | "  " + .' "$sentinel"
+  if command -v soif_pa_option_lines >/dev/null 2>&1; then
+    soif_pa_option_lines "$sentinel" | sed 's/^/  /'
+  else
+    jq -r '(.options // [])[]? | "  " + tostring' "$sentinel"
+  fi
   echo "Recommendation: $rec"
   echo "Offered at: $at"
 }
@@ -284,15 +384,16 @@ cmd_status() {
 # --- Subcommand: --validate ---
 
 cmd_validate() {
-  local path="${1:-}"
+  local path="${1:-}" project_root=""
   if [ -z "$path" ]; then
-    local project_root
     if project_root=$(find_project_root); then
       path=$(sentinel_path "$project_root")
     else
       print_ok "No sentinel to validate."
       return 0
     fi
+  else
+    project_root=$(find_project_root) || project_root=""
   fi
   if [ ! -f "$path" ]; then
     print_ok "No sentinel to validate."
@@ -302,11 +403,29 @@ cmd_validate() {
     print_fail "Malformed JSON: $path"
     return 1
   fi
-  local q opts_count rec at_present
-  q=$(jq -r '.question // ""' "$path")
-  opts_count=$(jq -r '.options // [] | length' "$path")
+  _pa_need_lib || return 1
+  local q opts_count rec at_present problems p
   rec=$(jq -r '.recommendation // ""' "$path")
   at_present=$(jq -r 'has("offered_at")' "$path")
+  if [ "$(soif_pa_schema "$path")" = 2 ]; then
+    problems="$(soif_pa_v2_problems "$path")"
+    if [ -n "$problems" ]; then
+      while IFS= read -r p; do [ -n "$p" ] && print_fail "Schema error: $p"; done <<< "$problems"
+      return 1
+    fi
+    if [ -z "$rec" ] || ! jq -e --arg r "$rec" 'any(.options[]; .id == $r)' "$path" >/dev/null 2>&1; then
+      print_fail "Schema error: recommendation '$rec' is not an option id"
+      return 1
+    fi
+    if [ "$at_present" != "true" ]; then
+      print_fail "Schema error: offered_at missing"
+      return 1
+    fi
+    print_ok "Valid sentinel (schema 2)."
+    return 0
+  fi
+  q=$(jq -r '.question // ""' "$path")
+  opts_count=$(jq -r '.options // [] | length' "$path")
   if [ -z "$q" ]; then
     print_fail "Schema error: question missing or empty"
     return 1
@@ -330,12 +449,13 @@ cmd_validate() {
       match=true
       break
     fi
-  done < <(jq -r '.options[]' "$path")
+  done < <(jq -r '.options[] | tostring' "$path")
   if [ "$match" = false ]; then
     print_fail "Schema error: recommendation '$rec' does not match the leading id of any option"
     return 1
   fi
-  print_ok "Valid sentinel."
+  [ -z "$project_root" ] || [ "$(_pa_route "$project_root")" != pick ] || { print_fail "Schema error: schema 1 — the Development Guardrails ${SOIF_GUARDRAILS_MIN:-4.4.0} and later cannot take an answer to it. Withdraw it (--clear) and ask again with --offer."; return 1; }   # BL-320-VALIDATE-V1
+  print_ok "Valid sentinel (schema 1)."
 }
 
 # --- Subcommand: --help ---
@@ -345,20 +465,29 @@ cmd_help() {
 Usage: scripts/pending-approval.sh [COMMAND] [ARGS]
 
 Commands:
-  --offer "QUESTION" --options "A1: ..." "A2: ..." ... --recommendation "A1"
-                                  Write a pending-approval sentinel.
-                                  Refuses if one already exists.
-  --resolve [--decision X]        Delete the sentinel (user picked an option).
-                                  Optional: --decision accept|decline closes
-                                  any PENDING claude_bypass_proposal rows in
-                                  .claude/bypass-audit.json to match (BL-029.1).
-  --clear                         Delete the sentinel (agent abort, semantic alias).
-  --status                        Print the current pending question, if any.
-  --validate [PATH]               Lint a sentinel file. Default: .claude/pending-approval.json.
+  --offer "QUESTION" --options "A1: ..." "A2: ..." ... --recommendation "A1" [--approves A1 ...]
+                                  Write the question (schema 2). Option ids are
+                                  a letter and one or two digits. --approves ID
+                                  (repeatable) marks an option that approves
+                                  committing the STAGED change; it is refused
+                                  when nothing is staged, and at least one
+                                  option must approve nothing.
+                                  Refuses if a question already exists.
+  --resolve [--decision X]        The question is over: remove it if it is still
+                                  there, and close the bypass-audit rows the
+                                  user's pick in .claude/approvals.jsonl answers.
+                                  --decision accept|decline is accepted only
+                                  with Development Guardrails older than 4.4.0,
+                                  which record no pick (BL-029.1).
+  --clear                         Withdraw the question (abort).
+  --status                        Print the current question and what each option does.
+  --validate [PATH]               Lint a question file. Default: .claude/pending-approval.json.
   --help, -h                      Show this help.
 
-The sentinel file is .claude/pending-approval.json. Both the CDF stop-hook
-(4.2.3+) and Solo's pre-commit-gate honor it as "user is deciding."
+The question is .claude/pending-approval.json. The Development Guardrails'
+stop hook and Solo's pre-commit-gate honor it as "user is deciding". With
+Guardrails 4.4.0 and later the user answers by replying with the option id,
+twice, and the Guardrails remove it.
 
 See docs/builders-guide.md "Structured Decision Points" for the full
 lifecycle and rationale.

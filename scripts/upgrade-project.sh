@@ -161,6 +161,16 @@ _refresh_cdf_assets_solo() {
     . "$SCRIPT_DIR/lib/cdf-refresh.sh"
     solo_refresh_cdf "$PROJECT_ROOT" "$NON_INTERACTIVE" \
       || print_warn "CDF asset refresh skipped (non-fatal — upgrade continues)"
+    # `## BL-320:` (c2) a release that adds a Guardrails hook (4.4.0's
+    # record-approval.sh) runs only once .claude/settings.json registers it;
+    # the refresh above copies files only. Add the entries the manifest's
+    # activeHooks call for and the file lacks — never removing, reordering or
+    # rewriting one — and name each. Non-fatal here, like the refresh.
+    if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ] && [ -d "${CDF_HOME:-$HOME/.claude-dev-framework}" ]; then
+      # shellcheck source=scripts/lib/guardrails.sh
+      . "$SCRIPT_DIR/lib/guardrails.sh"
+      soif_cdf_register_hooks "$PROJECT_ROOT" "${CDF_HOME:-$HOME/.claude-dev-framework}" || print_warn "Guardrails hook registrations not checked (non-fatal — upgrade continues); the reason is above"   # BL-320-UP-REGISTER
+    fi
   fi
 }
 
@@ -199,7 +209,9 @@ _bl015_sentinel_guard() {
     echo "" >&2
     echo "  Pending question: \"$pa_question\" (offered $pa_offered)" >&2
     echo "  Options:" >&2
-    jq -r '.options[]? // empty | "    " + .' "$PENDING_APPROVAL_FILE" >&2
+    # `## BL-320:` a schema-2 question's options are objects; each is shown with
+    # what picking it does. A schema-1 option is shown as written.
+    jq -r 'if .schema == 2 then (.options // [])[]? | "    \(.id // "?") — \(.text // "") [\(if .approves == "commit" then "approves committing the staged change" else "approves nothing" end)]" else (.options // [])[]? | "    " + tostring end' "$PENDING_APPROVAL_FILE" >&2   # BL-320-UP-SENTINEL-RENDER
   else
     echo "" >&2
     echo "  Sentinel file $PENDING_APPROVAL_FILE exists but is malformed." >&2

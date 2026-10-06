@@ -85,6 +85,10 @@
 #                                        VALIDATES the ledger's shape before
 #                                        appending (`## BL-227:` records the
 #                                        seven inline sites that still do not)
+#   scripts/lib/guardrails.sh            SOIF_GUARDRAILS_MIN and its compare
+#                                        (`## BL-320:`), so the adoption names
+#                                        Guardrails below the minimum from the
+#                                        one place the number is written
 #
 # Direction (M3) holds in one direction only: this module sources core, and no
 # core file names this module. That is why `init.sh` does NOT ship
@@ -126,7 +130,7 @@ ADOPT_LIB_DIR="$ADOPT_SELF_DIR/lib/adopt"
 ADOPT_CORE_LIB_DIR="$ADOPT_SELF_DIR/lib"
 
 # ── Core libs (M2's declared set) ───────────────────────────────────────────
-for _core in helpers-core.sh render-project-docs.sh tldr-mode.sh claude-settings.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh bypass-audit.sh; do
+for _core in helpers-core.sh render-project-docs.sh tldr-mode.sh claude-settings.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh bypass-audit.sh guardrails.sh; do
   if [ ! -f "$ADOPT_CORE_LIB_DIR/$_core" ]; then
     echo "adopt-project: missing $ADOPT_CORE_LIB_DIR/$_core — run this from a complete framework clone." >&2
     exit 2

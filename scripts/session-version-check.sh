@@ -55,8 +55,9 @@ GR_CMD=""
 GR_CMD_LINE="$(printf '%s\n' "$UPDATE_CMDS" | grep -F -- "  $GR_TAG " | head -1 || true)"   # BL-318-G5-SESSION-DETECT
 if [ -n "$GR_CMD_LINE" ]; then
   GR_CMD="${GR_CMD_LINE#*"$GR_TAG" }"
-  GR_STATE="$(printf '%s\n' "$WARN_LINES" | grep -F -- "[WARN] $GR_TAG " | head -1 || true)"
-  GR_STATE="${GR_STATE#"[WARN] "}"
+  # Every Guardrails row, not only the first: `## BL-320:` adds the minimum
+  # version and missing hook registrations beside the version row.
+  GR_STATE="$(printf '%s\n' "$WARN_LINES" | grep -F -- "[WARN] $GR_TAG " | sed 's/^\[WARN\] //' || true)"
   WARN_LINES="$(printf '%s\n' "$WARN_LINES" | grep -vF -- "[WARN] $GR_TAG " || true)"   # BL-318-G5-SESSION-WARN-SPLIT
   UPDATE_CMDS="$(printf '%s\n' "$UPDATE_CMDS" | grep -vF -- "  $GR_TAG " || true)"   # BL-318-G5-SESSION-SPLIT
   # The heading alone is not a list: drop it when the offer was its only line.
@@ -84,8 +85,8 @@ fi
 # printed once, at this session's start.
 _gr_offer() {
   printf '%s\n' "GUARDRAILS UPDATE OFFER. Tell the Orchestrator about it in your FIRST response, before any other work:"
-  printf '  %s\n' "${GR_STATE:-$GR_TAG an update is available}"
-  printf '%s\n' "What the update changes: it copies the Guardrails hooks and rules into .claude/framework/ again and records the new version in .claude/manifest.json. It does not change .claude/settings.json. It first pulls the shared Guardrails clone (fast-forward only; ~/.claude-dev-framework, or the folder CDF_HOME names), which every project on this machine reads, so it can install a newer version than the one named here."
+  printf '%s\n' "${GR_STATE:-$GR_TAG an update is available}" | sed 's/^/  /'
+  printf '%s\n' "What the update changes: it copies the Guardrails hooks and rules into .claude/framework/ again and records the new version in .claude/manifest.json. In .claude/settings.json it only adds the Guardrails hook registrations that are missing there, and changes nothing else in that file. It first pulls the shared Guardrails clone (fast-forward only; ~/.claude-dev-framework, or the folder CDF_HOME names), which every project on this machine reads, so it can install a newer version than the one named here."
   printf '%s\n' "Do NOT run the update yourself: it replaces the Guardrails that check your own work, so starting it is the Orchestrator's decision. Ask the Orchestrator whether to update now. If they agree, ask them to type ! and then this exact command at the Claude Code prompt:"   # BL-318-G5-SESSION-ROUTE
   printf '  %s\n' "$GR_CMD"
   printf '%s\n' "Wait for its output: it ends in an [OK] line when the update landed, or a [FAIL] line that names what stopped it."
@@ -96,7 +97,17 @@ _gr_offer() {
 _gr_notice() {
   printf '%s\n' "GUARDRAILS NOTICE. Tell the Orchestrator this in your FIRST response, before any other work. Do NOT run anything about it yourself:"
   printf '%s\n' "$GR_NOTICE" | sed 's/^\[WARN\] /  /'
-  printf '%s\n' "There is no command to offer here. A new MAJOR version needs a Guardrails migration, and a version that cannot be read needs the reason above fixed; both are the Orchestrator's to decide."
+  # `## BL-320:` a row below the minimum version and a mixed install each have
+  # their own sentence; the migration / cannot-tell sentence is for those rows.
+  if printf '%s\n' "$GR_NOTICE" | grep -qE 'a new MAJOR version|cannot tell whether an update is available'; then
+    printf '%s\n' "There is no command to offer here. A new MAJOR version needs a Guardrails migration, and a version that cannot be read needs the reason above fixed; both are the Orchestrator's to decide."
+  fi
+  if printf '%s\n' "$GR_NOTICE" | grep -qF ", the minimum for this framework's approval questions"; then
+    printf '%s\n' "A version below the minimum, with nothing newer in the Guardrails clone: the clone itself needs updating first (every project on this computer uses it), and the next session start then offers this project's update."
+  fi
+  if printf '%s\n' "$GR_NOTICE" | grep -qF "still write the older approval question"; then
+    printf '%s\n' "The Guardrails update alone is not offered: it would leave this project's own scripts writing a question the new Guardrails cannot take an answer to. The framework sync named above updates both, and it is the Orchestrator's to run."
+  fi
 }
 
 # Only output when something needs attention

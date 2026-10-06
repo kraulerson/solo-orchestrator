@@ -630,6 +630,7 @@ jobs:
             tests/test-bl318-g2-resume-adoptee.sh
             tests/test-bl318-g3-ci-template.sh
             tests/test-bl318-g4g6.sh
+            tests/test-bl320-approval-schema2.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

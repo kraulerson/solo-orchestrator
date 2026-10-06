@@ -12,7 +12,13 @@
 #     --question "..." \
 #     --option "A1: foo" --option "A2: bar" [--option "A3: baz"] \
 #     --recommendation A2 \
-#     [--rationale "..."]
+#     [--approves A1] [--rationale "..."]
+#
+# `## BL-320:` the question is schema 2 (pending-approval.sh --offer). An
+# option approves committing the STAGED change only when --approves names it
+# (repeatable, and refused when nothing is staged); every other option
+# approves nothing. With the Development Guardrails 4.4.0 and later the user
+# answers by replying with the option id, twice.
 
 set -euo pipefail
 
@@ -24,6 +30,7 @@ QUESTION=""
 RECOMMENDATION=""
 RATIONALE=""
 OPTIONS=()
+APPROVE_ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,8 +38,9 @@ while [ $# -gt 0 ]; do
     --recommendation) RECOMMENDATION="${2:-}"; shift 2 ;;
     --rationale) RATIONALE="${2:-}"; shift 2 ;;
     --option) OPTIONS+=("${2:-}"); shift 2 ;;
+    --approves) APPROVE_ARGS+=(--approves "${2:-}"); shift 2 ;;   # BL-320-ESC-APPROVES
     -h|--help)
-      sed -n '2,15p' "$0" | sed 's/^# *//'
+      sed -n '2,22p' "$0" | sed 's/^# *//'
       exit 0
       ;;
     *)
@@ -58,13 +66,17 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
 if ! ( cd "$PROJECT_ROOT" && bash "$SCRIPT_DIR/pending-approval.sh" --offer \
          --question "$QUESTION" \
          --recommendation "$RECOMMENDATION" \
+         ${APPROVE_ARGS[@]+"${APPROVE_ARGS[@]}"} \
          --options "${OPTIONS[@]}" ); then
   echo "[FAIL] escalate-to-user: pending-approval.sh --offer refused; aborting before audit-row write" >&2
   exit 1
 fi
 
-# Build options JSON array (still needed for the audit row).
-OPT_JSON=$(printf '%s\n' "${OPTIONS[@]}" | jq -R . | jq -s .)
+# The options as written to the question (schema 2: {id, text, approves}),
+# and the question's sha256, which the Guardrails' pick record carries.
+SENTINEL_FILE="$PROJECT_ROOT/.claude/pending-approval.json"
+OPT_JSON=$(jq -c '.options' "$SENTINEL_FILE" 2>/dev/null) || OPT_JSON='[]'
+SENT_SHA=$( { sha256sum "$SENTINEL_FILE" 2>/dev/null || shasum -a 256 "$SENTINEL_FILE" 2>/dev/null; } | awk '{print $1; exit}')
 
 TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -77,13 +89,14 @@ ROW=$(jq -nc \
   --arg rat "$RATIONALE" \
   --arg lvl "$LEVEL" \
   --argjson opts "$OPT_JSON" \
+  --arg sha "$SENT_SHA" \
   '{
     timestamp: $ts,
     session_id: null,
     type: "escalation",
     actor: "framework",
     enforcement_level_at_event: $lvl,
-    details: {question: $q, options: $opts, recommendation: $rec, rationale: $rat},
+    details: {question: $q, options: $opts, recommendation: $rec, rationale: $rat, sentinel_sha256: $sha},
     user_response: "PENDING",
     final_outcome: "escalated"
   }')

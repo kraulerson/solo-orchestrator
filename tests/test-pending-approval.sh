@@ -141,7 +141,8 @@ p10_status_present_valid() {
   local out; out=$(run_in_project --status)
   [ "${out%%|*}" = "0" ] || { fail_ "P10" "expected exit 0, got: $out"; teardown_project; return; }
   [[ "$out" == *"commit structure"* ]] || { fail_ "P10" "stdout should reflect question, got: $out"; teardown_project; return; }
-  [[ "$out" == *"A1: single"* ]] || { fail_ "P10" "stdout should reflect options, got: $out"; teardown_project; return; }
+  # BL-320: --offer writes schema 2, and --status says what each option does.
+  [[ "$out" == *"A1 — single [approves nothing]"* ]] || { fail_ "P10" "stdout should reflect options, got: $out"; teardown_project; return; }
   [[ "$out" == *"A1"* ]] || { fail_ "P10" "stdout should reflect recommendation, got: $out"; teardown_project; return; }
   pass "P10: --status with valid sentinel — exit 0 + formatted summary"
   teardown_project

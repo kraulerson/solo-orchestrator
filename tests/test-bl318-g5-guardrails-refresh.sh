@@ -151,6 +151,9 @@ below() {
 # no update command.
 no_offer() {
   local out="$1"
+  # `## BL-320:` a project below the minimum Guardrails version is named on a
+  # row of its own; that row offers nothing, so it is not an offer here.
+  out="$(printf '%s\n' "$out" | command grep -vF ", the minimum for this framework's approval questions" || true)"
   if has_f "$out" "[WARN] $GR: "; then CASE_DETAIL="a Guardrails warning: $(printf '%s\n' "$out" | command grep -F "[WARN] $GR")"; return 1; fi
   if has_f "$out" "$REFRESH_CMD"; then CASE_DETAIL="the update command is offered"; return 1; fi
   return 0
@@ -326,7 +329,7 @@ case_S1() {
               "It first pulls the shared Guardrails clone (fast-forward only" \
               "so it can install a newer version than the one named here" \
               "records the new version in .claude/manifest.json" \
-              "It does not change .claude/settings.json." \
+              "In .claude/settings.json it only adds the Guardrails hook registrations that are missing there" \
               "Do NOT run the update yourself" \
               "it replaces the Guardrails that check your own work, so starting it is the Orchestrator's decision" \
               "type ! and then this exact command at the Claude Code prompt" \
@@ -339,9 +342,9 @@ case_S1() {
   has_f "$out" "Would you like me to run these updates now" && { CASE_DETAIL="the agent is told to offer to run the update itself"; return 1; }
   return 0
 }
-case_S2() {   # current: silent
+case_S2() {   # current: silent (and at or above the BL-320 minimum, which a 4.3.x project is not)
   local out
-  pair 4.3.7 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
+  pair 4.4.0 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
   out="$(sv "$1")"
   [ -z "$out" ] || { CASE_DETAIL="spoke: $(last3 "$out")"; return 1; }
 }
@@ -356,7 +359,7 @@ case_S3() {   # the pattern table finds nothing in the offer, or in a plain rela
   word="$(printf '%s\n' "$para" | command grep -oiE 'terminal|shell' | head -1)"
   [ -z "$word" ] || { CASE_DETAIL="the offer names a '$word' route; a relay of it in other words can match terminal_workaround"; return 1; }
   joined="$(printf '%s\n' "$para" | tr '\n' ' ' | tr -s ' ')"
-  relay="Your project's Development Guardrails are 4.3.0 and 4.3.7 is available. I won't run the update myself: it replaces the Guardrails that check my own work, so it is your call. To update, type ! and then \`bash scripts/refresh-guardrails.sh\` at the Claude Code prompt; it does not change .claude/settings.json. Or skip it and I will carry on."
+  relay="Your project's Development Guardrails are 4.3.0 and 4.3.7 is available. I won't run the update myself: it replaces the Guardrails that check my own work, so it is your call. To update, type ! and then \`bash scripts/refresh-guardrails.sh\` at the Claude Code prompt; in .claude/settings.json it only adds missing Guardrails hook registrations. Or skip it and I will carry on."
   hit="$( ( . "$1/scripts/lib/bypass-patterns.sh"
             while IFS= read -r l; do scan_bypass_patterns_all "$l" | sed 's/$/ (a line)/'; done <<< "$para"
             scan_bypass_patterns_all "$joined" | sed 's/$/ (the offer as one line)/'
@@ -479,6 +482,9 @@ eproj() {
   pair "$2" "$3" || return 1
   cp "$4" "$H/.claude-dev-framework/scripts/cdf-refresh.sh" || return 1
   cp -p "$1/scripts/refresh-guardrails.sh" "$P/scripts/refresh-guardrails.sh" || return 1
+  # `## BL-320:` shipped beside it (init.sh `# BL-320-SHIP`): the minimum
+  # version and the hook registration the refresh ends with.
+  mkdir -p "$P/scripts/lib" && cp -p "$1/scripts/lib/guardrails.sh" "$P/scripts/lib/guardrails.sh" || return 1
   ( cd "$P" && git add -A && git commit -q -m ship ) >/dev/null 2>&1
 }
 # rg [ENV=V…] — the offered command, as typed after `!`: in the project, no TTY.
@@ -629,7 +635,14 @@ case_E1() {   # end to end, against the real upstream refresh
   [ -z "$bad" ] || { CASE_DETAIL="it also changed: $bad"; return 1; }
   no_offer "$(cv "$1")" || { CASE_DETAIL="after the update: $CASE_DETAIL"; return 1; }
   sout="$(sv "$1")"
-  [ -z "$sout" ] || { CASE_DETAIL="after the update the session hook spoke: $(last3 "$sout")"; return 1; }
+  # `## BL-320:` 4.3.7 is below the minimum Guardrails version, and the clone
+  # holds nothing newer, so the session start tells that as a notice. Anything
+  # else — an offer, a command — is a regression of this case.
+  if [ -n "$sout" ]; then
+    has_f "$sout" "GUARDRAILS NOTICE" && has_f "$sout" "4.3.7 is below 4.4.0" \
+      && ! has_f "$sout" "$OFFER_HEAD" && ! has_f "$sout" "$REFRESH_CMD" \
+      || { CASE_DETAIL="after the update the session hook spoke: $(last3 "$sout")"; return 1; }
+  fi
 }
 case_E2() {   # a project without the Guardrails (its own manifest, no .claude/framework/): refused, nothing written
   local t m

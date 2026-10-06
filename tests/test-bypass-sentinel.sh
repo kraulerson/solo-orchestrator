@@ -54,18 +54,24 @@ EOF
 fi
 teardown
 
-# T2b (S5 fix): confirmation phrase IS preserved in options[0].
-echo "T2b: confirmation phrase is in options[0]"
+# T2b (S5 fix 2026-05-04, RETIRED by BL-320 2026-10-06): the confirmation
+# phrase lived in options[0] so the user had to type it verbatim. With the
+# Development Guardrails 4.4.0 the user answers by option id, twice, through
+# their record-approval.sh — only a reply starting with an id counts, and the
+# first shows what each option does — so the question is schema 2 and the
+# phrase is gone. T2b now pins that: A1 accepts, A2 declines, neither approves
+# a commit, and the phrase is nowhere in the file.
+echo "T2b: the question is answered by option id (schema 2); the typed phrase is retired"
 setup
 if [ ! -f "$HOOK" ]; then fail_ "T2b" "hook missing"; else
   CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
 {"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"--no-verify path"}}
 EOF
-  opt0=$(jq -r '.options[0]' "$TMP/.claude/pending-approval.json")
-  if echo "$opt0" | grep -q "I have read the proposal at .claude/bypass-audit.json and accept the bypass"; then
+  if jq -e '.schema == 2 and ([.options[].id] == ["A1","A2"]) and ([.options[].approves] == ["none","none"])' "$TMP/.claude/pending-approval.json" >/dev/null 2>&1 \
+     && ! grep -q "I have read the proposal" "$TMP/.claude/pending-approval.json"; then
     pass "T2b"
   else
-    fail_ "T2b" "phrase missing from options[0]: $opt0"
+    fail_ "T2b" "not a schema-2 id question: $(tr -d '\n' < "$TMP/.claude/pending-approval.json")"
   fi
 fi
 teardown

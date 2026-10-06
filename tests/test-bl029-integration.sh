@@ -47,14 +47,17 @@ EOF
 rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$PROJ/.claude/bypass-audit.json")
 if [ "$rows" = "1" ]; then pass "T2: claude_bypass_proposal row"; else fail_ "T2" "rows=$rows"; fi
 
-# T3 (S5 fix 2026-05-04): pending-approval sentinel written; confirmation phrase
-# lives in options[0] only, NOT in question (defeats novice-priming risk).
+# T3 (S5 fix 2026-05-04; BL-320 2026-10-06): the pending-approval question is
+# written. S5 put a typed confirmation phrase in options[0] (never in the
+# question). BL-320 retired the phrase: the question is schema 2 and the user
+# answers by option id through the Development Guardrails' record-approval.sh,
+# which only counts a reply starting with an id and asks for it twice.
 if [ -f "$PROJ/.claude/pending-approval.json" ] && \
-   jq -e '.options[0] | contains("I have read the proposal")' "$PROJ/.claude/pending-approval.json" >/dev/null 2>&1 && \
-   ! jq -e '.question | contains("I have read the proposal")' "$PROJ/.claude/pending-approval.json" >/dev/null 2>&1; then
-  pass "T3: phrase in options[0] only, not in question"
+   jq -e '.schema == 2 and .options[0].id == "A1" and .options[0].approves == "none"' "$PROJ/.claude/pending-approval.json" >/dev/null 2>&1 && \
+   ! grep -q "I have read the proposal" "$PROJ/.claude/pending-approval.json"; then
+  pass "T3: schema-2 question answered by option id; the BL-029 typed phrase is retired"
 else
-  fail_ "T3" "sentinel missing, malformed, or phrase leaked into question"
+  fail_ "T3" "sentinel missing, not schema 2, or the retired phrase is still asked for"
 fi
 
 # T4: escalate-to-user CLI works end-to-end (init a fresh git repo for it).
@@ -105,12 +108,14 @@ if [ "$ALL_OK" = "1" ]; then pass "T5: actor enum"; else fail_ "T5" "unknown act
 # T6: type enum invariant — every row's type is one of the documented values
 # (per BL-030 spec § 6 schema). BL-311 row 3 added relayed_framework_escape (the
 # Stop arm relaying a check's own escape); its rows are pinned by
-# tests/test-bl311-d-relayed-escape.sh, since this ledger holds none.
+# tests/test-bl311-d-relayed-escape.sh, since this ledger holds none. BL-320
+# added approval_mismatch (a commit that is not the approved tree), pinned by
+# tests/test-bl320-approval-schema2.sh O1.
 TYPES=$(jq -r '[.[].type] | unique | .[]' "$PROJ/.claude/bypass-audit.json")
 TYPE_OK=1
 for t in $TYPES; do
   case "$t" in
-    claude_bypass_proposal|terminal_commit_blocked|terminal_commit_passed|out_of_band_commit|enforcement_level_set|detector_error|escalation|relayed_framework_escape|adoption_event) ;;
+    claude_bypass_proposal|terminal_commit_blocked|terminal_commit_passed|out_of_band_commit|enforcement_level_set|detector_error|escalation|relayed_framework_escape|approval_mismatch|adoption_event) ;;
     *) TYPE_OK=0 ;;
   esac
 done

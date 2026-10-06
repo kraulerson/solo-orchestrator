@@ -835,6 +835,11 @@ _cv_guardrails_row() {
         print_warn "$GUARDRAILS_ROW: ${_inst} installed, ${_avail} available — a new MAJOR version, which needs a Guardrails migration (see ${_clone}/migrations/), not scripts/refresh-guardrails.sh"
       else
         print_warn "$GUARDRAILS_ROW: ${_inst} installed, ${_avail} available"
+        # `## BL-320:` 4.4.0+ beside this project's pre-schema-2 question writer
+        # would be a mixed install that cannot approve a commit by reply: not
+        # offered (no command, so the session start tells it as a notice); the
+        # framework sync, which moves both halves, is named instead.
+        _cv_gr_mixed_row "$_avail" && return 0   # BL-320-CV-MIXED
         UPDATES+=("$GUARDRAILS_ROW ${_inst} → ${_avail}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-318-G5-OFFER
       fi
       ;;
@@ -848,7 +853,57 @@ _cv_guardrails_row() {
       ;;
   esac
 }
+# ── `## BL-320:` the minimum Guardrails version, and missing registrations ──
+# SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh, the one place the number is
+# written): below it the user cannot approve a commit by answering the agent's
+# question with an option id — the Guardrails' approval design B arrived in
+# 4.4.0. The row says so whatever the clone holds; when the clone is newer the
+# update offer above is the remedy, and when it is not, session-version-check.sh
+# tells it as a notice (there is nothing to offer until the clone is updated).
+# Worded "below", never the generic "BELOW MINIMUM", which session-version-check
+# reads as URGENT for a tool (the G5 row's own sanitiser lesson, review R-7).
+#
+# At or above it, with nothing newer to install, a project can still lack the
+# registration a release's new hook needs (4.4.0's record-approval.sh, after a
+# refresh from an older version): `refresh-guardrails.sh` adds it, so the row
+# offers that command, naming what is missing (soif_cdf_register_hooks check —
+# the clone's own entries). Nothing is said when it cannot tell (no lib, no
+# usable clone): the version row above already reported what it could read.
+if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ]; then
+  # shellcheck source=scripts/lib/guardrails.sh
+  . "$SCRIPT_DIR/lib/guardrails.sh"
+fi
+_CV_GR_SYNC_CMD="bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework"
+_cv_gr_mixed_row() {   # VERSION — print the mixed-install row and succeed, or fail quietly
+  command -v soif_gr_mixed >/dev/null 2>&1 || return 1
+  soif_gr_mixed . "$1" || return 1
+  print_warn "$GUARDRAILS_ROW: this project's Solo scripts still write the older approval question, which Guardrails ${1} cannot take an answer to; update both together with the framework sync, not the Guardrails alone: ${_CV_GR_SYNC_CMD}"
+  return 0
+}
+_cv_gr_minimum_rows() {
+  local _clone="${CDF_HOME:-$HOME/.claude-dev-framework}" _inst _avail _missing _n _names _verb
+  command -v soif_gr_below_min >/dev/null 2>&1 || return 0
+  [ -d ".claude/framework" ] || return 0
+  _inst="$(soif_gr_installed_version .)"
+  soif_gr_xyz_valid "$_inst" || return 0
+  if soif_gr_below_min "$_inst"; then
+    print_warn "$GUARDRAILS_ROW: ${_inst} is below ${SOIF_GUARDRAILS_MIN}, the minimum for this framework's approval questions: until it is updated, a commit cannot be approved by answering the agent's question with an option id"   # BL-320-CV-MIN
+    return 0
+  fi
+  _avail="$(tr -d '[:space:]' < "$_clone/FRAMEWORK_VERSION" 2>/dev/null || :)"
+  soif_gr_xyz_valid "$_avail" && [ "$(soif_gr_xyz_cmp "$_inst" "$_avail")" = lt ] && return 0
+  _cv_gr_mixed_row "$_inst" && return 0
+  _missing="$(soif_cdf_register_hooks "$PWD" "$_clone" check 2>/dev/null)" || return 0
+  [ -n "$_missing" ] || return 0
+  _n="$(printf '%s\n' "$_missing" | grep -c .)"
+  _names="$(printf '%s\n' "$_missing" | LC_ALL=C tr -c '0-9A-Za-z._\n-' '?' | paste -sd, - | sed 's/,/, /g')"
+  _verb="are"; [ "$_n" = 1 ] && _verb="is"
+  print_warn "$GUARDRAILS_ROW: ${_inst}, but ${_n} of its hook registrations ${_verb} missing from .claude/settings.json (${_names})"
+  UPDATES+=("$GUARDRAILS_ROW ${_inst}: register ${_names}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-320-CV-REG
+}
+
 _cv_guardrails_row                                                                # BL-318-G5-CALL
+_cv_gr_minimum_rows
 
 # --- Summary ---
 echo ""

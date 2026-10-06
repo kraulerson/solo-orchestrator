@@ -553,6 +553,7 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SESSION_ID" ] && SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
 LEVEL=$(jq -r '.enforcement_level // "strict"' "$PROJECT_ROOT/.claude/manifest.json" 2>/dev/null)
 FIRST_PATTERN=""
+ROWS=""
 
 while IFS= read -r PATTERN; do
   [ -z "$PATTERN" ] && continue
@@ -610,43 +611,57 @@ while IFS= read -r PATTERN; do
     RAISE_PATTERN="$PATTERN"
   fi
 
-  bypass_audit_append "$PROJECT_ROOT" "$ROW" || true
+  ROWS="${ROWS}${ROW}"$'\n'
 done <<< "$PATTERNS"
 
+# `## BL-320:` the rows are written AFTER the question they belong to, so each
+# proposal row can carry the sha256 of that question (details.sentinel_sha256).
+# With the Development Guardrails 4.4.0 and later the user answers it by option
+# id; the Guardrails record the pick, with the same sha256, in
+# .claude/approvals.jsonl, and `pending-approval.sh --resolve` (or the next
+# session start) closes exactly these rows from it — never the rows of another
+# question, and never on the agent's word.
+SENTINEL="$PROJECT_ROOT/.claude/pending-approval.json"
+soif_bd_sha256() { { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1" 2>/dev/null; } | awk '{print $1; exit}'; }
+COVER_SHA=""
+if [ -f "$SENTINEL" ]; then
+  # An open question: the rows belong to it only when it is this detector's own
+  # bypass question. A commit question's answer is not a bypass decision.
+  jq -e '.source == "bypass-detector"' "$SENTINEL" >/dev/null 2>&1 && COVER_SHA="$(soif_bd_sha256 "$SENTINEL")"   # BL-320-DETECT-COVER
 # BL-311-RELAYED-NO-SENTINEL — the pending approval asks the operator about a
 # proposal. When every pattern this message matched was a relayed framework
-# escape there is none: the rows above are the record, and nothing is asked.
-[ -z "$RAISE_PATTERN" ] && exit 0
-# BL-311-RELAYED-QUESTION-PATTERN — the question names the first pattern that IS
-# a proposal, not a relay that happened to match first.
-FIRST_PATTERN="$RAISE_PATTERN"
-
-# BL-029: write pending-approval sentinel iff one isn't already pending.
-# Forces non-trivial confirmation phrase to accept (defends against generic
-# 'OK' / 'yes' / 'proceed' acceptance, per agent-5 spec). One sentinel
-# covers all matched patterns from this proposal.
-#
-# S5 fix (2026-05-04): the confirmation phrase is NO LONGER embedded in the
-# question text. Earlier behavior let Claude/user reading the sentinel
-# copy-paste the phrase out of compliance — defeating the defense. The
-# phrase remains in options[0] (structurally required for matching), and
-# the question instructs the user to read options[0] verbatim.
-SENTINEL="$PROJECT_ROOT/.claude/pending-approval.json"
-if [ ! -f "$SENTINEL" ]; then
-  CONFIRM_PHRASE="I have read the proposal at .claude/bypass-audit.json and accept the bypass"
-  jq -nc \
-    --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. To accept, type option A1 verbatim. To decline, say 'decline' or describe what you want instead." \
-    --arg phrase "$CONFIRM_PHRASE" \
-    --arg ts "$TS" \
-    '{
-      question: $q,
-      options: [
-        ("A1: " + $phrase),
-        "A2: decline"
-      ],
-      recommendation: "A2",
-      offered_at: $ts
-    }' > "$SENTINEL"
+# escape there is none: the rows are the record, and nothing is asked.
+elif [ -n "$RAISE_PATTERN" ]; then
+  # BL-311-RELAYED-QUESTION-PATTERN — the question names the first pattern that IS
+  # a proposal, not a relay that happened to match first.
+  FIRST_PATTERN="$RAISE_PATTERN"
+  # BL-029: one question covers all matched patterns from this proposal.
+  # `## BL-320:` it is schema 2 and answered by option id. BL-029's typed
+  # confirmation phrase ("I have read the proposal ... and accept the bypass",
+  # S5 2026-05-04) is RETIRED: it defended against a generic "OK" being read as
+  # acceptance, and the Guardrails' record-approval.sh now does that job — only
+  # a reply starting with an option id counts, it must come twice, and the first
+  # shows the user the question and what each option does. Both options approve
+  # nothing in git: accepting a bypass proposal is a recorded decision, not a
+  # commit approval.
+  BD_Q_PROG='{schema: 2, source: "bypass-detector", question: $q, options: [{id: "A1", text: $a1, approves: "none"}, {id: "A2", text: "Decline it", approves: "none"}], recommendation: "A2", offered_at: $ts}'   # BL-320-DETECT-SCHEMA2
+  SENT_TMP="$(mktemp "$PROJECT_ROOT/.claude/pending-approval.XXXXXX.tmp" 2>/dev/null)" || SENT_TMP=""
+  if [ -n "$SENT_TMP" ] && jq -n \
+      --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. Reply with the option id: A1 to accept the proposal, A2 to decline it." \
+      --arg a1 "Accept the bypass proposal recorded in .claude/bypass-audit.json (this approves no commit)" \
+      --arg ts "$TS" "$BD_Q_PROG" > "$SENT_TMP" 2>/dev/null && mv -f "$SENT_TMP" "$SENTINEL"; then
+    COVER_SHA="$(soif_bd_sha256 "$SENTINEL")"   # BL-320-DETECT-BIND
+  else
+    rm -f "${SENT_TMP:-}" 2>/dev/null
+  fi
 fi
+
+while IFS= read -r ROW; do
+  [ -n "$ROW" ] || continue
+  if [ -n "$COVER_SHA" ]; then
+    BOUND="$(printf '%s' "$ROW" | jq -c --arg s "$COVER_SHA" 'if .type == "claude_bypass_proposal" then .details.sentinel_sha256 = $s else . end' 2>/dev/null)" && ROW="$BOUND"
+  fi
+  bypass_audit_append "$PROJECT_ROOT" "$ROW" || true
+done <<< "$ROWS"
 
 exit 0
