@@ -816,6 +816,14 @@ jobs:
             #    it costs ~172s on CI (lint-scan 527s -> 699s), more than the
             #    local 74s suggested. This leg was the lightest on the same run
             #    (493s), and lands near 665s with it.
+            # ── From `adopt`, 2026-10-07 (`## BL-322:` S2, its second placement).
+            #    On PR #503's run 37676814405 the cap cancelled `adopt` at 722s
+            #    with every suite in it finished: 605s of tests behind a 117s
+            #    setup, 92s of it the zsh install step. This leg's job ran 536s,
+            #    584s and 453s on runs 37651729332 (PR #502), 37653263402 (main)
+            #    and 37676814405; with this suite it lands near 581s, 629s and
+            #    496s.
+            tests/test-brownfield-wp11-archive-classes.sh  # 44s, 45s and 43s on those runs — real adoptions; the archive's classes and dispositions
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
@@ -933,13 +941,10 @@ jobs:
             #    527s to 699s of the 720s cap — 21s of slack, the same
             #    "approaching" state the move was meant to cure. See its note
             #    in `pin_lint_sweep`.
-            # ── From `commit-hooks`, 2026-10-07 (`## BL-322:` S2). That leg's job
-            #    ran 652s and 699s of 720s on PR #502's run 37651729332 and main
-            #    run 37653263402; this leg's ran 482s and 515s. Measured
-            #    ::group:: spans: 88.6s and 90.8s. Not the leg's longest pole
-            #    (pre-commit-gate-lints, 153s and 158s), which would put this leg
-            #    near 670s: this one leaves both near 610s on the slower run.
-            tests/test-bl318-g4g6.sh                     # 89s and 91s on those runs — one real adoption plus two under mutants
+            # bl318-g4g6 WAS HERE for one PR (#503) and is now unpinned, in
+            #    `rest`: on run 37676814405 the cap cancelled this leg at 717s,
+            #    606s of tests (g4g6 85s) behind a 110s setup, 89s of it the zsh
+            #    install step.
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
@@ -961,9 +966,10 @@ jobs:
           pin_slow_misc=(
             tests/test-brownfield-wp9d-driver-edges.sh    #  32s local — Scout + full adoptions; `rest` was 9m36s of a 12m cap
             tests/test-brownfield-wp9d-window-rehearsal.sh #  22s local — same shape; pinned with its sibling
-            # wp11-archive-classes WAS HERE and moved to `pin_adopt` on 2026-10-07:
-            #    this leg's job ran 652s and 630s of 720s on PR #502's run and the
-            #    main run after it. See its note there.
+            # wp11-archive-classes WAS HERE and moved out on 2026-10-07 (to
+            #    `pin_adopt`, then to `pin_lint_sweep`): this leg's job ran 652s
+            #    and 630s of 720s on PR #502's run and the main run after it. See
+            #    its note in `pin_lint_sweep`.
             tests/test-upgrade-sync-framework.sh       #  37s
             tests/test-plan-staging.sh                 #  34s
             # ── Re-pinned 2026-08-09, measured from runs 31332638444 (main @
@@ -1029,12 +1035,9 @@ jobs:
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
             tests/test-brownfield-wp12a-assessment.sh         #  new — one real adoption, then the Act 4 finisher run a dozen times
-            # From `slow-misc`, 2026-10-07 (`## BL-322:` S2): that leg's job ran
-            # 652s and 630s of 720s on PR #502's run 37651729332 and main run
-            # 37653263402; this leg's ran 510s and 589s. Not slow-misc's longest
-            # pole (wp6-collision-archive, 156s and 157s), which would take this
-            # leg past the cap on the slower run: this one leaves it near 634s.
-            tests/test-brownfield-wp11-archive-classes.sh     #  44s and 45s on those runs — real adoptions; the archive's classes and dispositions
+            # wp11-archive-classes was here for one PR (#503): on run 37676814405
+            # the cap cancelled this leg at 722s with every suite finished, 605s
+            # of tests behind a 117s setup. It is in `pin_lint_sweep` now.
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
@@ -1053,10 +1056,11 @@ jobs:
             # 624s on main run 37400574352, and this suite was its longest pole both times.
             # This leg's job ran 450s and 388s on those runs.
             tests/test-bl296-adopt-guardrails.sh       # 79s and 77s on those two runs — real adoptions through the Guardrails installer
-            # bl318-g4g6 WAS HERE and moved to `pin_lint_scan` on 2026-10-07:
-            #    this leg's job ran 652s on PR #502's run 37651729332 and 699s on
-            #    the main run after it, 37653263402 (91% and 97% of 720s). See its
-            #    note there.
+            # bl318-g4g6 WAS HERE and moved out on 2026-10-07: this leg's job ran
+            #    652s on PR #502's run 37651729332 and 699s on the main run after
+            #    it, 37653263402 (91% and 97% of 720s). It is unpinned now, in
+            #    `rest` (job 581s, 428s and 481s on those runs and PR #503's
+            #    37676814405; near 672s, 519s and 566s with its 89s, 91s and 85s).
           )
           # ── `mcp` and `mcp-mutants` — the BL-311 group A suite, in two files
           # (2026-09-30). The history, all on PR #477:
