@@ -230,6 +230,12 @@ and Scout passes the flags that keep uv and pnpm from rewriting your lockfile
 ([what it can change](scout.md#what---run-tests-can-change)). See
 [Before you adopt: run Scout](#before-you-adopt-run-scout).
 
+Scout also says whether your ignore rules would stop the adoption — a `lib/` line
+in `.gitignore` that also matches the framework's `scripts/lib/`, say — with the
+same check adoption runs before it writes anything, so you can change the rule
+before you answer any of adoption's questions
+([what it reports](scout.md#would-your-ignore-rules-stop-the-adoption-collisionsignorerules)).
+
 ### 4. Adopt
 
 ```bash
@@ -296,15 +302,23 @@ a stop, or a halt); `2` bad usage.
   when that is not set) or from `.git/info/exclude` is named as such, with which
   of your repositories read it: it is not in the repository, so nobody else has
   it. If git cannot name the rule, the block says so and gives the command to
-  ask it: `git check-ignore -v --no-index -- <path>`.
+  ask it: `git check-ignore -v --no-index -- <path>`. Scout's report predicts
+  this block, with the same lines, before you start (`## BL-322:` S3); after you
+  change the rule, scan again.
 - **Your own pre-commit hook refused the adoption commit**: fix or bypass that
   hook, then run `bash ~/solo-orchestrator/scripts/adopt-project.sh --finish`
   from the project. It commits exactly the files the first run wrote.
 - **Anything else** prints a `[REFUSED]` or `[BLOCKED]` line naming the cause, and
   says whether anything was written to the project.
 - **If you had answered "set it up now" to the memory and documentation
-  servers**, that step has already run when a later question stops the run. A
-  server it registered is in your Claude Code user configuration, outside the
+  servers**, nothing has run yet when a question, the ignore-rule check or the
+  archive check stops the run: those commands wait until every check that can
+  stop the adoption has passed, just before its first file is written
+  (`## BL-322:` S3; in dogfood run 3 they ran at the question, and a run the
+  ignore check then stopped had already registered two servers). Your Claude
+  Code configuration is as it was, and the next run asks again. If the run stops
+  *after* they ran — a file adoption could not write, or the commit — a server
+  they registered is in your Claude Code user configuration, outside the
   project, and it stays registered. The stop is then labelled `[BLOCKED]`, not
   `[REFUSED]`, because the run had begun; it says nothing was written to the
   project, and names each server it registered ("Outside this project, this run
@@ -845,12 +859,25 @@ Set them up now? (No answer means skip it.)
 question — a script that answers `1` to everything — skips, rather than
 registering servers for every project on the machine.
 
-`set it up now` (or `2`) runs them, from the run's own scratch directory, then
-reads the registrations back and asks Claude Code itself whether it can start
-each server (`claude mcp get`, the same check `claude mcp list` runs) — it
+`set it up now` (or `2`) does not run them yet. They change your Claude Code
+configuration for every project, so they wait until every check that can stop
+the adoption has passed — every question, the ignore-rule check and the archive
+check — and run just before the first file is written (`## BL-322:` S3):
+
+```text
+   Answer with the number or the words: 2
+   Noted. Nothing has run yet: these run once every check that can still stop this
+   adoption has passed, just before its first file is written, so an adoption that
+   stops leaves your Claude Code configuration as it was.
+```
+
+Then they run, from the run's own scratch directory, under their own heading;
+the run reads the registrations back and asks Claude Code itself whether it can
+start each server (`claude mcp get`, the same check `claude mcp list` runs) — it
 claims only what those show:
 
 ```text
+══ Setting up the memory and documentation servers
    Running: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp
    Running: docker run -d --name qdrant -p 127.0.0.1:6333:6333 -p 127.0.0.1:6334:6334 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest
    Running: claude mcp add -s user qdrant -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory -- uvx --python 3.13 mcp-server-qdrant
