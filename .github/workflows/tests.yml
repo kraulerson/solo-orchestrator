@@ -933,6 +933,13 @@ jobs:
             #    527s to 699s of the 720s cap — 21s of slack, the same
             #    "approaching" state the move was meant to cure. See its note
             #    in `pin_lint_sweep`.
+            # ── From `commit-hooks`, 2026-10-07 (`## BL-322:` S2). That leg's job
+            #    ran 652s and 699s of 720s on PR #502's run 37651729332 and main
+            #    run 37653263402; this leg's ran 482s and 515s. Measured
+            #    ::group:: spans: 88.6s and 90.8s. Not the leg's longest pole
+            #    (pre-commit-gate-lints, 153s and 158s), which would put this leg
+            #    near 670s: this one leaves both near 610s on the slower run.
+            tests/test-bl318-g4g6.sh                     # 89s and 91s on those runs — one real adoption plus two under mutants
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
@@ -954,7 +961,9 @@ jobs:
           pin_slow_misc=(
             tests/test-brownfield-wp9d-driver-edges.sh    #  32s local — Scout + full adoptions; `rest` was 9m36s of a 12m cap
             tests/test-brownfield-wp9d-window-rehearsal.sh #  22s local — same shape; pinned with its sibling
-            tests/test-brownfield-wp11-archive-classes.sh  #  36.5s on PR #442 — moved WITH wp7b, the complement's second pole: wp7b alone would leave it at ~89% of the cap, and it takes a new suite nearly every work package
+            # wp11-archive-classes WAS HERE and moved to `pin_adopt` on 2026-10-07:
+            #    this leg's job ran 652s and 630s of 720s on PR #502's run and the
+            #    main run after it. See its note there.
             tests/test-upgrade-sync-framework.sh       #  37s
             tests/test-plan-staging.sh                 #  34s
             # ── Re-pinned 2026-08-09, measured from runs 31332638444 (main @
@@ -1020,6 +1029,12 @@ jobs:
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
             tests/test-brownfield-wp12a-assessment.sh         #  new — one real adoption, then the Act 4 finisher run a dozen times
+            # From `slow-misc`, 2026-10-07 (`## BL-322:` S2): that leg's job ran
+            # 652s and 630s of 720s on PR #502's run 37651729332 and main run
+            # 37653263402; this leg's ran 510s and 589s. Not slow-misc's longest
+            # pole (wp6-collision-archive, 156s and 157s), which would take this
+            # leg past the cap on the slower run: this one leaves it near 634s.
+            tests/test-brownfield-wp11-archive-classes.sh     #  44s and 45s on those runs — real adoptions; the archive's classes and dispositions
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
@@ -1038,7 +1053,10 @@ jobs:
             # 624s on main run 37400574352, and this suite was its longest pole both times.
             # This leg's job ran 450s and 388s on those runs.
             tests/test-bl296-adopt-guardrails.sh       # 79s and 77s on those two runs — real adoptions through the Guardrails installer
-            tests/test-bl318-g4g6.sh                   # 80s local, measured after review round 1 — one real adoption plus two under mutants, 29 mutants (on CI D1, P4 and D1's two mutants skip: no bundle, no clone); here because this leg's job ran 387s of 720s on PR #499, the most room of any leg (`rest` 497s)
+            # bl318-g4g6 WAS HERE and moved to `pin_lint_scan` on 2026-10-07:
+            #    this leg's job ran 652s on PR #502's run 37651729332 and 699s on
+            #    the main run after it, 37653263402 (91% and 97% of 720s). See its
+            #    note there.
           )
           # ── `mcp` and `mcp-mutants` — the BL-311 group A suite, in two files
           # (2026-09-30). The history, all on PR #477:
@@ -1072,6 +1090,7 @@ jobs:
             tests/test-bl318-g1-test-command.sh             # 69s local, measured — four real adoptions plus three under mutants, 24 mutants; here, not in `rest` (620s of 720s on PR #495; `mcp` was 397s)
             tests/test-bl318-g5-guardrails-refresh.sh       # 34-35s local, measured twice after the final check (E1 skips on CI: no clone; E0 runs) — 48 cases, 48 mutants; here, not in `rest` (test step 563s, job 596s of 720s on main run 37354155101; `mcp` step 352s)
             tests/test-bl318-g2-resume-adoptee.sh           # 28s local, measured after review round 1 — two real adoptions and two Act 4 runs, 28 cases, 30 mutants; here, not in `rest` (job 615s of 720s on PR #497; `mcp` job 463s)
+            tests/test-bl322-s2-project-rules.sh            # 78-79s local, measured three times — four real adoptions plus five under mutants, 13 cases, 23 mutants; adoption suites run ~0.75x local on the runner (wp12b: 21s and 24s there, 28-30s here), so ~60s; here, the leg with the most room (job 522s and 513s on PR #502's run 37651729332 and main run 37653263402)
           )
           pin_mcp_mutants=(                               # 400s on PR #490's run, 355s on PR #494's, of 720s
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
