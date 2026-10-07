@@ -838,6 +838,11 @@ adopt_archive_write() {
         if [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel" && [ -w "$root/$rel" ]; then dispo="replaced"; else dispo="kept"; fi ;;   # BL-242-ARCHIVE-DISPO-DOCS
       *)                     dispo="kept" ;;
     esac
+    # `## BL-322:` S2 — a framework script the project already had is REPLACED:
+    # `adopt_install_framework` installs over it (D1 framework-wins) or refuses
+    # the whole run. It fell to `kept` above, which nothing read until the
+    # disclosure began saying "unchanged" for `kept`.
+    [ "$class" = script ] && dispo="replaced"   # BL-322-ARCHIVE-DISPO-SCRIPT
 
     # ── THE WITHHOLD CHAIN, IN PRECEDENCE ORDER ────────────────────────────
     #
@@ -1050,27 +1055,35 @@ _adopt_record_if_stageable() {
 _adopt_archive_manifest_md() {
   local mj="$1"
   printf '# What was archived, and how to get it back\n\n'
+  # `## BL-322:` S2 — per file, from `.disposition`: the sentence said "moved"
+  # for files adoption only copied (run 3's PROJECT_BIBLE.md, sha256-identical
+  # in the tree) and gave each a restore line that would restore nothing.
   printf 'These are copies of files you already had, as they were before adoption. Each\n'
-  printf 'was **moved to ensure the framework operates properly**, or composed with it —\n'
-  printf 'yours kept in place, the framework'"'"'s additions beside it. Nothing here was\n'
-  printf 'deleted, and every file below can be put back with the single command beside\n'
-  printf 'it, except where that column says not to.\n\n'
+  printf 'was **moved to ensure the framework operates properly**, composed with it, or\n'
+  printf 'only copied: the Adoption column says which. Nothing here was deleted. Every\n'
+  printf 'file adoption replaced or composed can be put back with the single command\n'
+  printf 'beside it, except where that column says not to.\n\n'
   printf 'Archive: `%s`\n\n' "$(jq -r '.archiveDir' "$mj" 2>/dev/null)"
   printf 'Secret scan before anything was committed: **%s**' "$(jq -r '.secretsScan.status' "$mj" 2>/dev/null)"
   printf ' (%s finding(s))\n\n' "$(jq -r '.secretsScan.findingCount // "not counted"' "$mj" 2>/dev/null)"
   printf '%s\n\n' "$(jq -r '.secretsScan.note' "$mj" 2>/dev/null)"
   printf '%s\n\n' "$(jq -r '.advisory' "$mj" 2>/dev/null)"
-  printf '| Your file | Archived as | What it did | Committed? | Put it back with |\n'
-  printf '|---|---|---|---|---|\n'
+  printf '| Your file | Archived as | Adoption | What it did | Committed? | Put it back with |\n'
+  printf '|---|---|---|---|---|---|\n'
   # The last cell is the restore command in backticks, or — for a row with
   # none (`# BL-311-MANIFEST-NO-RESTORE`) — the sentence saying why not.
   jq -r '.entries[] | [.originalPath, .archivedPath,
+                       (if .disposition == "replaced" then "replaced"
+                        elif .disposition == "composed" then "composed: yours kept, the framework'"'"'s additions beside it"
+                        else "only copied: yours is still in place, unchanged" end),
                        (if (.description // "") == "" then "-" else .description end),
                        (if .stagedForCommit then "yes" else ("no — " + .withheldReason) end),
-                       (if (.doNotRestore // "") != "" then .doNotRestore else ("`" + (.restore // "") + "`") end)]   # BL-311-MANIFEST-NO-RESTORE-MD
+                       (if (.doNotRestore // "") != "" then .doNotRestore   # BL-311-MANIFEST-NO-RESTORE-MD
+                        elif .disposition == "kept" then "Nothing to put back: yours was not changed."   # BL-322-MANIFEST-KEPT
+                        else ("`" + (.restore // "") + "`") end)]
                     | @tsv' "$mj" 2>/dev/null \
-    | while IFS="$(printf '\t')" read -r op ap de st re; do
-        printf '| `%s` | `%s` | %s | %s | %s |\n' "$op" "$ap" "$de" "$st" "$re"
+    | while IFS="$(printf '\t')" read -r op ap di de st re; do
+        printf '| `%s` | `%s` | %s | %s | %s | %s |\n' "$op" "$ap" "$di" "$de" "$st" "$re"
       done
   printf '\n## Adding one back\n\n'
   printf 'Run the command in the last column, or let the driver record it for you:\n\n'
@@ -1096,16 +1109,25 @@ _adopt_archive_disclose() {
   # `## BL-311:` row 2 the list carries files that were COMPOSED rather than
   # moved — the Guardrails' manifest and settings.json stay where they are with
   # the framework's additions beside theirs — so the sentence names both.
-  adopt_say "   The files below were moved to ensure the framework operates properly, or composed"
-  adopt_say "   with it — yours kept in place, the framework's additions beside it."
+  # `## BL-322:` S2 — and some were neither: run 3's PROJECT_BIBLE.md and
+  # PRODUCT_MANIFESTO.md were only copied, sha256-identical in the tree, yet this
+  # said "moved" and printed a restore line for each. Each row now says which,
+  # from `.disposition`, and a file adoption did not change gets no restore line.
+  adopt_say "   The files below were moved to ensure the framework operates properly, composed"
+  adopt_say "   with it, or only copied; the first line under each says which."
   adopt_note "Nothing was deleted. A copy of every one, as it was, is in $arc;"
   adopt_note "the lines under each say how to put it back, or why not to."
   adopt_blank
-  # The flag is a WORD, never empty: `read` with a tab IFS collapses an empty
+  # The flags are WORDS, never empty: `read` with a tab IFS collapses an empty
   # middle field, and `de` — which can be empty — has to stay last.
-  jq -r '.entries[] | [.originalPath, .archivedPath, (if .stagedForCommit then "committed" else ("withheld:" + .withheldReason) end), (if (.doNotRestore // "") != "" then "norestore" else "restore" end), (.description // "")] | @tsv' "$mj" 2>/dev/null \
-    | while IFS="$(printf '\t')" read -r op ap st rf de; do
+  jq -r '.entries[] | [.originalPath, .archivedPath, (if .stagedForCommit then "committed" else ("withheld:" + .withheldReason) end), (if (.doNotRestore // "") != "" then "norestore" else "restore" end), (.disposition // "kept"), (.description // "")] | @tsv' "$mj" 2>/dev/null \
+    | while IFS="$(printf '\t')" read -r op ap st rf di de; do
         adopt_note "yours: $op"
+        case "$di" in
+          replaced) adopt_note "   replaced: the framework's version is in its place" ;;
+          composed) adopt_note "   composed: yours is in place, with the framework's additions beside it" ;;
+          *)        adopt_note "   only copied: yours is still in place, unchanged" ;;   # BL-322-DISCLOSE-DISPO
+        esac
         adopt_note "   archived as: $arc/$ap"
         [ -n "$de" ] && adopt_note "   what it did: $de"
         case "$st" in
@@ -1114,6 +1136,7 @@ _adopt_archive_disclose() {
         if [ "$rf" = "norestore" ]; then   # BL-311-MANIFEST-NO-RESTORE-SAY
           adopt_note "   $ADOPT_MANIFEST_UNCHANGED"
           adopt_note "   $ADOPT_MANIFEST_NO_RESTORE"
+        elif [ "$di" = kept ]; then :   # BL-322-DISCLOSE-KEPT
         else
           adopt_note "   put it back: cp $arc/$ap $op"
         fi

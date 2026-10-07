@@ -211,6 +211,11 @@ adopt_act3_next() {                                    # BL-242-ACT3-NEXT
   adopt_note "session asks what this project is for, judges whether the technology fits those"
   adopt_note "answers, writes a verdict and a plan, and runs the finisher that records them."
   adopt_note "The project stays at phase 0 whatever the verdict."
+  # `## BL-322:` S2 — said again here, at the end of the run, where it is read.
+  if [ "${ADOPT_CLAUDE_MD_REPLACED:-0}" = 1 ]; then   # BL-322-ACT3-RULES
+    adopt_note "Until it has run, the rules written in your old CLAUDE.md do not load: only its"
+    adopt_note "imports of files still in the project were carried over."
+  fi
 }
 
 _adopt_act4_documents() {
@@ -273,7 +278,8 @@ Read first:
 - .claude/adoption/scout-report.json — what the scan measured. It is evidence; it decides nothing.
 - PROJECT_INTAKE.md — what adoption could fill in. The judgement cells are blank on purpose.
 - The "Adoption Record" section at the end of APPROVAL_LOG.md, and the adoption archive it names —
-  the documents this project had before adoption. Adoption replaced them and merged nothing.
+  the documents this project had before adoption. The archive's MANIFEST.md says which of them
+  adoption replaced, which it composed with, and which it only copied; it merged nothing.
 
 Then, WITH ME — ask, do not infer:
 1. The five requirement axes: how many people use it (users); whether it needs high availability
@@ -297,6 +303,10 @@ Then, WITH ME — ask, do not infer:
 7. Write the plan to docs/phase-0/adoption-plan.md.
 8. Fold what is worth keeping from the archived documents into CLAUDE.md, FEATURES.md, BUGS.md and
    RELEASE_NOTES.md, and tell me what you moved.
+   If CLAUDE.md has a section "Carried over from your CLAUDE.md": it keeps loading the files
+   the old CLAUDE.md imported, but not the rules written in the old file itself, so fold those in.
+   Then keep each import you still want, outside that section, and delete the section, marker
+   lines included.
    PROJECT_INTAKE.md opens with a SOIF-PROVENANCE comment block: keep it exactly as it is, first in
    the file — the finisher refuses a file whose header is missing or altered.
 9. Write .claude/adoption/assessment-record.json in exactly this shape:
