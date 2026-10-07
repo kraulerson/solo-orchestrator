@@ -24,10 +24,20 @@
 # replaces say so.
 #
 # CASES
-#   U1  the import parser: what Claude Code would import, as written — fenced
-#       blocks, code spans, a word@word, a quoted path and a duplicate are not
-#       imports; an escaped space and a tab-led line are
-#   U2  the carry decision: each kind of import, carried or named with its reason
+#   U1  the import parser, against what Claude Code imports (checked with a
+#       replica of its extractor): code (fenced, nested, indented, in a quote,
+#       after a setext heading), code spans of any width, HTML comments (on one
+#       line, across lines, the short forms), HTML blocks (a tag to the blank
+#       line; script/PI/declaration/CDATA to their end), a reference definition,
+#       a word@word, a quoted path and a duplicate are not imports; an escaped
+#       space, a paragraph's tab-led line, a no-break space, emphasis and link
+#       text, a `#…` cut and a trailing backslash are; and a CRLF file reads
+#       like an LF one (review round 1: R-S2-2, R-S2-3, R-S2-4 B, R-S2-5)
+#   U2  the carry decision: each kind of import carried (normalised, once) or
+#       named with its reason, including `./` spellings, another case of a
+#       replaced file's name, a composed file and a control character (review
+#       round 1: R-S2-4 A, D, E, R-S2-8, R-S2-9, R-S2-10)
+#   U2b an archive record that cannot be read fails closed (R-S2-10 a)
 #   U3  the archive disclosure says replaced / composed / only copied, and gives
 #       no restore line for a file adoption did not change
 #   U4  MANIFEST.md says the same, and has no `cp` for a kept row
@@ -35,6 +45,7 @@
 #       when CLAUDE.md was replaced
 #   U6  the assessment prompt's step 8 names the carried section; its reading
 #       list no longer says adoption replaced every archived document
+#   U7  every reason a run gives for not carrying an import (R-S2-4 C)
 #   S1  Scout's rows for the documents adoption replaces say "kept a copy, then
 #       replaced", and are exactly adoption's set; CHANGELOG.md stays theirs
 #   A1  a real adoption: the carried section holds exactly the two imports that
@@ -91,44 +102,118 @@ in_lib() {
 }
 
 # ── U: units ─────────────────────────────────────────────────────────────────
+# U1's fixture and its expected list were checked against a replica of Claude
+# Code 2.1.292's own import extractor (review round 1's oracle, a Markdown lexer
+# plus its regex): every name below is what Claude Code imports from this file,
+# and every IN_/STILL_ name is one it does not.
 case_U1() {   # the import parser
   local d want got
   d="$(newtmp)"
-  { printf '# Project rules\n'
-    printf '@ALPHA.md\n'
-    printf -- '- see @docs/beta.md and @Design\\ Docs/gamma.md too\n'
+  { printf '# Project rules\n\n'
+    printf '@ALPHA.md\n\n'
+    printf -- '- see @docs/beta.md and @Design\\ Docs/gamma.md too\n\n'
     printf 'Contact: karl@example.com\n'
-    printf 'Inline `see @IN_SPAN.md` stays literal.\n'
-    printf '```text\n@IN_FENCE.md\n```\n'
-    printf '~~~\n@IN_TILDE.md\n~~~\n'
-    printf '@"Quoted File.md"\n'
-    printf '@ALPHA.md\n'
+    printf 'Inline `see @IN_SPAN.md` stays literal, and so does `` a ` @IN_DBL.md ``.\n'
     printf '\t@TABBED.md\n'
+    printf 'x\302\240@NBSP.md y\n'
+    printf '*@EMPH.md* and [@LINKED.md](https://x.invalid) and @FRAG.md#section and @TRAIL\\\n'
+    printf '@"Quoted File.md" and @~foo and @ALPHA.md\n'
+    printf '\n```text\n@IN_FENCE.md\n```\n'
+    printf '~~~\n@IN_TILDE.md\n~~~\n'
+    printf '  ```\n  @IN_INDENTED_FENCE.md\n  ```\n'
+    printf '````md\n```\n@IN_NESTED.md\n```\n````\n'
+    printf '\n    @IN_INDENTED_CODE.md\n'
+    printf '\n>     @IN_QUOTE_CODE.md\n'
+    printf '\nTitle\n=====\n    @IN_SETEXT_CODE.md\n'
+    printf '\n[r]: @IN_REFDEF.md\n'
+    printf '\n<!-- @IN_COMMENT.md (retired) -->\n'
+    printf '<!--\n@IN_MULTI_COMMENT.md\n-->\n'
+    printf '<!--> @AFTER_SHORT.md\n'
+    printf '<!---> @AFTER_SHORT2.md\n'
+    printf '<!-- c --> *@RAW_EMPH.md*\n'
+    printf '\n<details>\n@IN_DETAILS.md\n</details>\n'
+    printf '\n<script>\n@IN_SCRIPT.md\n\n@STILL_SCRIPT.md\n</script>\n'
+    printf '\n<?php @IN_PI.md\n\n@STILL_PI.md ?>\n'
+    printf '\n<!DOCTYPE @IN_DECL.md\n\n@STILL_DECL.md>\n'
+    printf '\n<![CDATA[ @IN_CDATA.md\n\n@STILL_CDATA.md ]]>\n'
+    printf '\n@OMEGA.md\n'
   } > "$d/CLAUDE.md"
-  want="$(printf '%s\n' ALPHA.md docs/beta.md 'Design\ Docs/gamma.md' TABBED.md)"
+  want="$(printf '%s\n' ALPHA.md docs/beta.md 'Design\ Docs/gamma.md' TABBED.md NBSP.md EMPH.md LINKED.md FRAG.md TRAIL \
+          AFTER_SHORT.md AFTER_SHORT2.md OMEGA.md)"
   got="$(in_lib "$1" '_adopt_claude_md_import_tokens "'"$d"'/CLAUDE.md"' 2>&1)"
   [ "$got" = "$want" ] || { CASE_DETAIL="got [$(printf '%s' "$got" | tr '\n' '|')] want [$(printf '%s' "$want" | tr '\n' '|')]"; return 1; }
+  # A CRLF file (review round 1, R-S2-3): before, it carried nothing, and with a
+  # commented-out import above them the result inverted.
+  printf '# R\r\n\r\n<!-- @COMMENTED.md -->\r\n@LIVE.md\r\n@SECOND.md\r\n' > "$d/crlf.md"
+  got="$(in_lib "$1" '_adopt_claude_md_import_tokens "'"$d"'/crlf.md"' 2>&1)"
+  [ "$got" = "$(printf 'LIVE.md\nSECOND.md')" ] || { CASE_DETAIL="CRLF: got [$(printf '%s' "$got" | od -c | tr -s ' \n' ' ' | cut -c1-120)]"; return 1; }
+}
+
+# u2_root T — the carry decision's fixture project in T/root, its archive record,
+# and a write ledger padded past a pipe's buffer.
+u2_root() {
+  local t="$1" r="$1/root" i=0
+  mkdir -p "$r/docs" "$r/Design Docs" "$r/ARC" || return 1
+  for f in PROJECT_BIBLE.md docs/arch.md "Design Docs/rules.md" FEATURES.md COMPOSED.md KEPT.md WRITTEN.md NORM.md; do printf 'x\n' > "$r/$f"; done
+  printf 'outside\n' > "$t/outside.md"
+  ln -s PROJECT_BIBLE.md "$r/link.md" && ln -s docs "$r/linkdir" || return 1
+  { printf 'WRITTEN.md\n'; while [ "$i" -lt 5000 ]; do printf 'scripts/pad-%05d.sh\n' "$i"; i=$((i + 1)); done; } > "$t/ledger"
 }
 
 case_U2() {   # the carry decision
   local t r want got
   t="$(newtmp)"; r="$t/root"
-  mkdir -p "$r/docs" "$r/Design Docs" "$r/ARC" || { CASE_DETAIL="fixture"; return 1; }
-  for f in PROJECT_BIBLE.md docs/arch.md "Design Docs/rules.md" FEATURES.md KEPT.md WRITTEN.md; do printf 'x\n' > "$r/$f"; done
-  printf 'outside\n' > "$t/outside.md"
-  ln -s PROJECT_BIBLE.md "$r/link.md" && ln -s docs "$r/linkdir" || { CASE_DETAIL="symlinks"; return 1; }
-  jq -n '{entries: [{originalPath: "FEATURES.md", disposition: "replaced"}, {originalPath: "KEPT.md", disposition: "kept"}]}' > "$r/ARC/MANIFEST.json"
-  printf 'WRITTEN.md\n' > "$t/ledger"
-  { printf '@PROJECT_BIBLE.md\n@docs/arch.md\n@Design\\ Docs/rules.md\n@KEPT.md\n'
+  u2_root "$t" || { CASE_DETAIL="fixture"; return 1; }
+  jq -n '{entries: [{originalPath: "FEATURES.md", disposition: "replaced"}, {originalPath: "COMPOSED.md", disposition: "composed"},
+                    {originalPath: "KEPT.md", disposition: "kept"}, {originalPath: "CLAUDE.md", disposition: "replaced"}]}' > "$r/ARC/MANIFEST.json"
+  { printf '@PROJECT_BIBLE.md\n@docs/arch.md\n@Design\\ Docs/rules.md\n@KEPT.md\n@./NORM.md\n@./KEPT.md\n'
     printf '@~/home.md\n@%s/PROJECT_BIBLE.md\n@../outside.md\n@link.md\n@linkdir/arch.md\n' "$r"
-    printf '@GONE.md\n@docs\n@FEATURES.md\n@WRITTEN.md\n'
+    printf '@GONE.md\n@docs\n@FEATURES.md\n@./FEATURES.md\n@features.md\n@claude.md\n@COMPOSED.md\n@WRITTEN.md\n@./WRITTEN.md\n'
+    printf '@CTRL\033.md\n'
   } > "$r/CLAUDE.md"
-  want="$(printf 'carry\t%s\n' PROJECT_BIBLE.md docs/arch.md 'Design\ Docs/rules.md' KEPT.md
+  # Another name for a file adoption replaces: the same file on a case-insensitive
+  # file system (this Mac), a hard link on a case-sensitive one (the runner).
+  [ -e "$r/features.md" ] || ln "$r/FEATURES.md" "$r/features.md" || { CASE_DETAIL="fixture: features.md"; return 1; }
+  [ -e "$r/claude.md" ] || ln "$r/CLAUDE.md" "$r/claude.md" || { CASE_DETAIL="fixture: claude.md"; return 1; }
+  want="$(printf 'carry\t%s\n' PROJECT_BIBLE.md docs/arch.md 'Design\ Docs/rules.md' KEPT.md NORM.md
           printf 'skip\t%s\thome\n' '~/home.md' "$r/PROJECT_BIBLE.md"
           printf 'skip\t../outside.md\toutside\nskip\tlink.md\tlink\nskip\tlinkdir/arch.md\tlink\n'
-          printf 'skip\tGONE.md\tmissing\nskip\tdocs\tnot-a-file\nskip\tFEATURES.md\tarchived\nskip\tWRITTEN.md\twritten\n')"
+          printf 'skip\tGONE.md\tmissing\nskip\tdocs\tnot-a-file\n'
+          printf 'skip\t%s\tarchived\n' FEATURES.md ./FEATURES.md features.md claude.md COMPOSED.md
+          printf 'skip\t%s\twritten\n' WRITTEN.md ./WRITTEN.md
+          printf 'skip\tCTRL?.md\tcontrol\n')"
   got="$(in_lib "$1" 'ADOPT_WRITTEN_LEDGER="'"$t"'/ledger"; ADOPT_ARCHIVE_DIR=ARC; _adopt_claude_md_carry "'"$r"'" "'"$r"'/CLAUDE.md"' 2>&1)"
   [ "$got" = "$want" ] || { CASE_DETAIL="got [$(printf '%s' "$got" | tr '\n\t' '|:')] want [$(printf '%s' "$want" | tr '\n\t' '|:')]"; return 1; }
+}
+
+case_U2b() {   # an archive record that cannot be read fails closed
+  local t r want got
+  t="$(newtmp)"; r="$t/root"
+  u2_root "$t" || { CASE_DETAIL="fixture"; return 1; }
+  printf '{"entries": [ not json\n' > "$r/ARC/MANIFEST.json"
+  printf '@PROJECT_BIBLE.md\n@GONE.md\n' > "$r/CLAUDE.md"
+  want="$(printf 'skip\tPROJECT_BIBLE.md\tunchecked\nskip\tGONE.md\tmissing\n')"
+  got="$(in_lib "$1" 'ADOPT_WRITTEN_LEDGER="'"$t"'/ledger"; ADOPT_ARCHIVE_DIR=ARC; _adopt_claude_md_carry "'"$r"'" "'"$r"'/CLAUDE.md"' 2>&1)"
+  [ "$got" = "$want" ] || { CASE_DETAIL="got [$(printf '%s' "$got" | tr '\n\t' '|:')] want [$(printf '%s' "$want" | tr '\n\t' '|:')]"; return 1; }
+}
+
+case_U7() {   # every reason, as a person reads it
+  local code want got bad=""
+  while IFS='|' read -r code want; do
+    got="$(in_lib "$1" '_adopt_carry_reason '"$code" 2>&1)"
+    [ "$got" = "$want" ] || bad="$bad [$code: $got]"
+  done <<REASONS
+control|its name carries a control character (shown as ?), so it was not read as a path
+home|in your home folder, or an absolute path: named only, never carried — it may not exist on another machine
+outside|outside this project
+link|a symlink, or inside a symlinked folder
+missing|no such file in this project
+not-a-file|not a file
+unchecked|the archive's record could not be read, so whether adoption replaces it is unknown
+archived|adoption replaced or changed that file, so it no longer holds what you imported; yours is in the archive
+written|adoption wrote that file; it is not one of yours
+REASONS
+  [ -z "$bad" ] || { CASE_DETAIL="$bad"; return 1; }
 }
 
 # mk_archive_mj FILE — a MANIFEST.json with one row of each disposition.
@@ -287,6 +372,9 @@ case_A1() {   # the carried section, the warning, the names
   git -C "$p" diff --quiet HEAD -- CLAUDE.md || { CASE_DETAIL="the committed CLAUDE.md differs from the file"; return 1; }
   arc="$(arc_of "$p")"; arc="${arc#"$p"/}"
   grep -qF "$WARN_LINE" "$o" || { CASE_DETAIL="the run does not warn that the old CLAUDE.md is no longer loaded"; return 1; }
+  grep -qF "Apart from your CLAUDE.md's imports (below), nothing in them was merged into" "$o" \
+    && ! grep -qF 'Nothing in them was merged into the new files' "$o" \
+    || { CASE_DETAIL="the run still says nothing was merged, beside imports it carried"; return 1; }
   grep -qF "$arc/CLAUDE.md" "$o" || { CASE_DETAIL="the run does not name the archived original ($arc/CLAUDE.md)"; return 1; }
   grep -qxF '     @PROJECT_BIBLE.md' "$o" && grep -qxF '     @CONTRIBUTING.md' "$o" || { CASE_DETAIL="the run does not list the carried imports"; return 1; }
   grep -qF '@FEATURES.md — adoption replaced or changed that file' "$o" || { CASE_DETAIL="@FEATURES.md is not named with its reason"; return 1; }
@@ -366,11 +454,13 @@ check() {   # LABEL CASE
 
 echo "=== U — units ==="
 check "U1: the import parser reads what Claude Code would import, as written" case_U1
-check "U2: each kind of import is carried, or named with its reason" case_U2
+check "U2: each kind of import is carried (normalised, once), or named with its reason" case_U2
+check "U2b: an archive record that cannot be read fails closed: nothing is carried on its say-so" case_U2b
 check "U3: the archive disclosure says replaced / composed / only copied; no restore line for a kept file" case_U3
 check "U4: MANIFEST.md says the same, with no cp for a kept row" case_U4
 check "U5: 'Next: the assessment' says the old rules do not load yet, only when CLAUDE.md was replaced" case_U5
 check "U6: the assessment prompt's step 8 names the carried section" case_U6
+check "U7: every reason a run can give for not carrying an import reads as written" case_U7
 echo "=== S — Scout ==="
 check "S1: Scout's replaced-document rows are adoption's set and say so; CHANGELOG.md stays theirs" case_S1
 echo "=== A — adoption ==="
@@ -393,7 +483,10 @@ mutate() {   # FILE MARKER REPLACEMENT — exactly one line ends in MARKER; it n
   MARK="$mark" REPL="$repl" awk '{ m=ENVIRON["MARK"]
       if (length($0) >= length(m) && substr($0, length($0)-length(m)+1) == m) print ENVIRON["REPL"]; else print }' \
     "$f" > "$f.mut" && cat "$f.mut" > "$f" && rm -f "$f.mut"
-  grep -qF -- "$mark" "$f" && { echo "marker still present after the edit"; return 1; }
+  # Ending in the marker, not containing it: `# BL-322-CARRY-HTML` is a prefix of
+  # `# BL-322-CARRY-HTML-RAW`, and both lines stay in the file.
+  n="$(MARK="$mark" awk 'BEGIN{c=0; m=ENVIRON["MARK"]} length($0) >= length(m) && substr($0, length($0)-length(m)+1) == m {c++} END{print c}' "$f")"
+  [ "$n" = "0" ] || { echo "a line still ends in the marker after the edit"; return 1; }
   [ "$(grep -cxF -- "$repl" "$f")" -ge 1 ] || { echo "replacement did not land"; return 1; }
   bash -n "$f" 2>/dev/null || { echo "mutant does not parse"; return 1; }
   return 0
@@ -425,34 +518,91 @@ mutant_drop() {   # ID FILE LINE KILLER WHAT
   why="$(drop_line "$m/$2" "$3")" || { fail_ "$1" "mutant did not land: $why"; return; }
   run_mutant "$1" "$5" "$4" "$m"
 }
+# sub_line FILE MARKER OLD NEW — on the one line ending in MARKER, the fixed text
+# OLD (its first occurrence) becomes NEW. Exactly one line changes; still parses.
+# For a mutant that narrows a guard rather than removing it (review round 1).
+sub_line() {
+  local f="$1" mark="$2" old="$3" new="$4" n="" d=""
+  n="$(MARK="$mark" OLD="$old" awk 'BEGIN{c=0; m=ENVIRON["MARK"]} length($0) >= length(m) && substr($0, length($0)-length(m)+1) == m && index($0, ENVIRON["OLD"]) {c++} END{print c}' "$f")"
+  [ "$n" = 1 ] || { echo "'$old' on a line ending '$mark': $n line(s) of $f (need 1)"; return 1; }
+  cp "$f" "$f.orig" || return 1
+  MARK="$mark" OLD="$old" NEW="$new" awk '{ m = ENVIRON["MARK"]
+      if (length($0) >= length(m) && substr($0, length($0)-length(m)+1) == m && (i = index($0, ENVIRON["OLD"]))) $0 = substr($0, 1, i - 1) ENVIRON["NEW"] substr($0, i + length(ENVIRON["OLD"]))
+      print }' "$f.orig" > "$f"
+  d="$(diff "$f.orig" "$f" | grep -c '^>')"
+  [ "$d" = 1 ] || { echo "changed $d line(s), want 1"; return 1; }
+  grep -qF -- "$new" "$f" || { echo "the new text did not land"; return 1; }
+  bash -n "$f" 2>/dev/null || { echo "mutant does not parse"; return 1; }
+}
+mutant_sub() {   # ID FILE MARKER OLD NEW KILLER WHAT
+  local m why
+  m="$(newtmp)/mirror"
+  mk_mirror "$REPO_ROOT" "$m" || { fail_ "$1" "could not build a mirror"; return; }
+  why="$(sub_line "$m/$2" "$3" "$4" "$5")" || { fail_ "$1" "mutant did not land: $why"; return; }
+  run_mutant "$1" "$7" "$6" "$m"
+}
 echo "=== M — mutants ==="
 DOC=scripts/lib/adopt/adopt-docs.sh
-mutant M1 "$DOC" '# BL-322-CARRY-FENCE' '    if (0) { fence = "`"; next }' case_U1 "a fenced block is read for imports"
-mutant M2 "$DOC" '# BL-322-CARRY-TILDE' '    if (0) { fence = "~"; next }' case_U1 "a ~~~ fenced block is read for imports"
-mutant M3 "$DOC" '# BL-322-CARRY-SPAN' '    line = line' case_U1 "a code span is read for imports"
-mutant M4 "$DOC" '# BL-322-CARRY-WS' '      pre = " "' case_U1 "an @ inside a word (an address) is read as an import"
-mutant M5 "$DOC" '# BL-322-CARRY-PATHCHAR' '      if (0) continue' case_U1 "a quoted path is read as an import"
-mutant M6 "$DOC" '# BL-322-CARRY-HOME' '    :' case_U2 "a home-folder or absolute import is treated as a project file"
-mutant M7 "$DOC" '# BL-322-CARRY-OUTSIDE' '      norm="$path"' case_U2 "an import outside the project is carried"
-mutant M8 "$DOC" '# BL-322-CARRY-LINK' '      if false; then reason=link' case_U2 "a symlinked import is carried"
-mutant M9 "$DOC" '# BL-322-CARRY-MISSING' '      elif false; then reason=missing' case_U2 "a missing import loses its reason"
-mutant M10 "$DOC" '# BL-322-CARRY-NOTFILE' '      elif false; then reason=not-a-file' case_U2 "a directory import is carried"
-mutant M11 "$DOC" '# BL-322-CARRY-ARCHIVED' '      elif false; then reason=archived' case_U2 "an import of a file adoption replaces is carried"
-mutant M12 "$DOC" '# BL-322-CARRY-WRITTEN' '      elif false; then reason=written' case_U2 "an import of a file adoption wrote is carried"
-mutant M13 "$DOC" '# BL-322-CARRY-APPEND' '    :' case_A1 "the carried section is not written"
-mutant M14 "$DOC" '# BL-322-CARRY-WARN' '    :' case_A1 "the warning is not printed"
-mutant M15 "$DOC" '# BL-322-CARRY-ONLY-REPLACED' '  if true; then' case_A4 "the warning is printed when no CLAUDE.md was replaced"
-mutant M16 "$DOC" '# BL-322-CARRY-FLAG' '    replaced) replaced="$replaced CLAUDE.md" ;;' case_A1 "replacing CLAUDE.md does not raise the flag the warnings read"
+# The parser (U1).
+mutant_sub M1 "$DOC" '# BL-322-CARRY-FENCE' '^ ? ? ?(' '^(' case_U1 "a fence indented one to three spaces is not a fence (review R-S2-4 B)"
+mutant_sub M2 "$DOC" '# BL-322-CARRY-FENCE' '(```|~~~)' '(```)' case_U1 "a ~~~ fence is not a fence"
+mutant_sub M3 "$DOC" '# BL-322-CARRY-FENCE-LEN' 'n >= flen && ' '' case_U1 "a shorter fence closes a longer one"
+mutant M4 "$DOC" '# BL-322-CARRY-SPAN' '        if (0) { out = out }' case_U1 "a code span is read for imports"
+mutant M5 "$DOC" '# BL-322-CARRY-CRLF' '      line = line' case_U1 "a CRLF file keeps its CRs (review R-S2-3)"
+mutant M6 "$DOC" '# BL-322-CARRY-INDENT' '      if (0) { incode = 1; next }' case_U1 "indented code is read for imports"
+mutant M7 "$DOC" '# BL-322-CARRY-QUOTE-CODE' '      t = line' case_U1 "indented code in a quote is read for imports"
+mutant M8 "$DOC" '# BL-322-CARRY-BREAK' '      if (0) { para = 0; next }' case_U1 "a setext underline continues a paragraph, so the code after it is read"
+mutant M9 "$DOC" '# BL-322-CARRY-REFDEF' '      if (0) next' case_U1 "a link reference definition is read for imports"
+mutant M10 "$DOC" '# BL-322-CARRY-HTML-RAW' '      if (0) rawend = ""' case_U1 "a <script> block ends at a blank line"
+mutant M11 "$DOC" '# BL-322-CARRY-HTML-PI' '      else if (0) rawend = "?>"' case_U1 "a processing instruction is read for imports"
+mutant M12 "$DOC" '# BL-322-CARRY-HTML-CDATA' '      else if (0) rawend = "]]>"' case_U1 "a CDATA block is read for imports"
+mutant M13 "$DOC" '# BL-322-CARRY-HTML-DECL' '      else if (0) rawend = ">"' case_U1 "a declaration is read for imports"
+mutant M14 "$DOC" '# BL-322-CARRY-HTML' '      if (0) { inhtml = 1; next }' case_U1 "an HTML block is read for imports (review R-S2-2)"
+mutant M15 "$DOC" '# BL-322-CARRY-COMMENT' '        if (e) line = substr(line, 1, k - 1) " " substr(line, k + 4)' case_U1 "an HTML comment is read for imports (review R-S2-2)"
+mutant M16 "$DOC" '# BL-322-CARRY-COMMENT-OPEN' '        else { line = substr(line, 1, k - 1) }' case_U1 "a comment across lines is read for imports (review R-S2-2)"
+mutant M17 "$DOC" '# BL-322-CARRY-COMMENT-SHORT' '        if (0) { continue }' case_U1 "<!--> opens a comment instead of closing one"
+mutant M18 "$DOC" '# BL-322-CARRY-COMMENT-SHORT2' '        if (0) { continue }' case_U1 "<!---> opens a comment instead of closing one"
+mutant M19 "$DOC" '# BL-322-CARRY-RAW' '      if (0) raw = 1' case_U1 "the rest of a comment block's line is read as Markdown"
+mutant M20 "$DOC" '# BL-322-CARRY-NBSP' '      line = line' case_U1 "a no-break space is not a space"
+mutant M21 "$DOC" '# BL-322-CARRY-WS' '        if (1) kind = 1' case_U1 "an @ inside a word (an address) is read as an import"
+mutant M22 "$DOC" '# BL-322-CARRY-EMPH' '          if (0) { kind = 2 }' case_U1 "an import that opens emphasis is missed"
+mutant M23 "$DOC" '# BL-322-CARRY-LINKTEXT' '        } else if (0) { kind = 3 }' case_U1 "an import that opens a link's text is missed"
+mutant M24 "$DOC" '# BL-322-CARRY-BACKSLASH' '          if (c == "\\") { if (substr(line, k + 1, 1) != " ") { tok = tok c; k++; continue }; tok = tok "\\ "; k += 2; continue }' case_U1 "a backslash that escapes no space stays in the path"
+mutant M25 "$DOC" '# BL-322-CARRY-FRAGMENT' '        h = 0' case_U1 "the #… of an import stays in the path (review R-S2-5)"
+mutant M26 "$DOC" '# BL-322-CARRY-PATHCHAR' '        if (0) continue' case_U1 "a quoted path is read as an import"
+# The decision (U2, U2b).
+mutant M27 "$DOC" '# BL-322-CARRY-HOME' '      :' case_U2 "a home-folder or absolute import is treated as a project file"
+mutant M28 "$DOC" '# BL-322-CARRY-OUTSIDE' '      norm="$path"' case_U2 "an import outside the project is carried"
+mutant M29 "$DOC" '# BL-322-CARRY-LINK' '      if false; then reason=link' case_U2 "a symlinked import is carried"
+mutant M30 "$DOC" '# BL-322-CARRY-MISSING' '      elif false; then reason=missing' case_U2 "a missing import loses its reason"
+mutant M31 "$DOC" '# BL-322-CARRY-NOTFILE' '      elif false; then reason=not-a-file' case_U2 "a directory import is carried"
+mutant M32 "$DOC" '# BL-322-CARRY-ARCHIVED' '      elif false; then reason=archived' case_U2 "an import of a file adoption replaces is carried"
+mutant M33 "$DOC" '# BL-322-CARRY-WRITTEN' '      elif false; then reason=written' case_U2 "an import of a file adoption wrote is carried"
+mutant_sub M34 "$DOC" '# BL-322-CARRY-ARCHIVED' '"$root" "$norm"' '"$root" "$path"' case_U2 "the archive is asked about the import as written, so ./FEATURES.md is carried (review R-S2-4 A)"
+mutant_sub M35 "$DOC" '# BL-322-CARRY-WRITTEN' '"$root" "$norm"' '"$root" "$path"' case_U2 "the ledger is asked about the import as written, so ./WRITTEN.md is carried (review R-S2-4 D)"
+mutant_sub M36 "$DOC" '# BL-322-CARRY-FAILCLOSED' 'select(.disposition != "kept")' 'select(.disposition == "replaced")' case_U2 "a composed file is carried (review R-S2-4 E)"
+mutant_sub M37 "$DOC" '# BL-322-CARRY-FAILCLOSED' ' || arch_bad=1' '' case_U2b "an unreadable archive record carries everything (review R-S2-10 a)"
+mutant M38 "$DOC" '# BL-322-CARRY-CASE' '    :' case_U2 "another case of a replaced file's name is carried (review R-S2-9)"
+mutant M39 "$DOC" '# BL-322-CARRY-CNTRL' '    :' case_U2 "a control character reaches the output (review R-S2-8)"
+mutant M40 "$DOC" '# BL-322-CARRY-NORMWRITE' '    out="$tok"' case_U2 "the import is written as spelled, not normalised (review R-S2-10 b)"
+mutant M41 "$DOC" '# BL-322-CARRY-DEDUPE' '    :' case_U2 "two spellings of one file are carried twice"
+mutant_drop M42 "$DOC" "    written)    printf 'adoption wrote that file; it is not one of yours' ;;" case_U7 "a reason's text is lost (review R-S2-4 C)"
+# The stage (real adoptions).
+mutant M43 "$DOC" '# BL-322-CARRY-APPEND' '    :' case_A1 "the carried section is not written"
+mutant M44 "$DOC" '# BL-322-CARRY-WARN' '    :' case_A1 "the warning is not printed"
+mutant M45 "$DOC" '# BL-322-CARRY-ONLY-REPLACED' '  if true; then' case_A4 "the warning is printed when no CLAUDE.md was replaced"
+mutant M46 "$DOC" '# BL-322-CARRY-FLAG' '    replaced) replaced="$replaced CLAUDE.md" ;;' case_A1 "replacing CLAUDE.md does not raise the flag the warnings read"
+mutant M47 "$DOC" '# BL-322-CARRY-MERGED' '    if false; then' case_A1 "the run says nothing was merged beside the imports it carried (review R-S2-11)"
 ARC=scripts/lib/adopt/adopt-archive.sh
-mutant M17 "$ARC" '# BL-322-DISCLOSE-DISPO' '          *)        adopt_note "   moved" ;;' case_U3 "a kept file is not said to be only copied"
-mutant M18 "$ARC" '# BL-322-DISCLOSE-KEPT' '        elif false; then :' case_U3 "a kept file gets a restore line"
-mutant M19 "$ARC" '# BL-322-MANIFEST-KEPT' '                        elif false then "x"' case_U4 "MANIFEST.md gives a kept file a cp"
-mutant M20 "$ARC" '# BL-322-ARCHIVE-DISPO-SCRIPT' '    :' case_A2 "a framework script adoption replaced is recorded kept"
+mutant M48 "$ARC" '# BL-322-DISCLOSE-DISPO' '          *)        adopt_note "   moved" ;;' case_U3 "a kept file is not said to be only copied"
+mutant M49 "$ARC" '# BL-322-DISCLOSE-KEPT' '        elif false; then :' case_U3 "a kept file gets a restore line"
+mutant M50 "$ARC" '# BL-322-MANIFEST-KEPT' '                        elif false then "x"' case_U4 "MANIFEST.md gives a kept file a cp"
+mutant M51 "$ARC" '# BL-322-ARCHIVE-DISPO-SCRIPT' '    :' case_A2 "a framework script adoption replaced is recorded kept"
 ACT=scripts/lib/adopt/adopt-act4.sh
-mutant M21 "$ACT" '# BL-322-ACT3-RULES' '  if false; then' case_U5 "'Next: the assessment' stops saying the old rules do not load"
-mutant_drop M22 "$ACT" '   If CLAUDE.md has a section "Carried over from your CLAUDE.md": it keeps loading the files' case_U6 "step 8 stops naming the carried section"
+mutant M52 "$ACT" '# BL-322-ACT3-RULES' '  if false; then' case_U5 "'Next: the assessment' stops saying the old rules do not load"
+mutant_drop M53 "$ACT" '   If CLAUDE.md has a section "Carried over from your CLAUDE.md": it keeps loading the files' case_U6 "step 8 stops naming the carried section"
 SCO=scripts/lib/scout/scout-collisions.sh
-mutant M23 "$SCO" '# BL-322-SCOUT-DOCS' '    bucket="keep-theirs"' case_S1 "Scout says a replaced document stays"
+mutant M54 "$SCO" '# BL-322-SCOUT-DOCS' '    bucket="keep-theirs"' case_S1 "Scout says a replaced document stays"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
