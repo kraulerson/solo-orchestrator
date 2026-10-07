@@ -2324,6 +2324,11 @@ Measured on a project that owned a `CLAUDE.md` and a `BUGS.md`, and had
      FEATURES.md — a symlink; writing through it could overwrite a file elsewhere
 ```
 
+That transcript predates `## BL-322:` S2. A run that replaces your `CLAUDE.md`
+now also prints the warning shown below, and when it carried imports the
+merge sentence reads "Apart from your CLAUDE.md's imports (below), nothing in
+them was merged into the new files" (`# BL-322-CARRY-MERGED`).
+
 **Nothing of yours is merged in, but your `CLAUDE.md`'s imports keep loading.**
 Adapting your prose into the framework's documents is judgement, and judgement
 belongs to the assessment (Act 3). What adoption does is archive every original,
@@ -2335,16 +2340,29 @@ colour-alone hard constraint, the architecture rules and the never-do list the
 Bible holds, with nothing said. Now:
 
 - **Your `@` imports are carried.** Each `@path` in your `CLAUDE.md` that names a
-  regular file inside the project which adoption does not write goes, exactly as
-  you wrote it, into a marked section at the end of the new `CLAUDE.md`,
-  *Carried over from your CLAUDE.md* (`# BL-322-CARRY-APPEND`). Claude Code reads
-  imports outside fenced blocks and code spans, resolved against the file that
-  holds them, which is the project root for both files.
+  regular file inside the project which adoption does not write goes into a
+  marked section near the end of the new `CLAUDE.md`, *Carried over from your
+  CLAUDE.md*, before the TL;DR Mode section when there is one
+  (`# BL-322-CARRY-APPEND`). It is written normalised — `./` and `..` resolved,
+  a `#section` suffix dropped, a space written `\ ` — so the line is exactly the
+  file Claude Code will load, and two spellings of one file are carried once.
+- **What counts as an import is Claude Code's reading of the file**, approximated
+  in shell (`_adopt_claude_md_import_tokens`) and checked against a replica of
+  Claude Code 2.1.292's own extractor: nothing in a fenced or indented code
+  block, a code span, an HTML comment (on one line or across several) or any
+  other HTML block is an import; a CRLF file reads like an LF one; an `@` counts
+  at a line start, after whitespace (a no-break space included), or opening
+  emphasis or a link's text (`*@x.md*`, `[@x.md](…)`). Where the approximation
+  cannot tell, it does not carry: carrying would switch on text you had switched
+  off.
 - **Every import not carried is named, with the reason**: an import of a file in
   your home folder or an absolute path (named only, never carried: it may not
   exist on another machine), outside the project, a symlink, missing, not a file,
-  or a file adoption replaces or writes (`FEATURES.md`, `PROJECT_INTAKE.md`, …),
-  whose content is no longer what you imported.
+  a name carrying a control character, a file adoption replaces, composes or
+  writes (`FEATURES.md`, `PROJECT_INTAKE.md`, `.claude/settings.json`, … — also
+  under another case of the same name, `@features.md`, on a case-insensitive
+  disk), whose content is no longer what you imported, or any file at all when
+  the archive's record cannot be read.
 - **The rules written in the file itself are not carried**, and the run says so
   in capitals. Telling a lasting rule from a stale claim ("Phase: 2", "Next: merge
   the branch") is the assessment's judgement. Until it folds them in, tell the

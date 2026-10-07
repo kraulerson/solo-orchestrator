@@ -23484,8 +23484,8 @@ decision.
 Development Guardrails' in a separate CDF session)
 **Category:** Bug (correctness) + Docs
 **Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
-**Status:** Open — S1 merged (PR #502); S2 built on branch `fix/bl322-s2-project-rules` (below), not reviewed,
-not merged; S3 and S4 are not started
+**Status:** Open — S1 merged (PR #502); S2 built on branch `fix/bl322-s2-project-rules` (below), review round 1
+addressed, not merged; S3 and S4 are not started
 
 **What ran.** The third dogfood run, the one that closed `## BL-318:`. A headless Claude Code session (Sonnet)
 played the same systems technician (not a developer), driven in 14 turns, with a stand-in for Karl answering
@@ -23615,17 +23615,36 @@ check-session-state, and resume.sh's `# BL-318-G2-CURRENT-STATE`); warning alone
 **S2, as built (branch `fix/bl322-s2-project-rules`).**
 - **The carry** (`scripts/lib/adopt/adopt-docs.sh`, `# BL-322-CARRY`). Before the documents stage writes
   anything it reads the project's own `CLAUDE.md` (not a symlink, which is left alone) for imports the way
-  Claude Code reads them: `@path` outside fenced blocks (`# BL-322-CARRY-FENCE`, `# BL-322-CARRY-TILDE`) and
-  code spans (`# BL-322-CARRY-SPAN`), the `@` at a line start or after whitespace (`# BL-322-CARRY-WS`), a
-  backslash-space kept in the path, a quoted path not an import (`# BL-322-CARRY-PATHCHAR`). An import is
-  carried when it is relative, stays inside the project once `.` and `..` are resolved, and names a regular
-  file that is not a symlink or under one, that adoption has not written (the ledger) and will not replace or
-  compose (the archive's dispositions, which already name what this and later stages replace). Each import not
-  carried gets its reason: `home` (`~/` or absolute: named only), `outside`, `link`, `missing`, `not-a-file`,
-  `archived` or `written` (`# BL-322-CARRY-HOME` … `# BL-322-CARRY-WRITTEN`). The carried lines go, as written,
-  into a section between `<!-- SOIF-CARRIED-IMPORTS-BEGIN (BL-322) -->` and
-  `<!-- SOIF-CARRIED-IMPORTS-END -->`, "Carried over from your CLAUDE.md", before TL;DR's section
-  (`# BL-322-CARRY-APPEND`); `reconfigure-project.sh --tldr-mode off`, then `on`, leaves it in place.
+  Claude Code reads them (`_adopt_claude_md_import_tokens`, below). An import is carried when it is relative,
+  stays inside the project once `.` and `..` are resolved, and names a regular file that is not a symlink or
+  under one, that adoption has not written (the ledger) and will not replace or compose (the archive's
+  dispositions, which already name what this and later stages replace), also under another case of the same
+  name on a case-insensitive disk (`# BL-322-CARRY-CASE`). Each import not carried gets its reason: `control`,
+  `home` (`~/` or absolute: named only), `outside`, `link`, `missing`, `not-a-file`, `unchecked` (the archive
+  record could not be read: fail closed, `# BL-322-CARRY-FAILCLOSED`), `archived` or `written`
+  (`# BL-322-CARRY-HOME` … `# BL-322-CARRY-WRITTEN`). The carried lines are written normalised
+  (`# BL-322-CARRY-NORMWRITE`) and once (`# BL-322-CARRY-DEDUPE`) into a section between
+  `<!-- SOIF-CARRIED-IMPORTS-BEGIN (BL-322) -->` and `<!-- SOIF-CARRIED-IMPORTS-END -->`, "Carried over from
+  your CLAUDE.md", before TL;DR's section (`# BL-322-CARRY-APPEND`); `reconfigure-project.sh --tldr-mode off`,
+  then `on`, leaves it in place.
+- **The reading** (review round 1, against a replica of Claude Code 2.1.292's import extractor: a Markdown
+  lexer, then `(?:^|\s)@((?:[^\s\\]|\\ )+)` on each text token, the path cut at its first `#`). In awk, bytewise:
+  a CR at a line end dropped (`# BL-322-CARRY-CRLF`); fences of either character, up to three spaces in, closed
+  only by one at least as long (`# BL-322-CARRY-FENCE`, `# BL-322-CARRY-FENCE-LEN`); indented code, also in a
+  quote and after a setext underline or a break (`# BL-322-CARRY-INDENT`, `# BL-322-CARRY-QUOTE-CODE`,
+  `# BL-322-CARRY-BREAK`); reference definitions (`# BL-322-CARRY-REFDEF`); HTML blocks — a tag to the next
+  blank line, script/pre/style/textarea, `<?`, `<!X` and CDATA to their own end (`# BL-322-CARRY-HTML`,
+  `# BL-322-CARRY-HTML-RAW`, `# BL-322-CARRY-HTML-PI`, `# BL-322-CARRY-HTML-DECL`, `# BL-322-CARRY-HTML-CDATA`);
+  code spans of any width (`# BL-322-CARRY-SPAN`); HTML comments on a line, across lines and in their short
+  forms (`# BL-322-CARRY-COMMENT`, `# BL-322-CARRY-COMMENT-OPEN`, `# BL-322-CARRY-COMMENT-SHORT`,
+  `# BL-322-CARRY-COMMENT-SHORT2`), the rest of a comment block's line read without Markdown
+  (`# BL-322-CARRY-RAW`); a no-break space as a space (`# BL-322-CARRY-NBSP`); an `@` at a line start, after
+  whitespace, or opening emphasis or a link's text (`# BL-322-CARRY-WS`, `# BL-322-CARRY-EMPH`,
+  `# BL-322-CARRY-LINKTEXT`); the path ended at a backslash that escapes no space (`# BL-322-CARRY-BACKSLASH`)
+  and cut at `#` (`# BL-322-CARRY-FRAGMENT`), and kept only when Claude Code would keep it
+  (`# BL-322-CARRY-PATHCHAR`). On 39 fixtures (the review's 15, k-pdf's `CLAUDE.md`, 23 more) it agrees with the
+  replica on 37; the two it does not are imports it misses (residuals below). At the review's tip it agreed on 2
+  of 24.
 - **The warning.** When the project's `CLAUDE.md` was replaced (`# BL-322-CARRY-FLAG`,
   `# BL-322-CARRY-ONLY-REPLACED`), the documents stage prints "YOUR OWN CLAUDE.md IS NO LONGER WHAT CLAUDE CODE
   LOADS." (`# BL-322-CARRY-WARN`), that the rules written in it load again only once the assessment folds them
@@ -23650,15 +23669,38 @@ check-session-state, and resume.sh's `# BL-318-G2-CURRENT-STATE`); warning alone
   4 (`@K-PDF_PROJECT_INTAKE.md`, `@PROJECT_BIBLE.md`, `@PRODUCT_MANIFESTO.md`, `@CONTRIBUTING.md`) inside the
   section, the four files are unchanged by the adoption commit, both "only copied" rows have no restore line,
   and Scout says "kept a copy, then replaced".
-- **Tests.** `tests/test-bl322-s2-project-rules.sh`: 13 cases and 23 mutants, each mutant killed by a named
-  case; four real adoptions (one shared by A1–A3) and five more under mutants.
+- **Tests.** `tests/test-bl322-s2-project-rules.sh`: 15 cases and 54 mutants, each mutant killed by a named
+  case, the review's five surviving mutants among them (M1, M34, M35, M36, M42); four real adoptions (one
+  shared by A1–A3) and six more under mutants.
+- **Review round 1** (BLOCK; all addressed). R-S2-1: the carried section's write is spelled
+  `"$ADOPT_WORK/claude-md.rendered"`, so `tests/test-bl225-staging-preflight.sh` T9 sees driver scratch (it
+  failed 34/1 at `3d767e1`). R-S2-2 and R-S2-3: HTML comments and blocks, and CRLF, above. R-S2-4: the five
+  surviving mutants. R-S2-5: `@docs/rules.md#colour` is cut at `#` and carried as `@docs/rules.md` (the
+  normalised form, which is what Claude Code loads). R-S2-8: a control character in a name is never carried
+  and shows as `?`. R-S2-9: `@features.md` and `@claude.md` are not carried on this Mac. R-S2-10: an unreadable
+  archive record fails closed; the normalised path is written; here-strings instead of `printf … | grep -q`
+  under pipefail. R-S2-11: the docs say "before the TL;DR section", and the run no longer says nothing was
+  merged when it carried imports (`# BL-322-CARRY-MERGED`).
 
 **S2 residuals (not fixed):**
 - **The rules written inside the old `CLAUDE.md` still do not load** until the assessment folds them in. That
   is the decision, not an omission; the run says so twice.
-- **An import this reading does not see is neither carried nor named**, for instance an `@` right after a
-  bracket (`(@FILE.md)`). Whether Claude Code imports that, and what it does with an import whose file is
-  missing, is not measured; the warning names the archived original either way.
+- **An import Claude Code reads that this reading misses is neither carried nor named** (measured against the
+  replica): an `@` straight after a closing delimiter (`**bold**@x.md`) or an inline tag (`<b>@x.md</b>`); in a
+  tight list item, an `@` after whitespace inside a code span (Claude Code scans a list item's raw text too);
+  a code span across lines; whitespace other than the space, the tab and the no-break space. And it over-skips
+  where it cannot tell: a line opening with an inline tag (`<b>x</b> @y.md`) is read as an HTML block to the next
+  blank line, and indented lines in a list item as code. Each of these errs toward not carrying; the warning
+  names the archived original. `(@x.md)` is not an import in Claude Code either. What Claude Code does with an
+  import whose file is missing is not measured.
+- **`adopt_stub_framework_script_collisions` contradicts the disclosure** (review round 1, R-S2-6,
+  pre-existing): after a framework script was replaced it still prints "NOT DONE … LEFT ALONE … yours, kept:
+  scripts/validate.sh", and `docs/adoption.md`'s "Still not built" says the same.
+- **Scout's other collision rows overstate** (R-S2-7): `.mcp.json`, `.claude/settings.local.json` and git hooks
+  other than pre-commit and commit-msg read "kept a copy, then replaced", though adoption only copies them, and
+  `.claude/settings.json` is composed.
+- **`reconfigure-project.sh`'s rename** (R-S2-10 d): its `sed` over `CLAUDE.md` also rewrites a carried import
+  whose path contains the old project name.
 - **Projects adopted before this change are not backfilled.** Their assessment prompt was written at adoption,
   so an unassessed one lacks step 8's new sentence; nothing re-carries their imports.
 - **The run-1 transcript of the Guardrails manifest's disclosure** in `docs/adoption.md` is kept as observed,
