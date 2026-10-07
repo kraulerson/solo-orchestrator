@@ -22702,10 +22702,23 @@ verified here: Kiro uses property-based tests, and ECC sets an 80% coverage targ
 
 ## BL-318: brownfield dogfood run 2 (k-pdf, 2026-10-03) — what still stops a regular user
 
-**Status:** Open — filed 2026-10-03 from the second dogfood run. G1 merged as PR #496, G2 as PR #498, G3
-as PR #499 and G5 as PR #497 (G5's design was decided by Karl on 2026-10-05, below). G4 and G6 are built
-together on branch `fix/bl318-g4-g6-docs-small` (below). The entry stays Open until the third dogfood run
-confirms the fixes, and closes then.
+**Status:** Closed — 2026-10-07, confirmed by the third dogfood run. G1 merged as PR #496 (`d827596`), G5
+as PR #497 (`f5b1671`), G2 as PR #498 (`73ce079`), G3 as PR #499 (`b93b006`), and G4 with G6 as PR #500
+(`9305b59`). The text below, and every residual in it, is kept as the audit trail. Filed 2026-10-03 from the
+second dogfood run.
+
+**Closed by run 3 (2026-10-07, k-pdf-dogfood-3, Solo `5f13470`, Guardrails 4.4.0 `aba947b`).** A fresh
+copy of k-pdf was adopted the way run 2's was, and every group behaved as built in a real adoption.
+Stages 0–4 passed (stage 2 after one block by the project's own `lib/` ignore rule, filed under
+`## BL-322:`). G1: at commit time the check printed `BL-125: running project tests: uv run --frozen pytest`
+and the suite ran, `1074 passed, 15 deselected`. G5: the session start offered the Guardrails update from
+4.3.0, and `bash scripts/refresh-guardrails.sh` printed `CDF assets refreshed: 4.3.0 -> 4.4.0`. G2: after
+the assessment, `scripts/resume.sh` printed the Phase 0 prompt. G3: adoption installed the framework's CI as its
+own `solo-gates.yml`, named "Solo Orchestrator checks", and said a push to any branch but main runs nothing.
+G6: the evidence named only `release.yml` ("a deploy or release lane"), nothing about a deploy on a branch
+push; and the blocked first run said "Nothing was committed and nothing was written to this project.
+Outside this project, this run DID register context7 and qdrant". Evidence (outside the repo):
+`~/dogfood-2026-10/k-pdf-dogfood-3-FINDINGS.md` and `~/dogfood-2026-10/turns-3/` (`adopt-attempt1.out`, `adopt-full.out`, `refresh-guardrails.out`).
 
 **What ran.** The `## BL-311:` rerun. A headless Claude Code session played the same systems
 technician (not a developer). It installed Solo from the public README at `a07d707`, which carries the
@@ -23423,6 +23436,17 @@ beside the refresh), `test-bl318-g4g6.sh` (P9 also checks the Builder's Guide).
 - **A user's own ssh command can still prompt.** BatchMode is added only when the user set no ssh command of
   their own (`GIT_SSH_COMMAND`, `GIT_SSH`, `core.sshCommand`), which are left as they are.
 
+**Confirmed by the third dogfood run (2026-10-07; PR #501, merged as `5f13470`).** Three of the adoptee's
+commits (its `d0d3d73`, `d77fc1b` and `2c333be`) were approved by the user's option id sent twice, and
+`.claude/approvals.jsonl` logged each one as `{"event":"commit", …, "matched":true}`. `refresh-guardrails.sh`
+registered the hook: `+ UserPromptSubmit: "$CLAUDE_PROJECT_DIR"/.claude/framework/hooks/record-approval.sh`.
+**A Guardrails-side caveat, handed to CDF and not Solo's to fix:** CDF's `hooks/session-end.sh` deletes the
+approval render record (`/tmp/.claude_approval_shown_<hash>`) whenever a Claude Code process ends. So both
+replies must arrive in ONE process, and the headless-driver residual above (`claude -p --resume <id>`) is not
+enough: each resume is a new process, the record of the first reply is gone, and the second reply renders the
+question again instead of picking. The run's driver sent both replies as two messages in one process. Handed
+over in `~/dogfood-2026-10/CDF-HANDOFF-PROMPT-3.md` (outside the repo), item 1.
+
 ## BL-321: a git `pre-commit` hook that checks the commit against the approved tree, so `-a` and pathspecs can pass when they commit exactly what was approved
 
 **Logged:** 2026-10-06 (from `## BL-320:`; Karl's owner decision 2b, 2026-10-05)
@@ -23453,3 +23477,73 @@ hook that can change the stage); what it does with no marker (nothing: the Guard
 first); that installing it changes the hooks digest an open approval is bound to (install it as a human step, never
 while a question is pending); and whether the Guardrails would then relax their shape rule, which is CDF's
 decision.
+
+## BL-322: Solo findings from brownfield dogfood run 3
+
+**Logged:** 2026-10-07 (Karl's decision of 2026-10-07: fix both sets of run-3 findings, Solo's here and the
+Development Guardrails' in a separate CDF session)
+**Category:** Bug (correctness) + Docs
+**Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
+and keeps the Guardrails' stop hook asking for a commit
+**Status:** Open — S1 is being built on branch `fix/bl322-s1-audit-loop`; S2, S3 and S4 are not started
+
+**What ran.** The third dogfood run, the one that closed `## BL-318:`. A headless Claude Code session (Sonnet)
+played the same systems technician (not a developer), driven in 14 turns, with a stand-in for Karl answering
+between them. It installed Solo from the public README at `5f13470` (PR #501 merged) with Development
+Guardrails 4.4.0 (`aba947b`) on the machine, then adopted a fresh private copy of k-pdf (Python/uv, built with
+an older Solo, Guardrails 4.3.0). It produced 22 findings. **Evidence** (outside the repo, untracked):
+`~/dogfood-2026-10/k-pdf-dogfood-3-FINDINGS.md` (the 22 rows, the step log, the stage verdicts),
+`~/dogfood-2026-10/turns-3/` (every turn; `adopt-attempt1.out` and `adopt-full.out` are adoption's output),
+`~/dogfood-2026-10/claude-dir-3.tgz` (the adoptee's `.claude/` at the end), the transcript
+`transcript-3-36fdf23f-d045-4177-b417-4823e4209b4a.jsonl` and the git bundle `k-pdf-dogfood-3.bundle` beside
+them. The live project is `~/Documents/Claude Projects/k-pdf-dogfood-3`.
+
+**Run-3 scorecard.**
+
+| Stage | Verdict | What the run showed |
+|---|---|---|
+| 0 — install from the README and `docs/adoption.md` | PASS | Rollback point `0bb0465`, clean tree. Karl did the two human-only settings steps (the autoMode line, Superpowers). |
+| 1 — Scout | PASS | The report was true to k-pdf and nothing was refused. It did not predict the ignore-rule block (finding 4) and said the project's `CLAUDE.md` stays (finding 2). |
+| 2 — adoption | PASS after one block | The first run was blocked: `.gitignore` line 20 (`lib/`) refused 26 of the files adoption writes. After the operator anchored it to `/lib/`, the second run adopted: 119 files added, 3 modified, 0 deleted; 5 originals archived. |
+| 3 — Guardrails 4.4.0 and the assessment | PASS | The update was offered and applied, `record-approval.sh` registered, the assessment recorded (verdict: keep), and `resume.sh` printed the Phase 0 prompt. |
+| 4 — one real change, test-first, committed, pushed | PASS | Three failing tests first; the commit ran semgrep and the project's full suite (`1074 passed`); approved by option id; pushed as `2c333be`. Nothing in stage 4 itself was blocked falsely. |
+
+The technician asked Karl 9 questions, plus three commit approvals answered twice each by design. Of the 22
+findings, the Solo ones are grouped below. Row 6 (the existing Qdrant container's exposure note) is a note
+the run deliberately did not act on; it needs no change.
+
+| Group | What the user hit | Root cause | Run findings |
+|---|---|---|---|
+| **S1** | After each approved commit (the adoptee's `d0d3d73`, `d77fc1b`, `2c333be`), the next session start wrote an `out_of_band_commit` row with `actor: user_terminal_inferred` into the TRACKED `.claude/bypass-audit.json`. That dirtied the file, so the Guardrails' stop hook said "Uncommitted source changes. Commit before finishing."; committing it would be the next approved commit, which the next session start would flag again — a loop. Three untracked runtime files made the stop hook say the same. | `scripts/detect-out-of-band-commits.sh` knows an agent's commit only by its SHA in `.claude/claude-commits.jsonl`, and that ledger is never written in a real session (below), so every commit reads as one made from the user's own terminal. The detector does not read the Guardrails' record of an approved commit in `.claude/approvals.jsonl`. Adoption writes no ignore rules for Solo's runtime files: `init.sh`'s `.gitignore` template has them, adoption has no ignore step. | 16, 20 (Solo half), 15 (Solo half) |
+| **S2** | Adoption replaced the project's 146-line `CLAUDE.md` with the framework's generic one ("Description: Not yet recorded"). Its hard rules (the colorblind constraint, the architecture rules, the never-do list) and its `@` imports of project docs still in the tree (`@PROJECT_BIBLE.md`, `@PRODUCT_MANIFESTO.md`, `@CONTRIBUTING.md`) stopped loading until the assessment folded them back in. Nothing warned. Scout had said "yours stays". The archive summary said files were "moved" that were only copied (sha256-identical in the tree). | Adoption archives and replaces `CLAUDE.md` by design (the merge is the assessment's job), but the closing block does not say the project's rules stop loading meanwhile. Scout's collision table classes `CLAUDE.md` as keep-theirs (`_scout_md_bucket_phrase`), which is not what adoption does. | 2, 8, 9 |
+| **S3** | The first adoption was blocked by the project's own `lib/` ignore rule, which Scout had not predicted. That blocked run had already registered context7 and qdrant in the user's Claude Code configuration, a change outside the project that a blocked run leaves behind. | Scout does not run adoption's `git check-ignore` test of the files adoption writes. In `adopt_main`, `adopt_mcp_resolve` (`# BL-311-MCP-CALL`) runs before `adopt_prewrite_preflight` (`# BL-225-PREWRITE-CALL`), where the ignore check is. | 4, 5 |
+| **S4** | Wording. (11) The MCP check needs `query-docs`, not `resolve-library-id` alone; the session-start text does not say so, and the first edit was refused. (14) The lone-commit rule ("a lone `git commit -m`, nothing else on the line") is not visible in the docs the technician was told to read before committing; it was learned from block messages. (17) The assessment record's shape pre-fills `adoptedAtCommit` with the pre-adoption HEAD (by design, unexplained), and its `answers` keys lack availability and exposure, which live only in `interview.*`. (18) `RELEASE_NOTES.md` is not seeded from the project's real tags (`v0.2.0`, `v0.3.0`). | Missing or unclear text. | 11, 14, 17, 18 |
+
+**S1's design (branch `fix/bl322-s1-audit-loop`).** The detector recognises a commit that the Guardrails
+recorded as approved and matched, and writes nothing for it. It writes no `approved_commit` row either: the
+approval's evidence is already in `.claude/approvals.jsonl`, which the Guardrails protect, and a row in the
+tracked audit file after every approved commit would keep finding 20's loop going. A `matched: false` commit is
+still recorded as `## BL-320:`'s `approval_mismatch`. Adoption writes the ignore rules for Solo's own runtime
+files (`.claude/last-checked-commit.txt`, `.claude/tool-usage.json`); `init.sh`'s template already has them.
+`.claude/approvals.jsonl` is the Guardrails' file: whether a project commits it (an audit trail) or ignores it is
+the CDF session's call, so it is left alone here and is **pending** that answer.
+
+**Found while building S1, not fixed by it: the Claude-commit ledger is never written.**
+`scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code` and treats
+its absence as a failure (`// 1`). Claude Code's Bash PostToolUse payload carries no such field: run 3's
+transcript shows the Bash results' keys as `interrupted`, `isImage`, `noOutputExpected`, `stderr`, `stdout`
+(plus `gitOperation` on a commit), and the Guardrails' own `marker-tracker.sh` says "Real tool_response has no
+exit_code field". PostToolUse fires only after a tool succeeded (code.claude.com/docs/en/hooks). So the hook
+exits before writing on every real commit, and run 3's `.claude/` has no `claude-commits.jsonl` at all. Every
+agent commit not covered by an approval (any project without the Guardrails' approval flow) is still flagged as
+a user-terminal commit. Fixing the recorder is a separate change (it also needs a decision on whether the
+ledger, an agent-writable file, is ignored or tracked), so it is recorded here for one.
+
+**Handed to the Development Guardrails (CDF), not fixed here** (`~/dogfood-2026-10/CDF-HANDOFF-PROMPT-3.md`,
+outside the repo): rows 1, 3 and 10 (read-only commands refused as framework edits or as commits), 7
+(`enforce-superpowers` treated a `.gitignore` edit as a source edit), 12, 13, 14b and 19 (hooks that match words
+in file names, question text, commit messages and chains instead of commands), the hook halves of 15 and 20
+(`stop-checklist.sh` counts framework-written files as uncommitted source changes), 21 (the "Superpowers
+verified" banner without the plugin), 22 ("Run: init.sh --reconfigure" in an adopted project), and
+`hooks/session-end.sh` deleting the approval render record, so both approval replies must arrive in one Claude
+Code process (`## BL-320:`'s run-3 paragraph).
