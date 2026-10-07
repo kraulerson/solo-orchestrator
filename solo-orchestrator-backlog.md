@@ -23484,9 +23484,8 @@ decision.
 Development Guardrails' in a separate CDF session)
 **Category:** Bug (correctness) + Docs
 **Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
-and keeps the Guardrails' stop hook asking for a commit
-**Status:** Open — S1 built on branch `fix/bl322-s1-audit-loop` (below), not yet reviewed or merged; S2, S3
-and S4 are not started
+**Status:** Open — S1 built on branch `fix/bl322-s1-audit-loop` (below), review round 1 addressed, not merged;
+S2, S3 and S4 are not started
 
 **What ran.** The third dogfood run, the one that closed `## BL-318:`. A headless Claude Code session (Sonnet)
 played the same systems technician (not a developer), driven in 14 turns, with a stand-in for Karl answering
@@ -23515,15 +23514,15 @@ the run deliberately did not act on; it needs no change.
 
 | Group | What the user hit | Root cause | Run findings |
 |---|---|---|---|
-| **S1** | After each approved commit (the adoptee's `d0d3d73`, `d77fc1b`, `2c333be`), the next session start wrote an `out_of_band_commit` row with `actor: user_terminal_inferred` into the TRACKED `.claude/bypass-audit.json`. That dirtied the file, so the Guardrails' stop hook said "Uncommitted source changes. Commit before finishing."; committing it would be the next approved commit, which the next session start would flag again — a loop. Three untracked runtime files made the stop hook say the same. | `scripts/detect-out-of-band-commits.sh` knows an agent's commit only by its SHA in `.claude/claude-commits.jsonl`, and that ledger is never written in a real session (below), so every commit reads as one made from the user's own terminal. The detector does not read the Guardrails' record of an approved commit in `.claude/approvals.jsonl`. Adoption writes no ignore rules for Solo's runtime files: `init.sh`'s `.gitignore` template has them, adoption has no ignore step. | 16, 20 (Solo half), 15 (Solo half) |
+| **S1** | After each approved commit (the adoptee's `d0d3d73`, `d77fc1b`, `2c333be`), the next session start wrote an `out_of_band_commit` row with `actor: user_terminal_inferred` into the TRACKED `.claude/bypass-audit.json`: a wrong audit record, which also left the file modified. Solo's two runtime files sat untracked. The stop hook's "Uncommitted source changes. Commit before finishing." that the run blamed on these (findings 15, 20) was **not** caused by them: measured with the real `stop-checklist.sh` (review round 1, and again here), a modified audit file alone and the two runtime files alone pass; an untracked `.claude/approvals.jsonl` or `.claude/tdd-warn-ledger.jsonl` alone blocks, because the Guardrails' source-file test counts an unknown extension as source. That is a Guardrails defect, handed to them (Karl, 2026-10-07); Solo does not ignore those two logs. | `scripts/detect-out-of-band-commits.sh` knows an agent's commit only by its SHA in `.claude/claude-commits.jsonl`, and that ledger is never written in a real session (below), so every commit reads as one made from the user's own terminal. The detector does not read the Guardrails' record of an approved commit in `.claude/approvals.jsonl`. Adoption writes no ignore rules for Solo's runtime files: `init.sh`'s `.gitignore` template has them, adoption has no ignore step. | 16, 20 (Solo half), 15 (Solo half) |
 | **S2** | Adoption replaced the project's 146-line `CLAUDE.md` with the framework's generic one ("Description: Not yet recorded"). Its hard rules (the colorblind constraint, the architecture rules, the never-do list) and its `@` imports of project docs still in the tree (`@PROJECT_BIBLE.md`, `@PRODUCT_MANIFESTO.md`, `@CONTRIBUTING.md`) stopped loading until the assessment folded them back in. Nothing warned. Scout had said "yours stays". The archive summary said files were "moved" that were only copied (sha256-identical in the tree). | Adoption archives and replaces `CLAUDE.md` by design (the merge is the assessment's job), but the closing block does not say the project's rules stop loading meanwhile. Scout's collision table classes `CLAUDE.md` as keep-theirs (`_scout_md_bucket_phrase`), which is not what adoption does. | 2, 8, 9 |
 | **S3** | The first adoption was blocked by the project's own `lib/` ignore rule, which Scout had not predicted. That blocked run had already registered context7 and qdrant in the user's Claude Code configuration, a change outside the project that a blocked run leaves behind. | Scout does not run adoption's `git check-ignore` test of the files adoption writes. In `adopt_main`, `adopt_mcp_resolve` (`# BL-311-MCP-CALL`) runs before `adopt_prewrite_preflight` (`# BL-225-PREWRITE-CALL`), where the ignore check is. | 4, 5 |
 | **S4** | Wording. (11) The MCP check needs `query-docs`, not `resolve-library-id` alone; the session-start text does not say so, and the first edit was refused. (14) The lone-commit rule ("a lone `git commit -m`, nothing else on the line") is not visible in the docs the technician was told to read before committing; it was learned from block messages. (17) The assessment record's shape pre-fills `adoptedAtCommit` with the pre-adoption HEAD (by design, unexplained), and its `answers` keys lack availability and exposure, which live only in `interview.*`. (18) `RELEASE_NOTES.md` is not seeded from the project's real tags (`v0.2.0`, `v0.3.0`). | Missing or unclear text. | 11, 14, 17, 18 |
 
 **S1's design (branch `fix/bl322-s1-audit-loop`).** The detector recognises a commit that the Guardrails
 recorded as approved and matched, and writes nothing for it. It writes no `approved_commit` row either: the
-approval's evidence is already in `.claude/approvals.jsonl`, which the Guardrails protect, and a row in the
-tracked audit file after every approved commit would keep finding 20's loop going. A `matched: false` commit is
+approval's evidence is already in `.claude/approvals.jsonl`, and a row in the tracked audit file after every
+approved commit would modify it after every one. A `matched: false` commit is
 still recorded as `## BL-320:`'s `approval_mismatch`. Adoption writes the ignore rules for Solo's own runtime
 files (`.claude/last-checked-commit.txt`, `.claude/tool-usage.json`); `init.sh`'s template already has them.
 `.claude/approvals.jsonl` is the Guardrails' file: whether a project commits it (an audit trail) or ignores it is
@@ -23532,20 +23531,35 @@ the CDF session's call, so it is left alone here and is **pending** that answer.
 **S1, as built (branch `fix/bl322-s1-audit-loop`).**
 - **The detector** (`scripts/detect-out-of-band-commits.sh`) reads `.claude/approvals.jsonl` once, in file
   order, and skips a commit it finds approved (`# BL-322-OOB-APPROVED`). An approval line opens when it is a
-  pick of an option that approves a commit, or the user's override (`# BL-322-APPROVED-APPROVES`). A commit
+  pick of an option that approves a commit, or the user's override (`# BL-322-APPROVED-APPROVES`); any other
+  approval line, a pick that approves nothing, closes it (`# BL-322-APPROVED-HOLD`, review round 1, R-322-2).
+  A commit
   line counts when the open approval's tree is the tree it says was approved (`# BL-322-APPROVED-PICK`), it
   says `matched: true` (`# BL-322-APPROVED-MATCHED`), and its `commit` is one full SHA
-  (`# BL-322-APPROVED-SHA`). Every commit line closes the open approval, so one approval exempts at most one
-  commit (`# BL-322-APPROVED-ONCE`). The lookup is by the whole SHA (`# BL-322-APPROVED-EXACT`). Nothing is
+  (`# BL-322-APPROVED-SHA`). Every commit line, matched or not, closes the open approval, so one approval
+  exempts at most one commit (`# BL-322-APPROVED-ONCE`). The lookup is by the whole SHA (`# BL-322-APPROVED-EXACT`). Nothing is
   written for an approved commit, and `.claude/bypass-audit.json` is never read to decide. A `matched: false`
   commit still gets `## BL-320:`'s `approval_mismatch` row, and its `out_of_band_commit` row too.
-- **Why these checks.** The Guardrails protect `.claude/approvals.jsonl` and their approval marker
-  lexically (config-guard and marker-guard refuse a tool call or a command whose text names them; a command
-  that reaches them without spelling the path is not stopped, which marker-guard documents). So the forgery
-  an agent can realistically make is a forged marker: the Guardrails' own `marker-tracker.sh` then writes a
-  genuine `matched: true` line for a commit nobody approved. Three checks catch its three shapes: no approval
-  before it, an approval that approved nothing (the user picked "do not commit"), and an approval already
-  used by an earlier commit.
+- **What the checks are worth.** They hold the Guardrails' own records to the shape of the real flow, so
+  those records never exempt a commit the user did not approve: a commit line with no approval before it
+  (what a forged approval marker leaves), one after a pick that approved nothing, and one after an approval
+  an earlier commit line used. **They do not authenticate a line.** The Guardrails guard `.claude/approvals.jsonl`
+  and their marker lexically (config-guard and marker-guard refuse a tool call or command whose text names
+  them), and review round 1 got an exempted commit from the agent's own Bash past every guard and Solo's
+  commit check three ways: `CLAUDECODE= bash ~/.claude-dev-framework/hooks/mark-evaluated.sh "ok"` (the
+  override refuses only a non-empty `CLAUDECODE`), a synthetic prompt envelope piped into
+  `record-approval.sh` twice, and `cd .claude && printf … >> approvals.jsonl`. Nothing in a line is secret.
+  This adds no cheaper forgery than what already exempted a commit: before it every commit was flagged
+  anyway (the ledger is never written, below), and a line appended to the agent-writable
+  `.claude/claude-commits.jsonl`, or a `fixup!` or `Merge ` subject, already exempted one.
+- **The hold rule (R-322-2).** Reachable with no forgery, measured through the real Guardrails 4.4.0 hooks
+  (a scratch copy): the user approves (A1 twice), is asked again and holds (A2 twice, an option that
+  approves nothing). Their `record-approval.sh` writes the marker only for an approving pick and leaves the
+  first one in place, so the agent's lone `git commit` passes their check and `marker-tracker.sh` logs it
+  `matched: true`. At `5f13470` the detector wrote an out-of-band row for it; at `ebce113` it wrote none;
+  now it writes one. The cost, failing closed: an unrelated non-approving pick (a bypass question, say)
+  between an approval and its commit flags that commit. The Guardrails were asked to delete their marker on
+  a non-approving pick.
 - **Ignore rules.** Adoption writes `.claude/.gitignore` with `/last-checked-commit.txt` and
   `/tool-usage.json`, committed with the adoption (`# BL-322-ADOPT-IGNORE-WRITE`). Adoption never edits the
   project's own ignore files, so the rule goes in a file the framework owns; a `.claude/.gitignore` the
@@ -23558,17 +23572,23 @@ the CDF session's call, so it is left alone here and is **pending** that answer.
   `?? .claude/approvals.jsonl` only.
 - **Replay of run 3** (the git bundle plus `claude-dir-3.tgz`, baseline at the adoption commit `cc4f63b`).
   Before: `⚠ 3 user-terminal commit(s) detected`, rows for `d0d3d73`, `d77fc1b` and `2c333be`. After: no
-  row. The loop, from a clean checkout with the baseline at `d0d3d73`: before, the detector left
+  row. From a clean checkout with the baseline at `d0d3d73`: before, the detector left
   ` M .claude/bypass-audit.json`; after, git status is unchanged.
-- **Tests.** `tests/test-bl322-s1-audit-loop.sh` (unit lane, `rest` shard): 12 cases and 11 mutants, each
-  mutant killed by a named case. Two cases run a real adoption; one of them drives the adoptee's own copy of
-  the detector through an approved commit and a session start, and checks git status gains nothing but
-  `.claude/approvals.jsonl`.
+- **Tests.** `tests/test-bl322-s1-audit-loop.sh` (unit lane, `rest` shard): 14 cases and 14 mutants, each
+  mutant killed by a named case. Two cases run a real adoption; on one, the adoptee's own copy of the
+  detector skips an approved commit, leaves the audit file unchanged and still records a terminal commit.
+  Its fixture commits use `--no-verify` (the detector reads history and `approvals.jsonl`, not how a commit
+  was made), so it says nothing about the stop hook.
 
 **S1 residuals (not fixed):**
-- **A pair appended past config-guard is trusted.** No field of either approvals line is secret, so an agent
-  that appends both through a command that never spells the path is not caught. Closing it needs a value the
-  agent cannot read or recompute, which is the Guardrails' design to change, not Solo's.
+- **An approvals line is evidence, not proof.** Review round 1's three forgeries above produce records the
+  detector cannot tell from the Guardrails' own. Closing that needs a value the agent cannot read or
+  recompute, which is the Guardrails' design to change (handed to them), not Solo's.
+- **An approval left open survives the session (R-322-7).** The Guardrails' `session-end.sh` deletes their
+  marker, but nothing in `approvals.jsonl` records that, so an approval no commit line used stays open to
+  the detector; a commit line for the same tree in a later session (a forged marker) is exempt. Checking the
+  commit's real tree and parent with git against the approval would narrow this only where HEAD has moved,
+  so it is not built.
 - **The Claude-commit ledger still exempts a commit, and the agent can write it.** `.claude/claude-commits.jsonl`
   is `## BL-030:`'s design, unprotected, and (below) never written by its recorder, so today any line in it was
   written by hand. Not changed here.
@@ -23578,8 +23598,8 @@ the CDF session's call, so it is left alone here and is **pending** that answer.
 - **`--sync-framework` adds the two root `.gitignore` lines even when `.claude/.gitignore` already ignores the
   files**: the backfill matches exact lines in the root file. Harmless, but it leaves the root `.gitignore`
   modified for the operator to commit.
-- **PR #481 (BL-314, whose entry is on that branch; open, and already conflicting with `main`) ignores `.claude/tool-usage.json.lw.*`** in
-  the root template and this repo's `.gitignore`. `.claude/.gitignore` does not carry it, because the writer of
+- **PR #481 (BL-314, whose entry is on that branch; open, and already conflicting with `main`) ignores
+  `.claude/tool-usage.json.lw.*`** in the root template and this repo's `.gitignore`. `.claude/.gitignore` does not carry it, because the writer of
   those temporary files is not on `main`; whichever of the two merges second adds `/tool-usage.json.lw.*` to
   `_adopt_session_ignore_rules`. This branch touches neither file #481 changes for it.
 
@@ -23598,7 +23618,10 @@ ledger, an agent-writable file, is ignored or tracked), so it is recorded here f
 outside the repo): rows 1, 3 and 10 (read-only commands refused as framework edits or as commits), 7
 (`enforce-superpowers` treated a `.gitignore` edit as a source edit), 12, 13, 14b and 19 (hooks that match words
 in file names, question text, commit messages and chains instead of commands), the hook halves of 15 and 20
-(`stop-checklist.sh` counts framework-written files as uncommitted source changes), 21 (the "Superpowers
+(`stop-checklist.sh` blocks on an untracked `.claude/approvals.jsonl` or `.claude/tdd-warn-ledger.jsonl`,
+because its source-file test counts an unknown extension as source; Karl, 2026-10-07: the fix is theirs, and
+Solo does not ignore those logs), their marker surviving a pick that approves nothing (S1's hold rule above),
+21 (the "Superpowers
 verified" banner without the plugin), 22 ("Run: init.sh --reconfigure" in an adopted project), and
 `hooks/session-end.sh` deleting the approval render record, so both approval replies must arrive in one Claude
 Code process (`## BL-320:`'s run-3 paragraph).

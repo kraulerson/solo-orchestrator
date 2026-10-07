@@ -76,6 +76,15 @@ terraform.tfvars.json
 # receiving the line (which is the BL-174 defect itself, reintroduced). Same
 # convention as the `# BL-084-TIER-KEY` SYNC-SIBLINGS predicate.
 #
+# A THIRD COPY of two lines in this file (`## BL-322:`), the first sidecar
+# below and the tool-usage ledger at the end: an ADOPTED project gets
+# .claude/last-checked-commit.txt and .claude/tool-usage.json ignored by
+# `_adopt_session_ignore_rules` in scripts/lib/adopt/adopt-session.sh, which
+# writes them to .claude/.gitignore as anchored `/last-checked-commit.txt` and
+# `/tool-usage.json`. The backfill's `grep -qxF` reads the root .gitignore only,
+# so it does not see that file. Rename or drop either line and change that
+# function in the same commit.
+#
 # BL-030 operational state — the detection baseline file. Not project
 # content. Updated by scripts/detect-out-of-band-commits.sh on every
 # SessionStart and by scripts/reconfigure-project.sh / init.sh after
