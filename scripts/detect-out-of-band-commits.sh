@@ -141,6 +141,52 @@ is_in_ledger() {
   esac
 }
 
+# ── `## BL-322:` S1 — a commit the user approved is not out of band. ─────────
+# The Development Guardrails (4.4.0+) record an approved commit in
+# .claude/approvals.jsonl as a PAIR: record-approval.sh appends the user's pick
+# (or mark-evaluated.sh their override) with the approved tree, and
+# marker-tracker.sh appends `{"event":"commit", commit, approved_tree,
+# committed_tree, matched}` after the commit. Dogfood run 3 wrote an
+# out_of_band_commit row for each of those commits into the TRACKED audit log,
+# and that dirty file kept the Guardrails' stop hook asking for a commit.
+#
+# SUCH A COMMIT GETS NO ROW, not an `approved_commit` one: the evidence is
+# already in approvals.jsonl, and a row per approved commit would dirty the
+# tracked log after every one of them — the loop itself.
+#
+# WHAT IS TRUSTED. approvals.jsonl is protected by the Guardrails' config-guard
+# (lexically); .claude/bypass-audit.json is not, and this decision never reads
+# it. (The ledger above, claude-commits.jsonl, is agent-writable too and still
+# exempts a commit: `## BL-030:`'s design, recorded on `## BL-322:`.) The
+# realistic forgery is a forged approval MARKER, after
+# which marker-tracker writes a genuine matched commit line nobody approved, so a
+# commit line counts only behind an approval that approves a commit and that no
+# earlier commit line used. The detector can still not tell a pair appended by
+# an agent that got past config-guard from the Guardrails' own: nothing in
+# either line is secret (`## BL-322:` records it).
+APPROVED_COMMITS=""
+if [ -f "$APPROVALS" ]; then
+  APPROVED_COMMITS="$(jq -R -c 'fromjson? | select(type == "object")' "$APPROVALS" 2>/dev/null | jq -r -s '
+    reduce .[] as $e ({open: null, ok: []};
+      if $e.event == "approval" then
+        (if ($e.source == "pick" and $e.approves == "commit") or $e.source == "override" then .open = $e   # BL-322-APPROVED-APPROVES
+         else . end)
+      elif $e.event == "commit" then
+        (if (.open.tree | type) == "string" and .open.tree == $e.approved_tree   # BL-322-APPROVED-PICK
+            and $e.matched == true   # BL-322-APPROVED-MATCHED
+         then .ok += [$e.commit | strings | select(test("^[0-9a-f]{40}([0-9a-f]{24})?$"))] else . end)   # BL-322-APPROVED-SHA
+        | .open = null   # BL-322-APPROVED-ONCE
+      else . end)
+    | .ok[]' 2>/dev/null | tr '\n' ' ')"
+fi
+
+is_approved_commit() {
+  case " $APPROVED_COMMITS " in
+    *" $1 "*) return 0 ;;   # BL-322-APPROVED-EXACT
+  esac
+  return 1
+}
+
 is_derivative() {
   local subject="$1"
   case "$subject" in
@@ -158,6 +204,7 @@ NEW_HEAD=$(git rev-parse HEAD)
 while IFS=$'\t' read -r sha author_ts subject; do
   [ -z "$sha" ] && continue
   if is_in_ledger "$sha"; then continue; fi
+  if is_approved_commit "$sha"; then continue; fi   # BL-322-OOB-APPROVED
   if is_derivative "$subject"; then continue; fi
   row=$(jq -nc \
     --arg ts "$(ts)" \
