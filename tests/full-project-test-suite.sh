@@ -1040,6 +1040,11 @@ run_child_suite "tests/test-bl322-s1-audit-loop.sh" \
 run_child_suite "tests/test-bl322-s2-project-rules.sh" \
   "BL-322 S2: a replaced CLAUDE.md's imports keep loading, the rest is named and warned about; the archive and Scout say what adoption does" \
   "BL-322 S2 project-rules tests FAILED (run tests/test-bl322-s2-project-rules.sh for details)"
+# BL-322 S2 (Karl, 2026-10-07): zsh is installed only on the unit-shard legs
+# that run a suite marked NEEDS-ZSH, and the shard script refuses one elsewhere.
+run_child_suite "tests/test-bl322-zsh-legs.sh" \
+  "BL-322 S2: zsh only on the legs that need it; a NEEDS-ZSH suite cannot land on a leg without it" \
+  "BL-322 zsh-legs tests FAILED (run tests/test-bl322-zsh-legs.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

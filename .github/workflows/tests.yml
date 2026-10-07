@@ -292,18 +292,24 @@ jobs:
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
-      - name: Install zsh (BL-311 paste-into-zsh cases)
-        # The ubuntu runner image ships no zsh, so without this step the BL-311
-        # suite's S22p/S22q/S22m paste the printed Qdrant steps into bash only
-        # and SKIP the zsh half — the half that matters on macOS, whose default
-        # zsh (INTERACTIVE_COMMENTS off) runs a `#` line as a command and so
-        # ENDS an `&&` chain wherever a note sits between two links, letting
-        # the rest run after a refused mkdir. The suite's shell-free shape
-        # check still holds without zsh; this is what lets the real
-        # `zsh -f -i` paste run here too. Installed in every shard, like
-        # semgrep, so the pin map stays free to move; a failed install fails
-        # the shard loudly rather than quietly dropping back to bash only.
-        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y zsh
+      - name: Install zsh (legs with a suite marked NEEDS-ZSH)
+        # The ubuntu runner image ships no zsh. This step installs it ONLY on
+        # the legs named in its `if:` list (`## BL-322:` S2, Karl 2026-10-07):
+        # installed on all nine legs it cost 9-17s each, and 89-92s on the two
+        # legs PR #503's run 37676814405 cancelled at the cap. The list is
+        # EMPTY today, measured: no suite runs zsh. BL-311 added it for the
+        # S22p/S22q/S22m paste-into-zsh cases, and BL-311 round 13 (8b5a031)
+        # removed those cases with the Qdrant recreate commands they pasted.
+        # A suite that needs zsh says so with a whole-line `# NEEDS-ZSH`
+        # comment. What replaces "installed everywhere, so the pin map stays
+        # free to move" is a guard: the shard script refuses to run such a
+        # suite on a leg where zsh is absent (`# BL-322-ZSH-GUARD`), and the
+        # zsh-legs suite (test-bl322-zsh-legs) fails when one is pinned to, or
+        # falls into, a leg missing from this list. On a listed leg a failed
+        # install still fails the shard loudly rather than quietly dropping
+        # back to bash only: no continue-on-error, no `|| true`.
+        if: contains(fromJSON('[]'), matrix.shard)   # BL-322-ZSH-LEGS
+        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y zsh   # BL-322-ZSH-INSTALL
 
       - name: Run fast unit tests — shard ${{ matrix.shard }}
         env:
@@ -633,6 +639,7 @@ jobs:
             tests/test-bl320-approval-schema2.sh
             tests/test-bl322-s1-audit-loop.sh
             tests/test-bl322-s2-project-rules.sh
+            tests/test-bl322-zsh-legs.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1200,6 +1207,25 @@ jobs:
 
           echo "shard '${SHARD}': ${#run_list[@]} of ${#tests[@]} unit tests"
           echo "partition verified: ${n_pinned} pinned + ${#rest_list[@]} rest == ${#tests[@]} canonical"
+
+          # ── `## BL-322:` S2 — zsh only where a suite says it needs it ──────
+          # A suite that runs zsh carries a whole-line `# NEEDS-ZSH` comment,
+          # and zsh is installed only on the legs the "Install zsh" step lists.
+          # Such a suite pinned to, or left in `rest` on, any other leg would
+          # run without the shell it tests. Refuse it here, by name, before
+          # any suite runs: a loud red, never a silent skip.
+          zsh_missing=""
+          if ! command -v zsh >/dev/null 2>&1; then   # BL-322-ZSH-GUARD-PROBE
+            for t in "${run_list[@]}"; do
+              if grep -qE '^# NEEDS-ZSH([[:space:]]|$)' "${t}" 2>/dev/null; then   # BL-322-ZSH-GUARD
+                zsh_missing="${zsh_missing} ${t}"
+              fi
+            done
+          fi
+          if [ -n "${zsh_missing}" ]; then
+            echo "shard '${SHARD}': zsh is not installed on this leg, and these suites need it (# NEEDS-ZSH):${zsh_missing}. Add '${SHARD}' to the Install zsh step's if: list, or pin them to a leg on it." >&2
+            exit 1   # BL-322-ZSH-GUARD-EXIT
+          fi
 
           failed=()
           for t in "${run_list[@]}"; do
