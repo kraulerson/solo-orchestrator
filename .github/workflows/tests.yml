@@ -1090,7 +1090,7 @@ jobs:
             tests/test-bl318-g1-test-command.sh             # 69s local, measured — four real adoptions plus three under mutants, 24 mutants; here, not in `rest` (620s of 720s on PR #495; `mcp` was 397s)
             tests/test-bl318-g5-guardrails-refresh.sh       # 34-35s local, measured twice after the final check (E1 skips on CI: no clone; E0 runs) — 48 cases, 48 mutants; here, not in `rest` (test step 563s, job 596s of 720s on main run 37354155101; `mcp` step 352s)
             tests/test-bl318-g2-resume-adoptee.sh           # 28s local, measured after review round 1 — two real adoptions and two Act 4 runs, 28 cases, 30 mutants; here, not in `rest` (job 615s of 720s on PR #497; `mcp` job 463s)
-            tests/test-bl322-s2-project-rules.sh            # 78-79s local, measured three times — four real adoptions plus five under mutants, 13 cases, 23 mutants; adoption suites run ~0.75x local on the runner (wp12b: 21s and 24s there, 28-30s here), so ~60s; here, the leg with the most room (job 522s and 513s on PR #502's run 37651729332 and main run 37653263402)
+            tests/test-bl322-s2-project-rules.sh            # 92-95s local after review round 1, measured three times — four real adoptions plus six under mutants, 15 cases, 54 mutants (48 run in under a second each); adoption suites run ~0.75x local on the runner (wp12b: 21s and 24s there, 28-33s here), so ~70s; here, the leg with the most room (job 522s and 513s on PR #502's run 37651729332 and main run 37653263402)
           )
           pin_mcp_mutants=(                               # 400s on PR #490's run, 355s on PR #494's, of 720s
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
