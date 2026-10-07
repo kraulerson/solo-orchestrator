@@ -319,6 +319,18 @@ Scout found **6** things here that the framework also has an opinion about. It m
 | `CHANGELOG.md` | yours stays | OVERWRITTEN from a template today. Under adoption it is treated as theirs: kept, and reconciled by the interview. |
 ```
 
+**The documents adoption replaces say so** (`## BL-322:` S2, `# BL-322-SCOUT-DOCS`).
+`CLAUDE.md`, `PROJECT_INTAKE.md`, `FEATURES.md`, `BUGS.md`, `RELEASE_NOTES.md`,
+`docs/INDEX.md`, `docs/IDENTIFIERS.md` and `docs/archive/README.md` read *kept a
+copy, then replaced*: adoption archives each one and writes the framework's
+version. Until dogfood run 3 these rows said *yours stays* — the same day that
+adoption replaced the project's `CLAUDE.md`. The `CLAUDE.md` row adds what
+happens to it: its `@` imports of files still in the project are carried into
+the new one, and the rules written in it load again only once the assessment
+folds them in. `CHANGELOG.md` is the one document that stays yours: adoption
+never writes it. Scout sources no adoption code, so the set is spelled twice;
+`tests/test-bl322-s2-project-rules.sh` (S1) holds the two equal.
+
 **Your CI is the deliberate exception** — inspected and reported on, never
 touched. Breaking your deploys on day one would be an unforgivable way to say
 hello. Where a pipeline works against the safety rails, that is a *finding*, not

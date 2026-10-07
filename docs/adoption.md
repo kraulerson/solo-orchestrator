@@ -381,7 +381,10 @@ already had a `CLAUDE.md`, `BUGS.md` or the like, the run named each one it
 replaced — the framework's version is in place and yours is in the archive,
 **not merged** until the assessment conversation folds in what is worth keeping
 (or you copy it across yourself —
-[The framework documents](#the-framework-documents--ship-wp12b)). From your next commit on, the message gates and the
+[The framework documents](#the-framework-documents--ship-wp12b)). Your
+`CLAUDE.md`'s `@` imports of files still in the project are carried into the new
+one, so those files keep loading; **the rules written inside your old
+`CLAUDE.md` do not load** until the assessment folds them in, and the run says so. From your next commit on, the message gates and the
 commit-time scanners run. Your replaced files are in
 `.claude/adoption-archive/<timestamp>/`, each with a restore line in its
 `MANIFEST.md` — and one command puts any of them back:
@@ -2109,38 +2112,48 @@ every non-`.sample` file in `.git/hooks/`, and — since WP9b — `APPROVAL_LOG.
 **Only files that exist are archived** — an absent surface produces no file and
 no manifest row.
 
-**`APPROVAL_LOG.md` is the one entry adoption REPLACES**, and its row says so:
-`disposition: "replaced"`, where every other entry reads `kept` (your file is
-still where it was) or `composed` (yours is still there, with the framework's
-additions: a marked block appended to your commit-msg hook, its rules and hooks
-added to your `.claude/settings.json`, its keys added beside the Development
-Guardrails' in `.claude/manifest.json`). Adoption writes its own tier-matched
-approval log at that path because the phase gate cannot run without one — so if
-you keep an approval record there already, **your copy is archived with a
-restore line and the framework's template is what sits at the path
-afterwards**. That is the only in-place replacement in the run.
+**Each row says what adoption does to that file.** `disposition: "replaced"`
+means the framework's version is at the path afterwards: `APPROVAL_LOG.md` (the
+phase gate cannot run without its tier-matched approval log), the documents
+(`CLAUDE.md`, `PROJECT_INTAKE.md`, `FEATURES.md` and the rest of
+[The framework documents](#the-framework-documents--ship-wp12b)), your
+pre-commit hook, the four vendored skills, and any framework script you already
+had (`# BL-322-ARCHIVE-DISPO-SCRIPT`; that row said `kept` until `## BL-322:`
+S2). `composed` means yours is still there, with the framework's additions: a
+marked block appended to your commit-msg hook, its rules and hooks added to your
+`.claude/settings.json`, its keys added beside the Development Guardrails' in
+`.claude/manifest.json`. `kept` means adoption only copied it: yours is still at
+the path, unchanged (run 3's `PROJECT_BIBLE.md` and `PRODUCT_MANIFESTO.md`, and
+any hook, skill or document left alone because it is a symlink or read-only).
 
-Nothing is deleted. Every entry carries a `restore` line you can paste — except
-the Development Guardrails' `.claude/manifest.json`, whose `restore` is `null`
-and whose `doNotRestore` says why (see *The Development Guardrails for Claude
+Nothing is deleted. Every entry in `MANIFEST.json` carries a `restore` line you
+can paste — except the Development Guardrails' `.claude/manifest.json`, whose
+`restore` is `null` and whose `doNotRestore` says why (see *The Development Guardrails for Claude
 Code*: its archived copy would un-adopt the project) — and every git-hook entry
 carries a short **advisory** description of what it invoked, assembled from a
 fixed list of tool names so that no byte of your hook can reach the manifest.
 
 The run then discloses it in full — the sentence, **the list** (every path, not
-a count), and the restore instructions:
+a count), what adoption does to each, and the restore instructions. A file
+adoption only copied gets no restore line, on screen or in `MANIFEST.md`
+(`# BL-322-DISCLOSE-KEPT`, `# BL-322-MANIFEST-KEPT`): run 3's said "moved" and
+printed one for two files that were sha256-identical in the tree.
 
 ```text
 ══ Your own configuration has been archived
-   The files below were moved to ensure the framework operates properly, or composed
-   with it — yours kept in place, the framework's additions beside it.
+   The files below were moved to ensure the framework operates properly, composed
+   with it, or only copied; the first line under each says which.
    Nothing was deleted. A copy of every one, as it was, is in .claude/adoption-archive/…;
    the lines under each say how to put it back, or why not to.
 
    yours: .git/hooks/pre-commit
+      replaced: the framework's version is in its place
       archived as: .claude/adoption-archive/…/git-hooks/pre-commit
       what it did: Ran `lint-staged`, `npx`, and other commands.
       put it back: cp .claude/adoption-archive/…/git-hooks/pre-commit .git/hooks/pre-commit
+   yours: PROJECT_BIBLE.md
+      only copied: yours is still in place, unchanged
+      archived as: .claude/adoption-archive/…/PROJECT_BIBLE.md
 ```
 
 For the Development Guardrails' manifest the last line is two others
@@ -2311,11 +2324,55 @@ Measured on a project that owned a `CLAUDE.md` and a `BUGS.md`, and had
      FEATURES.md — a symlink; writing through it could overwrite a file elsewhere
 ```
 
-**Nothing of yours is merged in.** Adapting your prose into the framework's
-documents is judgement, and judgement belongs to the assessment (Act 3), which
-is not built. What adoption does is archive every original, name each one it
-replaced, and tell you where it is. Until you copy content across, the agent
-reads the framework's `CLAUDE.md`, not your notes.
+**Nothing of yours is merged in, but your `CLAUDE.md`'s imports keep loading.**
+Adapting your prose into the framework's documents is judgement, and judgement
+belongs to the assessment (Act 3). What adoption does is archive every original,
+name each one it replaced, and tell you where it is. Before `## BL-322:` S2 that
+also stopped every file your `CLAUDE.md` imported from loading: dogfood run 3's
+k-pdf imported `PROJECT_BIBLE.md`, `PRODUCT_MANIFESTO.md`, `CONTRIBUTING.md` and
+its intake, all still in the tree and untouched, and the next session lost the
+colour-alone hard constraint, the architecture rules and the never-do list the
+Bible holds, with nothing said. Now:
+
+- **Your `@` imports are carried.** Each `@path` in your `CLAUDE.md` that names a
+  regular file inside the project which adoption does not write goes, exactly as
+  you wrote it, into a marked section at the end of the new `CLAUDE.md`,
+  *Carried over from your CLAUDE.md* (`# BL-322-CARRY-APPEND`). Claude Code reads
+  imports outside fenced blocks and code spans, resolved against the file that
+  holds them, which is the project root for both files.
+- **Every import not carried is named, with the reason**: an import of a file in
+  your home folder or an absolute path (named only, never carried: it may not
+  exist on another machine), outside the project, a symlink, missing, not a file,
+  or a file adoption replaces or writes (`FEATURES.md`, `PROJECT_INTAKE.md`, …),
+  whose content is no longer what you imported.
+- **The rules written in the file itself are not carried**, and the run says so
+  in capitals. Telling a lasting rule from a stale claim ("Phase: 2", "Next: merge
+  the branch") is the assessment's judgement. Until it folds them in, tell the
+  agent any rule it must keep. *Next: the assessment* says it again at the end of
+  the run.
+
+Replayed on run 3's k-pdf (its git bundle at the rollback point `0bb0465`, the
+`/lib/` anchor uncommitted as in the run): the new `CLAUDE.md` had 0 `@` lines
+before this change and 4 after, and the four files are unchanged by the adoption
+commit:
+
+```text
+   YOUR OWN CLAUDE.md IS NO LONGER WHAT CLAUDE CODE LOADS.
+   The rules written in it load again only once the assessment folds them into the
+   new CLAUDE.md. Until then, tell the agent any rule it must keep. Yours is
+   .claude/adoption-archive/2026-10-07T17-03-29Z-56448/CLAUDE.md.
+   Its imports of files still in this project were carried into the new CLAUDE.md,
+   under "Carried over from your CLAUDE.md", so those files keep loading:
+     @K-PDF_PROJECT_INTAKE.md
+     @PROJECT_BIBLE.md
+     @PRODUCT_MANIFESTO.md
+     @CONTRIBUTING.md
+```
+
+The assessment prompt's step 8 tells the session to fold the old file's rules in,
+keep the imports it still wants outside that section, and delete the section.
+`reconfigure-project.sh --tldr-mode off` and `on` leave it in place (measured on
+the replay).
 
 **What it will not write over:**
 
@@ -2689,8 +2746,8 @@ not among them. Read them here, in the framework clone you run the driver from.
 | An audit trail of the adoption and of every risk accepted during it | ✅ [The audit rows and the dispositions record](#the-audit-rows-and-the-dispositions-record--ship-wp7) — ships |
 | A readable record of how this project entered the framework | ✅ [The Adoption Record](#the-adoption-record) — ships, at the end of `APPROVAL_LOG.md`, with its eight-clause contract checked before it is written |
 | Secret scanning, SAST and migration checks on every commit | ✅ [The commit-time scanners](#the-commit-time-scanners--ship-wp73) — ships; measured admitting a compliant commit and blocking a non-compliant one by exit code |
-| The framework's version of a colliding `scripts/*.sh` installed | ❌ Replacement half — **not built**, and unassigned |
-| A `CLAUDE.md` in the adopted project | ✅ [The framework documents](#the-framework-documents--ship-wp12b) — ships; yours is archived and named, not merged in |
+| The framework's version of a colliding `scripts/*.sh` installed | ✅ Ships — framework-wins: yours is archived, then replaced, and its archive row says `replaced` (`# BL-322-ARCHIVE-DISPO-SCRIPT`; it said `kept` before) |
+| A `CLAUDE.md` in the adopted project | ✅ [The framework documents](#the-framework-documents--ship-wp12b) — ships; yours is archived and named, not merged in; its `@` imports of files still in the project are carried (`## BL-322:` S2) |
 | The manifest's tier keys, so enforcement cannot be downgraded | ✅ Ships — `## BL-221:` closed; the tier question is their only source |
 
 ---
