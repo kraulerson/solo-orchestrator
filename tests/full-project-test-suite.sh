@@ -1027,6 +1027,13 @@ run_child_suite "tests/test-bl318-g3-ci-template.sh" \
 run_child_suite "tests/test-bl318-g4g6.sh" \
   "BL-318 G4/G6: a flag is not a deploy; a refusal names what the run registered outside the project; adoptedAtCommit's words; the doc claims hold" \
   "BL-318 G4/G6 tests FAILED (run tests/test-bl318-g4g6.sh for details)"
+# BL-322 S1: the out-of-band detector recorded every commit the user approved
+# through the Guardrails as a user-terminal commit, in the tracked audit log,
+# which kept the stop hook asking for a commit; adoption wrote no ignore rule
+# for Solo's runtime files.
+run_child_suite "tests/test-bl322-s1-audit-loop.sh" \
+  "BL-322 S1: an approved, matched commit is not out of band (forgeries still are); adoption and init ignore Solo's runtime files" \
+  "BL-322 S1 audit-loop tests FAILED (run tests/test-bl322-s1-audit-loop.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

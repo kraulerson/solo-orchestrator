@@ -2329,7 +2329,9 @@ reads the framework's `CLAUDE.md`, not your notes.
 Anything left alone is named in the run, under *LEFT ALONE*, so the framework's
 version is missing there by your file system's choice, not silently. Not
 written: `PROJECT_BIBLE.md` and `PRODUCT_MANIFESTO.md` (phase outputs — `init.sh`
-does not write them either) and the `.gitignore` lines `init.sh` adds.
+does not write them either) and the `.gitignore` lines `init.sh` adds; two of
+them, for the runtime files of the session hooks adoption registers, go into
+`.claude/.gitignore` instead (the session layer, below).
 
 ### The Adoption Record, the audit rows and the provenance header — WP7
 
@@ -2425,6 +2427,30 @@ adopted one now gets the same one, from the same code
 - **One difference from a new project, on purpose:** the bypass detector's
   per-tool hook is not registered on an adopted project while `## BL-277:` is
   open; its end-of-session hook is.
+- **`.claude/.gitignore`**, so git ignores the two files those hooks rewrite in
+  every session: `.claude/last-checked-commit.txt` (where the out-of-band
+  commit check left off) and `.claude/tool-usage.json` (the MCP tool record).
+  Before this they sat untracked in an adopted project (`## BL-322:`). A new
+  project's `.gitignore` from `init.sh` has four `.claude/` runtime lines;
+  adoption covers these two because the other two are for files an adopted
+  project does not get: `.claude/cache/` (the freshness check's cache, written
+  only for a manifest with a `currency` block, which only `init.sh` writes) and
+  `.claude/last-gate-pass.txt` (the receipt of the strict terminal-commit check,
+  `.git/hooks/framework-gate.sh`, which adoption does not install). A
+  `.claude/.gitignore` you already have is left alone, and the run names the
+  two lines to add to it.
+- **Adoption does not change your own `.gitignore`. The first
+  `upgrade-project.sh --sync-framework` does:** it appends three commented
+  blocks (`.claude/last-checked-commit.txt`, `.claude/last-gate-pass.txt`,
+  `.claude/tool-usage.json`), even where `.claude/.gitignore` already covers two
+  of them. That is also how a project adopted before `.claude/.gitignore`
+  existed gets them.
+- **Not ignored:** `.claude/approvals.jsonl` (the Development Guardrails' record
+  of your approvals; whether a project commits it is theirs to decide) and
+  `.claude/tdd-warn-ledger.jsonl` (the commit check's audit trail, meant to be
+  committed). While either is untracked, the Guardrails' stop hook says
+  "Uncommitted source changes": their test for a source file counts these
+  logs as source. That is theirs to fix and has been handed to them.
 - **The four vendored skills** — `session-handoff`, `sweep-triage`, `zoom-out`,
   `grill-with-docs` — in `.claude/skills/`. A copy of yours at one of those
   names is archived and replaced; any other skill of yours is untouched.
