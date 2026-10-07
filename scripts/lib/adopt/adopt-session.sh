@@ -101,13 +101,19 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
 
   # ── `## BL-322:` S1 — the runtime files those hooks write, ignored ─────────
   # The out-of-band detector rewrites .claude/last-checked-commit.txt and the MCP
-  # tracker .claude/tool-usage.json in every session. Untracked, they made the
-  # Guardrails' stop hook ask for a commit (dogfood run 3, finding 15). init.sh's
-  # .gitignore template ignores both; adoption never edits the project's own
-  # ignore files, so the rule goes in a file the framework owns, .claude/.gitignore,
-  # committed with the adoption. One the project already has is theirs and is left
-  # alone (keep-theirs, no archive row, as `# BL-318-TESTCMD-KEEP`).
-  # .claude/approvals.jsonl is the Guardrails' file and their call; not here.
+  # tracker .claude/tool-usage.json in every session; in an adopted project they
+  # sat untracked (dogfood run 3, finding 15). init.sh's .gitignore template
+  # ignores both; adoption never edits the project's own ignore files, so the rule
+  # goes in a file the framework owns, .claude/.gitignore, committed with the
+  # adoption. One the project already has is theirs and is left alone
+  # (keep-theirs, no archive row, as `# BL-318-TESTCMD-KEEP`). Only these two:
+  # init's other .claude/ runtime lines are for files an adoption never writes
+  # (.claude/cache/ needs a manifest `currency` block, last-gate-pass.txt the
+  # strict terminal-commit check, framework-gate.sh, which adoption does not
+  # install). .claude/approvals.jsonl is the Guardrails' file and
+  # .claude/tdd-warn-ledger.jsonl a tracked audit trail; neither is ignored here.
+  # (The stop hook's "Uncommitted source changes" over those two is the
+  # Guardrails' source-file test, handed to them.)
   if [ -e "$root/$ADOPT_SESSION_IGNORE_REL" ] || [ -L "$root/$ADOPT_SESSION_IGNORE_REL" ] || adopt_path_under_link "$root" "$ADOPT_SESSION_IGNORE_REL"; then   # BL-322-ADOPT-IGNORE-KEEP
     adopt_note "$ADOPT_SESSION_IGNORE_REL is already yours, so it was left alone. If git shows"
     adopt_note ".claude/last-checked-commit.txt or .claude/tool-usage.json as untracked, add these"

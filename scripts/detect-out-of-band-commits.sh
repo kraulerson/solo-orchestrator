@@ -147,30 +147,41 @@ is_in_ledger() {
 # (or mark-evaluated.sh their override) with the approved tree, and
 # marker-tracker.sh appends `{"event":"commit", commit, approved_tree,
 # committed_tree, matched}` after the commit. Dogfood run 3 wrote an
-# out_of_band_commit row for each of those commits into the TRACKED audit log,
-# and that dirty file kept the Guardrails' stop hook asking for a commit.
+# out_of_band_commit row (`user_terminal_inferred`) for each of those commits
+# into the TRACKED audit log: a wrong record, which also left that file modified.
+# (The stop hook's "Uncommitted source changes" in that run is the Guardrails'
+# own source-file test, which counts .claude/approvals.jsonl as source; it is
+# theirs to fix and was handed to them.)
 #
 # SUCH A COMMIT GETS NO ROW, not an `approved_commit` one: the evidence is
-# already in approvals.jsonl, and a row per approved commit would dirty the
-# tracked log after every one of them — the loop itself.
+# already in approvals.jsonl, and a row per approved commit would modify the
+# tracked log after every one of them.
 #
-# WHAT IS TRUSTED. approvals.jsonl is protected by the Guardrails' config-guard
-# (lexically); .claude/bypass-audit.json is not, and this decision never reads
-# it. (The ledger above, claude-commits.jsonl, is agent-writable too and still
-# exempts a commit: `## BL-030:`'s design, recorded on `## BL-322:`.) The
-# realistic forgery is a forged approval MARKER, after
-# which marker-tracker writes a genuine matched commit line nobody approved, so a
-# commit line counts only behind an approval that approves a commit and that no
-# earlier commit line used. The detector can still not tell a pair appended by
-# an agent that got past config-guard from the Guardrails' own: nothing in
-# either line is secret (`## BL-322:` records it).
+# WHAT IS TRUSTED, AND WHAT THAT IS WORTH. The Guardrails guard approvals.jsonl
+# and their approval marker lexically (config-guard, marker-guard: a tool call or
+# command whose text names them). Review round 1 got an exempted commit from the
+# agent's own Bash past every guard three ways (`CLAUDECODE= bash
+# …/mark-evaluated.sh`, a synthetic prompt piped into record-approval.sh twice,
+# `cd .claude && printf … >> approvals.jsonl`), so no line here proves a human
+# approved, and nothing in a line is secret. This adds no cheaper forgery: before
+# it every commit was flagged (the ledger above is never written), and a line
+# appended to that agent-writable ledger, or a `fixup!` or `Merge ` subject,
+# already exempted one. .claude/bypass-audit.json is never read to decide.
+# What the rules below enforce is the shape of the Guardrails' real flow, so
+# that their own records never exempt a commit the user did not approve: a
+# commit line counts only right behind an approval of a commit for its tree.
+# An approval that approves nothing (the user held) closes the open one: the
+# Guardrails keep their marker then, so the agent's commit still passes their
+# check (review round 1, R-322-2). The cost, failing closed: an unrelated
+# non-approving pick between an approval and its commit flags that commit. Any
+# commit line, matched or not, uses the approval up.
 APPROVED_COMMITS=""
 if [ -f "$APPROVALS" ]; then
   APPROVED_COMMITS="$(jq -R -c 'fromjson? | select(type == "object")' "$APPROVALS" 2>/dev/null | jq -r -s '
     reduce .[] as $e ({open: null, ok: []};
       if $e.event == "approval" then
         (if ($e.source == "pick" and $e.approves == "commit") or $e.source == "override" then .open = $e   # BL-322-APPROVED-APPROVES
-         else . end)
+         else .open = null end)   # BL-322-APPROVED-HOLD
       elif $e.event == "commit" then
         (if (.open.tree | type) == "string" and .open.tree == $e.approved_tree   # BL-322-APPROVED-PICK
             and $e.matched == true   # BL-322-APPROVED-MATCHED

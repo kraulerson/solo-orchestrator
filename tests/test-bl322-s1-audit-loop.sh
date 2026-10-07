@@ -6,30 +6,40 @@
 # Guardrails (CDF 4.4.0: a question answered by option id, then a lone
 # `git commit`), the next session start's scripts/detect-out-of-band-commits.sh
 # wrote an `out_of_band_commit` row (`actor: user_terminal_inferred`) for it into
-# the TRACKED .claude/bypass-audit.json. The Guardrails' stop hook then asked
-# for that file to be committed, and committing it was the next approved commit
-# — a loop (findings 16, 20). Solo's runtime files (.claude/tool-usage.json,
-# .claude/last-checked-commit.txt) sat untracked in an adopted project and made
-# the stop hook ask too (finding 15): init.sh's .gitignore template ignores them,
-# adoption wrote no ignore rule at all.
+# the TRACKED .claude/bypass-audit.json: a wrong audit record, which also left
+# that file modified (findings 16, 20). Solo's runtime files
+# (.claude/tool-usage.json, .claude/last-checked-commit.txt) sat untracked in an
+# adopted project (finding 15): init.sh's .gitignore template ignores them,
+# adoption wrote no ignore rule.
 #
-# WHAT "PROTECTED" MEANS, AND SO WHICH FORGERY IS REALISTIC. The Guardrails'
-# config-guard.sh refuses an Edit/Write naming .claude/approvals.jsonl (and its
-# settings carry `Edit(/.claude/approvals.jsonl)` as a deny rule), and refuses a
-# Bash command whose text names that path unless every command in it only
-# reads. That is lexical: nothing stops a command that reaches the file without
-# spelling it. Their marker-guard.sh protects the approval marker
-# (/tmp/.claude_evaluated_<hash>) the same way and documents the same residual
-# (`p=/tmp/.claude_; touch ${p}evaluated_$H`). So the realistic forgery is NOT a
-# hand-written approvals line: it is a forged MARKER, after which the Guardrails'
-# own marker-tracker.sh writes a GENUINE `{"event":"commit", …, "matched":true}`
-# line for a commit nobody approved. Only record-approval.sh (the user's pick)
-# and mark-evaluated.sh (the user's override, refused under Claude Code) write
-# the approval line that must precede it. D4, D5 and D6 are that forgery in its
-# three shapes; D7 is the other cheap one, a row in .claude/bypass-audit.json,
-# which nothing protects. An agent that appends BOTH lines to approvals.jsonl
-# through a lexical bypass is not caught: no field in either is a secret. That
-# residual is recorded on `## BL-322:`.
+# WHAT THIS DOES NOT FIX: the Guardrails' stop hook ("Uncommitted source
+# changes"). Review round 1 measured the real stop-checklist.sh: a modified
+# bypass-audit.json alone passes, and so do the two untracked runtime files
+# alone; an untracked .claude/approvals.jsonl or .claude/tdd-warn-ledger.jsonl
+# alone blocks, because its source-file test counts an unknown extension as
+# source. That is the Guardrails' defect, handed to them; Solo does not ignore
+# those logs.
+#
+# WHAT "PROTECTED" MEANS. The Guardrails' config-guard.sh refuses an Edit/Write
+# naming .claude/approvals.jsonl (their settings also deny `Edit(...)` on it)
+# and a Bash command whose text names it unless every command in it only
+# reads; marker-guard.sh guards the approval marker (/tmp/.claude_evaluated_*)
+# the same way. Both are lexical. Review round 1 got an exempted commit from the
+# agent's own Bash three ways that pass every guard and Solo's commit check:
+# `CLAUDECODE= bash ~/.claude-dev-framework/hooks/mark-evaluated.sh "ok"` (the
+# override refuses only a non-empty CLAUDECODE), a synthetic prompt envelope
+# piped into record-approval.sh twice, and `cd .claude && printf … >>
+# approvals.jsonl`. So no approvals line proves a human approved, and nothing in
+# a line is secret. This change adds no cheaper forgery than what already
+# exempted a commit: before it every commit was flagged anyway (the
+# claude-commits.jsonl ledger is never written), and a line appended to that
+# ledger, or a `fixup!` or `Merge ` subject, already exempted one. What the
+# checks enforce is the SHAPE of the Guardrails' real flow, so that their own
+# records never exempt a commit the user did not approve: a commit line with no
+# approval before it (D4, what a forged marker leaves), behind a pick that
+# approved nothing (D5, D10), or behind an approval an earlier commit line
+# already used (D6, D11). A row in .claude/bypass-audit.json, which nothing
+# protects, exempts nothing (D7).
 #
 # CASES
 #   D1  two approved, matched commits: no out-of-band row, and the tracked audit
@@ -47,17 +57,25 @@
 #   D9  a commit field that is not one SHA (a hand-written line carrying a
 #       SHA among other text) exempts nothing: the set is matched whole, not
 #       by word
+#   D10 the user approved, was asked again and held (a pick that approves
+#       nothing); the Guardrails keep their marker, so the agent's commit
+#       passes their check: a row (review round 1, R-322-2; real hooks)
+#   D11 a matched:false commit used the approval; the same tree committed again
+#       after a reset: a row for the second
 #   I1  init.sh's .gitignore template ignores both runtime files (init.sh is
 #       READ as source here, never run)
 #   A1  a real adoption writes .claude/.gitignore, commits it, leaves the
-#       project's .gitignore as it was; both runtime files are ignored; and on
-#       that adoptee an approved commit plus a session start leaves git status
-#       with nothing new but the Guardrails' .claude/approvals.jsonl, while a
-#       terminal commit is still recorded
-#   A2  an adoptee's own .claude/.gitignore is left exactly as it was
-#   M   mutants: each rewrites ONE marked line (or deletes one template line) in
-#       a mirror, checks the edit landed and still parses, and needs a named
-#       case to go RED
+#       project's .gitignore as it was; both runtime files are ignored and stay
+#       out of git status; and on that adoptee its own copy of the detector
+#       writes no row for an approved commit, leaves the audit file unchanged,
+#       and still records a terminal commit. The fixture commits use
+#       --no-verify: the detector reads history and approvals.jsonl, not how a
+#       commit was made
+#   A2  an adoptee's own .claude/.gitignore is left exactly as it was, and the
+#       run names both lines to add
+#   M   mutants: each rewrites ONE marked line (or deletes one exact line) in a
+#       mirror, checks the edit landed and still parses, and needs a named case
+#       to go RED
 #
 # This file names init.sh on executed lines (I1 reads generate_gitignore's
 # body) and never invokes it, so it is registered in the tests.yml unit lane by
@@ -245,6 +263,28 @@ case_D9() {   # a commit field that smuggles a SHA among other text
   det "$1" "$d"
   [ "$(oob "$d" "$c")" = 1 ] || { CASE_DETAIL="a SHA inside a longer commit field exempted the commit: $(rows "$d")"; return 1; }
 }
+case_D10() {   # approved, then held: the marker survives the hold, the commit is not approved
+  local d tr c
+  d="$(newtmp)/p"; fxd "$d" || { CASE_DETAIL="fixture"; return 1; }
+  stage_change "$d" a.txt "x" && tr="$(pick "$d" commit)" && pick "$d" none >/dev/null \
+    && commit_now "$d" "feat: committed after the user held" && commit_rec "$d" "$tr" || { CASE_DETAIL="fixture"; return 1; }
+  c="$(git -C "$d" rev-parse HEAD)"
+  det "$1" "$d"
+  [ "$(oob "$d" "$c")" = 1 ] || { CASE_DETAIL="a commit after the user held was exempted: $(rows "$d")"; return 1; }
+}
+case_D11() {   # a matched:false commit used the approval; the approved tree committed again after a reset
+  local d h tr c2
+  d="$(newtmp)/p"; fxd "$d" || { CASE_DETAIL="fixture"; return 1; }
+  h="$(git -C "$d" rev-parse HEAD)"
+  stage_change "$d" a.txt "approved" && tr="$(pick "$d" commit)" || { CASE_DETAIL="fixture"; return 1; }
+  stage_change "$d" hook.txt "a git hook added this" && commit_now "$d" "chore: c1" && commit_rec "$d" "$tr" || { CASE_DETAIL="fixture c1"; return 1; }
+  gitq "$d" reset -q --soft "$h" && gitq "$d" rm -q --cached hook.txt && commit_now "$d" "chore: c2" && commit_rec "$d" "$tr" \
+    || { CASE_DETAIL="fixture c2"; return 1; }
+  c2="$(git -C "$d" rev-parse HEAD)"
+  [ "$(git -C "$d" rev-parse "$c2^{tree}")" = "$tr" ] || { CASE_DETAIL="c2's tree is not the approved one"; return 1; }
+  det "$1" "$d"
+  [ "$(oob "$d" "$c2")" = 1 ] || { CASE_DETAIL="an approval used by a matched:false commit exempted a second one: $(rows "$d")"; return 1; }
+}
 
 # ── I: init.sh's .gitignore ──────────────────────────────────────────────────
 RUNTIME_FILES=".claude/last-checked-commit.txt .claude/tool-usage.json"
@@ -296,8 +336,8 @@ run_adopt() {   # FW DIR
       SOIF_ADOPT_GUARDRAILS_DIR="$WORK/no-guardrails" bash "$1/scripts/adopt-project.sh" --scan-report "$REPORT" ) \
     > "$RUN_OUT" 2>&1 || RUN_RC=$?
 }
-case_A1() {   # adoption writes and commits .claude/.gitignore; the loop is gone on the adoptee
-  local p before s0 s1 new c
+case_A1() {   # adoption writes and commits .claude/.gitignore; on the adoptee, its own detector
+  local p before snap c
   scan_once || { CASE_DETAIL="Scout produced no report"; return 1; }
   p="$(newtmp)/p"; mk_adoptee "$p" || { CASE_DETAIL="adoptee"; return 1; }
   before="$(newtmp)/gitignore"; cp "$p/.gitignore" "$before"
@@ -306,19 +346,18 @@ case_A1() {   # adoption writes and commits .claude/.gitignore; the loop is gone
   git -C "$p" ls-files --error-unmatch .claude/.gitignore >/dev/null 2>&1 || { CASE_DETAIL="no .claude/.gitignore in the adoption commit"; return 1; }
   [ -z "$(git -C "$p" status --porcelain -- .claude/.gitignore)" ] || { CASE_DETAIL="the committed .claude/.gitignore differs from the file"; return 1; }
   cmp -s "$before" "$p/.gitignore" || { CASE_DETAIL="the project's own .gitignore changed"; return 1; }
-  s0="$(git -C "$p" status --porcelain | LC_ALL=C sort)"
   ignored_all "$p" || return 1
-  # The loop, on the real adoptee with its own copy of the detector: the first
-  # session start sets the baseline, an approved commit, the next session start.
+  # The adoptee's own copy of the detector: the first session start sets the
+  # baseline; an approved commit; the next session start.
   bash "$p/scripts/detect-out-of-band-commits.sh" "$p" </dev/null >/dev/null 2>&1
   [ -s "$p/.claude/last-checked-commit.txt" ] || { CASE_DETAIL="the adoptee's detector set no baseline"; return 1; }
   printf '{"calls":[]}\n' > "$p/.claude/tool-usage.json"   # what the MCP tracker leaves after a call
   approved_commit "$p" src/fix.txt "fix: the approved change" || { CASE_DETAIL="approved commit"; return 1; }
+  snap="$(newtmp)/audit.json"; cp "$p/.claude/bypass-audit.json" "$snap"
   bash "$p/scripts/detect-out-of-band-commits.sh" "$p" </dev/null >/dev/null 2>&1
   [ "$(oob "$p")" = 0 ] || { CASE_DETAIL="the approved commit was recorded: $(rows "$p")"; return 1; }
-  s1="$(git -C "$p" status --porcelain | LC_ALL=C sort)"
-  new="$(LC_ALL=C comm -13 <(printf '%s\n' "$s0") <(printf '%s\n' "$s1") | grep -v '^$')"
-  [ "$new" = "?? .claude/approvals.jsonl" ] || { CASE_DETAIL="git status gained: $(printf '%s' "$new" | tr '\n' '|')"; return 1; }
+  cmp -s "$snap" "$p/.claude/bypass-audit.json" || { CASE_DETAIL="the adoptee's audit file changed: $(rows "$p")"; return 1; }
+  [ -z "$(git -C "$p" status --porcelain -- $RUNTIME_FILES)" ] || { CASE_DETAIL="git status shows: $(git -C "$p" status --porcelain -- $RUNTIME_FILES | tr '\n' '|')"; return 1; }
   # The detector is live there: a commit from the user's own terminal is still recorded.
   stage_change "$p" src/term.txt "terminal" && commit_now "$p" "fix: from my terminal" || { CASE_DETAIL="terminal commit"; return 1; }
   c="$(git -C "$p" rev-parse HEAD)"
@@ -326,7 +365,7 @@ case_A1() {   # adoption writes and commits .claude/.gitignore; the loop is gone
   [ "$(oob "$p" "$c")" = 1 ] || { CASE_DETAIL="the adoptee's detector recorded no terminal commit: $(rows "$p")"; return 1; }
 }
 case_A2() {   # an adoptee's own .claude/.gitignore is left as it was
-  local p theirs
+  local p theirs named=""
   scan_once || { CASE_DETAIL="Scout produced no report"; return 1; }
   p="$(newtmp)/p"; mk_adoptee "$p" || { CASE_DETAIL="adoptee"; return 1; }
   mkdir -p "$p/.claude" && printf '/my-cache/\n' > "$p/.claude/.gitignore" && gitq "$p" add .claude/.gitignore \
@@ -336,7 +375,10 @@ case_A2() {   # an adoptee's own .claude/.gitignore is left as it was
   [ "$RUN_RC" -eq 0 ] || { CASE_DETAIL="adoption rc $RUN_RC: $(grep -E 'BLOCKED|REFUSED|FAIL' "$RUN_OUT" | head -1)"; return 1; }
   cmp -s "$theirs" "$p/.claude/.gitignore" || { CASE_DETAIL="theirs was changed: $(tr '\n' '|' < "$p/.claude/.gitignore")"; return 1; }
   [ -z "$(git -C "$p" diff HEAD~1 HEAD -- .claude/.gitignore)" ] || { CASE_DETAIL="the adoption commit changed theirs"; return 1; }
-  grep -qF '.claude/.gitignore' "$RUN_OUT" || { CASE_DETAIL="the run does not say it was left alone"; return 1; }
+  grep -qF '.claude/.gitignore is already yours' "$RUN_OUT" || { CASE_DETAIL="the run does not say it was left alone"; return 1; }
+  named="$(grep -E '(^|[ :])/last-checked-commit\.txt' "$RUN_OUT")"
+  grep -qE '(^|[ :])/tool-usage\.json' <<< "$named" \
+    || { CASE_DETAIL="the run does not name both lines to add (/last-checked-commit.txt, /tool-usage.json)"; return 1; }
 }
 
 check() {   # LABEL CASE
@@ -354,11 +396,13 @@ check "D6: one approval behind two commits: the second is out of band" case_D6
 check "D7: an approved_commit row forged into bypass-audit.json: still out of band" case_D7
 check "D8: the user's own override approves a commit: no row" case_D8
 check "D9: a commit field that is not one SHA exempts nothing" case_D9
+check "D10: approved, then held (a pick that approves nothing): the commit is out of band" case_D10
+check "D11: an approval used by a matched:false commit exempts no second commit of its tree" case_D11
 echo "=== I — init.sh's .gitignore ==="
 check "I1: init.sh copies the template, and it ignores both runtime files" case_I1
 echo "=== A — adoption ==="
-check "A1: adoption writes and commits .claude/.gitignore; theirs unchanged; both ignored; approved commit leaves only approvals.jsonl new" case_A1
-check "A2: an adoptee's own .claude/.gitignore is left exactly as it was, and the run says so" case_A2
+check "A1: adoption writes and commits .claude/.gitignore; theirs unchanged; both ignored; the adoptee's detector skips an approved commit" case_A1
+check "A2: an adoptee's own .claude/.gitignore is left exactly as it was, and the run names both lines to add" case_A2
 
 # ── M: mutants ───────────────────────────────────────────────────────────────
 mk_mirror() {   # SRC DST — scripts, templates and init.sh: enough for every case
@@ -412,10 +456,13 @@ mutant M3 "$DET" '# BL-322-APPROVED-MATCHED' '            and true' case_D2 "a c
 mutant M4 "$DET" '# BL-322-APPROVED-PICK' '        (if true' case_D4 "a commit record alone (a forged marker) exempts"
 mutant M5 "$DET" '# BL-322-APPROVED-APPROVES' '        (if true then .open = $e' case_D5 "a pick that approves nothing exempts"
 mutant M6 "$DET" '# BL-322-APPROVED-ONCE' '        | .' case_D6 "one approval exempts every later commit of its tree"
+mutant M12 "$DET" '# BL-322-APPROVED-HOLD' '         else . end)' case_D10 "a pick that approves nothing leaves the approval open"
+mutant M13 "$DET" '# BL-322-APPROVED-ONCE' '        | .open = (if $e.matched == true then null else .open end)' case_D11 "only a matched commit uses up the approval"
 mutant M11 "$DET" '# BL-322-APPROVED-SHA' '         then .ok += [$e.commit | tostring] else . end)' case_D9 "a commit field is split into words, so a SHA inside it counts"
 SES=scripts/lib/adopt/adopt-session.sh
 mutant M7 "$SES" '# BL-322-ADOPT-IGNORE-WRITE' '    :' case_A1 "adoption writes no ignore rule"
 mutant M8 "$SES" '# BL-322-ADOPT-IGNORE-KEEP' '  if false; then' case_A2 "adoption writes over the adoptee's own .claude/.gitignore"
+mutant_drop M14 "$SES" '    adopt_note "two lines to it: /last-checked-commit.txt and /tool-usage.json"' case_A2 "the kept-theirs note stops naming the two lines"
 TPL=templates/generated/gitignore-base.tmpl
 mutant_drop M9 "$TPL" '.claude/tool-usage.json' case_I1 "init.sh's template stops ignoring the MCP tool ledger"
 mutant_drop M10 "$TPL" '.claude/last-checked-commit.txt' case_I1 "init.sh's template stops ignoring the detector's baseline"
