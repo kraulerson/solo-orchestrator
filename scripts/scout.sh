@@ -73,7 +73,7 @@ SCOUT_SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCOUT_LIB_DIR="$SCOUT_SELF_DIR/lib/scout"
 
 for _part in scout-core scout-stack scout-phasemap scout-reality \
-             scout-secrets scout-collisions scout-testsbaseline scout-prefill \
+             scout-secrets scout-collisions scout-ignore scout-testsbaseline scout-prefill \
              scout-report; do
   if [ ! -f "$SCOUT_LIB_DIR/$_part.sh" ]; then
     echo "scout: missing $SCOUT_LIB_DIR/$_part.sh — Scout needs its own lib directory beside it." >&2
@@ -189,6 +189,10 @@ scout_reality_probes "$ROOT_ABS" "$SCOUT_WORK"
 # `intakePrefill` reads both that and the reality probes' remote answer.
 scout_secrets_scan       "$ROOT_ABS" "$SCOUT_WORK" project   # SCOUT-SECRETS-SURVEY-POLICY
 scout_collisions_scan    "$ROOT_ABS" "$SCOUT_WORK"
+# `## BL-322:` S3 — would the project's own ignore rules stop the adoption? It
+# reads the CI host the stack scan found, and the framework clone this script
+# lives in, which is where adoption copies its files from.
+scout_ignore_scan        "$ROOT_ABS" "$SCOUT_WORK" "$(cd "$SCOUT_SELF_DIR/.." && pwd)"   # BL-322-S3-SCOUT-CALL
 scout_testsbaseline_scan "$ROOT_ABS" "$SCOUT_WORK" "$RUN_TESTS"
 scout_prefill_scan       "$ROOT_ABS" "$SCOUT_WORK"
 

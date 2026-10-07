@@ -29,9 +29,12 @@
 #   B*  G6(b): a refusal says "nothing was written to this project", and when
 #       the run registered an MCP server with Claude Code it says so, by name,
 #       with the commands to see and remove it (`# BL-318-G6-OUTSIDE`).
-#       B1  the dogfood shape, a whole adoption: "set it up now" registers both
-#           servers, then the next mandatory question gets no answer. Its CI
-#           section reads D2's shape as clean (G6(a) end to end).
+#       B1  the dogfood shape, a whole adoption: "set it up now", then the next
+#           mandatory question gets no answer. Since `## BL-322:` S3 the
+#           commands wait for every check, so NOTHING is registered and the
+#           refusal says adoption did not begin. Its CI section reads D2's
+#           shape as clean (G6(a) end to end). B2-B6 drive a refusal that
+#           follows the commands (a writer's), through the harness.
 #       B2  skip: nothing registered, so the refusal names nothing outside.
 #       B3  the registration commands fail: the receipt shows nothing, so the
 #           refusal claims nothing.
@@ -406,7 +409,9 @@ b_register() {   # b_register NAME — registered before the run
   [ -f "$CFG/.claude.json" ] || echo '{}' > "$CFG/.claude.json"
   jq --arg n "$1" '.mcpServers[$n] = {command: "npx"}' "$CFG/.claude.json" > "$CFG/.claude.json.tmp" && mv "$CFG/.claude.json.tmp" "$CFG/.claude.json"
 }
-# The MCP step alone, then a refusal, in one shell — the way the driver runs them.
+# The MCP step alone — its question, then its commands, which the driver runs
+# after its pre-write checks (`## BL-322:` S3) — then a refusal, in one shell:
+# a refusal that follows the commands, as a writer's can.
 cat > "$WORK/harness.sh" <<'HARN'
 set -uo pipefail
 ADOPT_FRAMEWORK_ROOT="$1"; ADOPT_CORE_LIB_DIR="$1/scripts/lib"; ADOPT_WORK="$2"
@@ -414,7 +419,7 @@ ADOPT_FRAMEWORK_ROOT="$1"; ADOPT_CORE_LIB_DIR="$1/scripts/lib"; ADOPT_WORK="$2"
 . "$1/scripts/lib/adopt/adopt-core.sh"
 . "$1/scripts/lib/adopt/adopt-mcp.sh"
 adopt_stdin_init
-adopt_mcp_resolve "$3" > "$2/step.out" 2>&1
+{ adopt_mcp_resolve "$3" && adopt_mcp_apply "$3"; } > "$2/step.out" 2>&1
 [ "${4:-}" = touched ] && adopt_touched_disk
 if [ "${4:-}" = block ]; then ADOPT_OPERATION="Adoption" adopt_block "harness cause"; else ADOPT_OPERATION="Adoption" adopt_refuse "harness cause"; fi
 HARN
@@ -429,7 +434,7 @@ says_registered() {   # FILE NAME
 NOTHING_TO_PROJECT='Nothing was committed and nothing was written to this project.'
 OLD_SENTENCE='Nothing was committed and nothing was written.'
 
-case_B1() {   # FW — the dogfood shape, end to end
+case_B1() {   # FW — the dogfood shape, end to end: asked for, then refused before the commands ran
   local fw="$1" bad="" head0="" o=""
   command -v gitleaks >/dev/null 2>&1 || { CASE_DETAIL="gitleaks is not on PATH (a personal adoption stops for it first)"; return 1; }
   b_case b1 || { CASE_DETAIL="fixture"; return 1; }
@@ -440,14 +445,12 @@ case_B1() {   # FW — the dogfood shape, end to end
   local rc=$?
   o="$C/out"
   [ "$rc" -eq 1 ] || bad="$bad [rc $rc, want 1]"
-  command grep -q 'BLOCKED\] This question has no default' "$o" || bad="$bad [not stopped, as a block, at a mandatory question: $(command grep -E 'REFUSED|BLOCKED' "$o" | head -1)]"
-  jq -e '.mcpServers.context7 and .mcpServers.qdrant' "$CFG/.claude.json" >/dev/null 2>&1 || bad="$bad [fixture: the run did not register both]"
-  command grep -qF "$NOTHING_TO_PROJECT" "$o" || bad="$bad [no 'nothing was written to this project']"
-  command grep -qxF "          Adoption did not begin. $OLD_SENTENCE" "$o" && bad="$bad [the old sentence is still printed]"
-  command grep -q 'did not begin' "$o" && bad="$bad [a run that registered two servers says adoption did not begin]"
-  says_registered "$o" context7 || bad="$bad [context7's registration not named, with its remove command]"
-  says_registered "$o" qdrant || bad="$bad [qdrant's registration not named, with its remove command]"
-  command grep -qF 'claude mcp list' "$o" || bad="$bad [no claude mcp list]"
+  command grep -q 'Set them up now' "$o" || bad="$bad [fixture: the MCP question was not asked]"
+  command grep -q 'REFUSED\] This question has no default' "$o" || bad="$bad [not refused at a mandatory question: $(command grep -E 'REFUSED|BLOCKED' "$o" | head -1)]"
+  command grep -q '\[mcp\] \[add\]' "$ST/calls.log" && bad="$bad [claude mcp add ran before the refusal: the commands did not wait]"
+  jq -e '.mcpServers | length > 0' "$CFG/.claude.json" >/dev/null 2>&1 && bad="$bad [a server was registered]"
+  command grep -qxF "          Adoption did not begin. $NOTHING_TO_PROJECT" "$o" || bad="$bad [no 'did not begin. $NOTHING_TO_PROJECT']"
+  command grep -q 'claude mcp remove' "$o" && bad="$bad [names a registration that never happened]"
   [ "$(git -C "$P" rev-parse HEAD)" = "$head0" ] || bad="$bad [HEAD moved]"
   [ -z "$(git -C "$P" status --porcelain)" ] || bad="$bad [the project changed: $(git -C "$P" status --porcelain | head -2 | tr '\n' ' ')]"
   # G6(a) end to end: the k-pdf-shaped ci.yml is read and found clean.
@@ -521,7 +524,7 @@ case_B6() {   # FW — the forced-block arm after a registration (review round 1
 
 echo
 echo "=== B — G6(b): the refusal is true about writes outside the project ==="
-check "B1 the dogfood shape (whole adoption): servers registered, then refused — 'nothing was written to this project', both named, with claude mcp list / remove; the project untouched; its ci.yml read as clean" case_B1 "$REPO_ROOT"
+check "B1 the dogfood shape (whole adoption): servers asked for, then refused at the next question — nothing registered (the commands wait for every check, BL-322 S3), 'did not begin', nothing named; the project untouched; its ci.yml read as clean" case_B1 "$REPO_ROOT"
 check "B2 skip: the refusal names nothing outside the project" case_B2 "$REPO_ROOT"
 check "B3 the claude commands fail: nothing is claimed" case_B3 "$REPO_ROOT"
 check "B4 Context7 registered before the run: only Qdrant is named" case_B4 "$REPO_ROOT"
@@ -915,10 +918,10 @@ mutant MB1 "$AM" '# BL-318-G6-MCP-ATTEMPT' '        :' case_B4 "no attempted reg
 mutant MB2 "$AM" '# BL-318-G6-MCP-REG-Q' '    :' case_B4 "Qdrant's registration is never named"
 mutant MB3 "$AM" '# BL-318-G6-MCP-REG-C7' '    case " $added " in *" context7 "*) ADOPT_MCP_REGISTERED="${ADOPT_MCP_REGISTERED:+$ADOPT_MCP_REGISTERED }context7" ;; esac' case_B3 "Context7: an attempt the receipt does not show is claimed"
 mutant MB4 "$AM" '# BL-318-G6-MCP-REG-Q' '    case " $added " in *" qdrant "*) ADOPT_MCP_REGISTERED="${ADOPT_MCP_REGISTERED:+$ADOPT_MCP_REGISTERED }qdrant" ;; esac' case_B3 "Qdrant: an attempt the receipt does not show is claimed"
-mutant MB5 "$ACO" '# BL-318-G6-OUTSIDE-IF' '  return 0' case_B1 "the refusal never names what the run registered (the dogfood shape)"
+mutant MB5 "$ACO" '# BL-318-G6-OUTSIDE-IF' '  return 0' case_B4 "the refusal never names what the run registered"
 mutant MB6 "$ACO" '# BL-318-G6-OUTSIDE-IF' '  return 0' case_B5 "a BLOCKED refusal never names it"
 mutant MB7 "$ACO" '# BL-318-G6-NOTHING-LINE' '    printf '"'"'          %s did not begin. Nothing was committed and nothing was written.\n'"'"' "${ADOPT_OPERATION:-Adoption}" >&2' case_B2 "the refusal says nothing was written, without 'to this project'"
-mutant MB8 "$ACO" '# BL-318-G6-NOTHING-BEGIN' '  if true; then' case_B1 "a run that registered a server still says adoption did not begin"
+mutant MB8 "$ACO" '# BL-318-G6-NOTHING-BEGIN' '  if true; then' case_B4 "a run that registered a server still says adoption did not begin"
 mutant MB9 "$ACO" '# BL-318-G6-OUTSIDE-NOTHING' '      :' case_B6 "the forced-block arm drops the registration note (review round 1, R-4)"
 mutant MB10 "$ACO" '# BL-318-G6-OUTSIDE-BLOCKED' '    :' case_B5 "the arm for a touched project drops the registration note"
 mutant MB11 "$ACO" '# BL-318-G6-BLOCK-LABEL' '  if [ "${ADOPT_FORCE_BLOCK:-0}" -eq 1 ] || [ "$_n" -gt 0 ] || adopt_has_touched_disk; then' case_B4 "a stop after a registration is labelled REFUSED again (review round 1, R-6)"

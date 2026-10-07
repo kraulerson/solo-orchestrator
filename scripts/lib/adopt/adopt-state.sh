@@ -1983,119 +1983,15 @@ STATE_ORDER
   return 0
 }
 
-# adopt_ignore_rules_explain ROOT ROWS — `## BL-311:` row 5: for each
-# `<refused path>\t<the path the decision asked about>` row, the ignore rule git
-# reports, GROUPED BY RULE (one `lib/` refusing 24 paths is one entry, with its
-# count), then the one-line fix where there is one. Prints nothing and returns
-# 1 when git cannot name a rule for every row — the caller then keeps the block
-# it always printed, and says how to ask git directly.
-#
-# WHAT GIT GIVES. `check-ignore -v -z --stdin` answers `<source> NUL <line> NUL
-# <pattern> NUL <path> NUL`; `-z` needs `--stdin` (measured: "fatal: -z only
-# makes sense with --stdin"). `--no-index` because the decision used it. For a
-# path under an excluded directory git names the DIRECTORY's rule (measured on
-# git 2.54.0, five rule orders). A `!` pattern means git found the path
-# RE-INCLUDED — `-v` exits 0 for that too — which contradicts the decision, so
-# it names nothing rather than a rule that did not fire.
-#
-# WHERE A RULE LIVES. A relative `.gitignore` is in the project, and nested
-# ones anchor relative to their own directory. `info/exclude` belongs to this
-# clone alone and is never committed. Anything else is outside the repository,
-# and WHO ELSE READS IT depends on where it came from: git reads ONE personal
-# excludes file — `core.excludesFile` when any config sets it, otherwise its
-# default `${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore` — so the block asks git
-# which config set it (`git config --show-scope`, read-only) and words it by
-# that scope: a repository-local setting is read by this repository alone, a
-# global one by every repository of this user's, a system one by every
-# repository on the machine. A source matching neither path is named plainly.
-#
-# THE FIX IS SUGGESTED, NEVER MADE. A rule with no slash but a trailing one
-# (`lib/`) matches at any depth; anchoring it (`/lib/`) is the one-line fix when
-# the refused paths are not under the top-level match — and only the operator
-# knows whether the rule meant "every lib/". When anchoring would still match,
-# the block says so instead of offering it; a glob or an already-anchored rule
-# gets "narrow or remove". Adoption never edits an ignore file.
-adopt_ignore_rules_explain() {
-  local root="$1" rows="$2" rel="" q="" out="" src="" ln="" pat="" echoed=""
-  local tab="" nl="" table=""
-  tab="$(printf '\t')"; nl="$(printf '\n_')"; nl="${nl%_}"
-  while IFS="$tab" read -r rel q; do
-    [ -n "$rel" ] || continue
-    out="$( cd "$root" 2>/dev/null && printf '%s\0' "$q" \
-      | git check-ignore -v -z --stdin --no-index 2>/dev/null | tr '\0' '\n' )"
-    src="$(printf '%s\n' "$out" | sed -n 1p)"
-    ln="$(printf '%s\n' "$out" | sed -n 2p)"
-    pat="$(printf '%s\n' "$out" | sed -n 3p)"
-    echoed="$(printf '%s\n' "$out" | sed -n 4p)"
-    case "$ln" in ''|*[!0-9]*) return 1 ;; esac
-    [ -n "$src" ] && [ -n "$pat" ] && [ "$echoed" = "$q" ] || return 1
-    case "$pat" in '!'*) return 1 ;; esac   # BL-311-IGNORE-RULE-NEGATED
-    table="$table$src$tab$ln$tab$pat$tab$rel$tab$q$nl"
-  done <<ROWS
-$rows
-ROWS
-  [ -n "$table" ] || return 1
-  # `--type=path` expands `~/` the way git does, so the value compares equal to
-  # the source `-v` printed (measured, git 2.54.0: both give the expanded path).
-  local xs="" xscope="" xpath="" xword=""
-  xs="$( cd "$root" 2>/dev/null && git config --show-scope --type=path --get core.excludesFile 2>/dev/null )" || xs=""   # BL-311-IGNORE-RULE-XPATH-EXPAND
-  if [ -n "$xs" ]; then
-    xscope="${xs%%"$tab"*}"; xpath="${xs#*"$tab"}"
-    case "$xscope" in
-      local|worktree) xword="core.excludesFile in this repository's own git config names it, so only this repository reads it" ;;   # BL-311-IGNORE-RULE-XSCOPE
-      global) xword="core.excludesFile in your global git config names it, so every repository of yours reads it unless one sets its own" ;;
-      system) xword="core.excludesFile in this machine's system git config names it, so every repository on this machine reads it unless one sets its own" ;;   # BL-311-IGNORE-RULE-XSCOPE-SYSTEM
-      *) xword="core.excludesFile names it, set in $xscope config" ;;
-    esac
-  else
-    xpath="${XDG_CONFIG_HOME:-${HOME:-}/.config}/git/ignore"   # BL-311-IGNORE-RULE-XDG
-    xword="git's default personal excludes file, read because no git config sets core.excludesFile, so every repository of yours that sets none reads it"
-  fi
-  printf '%s' "$table" | XPATH="$xpath" XWORD="$xword" awk -F'\t' '
-    {
-      key = $1 FS $2 FS $3   # BL-311-IGNORE-RULE-GROUP
-      if (!(key in n)) { k++; order[k] = key; src[key] = $1; ln[key] = $2; pat[key] = $3; ex[key] = $4 }
-      n[key]++
-      qs[key] = qs[key] "\n" $5
-    }
-    END {
-      for (i = 1; i <= k; i++) {
-        key = order[i]; s = src[key]; p = pat[key]; l = ln[key]
-        where = s " (outside this repository: a git excludes file, not part of the project)"   # BL-311-IGNORE-RULE-OUTSIDE
-        if (s == ENVIRON["XPATH"]) where = s " (outside this repository: " ENVIRON["XWORD"] ")"   # BL-311-IGNORE-RULE-XSOURCE
-        if (s !~ /^\// && s ~ /(^|\/)\.gitignore$/) where = s
-        if (s ~ /(^|\/)info\/exclude$/) where = s " (this clone only, never committed)"   # BL-311-IGNORE-RULE-EXCLUDE
-        printf "  %s, line %s: `%s` refuses %d of them (for example %s)\n", where, l, p, n[key], ex[key]
-        # A nested .gitignore anchors to its own directory, so its paths are
-        # compared with that directory stripped, and the block names the
-        # directory a path really sits under (`scripts/lib`, not "lib").
-        base = ""
-        if (s !~ /^\// && s ~ /\/\.gitignore$/) base = substr(s, 1, length(s) - 10)
-        stem = p; sub(/\/$/, "", stem)
-        floating = (p !~ /^[!\/\\]/ && stem != "" && stem !~ /[\/*?\[]/)
-        helps = 1; hit = ""
-        nq = split(qs[key], arr, "\n")
-        for (j = 1; j <= nq; j++) {
-          q = arr[j]; if (q == "") continue
-          if (base != "" && index(q, base) == 1) q = substr(q, length(base) + 1)   # BL-311-IGNORE-RULE-BASE-STRIP
-          c = split(q, comp, "/")
-          if (comp[1] == stem) helps = 0
-          if (hit == "") {
-            acc = ""
-            for (t = 1; t <= c; t++) { acc = acc (t > 1 ? "/" : "") comp[t]; if (comp[t] == stem) { hit = base acc; break } }
-          }
-        }
-        top = (base == "" ? "at the top" : "directly in " base)
-        if (!floating) printf "    Narrow or remove that line; which is right is your call. Adoption never edits your ignore files.\n"
-        else if (!helps) printf "    Anchoring it would not help: the paths this adoption needs sit under %s, where `/%s` in %s still matches. Narrowing or removing the rule is your call. Adoption never edits your ignore files.\n", (base == "" ? "the top-level " stem : base stem), p, s   # BL-311-IGNORE-RULE-NO-ANCHOR
-        else {
-          printf "    It has no leading slash, so it matches `%s` at any depth, not only %s%s.\n", stem, top, (hit == "" ? "" : ": here it matched " hit)
-          printf "    One-line fix, if the rule was meant for %s only: change line %s of %s to `/%s`.\n", (base == "" ? "the top-level " p : base p), l, s, p   # BL-311-IGNORE-RULE-ANCHOR
-          printf "    Whether it was is your judgement: if it is meant to ignore every %s at any depth, anchoring it is wrong, and these files stay refused until the rule changes. Adoption never edits your ignore files.\n", p
-        }
-      }
-    }'
-}
+# THE IGNORE TEST IS SCOUT'S, AND THIS DRIVER ASKS IT (`## BL-322:` S3). The
+# decision and the naming of each rule (`## BL-311:` row 5) moved to
+# scripts/lib/scout/scout-ignore.sh, so Scout can report the block adoption
+# would meet before anyone answers a question, from the same code. Found beside
+# this file, so a mirror of scripts/lib (the suites' mutation proofs) sources
+# its own copy. A missing file refuses at the check (`# BL-322-S3-SHARED-LOADED`).
+_ADOPT_STATE_SCOUT_IGNORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scout" 2>/dev/null && pwd)/scout-ignore.sh"
+# shellcheck disable=SC1090
+[ -f "$_ADOPT_STATE_SCOUT_IGNORE" ] && . "$_ADOPT_STATE_SCOUT_IGNORE"   # BL-322-S3-SHARED
 
 # adopt_prewrite_preflight ROOT REPORT — refuse BEFORE the first write if any
 # path the adoption is about to write is refused by the adoptee's ignore rules.
@@ -2115,8 +2011,9 @@ ROWS
 #
 # THE ORACLE IS NOT THE STAGING HALF'S. That half asks `git add --dry-run`,
 # which needs the files to EXIST; here they do not yet. What replaces it is TWO
-# questions, not one — see the block at the loop below, which carries the
-# measurement. An earlier version of this header claimed a single
+# questions, not one — see `scout_ignore_refused` in
+# scripts/lib/scout/scout-ignore.sh, which carries the measurement and which
+# Scout asks too (`## BL-322:` S3). An earlier version of this header claimed a single
 # `check-ignore --no-index` agreed with `git add` "in all eight" shapes; it does
 # not, and asking it alone over-refused working projects. The header is kept
 # short deliberately: one description of this oracle, in one place.
@@ -2258,52 +2155,29 @@ adopt_prewrite_preflight() {
     return 1
   fi
 
-  # THE ORACLE, AND WHY IT IS TWO QUESTIONS AND NOT ONE. `git add` refuses an
-  # ignored path — but for a path already TRACKED it refuses only when an
-  # ANCESTOR DIRECTORY is ignored, not when a file or glob rule covers it.
-  # Measured across four rule shapes on a tracked path (`git add` rc):
-  #     .claude/   -> 1     .claude/*  -> 0     *.json -> 0     exact path -> 0
-  # A first cut asked `check-ignore --no-index` for every path, which says
-  # IGNORED in all four and so REFUSED THREE PROJECTS THAT WORK TODAY — any
-  # adoptee that tracks a file the adoption rewrites and has a non-directory
-  # rule covering it. Two measurements of the same thing had been generalised
-  # from one rule shape each, in opposite directions; twelve shapes settled it.
-  # `--no-index` stays for the untracked half: without it git reports nothing
-  # for a tracked path, the index-aware false-clean that defeated the first fix
-  # of `# BL-225-STAGE-PREFLIGHT`.
+  # THE ORACLE is `scout_ignore_refused` (scripts/lib/scout/scout-ignore.sh,
+  # where its measurement now lives): two questions, not one — a TRACKED path is
+  # refused only when a folder above it is ignored — failing closed when git
+  # cannot answer. Scout asks the same function over the files it predicts, so
+  # the two cannot disagree about a rule (`## BL-322:` S3).
   #
-  # FAIL CLOSED. `check-ignore` exits 128 on a pathspec beyond a symbolic link,
-  # and treating that as "not ignored" would be a fail-OPEN guard — the shape
-  # this entry exists to remove. Anything but 0 or 1 refuses.
-  #
-  # ONE PATH FEEDS BOTH QUESTIONS (`## BL-311:` row 5). `_q` is what the
-  # decision asks about — the directory, for a tracked path — and it is what
-  # the block later asks `check-ignore -v` about, so the rule it names is the
-  # rule that fired, not a rule git would report for some other spelling.
-  local _tab="" _nl="" _bl311_rows="" _why=""
+  # ONE PATH FEEDS BOTH QUESTIONS (`## BL-311:` row 5): each refused row carries
+  # the path the decision asked about, and the block names the rule for that.
+  local _tab="" _nl="" _bl311_rows="" _why="" _rows="" _st=0 _frel="" _frc=""
   _tab="$(printf '\t')"; _nl="$(printf '\n_')"; _nl="${_nl%_}"
-  while IFS= read -r rel; do
-    [ -n "$rel" ] || continue
-    local _ci=0 _dir="" _q=""
-    if ( cd "$root" && git ls-files --error-unmatch -- "$rel" ) >/dev/null 2>&1; then
-      _dir="${rel%/*}"
-      [ "$_dir" = "$rel" ] && continue        # top-level tracked file: git add accepts it
-      _q="$_dir"
-    else
-      _q="$rel"
-    fi
-    ( cd "$root" && git check-ignore --no-index -q -- "$_q" ) 2>/dev/null || _ci=$?
-    [ "$_ci" -ne 0 ] || _bl311_rows="$_bl311_rows$rel$_tab$_q$_nl"   # BL-311-IGNORE-RULE-SAME-PATH
-    case "$_ci" in
-      0) ignored="$ignored
-$rel" ;;
-      1) : ;;                                  # not ignored
-      *) adopt_refuse "cannot tell whether '$rel' is covered by your ignore rules (git check-ignore exited $_ci) — refusing rather than guessing"   # BL-225-ORACLE-FAIL-CLOSED
-         return 1 ;;
-    esac
-  done <<PLANNED
-$planned
-PLANNED
+  if ! command -v scout_ignore_refused >/dev/null 2>&1; then   # BL-322-S3-SHARED-LOADED
+    adopt_refuse "the ignore check (scripts/lib/scout/scout-ignore.sh) is not in this framework checkout — refusing rather than guessing"
+    return 1
+  fi
+  _rows="$(printf '%s\n' "$planned" | scout_ignore_refused "$root")" || _st=$?
+  if [ "$_st" -ne 0 ]; then
+    _frel="$(printf '%s\n' "$_rows" | awk -F '\t' '$1 == "F" { print $2; exit }')"
+    _frc="$(printf '%s\n' "$_rows" | awk -F '\t' '$1 == "F" { print $3; exit }')"
+    adopt_refuse "cannot tell whether '${_frel:-a planned path}' is covered by your ignore rules (git check-ignore exited ${_frc:-$_st}) — refusing rather than guessing"
+    return 1
+  fi
+  ignored="$(printf '%s\n' "$_rows" | awk -F '\t' '$1 == "R" { printf "\n%s", $2 }')"
+  _bl311_rows="$(printf '%s\n' "$_rows" | awk -F '\t' '$1 == "R" { print $2 "\t" $3 }')"
 
   if [ -n "$ignored" ]; then
     # DERIVE THE BLAST RADIUS FROM THE TREE, NOT FROM THE MARKER — BUT ONLY
@@ -2368,7 +2242,7 @@ LANDED
     # the block now says so, grouped by rule. When git cannot say, the block is
     # the one it always was plus how to ask git directly — the refusal itself
     # was decided above and never depends on this.
-    _why="$(adopt_ignore_rules_explain "$root" "$_bl311_rows")" || _why=""   # BL-311-IGNORE-RULE-EXPLAIN
+    _why="$(scout_ignore_rules_explain "$root" "$_bl311_rows")" || _why=""   # BL-311-IGNORE-RULE-EXPLAIN
     if [ -n "$_why" ]; then
       _why="$_nl${_nl}The rule(s) that refuse them, as \`git check-ignore -v\` names each:$_nl$_why"
     else
@@ -2474,16 +2348,12 @@ adopt_main() {
   report="$ADOPT_WORK/secrets-report.json"
   adopt_secrets_decide "$report" || return 1   # BL-242-SECRETS-DECIDE-CALL
 
-  # `## BL-311:` THE TWO MCP SERVERS A SESSION HERE IS CHECKED FOR. In the
-  # pre-write sequence with tool resolution, and for its reasons: before any
-  # writer, so a run abandoned here changed the repository not at all and the
-  # operator's Claude Code configuration only if they said yes. AFTER the
-  # secrets stop rather than straight after tool resolution, on purpose: an
-  # adoption that stop is going to refuse must not first have registered
-  # servers in the operator's configuration or started a container — and the
-  # stop's own verdict line stays under the tools section that produced it.
-  # Its question is NOT mandatory, so an answer sequence that does not expect
-  # it still completes.
+  # `## BL-311:` THE TWO MCP SERVERS A SESSION HERE IS CHECKED FOR. Asked in
+  # the pre-write sequence with tool resolution: after the secrets stop, so its
+  # verdict line stays under the tools section that produced it. Its question is
+  # NOT mandatory, so an answer sequence that does not expect it still completes.
+  # WHAT IT RUNS WAITS (`## BL-322:` S3): `adopt_mcp_apply`, after every check
+  # that can stop the adoption (`# BL-322-S3-MCP-APPLY-CALL`).
   adopt_mcp_resolve "$root" || return 1   # BL-311-MCP-CALL
 
   # THE CI AUDIT AND ITS QUESTIONS, BEFORE THE INTAKE. Read-only; its answers
@@ -2533,6 +2403,18 @@ adopt_main() {
   # next writer added without a row is caught by its author rather than by a
   # reviewer a month later.
   _adopt_overwrite_inventory_check "$root" || return 1   # BL-242-OVERWRITE-INVENTORY
+
+  # `## BL-322:` S3 — THE MCP COMMANDS RUN HERE, NOT WHERE THEY ARE ASKED FOR.
+  # They change the operator's Claude Code configuration (and may start a
+  # container), outside this project, so they wait until every check that can
+  # stop the adoption without writing has passed: the pre-write check above,
+  # I20, and every question. Dogfood run 3, finding 5: they ran at the question,
+  # and a run the ignore check then stopped had already registered two servers.
+  # The question stays where it is (`# BL-311-MCP-CALL`): the answer sequences
+  # the adoption suites pipe are written against its position. Directly before
+  # the first write, so a refusal raised by a writer is the only kind that can
+  # follow it, and `# BL-318-G6-OUTSIDE` still names what it registered.
+  adopt_mcp_apply "$root" || return 1   # BL-322-S3-MCP-APPLY-CALL
 
   _adopt_write_phase "$root" "$ADOPT_WORK" "$report" || return 1   # BL-225-WRITE-PHASE-REAL
 

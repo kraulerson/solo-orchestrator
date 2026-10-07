@@ -30,8 +30,13 @@
 #
 # Before any write: read both registrations from the files THIS session reads,
 # probe Qdrant, and — ONLY WHEN THIS MACHINE CAN DO IT — offer to set up what is
-# missing. "Can do it" is concrete: the `claude` command, plus Docker running
-# for the database, plus `uvx` / `npx` for the server a registration launches.
+# missing. THE OFFER IS MADE THERE AND CARRIED OUT LATER (`## BL-322:` S3):
+# adopt_mcp_resolve asks; adopt_mcp_apply runs the commands once every check
+# that can stop the adoption without writing has passed
+# (`# BL-322-S3-MCP-APPLY-CALL`), so a stopped adoption leaves the operator's
+# Claude Code configuration as it found it. "Can do it" is concrete: the
+# `claude` command, plus Docker running for the database, plus `uvx` / `npx`
+# for the server a registration launches.
 # Registering a server that cannot launch would be worse than not registering
 # it: registered makes it REQUIRED, and a required tool that never starts
 # blocks every file edit. Where it cannot act it says what to install instead.
@@ -100,6 +105,9 @@ ADOPT_MCP_RESULT=""        # the Adoption Record's cell
 # server registered before the run was never attempted, so it is not this run's.
 ADOPT_MCP_REGISTERED=""
 ADOPT_MCP_PLAN=()          # "<server>|<command>" rows this run would execute
+# `## BL-322:` S3 — 1 from the operator's "set it up now" until adopt_mcp_apply
+# runs the plan, after every check that can stop the adoption without writing.
+ADOPT_MCP_PENDING=0
 
 ADOPT_MCP_QDRANT_ADD='claude mcp add -s user qdrant -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory -- uvx --python 3.13 mcp-server-qdrant'   # BL-311-MCP-QDRANT-ADD
 ADOPT_MCP_CONTEXT7_ADD='claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp'
@@ -411,10 +419,11 @@ _adopt_mcp_describe() {   # _adopt_mcp_describe C7 Q URL
 # question); every other path, including skip and failure, returns 0.
 adopt_mcp_resolve() {                                  # BL-311-MCP-STEP
   local root="$1"
-  local st="" c7="" q="" qurl="" c7_why="" q_why="" q_db="" raw="" ans="" row="" srv="" cmd=""
-  local c7_word="" q_word="" q_failed=0 fp_before="" fp_after="" c7_before="" q_before="" added=""
+  local st="" c7="" q="" qurl="" c7_why="" q_why="" q_db="" raw="" ans="" row=""
+  local c7_before="" q_before=""
   ADOPT_MCP_PLAN=()
   ADOPT_MCP_REGISTERED=""
+  ADOPT_MCP_PENDING=0
   ADOPT_MCP_QDRANT_BIND="none"; ADOPT_MCP_QDRANT_BIND_WHY=""; ADOPT_MCP_QDRANT_KEY="unread"
   # `SOIF_ADOPT_MCP=off` IS A TEST SEAM, like SOIF_ADOPT_QDRANT and
   # SOIF_ADOPT_GUARDRAILS_DIR. Every adoption suite written before this step
@@ -523,6 +532,40 @@ EOF
     fi
   fi
 
+  # ── `## BL-322:` S3 — THE ANSWER IS TAKEN HERE; THE COMMANDS RUN LATER ──
+  # What the step found and was told is kept for adopt_mcp_apply, which the
+  # driver calls once every check that can stop the adoption without writing
+  # has passed (`# BL-322-S3-MCP-APPLY-CALL`). Dogfood run 3, finding 5: run
+  # here, a run the ignore check then stopped had already registered two
+  # servers in the operator's user configuration.
+  _ADOPT_MCP_C7="$c7"; _ADOPT_MCP_Q="$q"; _ADOPT_MCP_QURL="$qurl"; _ADOPT_MCP_ANS="$ans"
+  _ADOPT_MCP_C7_WHY="$c7_why"; _ADOPT_MCP_Q_WHY="$q_why"; _ADOPT_MCP_C7_BEFORE="$c7_before"; _ADOPT_MCP_Q_BEFORE="$q_before"
+  if [ "$ans" = "$ADOPT_MCP_SETUP" ]; then
+    ADOPT_MCP_PENDING=1   # BL-322-S3-MCP-DEFER
+    adopt_note "Noted. Nothing has run yet: these run once every check that can still stop this"
+    adopt_note "adoption has passed, just before its first file is written, so an adoption that"
+    adopt_note "stops leaves your Claude Code configuration as it was."
+    return 0
+  elif [ "${#ADOPT_MCP_PLAN[@]}" -gt 0 ]; then
+    adopt_note "Skipped. Nothing was run."
+  fi
+  _adopt_mcp_finish
+  return 0
+}
+
+# adopt_mcp_apply ROOT — `## BL-322:` S3: run what the operator agreed to at the
+# question (adopt_mcp_resolve), then the receipt, Claude Code's launch check, the
+# Adoption Record's cell and the note. A no-op unless the answer was "set it up
+# now". Called by the driver after the pre-write checks and before the first
+# write (`# BL-322-S3-MCP-APPLY-CALL`); a refusal after it still names what it
+# registered (`# BL-318-G6-OUTSIDE`).
+adopt_mcp_apply() {                                     # BL-322-S3-MCP-APPLY
+  local root="$1"
+  local st="" c7="${_ADOPT_MCP_C7:-}" q="${_ADOPT_MCP_Q:-}" qurl="${_ADOPT_MCP_QURL:-}" ans="${_ADOPT_MCP_ANS:-}"
+  local q_before="${_ADOPT_MCP_Q_BEFORE:-}" row="" srv="" cmd="" q_failed=0 fp_before="" fp_after="" added=""
+  [ "${ADOPT_MCP_PENDING:-0}" = 1 ] || return 0
+  ADOPT_MCP_PENDING=0
+  adopt_head "Setting up the memory and documentation servers"
   if [ "$ans" = "$ADOPT_MCP_SETUP" ]; then
     : > "$ADOPT_WORK/mcp-setup.out" 2>/dev/null
     fp_before="$(adopt_tree_fingerprint "${root:-}")" || fp_before=""
@@ -577,10 +620,19 @@ EOF
     # attempted, and never named.
     case " $added " in *" context7 "*) [ "$c7" = "registered" ] && ADOPT_MCP_REGISTERED="${ADOPT_MCP_REGISTERED:+$ADOPT_MCP_REGISTERED }context7" ;; esac   # BL-318-G6-MCP-REG-C7
     case " $added " in *" qdrant "*) [ -n "$q" ] && [ "$q" != "unregistered" ] && ADOPT_MCP_REGISTERED="${ADOPT_MCP_REGISTERED:+$ADOPT_MCP_REGISTERED }qdrant" ;; esac   # BL-318-G6-MCP-REG-Q
-  elif [ "${#ADOPT_MCP_PLAN[@]}" -gt 0 ]; then
-    adopt_note "Skipped. Nothing was run."
   fi
+  _ADOPT_MCP_C7="$c7"; _ADOPT_MCP_Q="$q"; _ADOPT_MCP_QURL="$qurl"
+  _adopt_mcp_finish
+  return 0
+}
 
+# _adopt_mcp_finish — Claude Code's launch check, the Adoption Record's cell and
+# the note, from what adopt_mcp_resolve found and (after "set it up now")
+# adopt_mcp_apply's receipt read.
+_adopt_mcp_finish() {
+  local c7="${_ADOPT_MCP_C7:-}" q="${_ADOPT_MCP_Q:-}" qurl="${_ADOPT_MCP_QURL:-}" ans="${_ADOPT_MCP_ANS:-}"
+  local c7_why="${_ADOPT_MCP_C7_WHY:-}" q_why="${_ADOPT_MCP_Q_WHY:-}" c7_before="${_ADOPT_MCP_C7_BEFORE:-}" q_before="${_ADOPT_MCP_Q_BEFORE:-}"
+  local c7_word="" q_word=""
   # ── CLAUDE CODE'S OWN LAUNCH CHECK, for every server that is registered ──
   local c7_launch="" c7_launch_why="" c7_remove="" q_launch="" q_launch_why="" q_remove=""
   if [ "$c7" = "registered" ] || [ "$q" != "unregistered" ]; then adopt_blank; fi

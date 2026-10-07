@@ -638,6 +638,9 @@ mut() {   # LABEL REL-FILE MARKER FROM TO CASE-FN WANT
 }
 
 SS=scout/scout-stack.sh; AS=adopt/adopt-state.sh; SS_REPORT=scout/scout-report.sh
+# The rule naming moved to Scout's lib, which adoption sources (`## BL-322:` S3),
+# so its mutants are made there; the decision's message stays in adopt-state.sh.
+SI=scout/scout-ignore.sh
 mut "M1 uv arm"      "$SS" '# BL-311-SCOUT-RUN-UV'     'cmd="uv run --frozen pytest"' 'cmd="pytest"' case_S_python "S1 uv: a uv project's pytest runs as 'uv run --frozen pytest'"
 mut "M2 poetry arm"  "$SS" '# BL-311-SCOUT-RUN-POETRY' 'cmd="poetry run pytest"' 'cmd="pytest"'  case_S_python "S2 poetry: 'poetry run pytest'"
 mut "M3 pdm arm"     "$SS" '# BL-311-SCOUT-RUN-PDM'    'cmd="pdm run pytest"'    'cmd="pytest"'  case_S_python "S3 pdm: 'pdm run pytest'"
@@ -652,16 +655,16 @@ mut "M11 Python precedence" "$SS" '# BL-311-SCOUT-PY-PRECEDENCE' 'uv poetry pdm 
 mut "M12 Node precedence"   "$SS" '# BL-311-SCOUT-NODE-PRECEDENCE' 'pnpm yarn npm bun deno' 'deno bun npm yarn pnpm' case_S_precedence "P4 pnpm-lock.yaml + yarn.lock: pnpm wins"
 mut "M13 the evidence names its file" "$SS" '# BL-311-SCOUT-RUN-WHY' ' because ' ' ' case_S_python "S1 uv: and says uv.lock is why it goes through uv"
 mut "M14 the rule text reaches the block"   "$AS" '# BL-225-PREWRITE-REFUSE' '$ignored$_why"' '$ignored"' case_I_dogfood "I1 names the file, the line and the pattern"
-mut "M15 grouped by rule, not by path"      "$AS" '# BL-311-IGNORE-RULE-GROUP' 'FS $3' 'FS $3 FS $4' case_I_dogfood "I1 grouped: one rule refusing three paths is printed ONCE"
-mut "M16 an unknown outside source is named plainly" "$AS" '# BL-311-IGNORE-RULE-OUTSIDE' 'where = s " (outside' 'where = s; x = s " (outside' case_I_sources "I3d a source that is neither is named plainly"
-mut "M17 info/exclude named"                "$AS" '# BL-311-IGNORE-RULE-EXCLUDE' 'where = s " (this' 'where = s; x = s " (this' case_I_sources "I4 a .git/info/exclude rule is named"
-mut "M18 the anchor fix"                    "$AS" '# BL-311-IGNORE-RULE-ANCHOR' '`/%s`' '`%s`' case_I_dogfood "I1 suggests the one-line fix"
-mut "M19 anchoring said not to help"        "$AS" '# BL-311-IGNORE-RULE-NO-ANCHOR' 'if (!helps)' 'if (0)' case_I_noanchor "I6 anchoring it is said NOT to help"
+mut "M15 grouped by rule, not by path"      "$SI" '# BL-311-IGNORE-RULE-GROUP' 'FS $3' 'FS $3 FS $4' case_I_dogfood "I1 grouped: one rule refusing three paths is printed ONCE"
+mut "M16 an unknown outside source is named plainly" "$SI" '# BL-311-IGNORE-RULE-OUTSIDE' 'where = s " (outside' 'where = s; x = s " (outside' case_I_sources "I3d a source that is neither is named plainly"
+mut "M17 info/exclude named"                "$SI" '# BL-311-IGNORE-RULE-EXCLUDE' 'where = s " (this' 'where = s; x = s " (this' case_I_sources "I4 a .git/info/exclude rule is named"
+mut "M18 the anchor fix"                    "$SI" '# BL-311-IGNORE-RULE-ANCHOR' '`/%s`' '`%s`' case_I_dogfood "I1 suggests the one-line fix"
+mut "M19 anchoring said not to help"        "$SI" '# BL-311-IGNORE-RULE-NO-ANCHOR' 'if (!helps)' 'if (0)' case_I_noanchor "I6 anchoring it is said NOT to help"
 mut "M20 fail-closed: -v failing is not silence" "$AS" '# BL-311-IGNORE-RULE-EXPLAIN' '|| _why=""' '|| return 1' case_I_failclosed "I8 (FAIL) and the block is not silent: the paths are there"
 mut "M21 fail-closed: the fallback says so" "$AS" '# BL-311-IGNORE-RULE-FALLBACK' '_why="' '_why=""; : "' case_I_failclosed "I8 (FAIL) and says git could not name the rule"
-mut "M22 a negated answer is not a rule"    "$AS" '# BL-311-IGNORE-RULE-NEGATED' 'return 1' ':' case_I_failclosed "I8 (NEG) and says git could not name the rule"
+mut "M22 a negated answer is not a rule"    "$SI" '# BL-311-IGNORE-RULE-NEGATED' 'return 1' ':' case_I_failclosed "I8 (NEG) and says git could not name the rule"
 # Review round 1 (R-BL311C-1..4).
-mut "M23 a nested rule's own directory is stripped" "$AS" '# BL-311-IGNORE-RULE-BASE-STRIP' \
+mut "M23 a nested rule's own directory is stripped" "$SI" '# BL-311-IGNORE-RULE-BASE-STRIP' \
   'if (base != "" && index(q, base) == 1) q = substr(q, length(base) + 1)' 'q = q' case_I_nested "I10 nested, anchoring cannot help: said so"
 mut "M24 the evidence names a file that exists" "$SS" '# BL-311-SCOUT-RUNNER-FILE' '[ -e "$root/$f" ]' '[ -n "$f" ]' case_S_python "S4 pipenv: a Pipfile alone: the evidence names Pipfile"
 if command -v uv >/dev/null 2>&1; then
@@ -670,13 +673,13 @@ else
   skip_ "M25 uv runs --frozen (real uv): uv is not on PATH — M1 and S1 still pin the command"
 fi
 mut "M26 pnpm's install check is off" "$SS" '# BL-311-SCOUT-RUN-PNPM' 'pnpm --config.verify-deps-before-run=false test' 'pnpm test' case_S_node "N1 pnpm: scripts.test runs as"
-mut "M27 the configured excludes file is recognised" "$AS" '# BL-311-IGNORE-RULE-XSOURCE' 'if (s == ENVIRON["XPATH"])' 'if (0)' case_I_sources "I3 local: OUTSIDE this repository, and read by this repository alone"
-mut "M28 a local core.excludesFile is this repository's alone" "$AS" '# BL-311-IGNORE-RULE-XSCOPE' 'local|worktree)' 'nolocal)' case_I_sources "I3 local: OUTSIDE this repository, and read by this repository alone"
-mut "M29 git's default honours XDG_CONFIG_HOME" "$AS" '# BL-311-IGNORE-RULE-XDG' '${XDG_CONFIG_HOME:-${HOME:-}/.config}' '${HOME:-}/.config' case_I_sources "I3c XDG default: named as git's default"
+mut "M27 the configured excludes file is recognised" "$SI" '# BL-311-IGNORE-RULE-XSOURCE' 'if (s == ENVIRON["XPATH"])' 'if (0)' case_I_sources "I3 local: OUTSIDE this repository, and read by this repository alone"
+mut "M28 a local core.excludesFile is this repository's alone" "$SI" '# BL-311-IGNORE-RULE-XSCOPE' 'local|worktree)' 'nolocal)' case_I_sources "I3 local: OUTSIDE this repository, and read by this repository alone"
+mut "M29 git's default honours XDG_CONFIG_HOME" "$SI" '# BL-311-IGNORE-RULE-XDG' '${XDG_CONFIG_HOME:-${HOME:-}/.config}' '${HOME:-}/.config' case_I_sources "I3c XDG default: named as git's default"
 mut "M30 the report stops promising 'changed nothing' after --run-tests" "$SS_REPORT" '# BL-311-SCOUT-REPORT-RAN' '= "1"' '= "x"' case_S_e2e "S10 under --run-tests the report says the project's own command ran there"
 # Review round 2 (R-BL311C2-1..5).
-mut "M31 a ~/ core.excludesFile is expanded before it is compared" "$AS" '# BL-311-IGNORE-RULE-XPATH-EXPAND' ' --type=path' '' case_I_sources "I3e global, written as ~/"
-mut "M32 a system core.excludesFile is every repository's on the machine" "$AS" '# BL-311-IGNORE-RULE-XSCOPE-SYSTEM' 'system)' 'nosystem)' case_I_sources "I3f system: named as the machine's system setting"
+mut "M31 a ~/ core.excludesFile is expanded before it is compared" "$SI" '# BL-311-IGNORE-RULE-XPATH-EXPAND' ' --type=path' '' case_I_sources "I3e global, written as ~/"
+mut "M32 a system core.excludesFile is every repository's on the machine" "$SI" '# BL-311-IGNORE-RULE-XSCOPE-SYSTEM' 'system)' 'nosystem)' case_I_sources "I3f system: named as the machine's system setting"
 mut "M33 the --run-tests opening line names the command" "$SS_REPORT" '# BL-311-SCOUT-REPORT-RAN-CMD' '"$(cut -f1 < "$work/testcmd")"' '""' case_S_e2e "S10 and names that command in the same sentence"
 mut "M34 uv's evidence says --frozen is Scout's" "$SS" '# BL-311-SCOUT-FLAG-WHY-UV' 'if [ "$m" = "uv" ]' 'if false' case_S_python "S1 uv: and says --frozen is Scout's own"
 mut "M35 pnpm's evidence says its flag is Scout's" "$SS" '# BL-311-SCOUT-FLAG-WHY-PNPM' 'if [ "$m" = "pnpm" ]' 'if false' case_S_node "N1 pnpm: and says the flag is Scout's own"
