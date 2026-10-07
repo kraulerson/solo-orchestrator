@@ -259,6 +259,7 @@ _scout_ci_files() {
 #   coldetail   `<rule>\t<path>\t<line>\t<why>`
 scout_collisions_scan() {
   local root="$1" work="$2" f n r rules line why nsamples desc hookbase
+  local class="" bucket="" note=""
   : > "$work/colentries"
   : > "$work/coldetail"
 
@@ -336,13 +337,27 @@ $(_scout_ci_files "$root")
 CIIN
 
   # ── Project files: keep theirs (§7.5) ────────────────────────────────────
-  for f in FEATURES.md CHANGELOG.md BUGS.md RELEASE_NOTES.md; do
-    [ -f "$root/$f" ] && _scout_col_add "$work" "$f" "project-doc" "keep-theirs" "" \
-      "OVERWRITTEN from a template today. Under adoption it is treated as theirs: kept, and reconciled by the interview." ""
-  done
-  for f in CLAUDE.md PROJECT_INTAKE.md; do
-    [ -f "$root/$f" ] && _scout_col_add "$work" "$f" "framework-doc" "keep-theirs" "" \
-      "Notice-only when present: no sidecar, no backup copy, no template overwrite. Adoption creates these only when they are absent." ""
+  # CHANGELOG.md only: adoption never writes it.
+  [ -f "$root/CHANGELOG.md" ] && _scout_col_add "$work" "CHANGELOG.md" "project-doc" "keep-theirs" "" \
+    "OVERWRITTEN from a template today. Under adoption it is treated as theirs: kept, and reconciled by the interview." ""
+
+  # ── The documents adoption REPLACES (`## BL-322:` S2) ────────────────────
+  # These rows said "yours stays", and run 3's adoption replaced CLAUDE.md the
+  # same day. Adoption archives each of these, then writes the framework's
+  # version (`# BL-242-DOCS-STAGE`, and Act 2's intake). Scout sources no
+  # adoption code (M5), so the set is spelled here as well;
+  # tests/test-bl322-s2-project-rules.sh (S1) holds it equal to adoption's.
+  for f in CLAUDE.md PROJECT_INTAKE.md FEATURES.md BUGS.md RELEASE_NOTES.md docs/INDEX.md docs/IDENTIFIERS.md docs/archive/README.md; do
+    [ -f "$root/$f" ] || continue
+    class="project-doc"; case "$f" in CLAUDE.md|PROJECT_INTAKE.md) class="framework-doc" ;; esac
+    bucket="archive-and-replace"   # BL-322-SCOUT-DOCS
+    case "$f" in
+      CLAUDE.md) note="Archived, then replaced by the framework's CLAUDE.md. Its @ imports of files still in the project are carried into the new one; the rules written in it load again only once the assessment folds them in." ;;
+      PROJECT_INTAKE.md) note="Archived, then replaced by the intake adoption writes; the assessment folds in what is worth keeping." ;;
+      *) note="Archived, then replaced by the framework's template; the assessment folds in what is worth keeping." ;;
+    esac
+    case "$f" in PROJECT_INTAKE.md) ;; *) note="$note A symlink or a read-only file is left alone." ;; esac
+    _scout_col_add "$work" "$f" "$class" "$bucket" "" "$note" ""
   done
   if [ -f "$root/.gitignore" ]; then
     _scout_col_add "$work" ".gitignore" "project-file" "marker-composed" "" \

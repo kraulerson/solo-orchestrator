@@ -1034,6 +1034,12 @@ run_child_suite "tests/test-bl318-g4g6.sh" \
 run_child_suite "tests/test-bl322-s1-audit-loop.sh" \
   "BL-322 S1: an approved, matched commit is not out of band (forgeries still are); adoption and init ignore Solo's runtime files" \
   "BL-322 S1 audit-loop tests FAILED (run tests/test-bl322-s1-audit-loop.sh for details)"
+# BL-322 S2: adoption replaced the project's CLAUDE.md and its @ imports of
+# files still in the tree stopped loading, with no warning; Scout said "yours
+# stays"; the archive said "moved" for files it only copied.
+run_child_suite "tests/test-bl322-s2-project-rules.sh" \
+  "BL-322 S2: a replaced CLAUDE.md's imports keep loading, the rest is named and warned about; the archive and Scout say what adoption does" \
+  "BL-322 S2 project-rules tests FAILED (run tests/test-bl322-s2-project-rules.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \
