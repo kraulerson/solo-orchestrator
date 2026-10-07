@@ -23485,7 +23485,8 @@ Development Guardrails' in a separate CDF session)
 **Category:** Bug (correctness) + Docs
 **Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
 and keeps the Guardrails' stop hook asking for a commit
-**Status:** Open — S1 is being built on branch `fix/bl322-s1-audit-loop`; S2, S3 and S4 are not started
+**Status:** Open — S1 built on branch `fix/bl322-s1-audit-loop` (below), not yet reviewed or merged; S2, S3
+and S4 are not started
 
 **What ran.** The third dogfood run, the one that closed `## BL-318:`. A headless Claude Code session (Sonnet)
 played the same systems technician (not a developer), driven in 14 turns, with a stand-in for Karl answering
@@ -23527,6 +23528,60 @@ still recorded as `## BL-320:`'s `approval_mismatch`. Adoption writes the ignore
 files (`.claude/last-checked-commit.txt`, `.claude/tool-usage.json`); `init.sh`'s template already has them.
 `.claude/approvals.jsonl` is the Guardrails' file: whether a project commits it (an audit trail) or ignores it is
 the CDF session's call, so it is left alone here and is **pending** that answer.
+
+**S1, as built (branch `fix/bl322-s1-audit-loop`).**
+- **The detector** (`scripts/detect-out-of-band-commits.sh`) reads `.claude/approvals.jsonl` once, in file
+  order, and skips a commit it finds approved (`# BL-322-OOB-APPROVED`). An approval line opens when it is a
+  pick of an option that approves a commit, or the user's override (`# BL-322-APPROVED-APPROVES`). A commit
+  line counts when the open approval's tree is the tree it says was approved (`# BL-322-APPROVED-PICK`), it
+  says `matched: true` (`# BL-322-APPROVED-MATCHED`), and its `commit` is one full SHA
+  (`# BL-322-APPROVED-SHA`). Every commit line closes the open approval, so one approval exempts at most one
+  commit (`# BL-322-APPROVED-ONCE`). The lookup is by the whole SHA (`# BL-322-APPROVED-EXACT`). Nothing is
+  written for an approved commit, and `.claude/bypass-audit.json` is never read to decide. A `matched: false`
+  commit still gets `## BL-320:`'s `approval_mismatch` row, and its `out_of_band_commit` row too.
+- **Why these checks.** The Guardrails protect `.claude/approvals.jsonl` and their approval marker
+  lexically (config-guard and marker-guard refuse a tool call or a command whose text names them; a command
+  that reaches them without spelling the path is not stopped, which marker-guard documents). So the forgery
+  an agent can realistically make is a forged marker: the Guardrails' own `marker-tracker.sh` then writes a
+  genuine `matched: true` line for a commit nobody approved. Three checks catch its three shapes: no approval
+  before it, an approval that approved nothing (the user picked "do not commit"), and an approval already
+  used by an earlier commit.
+- **Ignore rules.** Adoption writes `.claude/.gitignore` with `/last-checked-commit.txt` and
+  `/tool-usage.json`, committed with the adoption (`# BL-322-ADOPT-IGNORE-WRITE`). Adoption never edits the
+  project's own ignore files, so the rule goes in a file the framework owns; a `.claude/.gitignore` the
+  project already has is left alone and the run names the two lines to add (`# BL-322-ADOPT-IGNORE-KEEP`).
+  `init.sh` is unchanged: its template (`templates/generated/gitignore-base.tmpl`) has carried both lines
+  since `## BL-030:` and `## BL-236:`. A project adopted before this gets both lines in its `.gitignore` from
+  `upgrade-project.sh --sync-framework` (`# BL-174-GITIGNORE-BACKFILL`). Measured on a copy of run 3's
+  adoptee, with HOME and the Guardrails clone path pointed at an empty folder: `[OK] gitignore sidecar
+  ignore-lines backfilled (BL-174)`, then `git status --porcelain` showed ` M .gitignore` and
+  `?? .claude/approvals.jsonl` only.
+- **Replay of run 3** (the git bundle plus `claude-dir-3.tgz`, baseline at the adoption commit `cc4f63b`).
+  Before: `⚠ 3 user-terminal commit(s) detected`, rows for `d0d3d73`, `d77fc1b` and `2c333be`. After: no
+  row. The loop, from a clean checkout with the baseline at `d0d3d73`: before, the detector left
+  ` M .claude/bypass-audit.json`; after, git status is unchanged.
+- **Tests.** `tests/test-bl322-s1-audit-loop.sh` (unit lane, `rest` shard): 12 cases and 11 mutants, each
+  mutant killed by a named case. Two cases run a real adoption; one of them drives the adoptee's own copy of
+  the detector through an approved commit and a session start, and checks git status gains nothing but
+  `.claude/approvals.jsonl`.
+
+**S1 residuals (not fixed):**
+- **A pair appended past config-guard is trusted.** No field of either approvals line is secret, so an agent
+  that appends both through a command that never spells the path is not caught. Closing it needs a value the
+  agent cannot read or recompute, which is the Guardrails' design to change, not Solo's.
+- **The Claude-commit ledger still exempts a commit, and the agent can write it.** `.claude/claude-commits.jsonl`
+  is `## BL-030:`'s design, unprotected, and (below) never written by its recorder, so today any line in it was
+  written by hand. Not changed here.
+- **`.claude/approvals.jsonl` is neither ignored nor committed by Solo**: pending the CDF session's answer.
+- **A `matched: false` commit's `out_of_band_commit` row says `user_terminal_inferred`**, which is wrong for a
+  commit made through the approval flow; the `approval_mismatch` row beside it is the accurate one.
+- **`--sync-framework` adds the two root `.gitignore` lines even when `.claude/.gitignore` already ignores the
+  files**: the backfill matches exact lines in the root file. Harmless, but it leaves the root `.gitignore`
+  modified for the operator to commit.
+- **PR #481 (BL-314, whose entry is on that branch; open, and already conflicting with `main`) ignores `.claude/tool-usage.json.lw.*`** in
+  the root template and this repo's `.gitignore`. `.claude/.gitignore` does not carry it, because the writer of
+  those temporary files is not on `main`; whichever of the two merges second adds `/tool-usage.json.lw.*` to
+  `_adopt_session_ignore_rules`. This branch touches neither file #481 changes for it.
 
 **Found while building S1, not fixed by it: the Claude-commit ledger is never written.**
 `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code` and treats

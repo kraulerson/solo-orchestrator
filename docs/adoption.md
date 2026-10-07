@@ -2329,7 +2329,9 @@ reads the framework's `CLAUDE.md`, not your notes.
 Anything left alone is named in the run, under *LEFT ALONE*, so the framework's
 version is missing there by your file system's choice, not silently. Not
 written: `PROJECT_BIBLE.md` and `PRODUCT_MANIFESTO.md` (phase outputs — `init.sh`
-does not write them either) and the `.gitignore` lines `init.sh` adds.
+does not write them either) and the `.gitignore` lines `init.sh` adds, except
+the two for the framework's own runtime files, which go into
+`.claude/.gitignore` (the session layer, below).
 
 ### The Adoption Record, the audit rows and the provenance header — WP7
 
@@ -2425,6 +2427,17 @@ adopted one now gets the same one, from the same code
 - **One difference from a new project, on purpose:** the bypass detector's
   per-tool hook is not registered on an adopted project while `## BL-277:` is
   open; its end-of-session hook is.
+- **`.claude/.gitignore`**, so git ignores the two files those hooks rewrite in
+  every session: `.claude/last-checked-commit.txt` (where the out-of-band
+  commit check left off) and `.claude/tool-usage.json` (the MCP tool record).
+  Left untracked, they made the Development Guardrails' stop hook ask for a
+  commit (`## BL-322:`). **Your own `.gitignore` is not changed.** A
+  `.claude/.gitignore` you already have is left alone, and the run names the
+  two lines to add to it. A new project gets the same two lines in its
+  `.gitignore` from `init.sh`; a project adopted before this gets them there
+  from `upgrade-project.sh --sync-framework`. Not covered:
+  `.claude/approvals.jsonl`, the Guardrails' record of your approvals —
+  whether a project commits or ignores it is theirs to decide.
 - **The four vendored skills** — `session-handoff`, `sweep-triage`, `zoom-out`,
   `grill-with-docs` — in `.claude/skills/`. A copy of yours at one of those
   names is archived and replaced; any other skill of yours is untouched.
