@@ -55,8 +55,18 @@
 #           its Prerequisites section both link to adoption.md's "What you
 #           need", and the adoption section names no tool itself.
 #       P3  README lists Superpowers under Prerequisites, not as optional.
-#       P4  every Guardrails message the docs quote is in the Guardrails hooks
-#           (needs the clone at ~/.claude-dev-framework; SKIPS without it).
+#       P4  every Guardrails message the docs quote is in the Guardrails hooks.
+#           It reads a clone only when that clone can answer: BL318_CDF_CLONE,
+#           else CDF_HOME, else ~/.claude-dev-framework, and only if it is
+#           4.4.0 or later, has every quoted hook, and has in its history each
+#           commit an old message is quoted from. Otherwise it SKIPS, naming
+#           why. (`## BL-322:` S2: on PR #503's `rest` leg it FAILED, reading a
+#           depth-1 clone of current Guardrails main that an earlier suite,
+#           tests/test-bl141-commitmsg-repair.sh, leaves in the runner's HOME
+#           through `verify-install.sh --auto-fix`; that history has no ea2025a.)
+#       P4m the same check FAILS on a scratch copy of that clone with one
+#           quoted message taken out of its hook — P4 is a real check whenever
+#           it runs.
 #       P5  the session-start guidance names each kind of message, and each is
 #           text the session-start scripts really print.
 #       P6  the phase-0 paragraph cites `check_commit_ready`, which lets every
@@ -110,7 +120,7 @@ check() {
 
 KPDF_BUNDLE="${BL318_KPDF_BUNDLE:-$HOME/dogfood-2026-10/k-pdf-dogfood-2.bundle}"
 KPDF_AT="0bb0465"
-CDF="${CDF_HOME:-$HOME/.claude-dev-framework}"
+CDF="${BL318_CDF_CLONE:-${CDF_HOME:-$HOME/.claude-dev-framework}}"
 SP_CMD='claude plugin install --scope user superpowers@claude-plugins-official'
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -613,13 +623,49 @@ docs/adoption.md|hooks/record-approval.sh|Reply with the option id again
 docs/adoption.md|hooks/mark-evaluated.sh|in a separate terminal
 Q
 )"
-case_P4() {   # FW
-  local fw="$1" doc="" hook="" text="" rev="" body="" bad=""
+# P4_FROM — the Guardrails version the current quotes come from.
+P4_FROM="4.4.0"
+# _ver_ge A B — A is at least B, both MAJOR.MINOR.PATCH.
+_ver_ge() {
+  local a1="" a2="" a3="" b1="" b2="" b3=""
+  IFS=. read -r a1 a2 a3 <<< "$1"; IFS=. read -r b1 b2 b3 <<< "$2"
+  [ "$a1" -gt "$b1" ] && return 0; [ "$a1" -lt "$b1" ] && return 1
+  [ "$a2" -gt "$b2" ] && return 0; [ "$a2" -lt "$b2" ] && return 1
+  [ "$a3" -ge "$b3" ]
+}
+# p4_unfit CLONE — why CLONE cannot answer P4, or nothing when it can. A clone
+# another suite left behind is read only when it passes all of this, and then
+# it IS a clone of the Guardrails the docs quote, so the answer is real.
+p4_unfit() {
+  local c="$1" v="" hook="" rev="" doc="" text=""
+  [ -d "$c/.git" ] && [ -d "$c/hooks" ] || { printf 'no Guardrails clone at %s' "$c"; return 0; }
+  v="$(tr -d '[:space:]' < "$c/FRAMEWORK_VERSION" 2>/dev/null)"
+  case "$v" in
+    [0-9]*.[0-9]*.[0-9]*) case "$v" in *[!0-9.]*) printf '%s has no MAJOR.MINOR.PATCH FRAMEWORK_VERSION' "$c"; return 0 ;; esac ;;
+    *) printf '%s has no MAJOR.MINOR.PATCH FRAMEWORK_VERSION' "$c"; return 0 ;;
+  esac
+  _ver_ge "$v" "$P4_FROM" || { printf 'the clone at %s is %s, older than %s, which the quoted messages come from' "$c" "$v" "$P4_FROM"; return 0; }
+  while IFS='|' read -r doc hook text; do
+    [ -n "$doc" ] || continue
+    rev=""; case "$hook" in *@*) rev="${hook#*@}"; hook="${hook%@*}" ;; esac
+    if [ -n "$rev" ]; then
+      git -C "$c" cat-file -e "$rev^{commit}" 2>/dev/null \
+        || { printf "the clone at %s has no %s in its history (a shallow clone?), which an older message is quoted from" "$c" "$rev"; return 0; }
+    else
+      [ -f "$c/$hook" ] || { printf 'the clone at %s has no %s' "$c" "$hook"; return 0; }
+    fi
+  done <<EOF
+$QUOTES
+EOF
+  return 0
+}
+case_P4() {   # FW CLONE
+  local fw="$1" clone="$2" doc="" hook="" text="" rev="" body="" bad=""
   while IFS='|' read -r doc hook text; do
     [ -n "$doc" ] || continue
     command grep -qF -- "$text" "$fw/$doc" || bad="$bad [$doc does not quote: $text]"
     rev=""; case "$hook" in *@*) rev="${hook#*@}"; hook="${hook%@*}" ;; esac
-    if [ -n "$rev" ]; then body="$(git -C "$CDF" show "$rev:$hook" 2>/dev/null)"; else body="$(cat "$CDF/$hook" 2>/dev/null)"; fi
+    if [ -n "$rev" ]; then body="$(git -C "$clone" show "$rev:$hook" 2>/dev/null)"; else body="$(cat "$clone/$hook" 2>/dev/null)"; fi
     [ -n "$body" ] || { bad="$bad [the clone has no $hook${rev:+ at $rev}]"; continue; }
     printf '%s' "$body" | command grep -qF -- "$text" || bad="$bad [$hook${rev:+@$rev} does not print: $text]"
   done <<EOF
@@ -627,6 +673,25 @@ $QUOTES
 EOF
   CASE_DETAIL="${bad:-}"
   [ -z "$bad" ]
+}
+# case_P4m FW CLONE — P4 against a scratch COPY of CLONE (the original is never
+# written) whose stop hook no longer prints the message the docs quote: P4 must
+# fail, naming that hook.
+case_P4m() {
+  local fw="$1" copy="" rc=0
+  copy="$(newtmp)/cdf"
+  cp -R "$2" "$copy" 2>/dev/null || { CASE_DETAIL="could not copy the clone"; return 1; }
+  command grep -qF 'Uncommitted source changes. Commit before finishing.' "$copy/hooks/stop-checklist.sh" \
+    || { CASE_DETAIL="precondition: the copy's stop hook does not print the quoted message"; return 1; }
+  sed 's/Uncommitted source changes\. Commit before finishing\./Changes are not committed yet./' "$copy/hooks/stop-checklist.sh" > "$copy/hooks/stop.new" \
+    && cat "$copy/hooks/stop.new" > "$copy/hooks/stop-checklist.sh" && rm -f "$copy/hooks/stop.new"
+  command grep -qF 'Uncommitted source changes. Commit before finishing.' "$copy/hooks/stop-checklist.sh" \
+    && { CASE_DETAIL="the edit to the copy did not land"; return 1; }
+  case_P4 "$fw" "$copy" && { CASE_DETAIL="P4 passed against a clone that no longer prints a quoted message"; return 1; }
+  case "$CASE_DETAIL" in
+    *"hooks/stop-checklist.sh does not print: Uncommitted source changes. Commit before finishing."*) CASE_DETAIL=""; return 0 ;;
+    *) CASE_DETAIL="P4 failed for another reason: $CASE_DETAIL"; return 1 ;;
+  esac
 }
 
 case_P5() {   # FW — each kind of session-start message: named in the guide, printed by a script
@@ -707,10 +772,13 @@ echo "=== P — G4: what the docs claim, checked ==="
 check "P1 adoption.md 'What you need' names Superpowers, its exact command (the tool matrix's) and the block without it" case_P1 "$REPO_ROOT"
 check "P2 one prerequisites list: README links to adoption.md#what-you-need from both places and lists no adoption tool itself" case_P2 "$REPO_ROOT"
 check "P3 README lists Superpowers under Prerequisites, not as an optional enhancement" case_P3 "$REPO_ROOT"
-if [ -d "$CDF/hooks" ] && [ -d "$CDF/.git" ]; then
-  check "P4 every Guardrails message the docs quote is printed by the Guardrails hooks ($CDF)" case_P4 "$REPO_ROOT"
+P4_UNFIT="$(p4_unfit "$CDF")"
+if [ -z "$P4_UNFIT" ]; then
+  check "P4 every Guardrails message the docs quote is printed by the Guardrails hooks ($CDF, $(tr -d '[:space:]' < "$CDF/FRAMEWORK_VERSION"))" case_P4 "$REPO_ROOT" "$CDF"
+  check "P4m P4 fails against a scratch copy of that clone whose stop hook no longer prints the quoted message" case_P4m "$REPO_ROOT" "$CDF"
 else
-  skip "P4 the quoted Guardrails messages" "no Guardrails clone at $CDF"
+  skip "P4 the quoted Guardrails messages" "$P4_UNFIT"
+  skip "P4m P4 against an altered copy of the clone" "$P4_UNFIT"
 fi
 check "P5 the session-start guidance names each kind of message, and each is real script output" case_P5 "$REPO_ROOT"
 check "P6 the phase-0 paragraph cites check_commit_ready, which lets every commit through below phase 2" case_P6 "$REPO_ROOT"
