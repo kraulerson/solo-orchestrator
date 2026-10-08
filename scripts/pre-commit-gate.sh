@@ -947,7 +947,10 @@ build_pa_rich_reason() {
   if [ "$route" = pick ] && [ "$schema" != 2 ]; then
     hint="This question is in the older format (schema 1), which the Development Guardrails 4.4.0 and later cannot take an answer to. Withdraw it (scripts/pending-approval.sh --clear), then ask again with scripts/pending-approval.sh --offer, after staging the change."
   elif [ "$route" = pick ]; then
-    hint="Stop and wait. The user answers by replying with the option id (for example: $recommendation), then again once the Development Guardrails have shown them the question and the staged change; the Guardrails then record the pick and remove this question. Do not remove it yourself. After a pick that approves the commit, commit with a lone git commit -m \"subject\" -m \"body\" (no -a, no paths, nothing else on the line). To withdraw the question instead: scripts/pending-approval.sh --clear"
+    # `## BL-322:` S4: the commit's whole shape, and the -F route for a message
+    # the Guardrails refuse (a protected path, or from 4.4.1 a hook script that
+    # writes approvals, named in it).
+    hint="Stop and wait. The user answers by replying with the option id (for example: $recommendation), then again once the Development Guardrails have shown them the question and the staged change; the Guardrails then record the pick and remove this question. Do not remove it yourself. After a pick that approves the commit, commit with a lone git commit -m \"subject\" -m \"body\" (nothing before it, not even cd <folder> &&; nothing after it; no -a, no paths). If the message names a Guardrails hook script such as mark-evaluated.sh or record-approval.sh, or a protected path such as .claude/settings.json or .git/hooks, they refuse the command: write the message to a file outside the project with the Write tool and commit with git commit -F <that file>. To withdraw the question instead: scripts/pending-approval.sh --clear"   # BL-322-S4-GATE-HINT
   else
     hint="Wait for the user to pick one, then:
   scripts/pending-approval.sh --resolve"

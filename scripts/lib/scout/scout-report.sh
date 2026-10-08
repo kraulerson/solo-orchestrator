@@ -622,7 +622,7 @@ _scout_md_secrets() {
 _scout_md_bucket_phrase() {
   case "$1" in
     archive-and-replace) printf 'kept a copy, then replaced' ;;
-    marker-composed)     printf 'left alone; the framework adds to it' ;;
+    marker-composed)     printf 'kept a copy; yours stays, and the framework adds to it' ;;   # BL-322-S4-SCOUT-COMPOSED-PHRASE
     audit-only)          printf 'not touched at all' ;;
     keep-theirs)         printf 'yours stays' ;;
     *)                   printf '%s' "$1" ;;

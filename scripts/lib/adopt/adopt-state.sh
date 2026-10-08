@@ -306,7 +306,10 @@ INSTALL_SET
     return 1
   fi
   adopt_write_orchestrator_source "$root" || return 1   # BL-242-ORCH-SOURCE
-  adopt_stub_framework_script_collisions "$n_collided" "$ADOPT_COLLISION_LIST"
+  # The NOT DONE notice that followed here (`adopt_stub_framework_script_collisions`)
+  # said every colliding script was "LEFT ALONE … yours, kept" — true before
+  # WP11's framework-wins, false since, and printed right under the lines above
+  # that name each one as replaced (`## BL-322:` S4, review R-S2-6).
   return 0
 }
 

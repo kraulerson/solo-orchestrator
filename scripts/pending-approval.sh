@@ -238,6 +238,21 @@ cmd_offer() {
   if [ "$(_pa_route "$project_root")" = pick ]; then
     echo "Stop now and wait. The user answers by replying with the option id first (for example: $recommendation),"
     echo "then again once the Development Guardrails have shown them the question and the staged change."
+    # `## BL-322:` S4 (dogfood run 3, finding 14): the commit's shape, here,
+    # where the agent reads it just before it commits — it had been learned
+    # from refusals. The Guardrails' commit_shape_problem refuses anything but
+    # a lone `git commit` with message options under an approval, and
+    # config-guard refuses a command whose text — the message included — names
+    # a protected path or (4.4.1) a hook script that writes approvals. Only
+    # for a question that can approve a commit.
+    if [ "$n_approves" -gt 0 ]; then   # BL-322-S4-OFFER-IF
+      echo "After a pick that approves the commit, commit with one lone command: git commit -m \"subject\" -m \"body\""   # BL-322-S4-OFFER-COMMIT
+      echo "(one -m per paragraph; nothing before it, not even cd <folder> &&; nothing after it; no -a, no paths)."
+      echo "If the message names a Guardrails hook script (mark-evaluated.sh, record-approval.sh, marker-tracker.sh,"
+      echo "session-start.sh, session-end.sh, stop-checklist.sh, mark-plan-closed.sh) or a protected path"
+      echo "(.claude/settings.json, .claude/manifest.json, .claude/framework/hooks/, .git/hooks), they refuse the command:"
+      echo "write the message to a file outside the project with the Write tool, then: git commit -F <that file>"   # BL-322-S4-OFFER-FILE
+    fi
   else
     echo "Stop now and wait for the user's answer, then: scripts/pending-approval.sh --resolve"
   fi
