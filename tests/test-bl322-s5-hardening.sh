@@ -39,7 +39,8 @@
 #   X7  … a pinned fixture that does not meet a suite's need: FAIL (move the pin)
 #   W1  the unit-shard and full jobs each fetch the fixture before the tests
 #       run, export SOIF_TEST_CDF_FIXTURE, and cannot pass a failed fetch
-#   W2  the pin is CDF v4.4.1's full commit id
+#   W2  the pin is CDF v4.4.1's full commit id; the fetch gives up on a stalled
+#       transfer, and (W1) the step has its own timeout (review R-S5-6)
 #   C1  tests/test-upgrade-cdf-refresh.sh under CI with no fixture and an empty
 #       HOME: rc 1, its four real-clone cases FAIL naming the fixture, none
 #       skips (at `c125f0f`: 2/0/4, rc 0)
@@ -168,13 +169,20 @@ case_X2() {   # FW — the fetch refuses
 # fx_at D REV — D/fx: a full clone of D/up checked out at REV.
 fx_at() { rgit clone -q "$1/up" "$1/fx" && rgit -C "$1/fx" -c advice.detachedHead=false checkout -q --detach "$2"; }
 # copy_rc FW PIN HOME CI FIXTURE DEST MINVER [REV] — cdf_fixture_copy's rc,
-# then a tab, then CDF_FIXTURE_WHY.
+# then a tab, then CDF_FIXTURE_WHY. CI and SOIF_TEST_CDF_FIXTURE are exactly
+# what the caller passes: set inside the subshell, or unset there, so the CI
+# this suite runs under never leaks in (review R-S5-1: a `CI=""` prefix on a
+# function, then `unset CI`, re-exposed the exported CI=true of every runner).
 copy_rc() {
   local fw="$1" pin="$2" home="$3" ci="$4" fx="$5" dest="$6" min="$7" rev="${8:-}"
-  HOME="$home" CI="$ci" SOIF_TEST_CDF_FIXTURE="$fx" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-    in_helper "$fw" "$pin" '[ -n "$CI" ] || unset CI; [ -n "$SOIF_TEST_CDF_FIXTURE" ] || unset SOIF_TEST_CDF_FIXTURE
-      rc=0; cdf_fixture_copy "'"$dest"'" "'"$min"'" '"${rev:+\"$rev\"}"' || rc=$?
-      printf "%s\t%s" "$rc" "$CDF_FIXTURE_WHY"'
+  ( . "$fw/$HELPER" || exit 90
+    CDF_FIXTURE_PIN="$pin"; HOME="$home"
+    if [ -n "$ci" ]; then CI="$ci"; export CI; else unset CI; fi   # BL-322-S5-COPY-CI
+    if [ -n "$fx" ]; then SOIF_TEST_CDF_FIXTURE="$fx"; export SOIF_TEST_CDF_FIXTURE; else unset SOIF_TEST_CDF_FIXTURE; fi
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+    rc=0
+    if [ -n "$rev" ]; then cdf_fixture_copy "$dest" "$min" "$rev" || rc=$?; else cdf_fixture_copy "$dest" "$min" || rc=$?; fi
+    printf '%s\t%s' "$rc" "$CDF_FIXTURE_WHY" )
 }
 case_X3() {   # FW — a pinned fixture gives a private clone at the pin
   local fw="$1" d="" r=""
@@ -258,6 +266,7 @@ case_W1() {   # FW — the fetch step, in both jobs, before the tests
     grep -qE 'cdf_fixture_fetch "\$RUNNER_TEMP/[^"]+"' <<< "$s" || bad="$bad [$job: the step does not run cdf_fixture_fetch into RUNNER_TEMP]"
     grep -qE 'SOIF_TEST_CDF_FIXTURE=\$RUNNER_TEMP/[^ ]+" >> "\$GITHUB_ENV"' <<< "$s" || bad="$bad [$job: SOIF_TEST_CDF_FIXTURE is not exported]"
     grep -qF 'set -euo pipefail' <<< "$s" || bad="$bad [$job: the step does not stop at the first failure]"
+    grep -qE '^ *timeout-minutes: [1-9][0-9]*$' <<< "$s" || bad="$bad [$job: the step has no timeout of its own (review R-S5-6)]"
     grep -qE '^ *continue-on-error:' <<< "$s" && bad="$bad [$job: continue-on-error]"
     grep -qE '\|\| *(true|:)' <<< "$s" && bad="$bad [$job: a failure is swallowed]"
     n_fetch="$(grep -n -- '- name: Fetch the pinned Guardrails fixture' <<< "$b" | cut -d: -f1)"
@@ -267,10 +276,12 @@ case_W1() {   # FW — the fetch step, in both jobs, before the tests
   CASE_DETAIL="$bad"
   [ -z "$bad" ]
 }
-case_W2() {   # FW — the pin is CDF v4.4.1, in full
+case_W2() {   # FW — the pin is CDF v4.4.1, in full; a stalled fetch gives up
   local p=""
   p="$(sed -n 's/^CDF_FIXTURE_PIN=\([0-9a-f]*\) .*/\1/p' "$1/$HELPER")"
   [ "$p" = "$PIN_V441" ] || { CASE_DETAIL="the pin is '$p', want $PIN_V441"; return 1; }
+  grep -E '^[^#]*fetch -q --no-tags' "$1/$HELPER" | grep -qF -- '-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30' \
+    || { CASE_DETAIL="the fetch does not give up on a stalled transfer (review R-S5-6)"; return 1; }
 }
 
 # ── C: the suites that read it ───────────────────────────────────────────────
@@ -310,7 +321,7 @@ check "X6: locally, HOME's clone when it qualifies; otherwise a skip" case_X6
 check "X7: a pinned fixture short of a suite's need fails" case_X7
 echo "=== W — the workflow ==="
 check "W1: the unit-shard and full jobs fetch the fixture before the tests and cannot pass a failed fetch" case_W1
-check "W2: the pin is CDF v4.4.1's full commit id" case_W2
+check "W2: the pin is CDF v4.4.1's full commit id, and a stalled fetch gives up" case_W2
 echo "=== C — the suites that read it ==="
 check "C1: upgrade-cdf-refresh under CI with no fixture fails its four real-clone cases; none skips" case_C1
 check "C2: bl320, g4g6 and upgrade-cdf-refresh read the clone through the helper, and its rc 1 fails" case_C2

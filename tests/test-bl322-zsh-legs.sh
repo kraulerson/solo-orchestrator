@@ -22,13 +22,12 @@
 #       and the leg, before any suite runs; with zsh on PATH it lets it run.
 #   Z4  the step itself: gated on `matrix.shard` by a JSON list, and still
 #       loud when the install fails (no continue-on-error, no `|| true`).
-#   Z5  every unit-lane suite that EXECUTES zsh carries the marker (`## BL-322:`
-#       S5, R-S2-13): "executes" is read from executed lines only, comments out
-#       (the `# BL-181-UNIT-LANE-PREDICATE` lesson), with zsh as a command word —
-#       probed (`command -v zsh`), given an option (`zsh -f`) or in command
-#       position. The same check on fixture lines proves it tells them apart.
-#       A zsh run built at run time (`"${s}sh"`) or written only inside a
-#       heredoc the suite writes out is not seen (BL-181's residual, here).
+#   Z5  every unit-lane suite that names zsh as a whole word on an executed
+#       line carries the marker, or is listed in ZSH_NAMES_ONLY with its reason
+#       (`## BL-322:` S5, R-S2-13, R-S5-4); comments are dropped first (the
+#       `# BL-181-UNIT-LANE-PREDICATE` lesson). The same check on fixture lines
+#       proves it tells them apart. A zsh run built at run time (`"${s}sh"`) is
+#       not seen (BL-181's residual, here).
 #   M   mutants of the workflow, each needing a named case to go RED.
 #
 # THE MARKER, ANY SPELLING (R-S2-13). A line that starts, after any indent,
@@ -208,22 +207,26 @@ case_Z4() {
   grep -E '^ *run:' <<< "$step" | grep -q 'install -y zsh' || { CASE_DETAIL="the step no longer installs zsh"; return 1; }
 }
 
-# ── Z5: a suite that runs zsh says so (R-S2-13) ──────────────────────────────
-# executes_zsh FILE — FILE names zsh as a command on a line that executes.
+# ── Z5: a suite that names zsh says so (R-S2-13, R-S5-4) ─────────────────────
+# executes_zsh FILE — FILE names zsh as a whole word on a line that executes.
 # Comments are dropped first, exactly as `# BL-181-UNIT-LANE-PREDICATE` drops
 # them (whole-line, and trailing after whitespace), so a mention in a comment
-# needs no marker. Then zsh as a command word: probed (`command -v zsh`, `type`,
-# `which`, `hash`), given an option (`zsh -f`, `/bin/zsh -c`, a shell list
-# `"bash|zsh -f -i"`), or in command position (line start, after `;` `&` `|` `(`
-# a backtick or `$(`, or after then/do/else/exec/env). No `grep -q` at the end of
-# the pipe: under pipefail its early exit can fail the writer (#435).
-ZSH_EXEC_RE='(^|[^A-Za-z0-9_.$/-])(command|type|which|hash)[[:space:]]+(-[A-Za-z]+[[:space:]]+)*zsh([^A-Za-z0-9_.-]|$)'
-ZSH_EXEC_RE="$ZSH_EXEC_RE"'|(^|[^A-Za-z0-9_.-])zsh[[:space:]]+-'
-ZSH_EXEC_RE="$ZSH_EXEC_RE"'|(^|[;&|(`]|[$][(]|(^|[[:space:]])(then|do|else|exec|env))[[:space:]]*([^[:space:]]*/)?zsh([[:space:]]|$|[;&|)`])'
+# needs no marker. Any whole word, not only zsh in command position (review
+# R-S5-4): a path kept in a variable (`ZSH=/bin/zsh; "$ZSH" -f`), a quoted path,
+# a probe joined by `||`, a loop over shells all run it while naming it only as
+# a word. A suite that names zsh and never runs it (a message, a stand-in, this
+# guard's own tests) is listed in ZSH_NAMES_ONLY with its reason. No `grep -q`
+# at the end of the pipe: under pipefail its early exit can fail the writer (#435).
+ZSH_WORD_RE='(^|[^A-Za-z0-9_])zsh([^A-Za-z0-9_]|$)'
 executes_zsh() {
   command grep -vE '^[[:space:]]*#' "$1" 2>/dev/null | sed 's/\([^[:space:]]\)[[:space:]][[:space:]]*#.*$/\1/' \
-    | command grep -E "$ZSH_EXEC_RE" >/dev/null
+    | command grep -E "$ZSH_WORD_RE" >/dev/null
 }
+# ZSH_NAMES_ONLY — suites that name zsh on executed lines and never run it, one
+# per line: the path, a tab, the reason. Z5 lets these through unmarked.
+ZSH_NAMES_ONLY="$(printf '%s\t%s\n' \
+  tests/test-bl322-zsh-legs.sh 'tests this guard: names zsh in messages and a fixture, and puts a stub called zsh on a PATH; runs no zsh')"
+names_only() { grep -qxF -- "$1" <<< "$(cut -f1 <<< "$ZSH_NAMES_ONLY")"; }
 # unit_list WF — the canonical `tests=(` array, anchored and sliced (CLAUDE.md's
 # recipe: never the unanchored scope, which a comment below the array reopens).
 unit_list() {
@@ -235,27 +238,28 @@ unit_list() {
 }
 case_Z5() {
   local wf="$1" t="" n=0 runs="" bad="" d="" line="" want="" i=0
-  # The real tree: every unit-lane suite that runs zsh carries the marker.
+  # The real tree: every unit-lane suite that names zsh carries the marker, or
+  # is listed as naming it only.
   while IFS= read -r t; do
     [ -n "$t" ] || continue
     n=$((n + 1))
     executes_zsh "$REPO_ROOT/$t" || continue
     runs="$runs $t"
-    is_marked "$REPO_ROOT/$t" || bad="$bad $t"
+    is_marked "$REPO_ROOT/$t" || names_only "$t" || bad="$bad $t"
   done <<UL
 $(unit_list "$wf")
 UL
   [ "$n" -gt 100 ] || { CASE_DETAIL="read only $n suites from the unit list"; return 1; }
-  [ -z "$bad" ] || { CASE_DETAIL="these unit-lane suites run zsh and carry no # NEEDS-ZSH:$bad"; return 1; }
-  # The check tells the shapes apart: R runs zsh, N does not. Each shape spells
-  # zsh as @Z@ here, so this suite's own lines never read as running it.
+  [ -z "$bad" ] || { CASE_DETAIL="these unit-lane suites name zsh, carry no # NEEDS-ZSH and are not listed in ZSH_NAMES_ONLY:$bad"; return 1; }
+  # The check tells the shapes apart: R names zsh, N does not. Each shape
+  # spells zsh as @Z@ here.
   d="$(newtmp)"
   while IFS='|' read -r want line; do
     [ -n "$want" ] || continue
     line="${line//@Z@/zsh}"
     i=$((i + 1)); printf '#!/usr/bin/env bash\n%s\n' "$line" > "$d/f$i.sh"
-    if executes_zsh "$d/f$i.sh"; then [ "$want" = R ] || { CASE_DETAIL="read as running zsh: [$line]"; return 1; }
-    else [ "$want" = N ] || { CASE_DETAIL="not read as running zsh: [$line]"; return 1; }; fi
+    if executes_zsh "$d/f$i.sh"; then [ "$want" = R ] || { CASE_DETAIL="read as naming zsh: [$line]"; return 1; }
+    else [ "$want" = N ] || { CASE_DETAIL="not read as naming zsh: [$line]"; return 1; }; fi
   done <<'SHAPES'
 R|command -v @Z@ >/dev/null 2>&1 || { echo "SKIP: no @Z@"; exit 0; }
 R|if command -v @Z@ >/dev/null 2>&1; then PASTE_SHELLS="$PASTE_SHELLS|@Z@ -f|@Z@ -f -i"; fi
@@ -266,16 +270,20 @@ R|printf 'x\n' | @Z@
 R|[ -x /bin/@Z@ ] && @Z@ steps.sh
 R|type @Z@ >/dev/null && echo yes
 R|then @Z@ run.sh
+R|ZSH="/bin/@Z@"; "$ZSH" -f -i < steps.txt
+R|[ -x /bin/@Z@ ] || exit 0
+R|"/bin/@Z@" -f -i < steps.txt
+R|for sh in bash @Z@; do "$sh" -c true; done
+R|echo "@Z@ is not installed on this leg"
+R|MARKED="tests/test-zz-needs-@Z@.sh"
 N|# @Z@ -f -i, run where it is installed
 N|    # if command -v @Z@; then ...
 N|x=1   # @Z@ -f -i
-N|echo "@Z@ is not installed on this leg"
-N|printf '#!/bin/sh\nexit 0\n' > "$bin/@Z@" && chmod +x "$bin/@Z@"
-N|grep -q 'install -y @Z@' step.txt
 N|@Z@_legs "$wf"
-N|MARKED="tests/test-zz-needs-@Z@.sh"
+N|[ -f "$HOME/.@Z@rc" ] && echo rc
+N|[ -n "${ZSH_VERSION:-}" ] && echo inside
 SHAPES
-  CASE_DETAIL="$n unit-lane suites read; run zsh:${runs:- none}; $i shapes told apart"
+  CASE_DETAIL="$n unit-lane suites read; name zsh:${runs:- none}; $i shapes told apart"
 }
 
 check() {   # LABEL CASE
@@ -287,7 +295,7 @@ check "Z1: every suite marked NEEDS-ZSH runs on a leg the Install zsh step lists
 check "Z2: the check catches a marked suite pinned to, or left in rest on, an unlisted leg" case_Z2
 check "Z3: the shard script refuses a marked suite on a leg without zsh, by name, and only then" case_Z3
 check "Z4: the step is gated on the leg, and a failed install is still loud" case_Z4
-check "Z5: every unit-lane suite that runs zsh (executed lines only) carries the marker" case_Z5
+check "Z5: every unit-lane suite that names zsh on an executed line carries the marker or is listed as naming it only" case_Z5
 
 # ── M: mutants of the workflow ───────────────────────────────────────────────
 mutate() {   # FILE MARKER REPLACEMENT — exactly one line ends in MARKER; it now reads REPLACEMENT
