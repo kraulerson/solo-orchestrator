@@ -210,14 +210,15 @@ for a in "\$@"; do [ "\$a" = -v ] && verbose=1; done
 case " \$* " in
   *" check-ignore "*)
     [ "\$verbose" -eq 1 ] || exec "$REAL_GIT" "\$@"
+    # EVERY path on stdin gets an answer, as git gives one: the caller asks
+    # for all of them in one call (`## BL-322:` S3, R-S3-5), and a stub that
+    # answered only the first would fail the rest for a reason of its own.
     if [ "\${STUB_GIT_MODE:-}" = NEG ]; then
-      IFS= read -r -d '' p
-      printf '%s\0%s\0%s\0%s\0' .gitignore 2 '!lib/' "\$p"
+      while IFS= read -r -d '' p; do printf '%s\0%s\0%s\0%s\0' .gitignore 2 '!lib/' "\$p"; done
       exit 0
     fi
     if [ "\${STUB_GIT_MODE:-}" = ODD ]; then
-      IFS= read -r -d '' p
-      printf '%s\0%s\0%s\0%s\0' /nowhere/excludes 1 '.claude/' "\$p"
+      while IFS= read -r -d '' p; do printf '%s\0%s\0%s\0%s\0' /nowhere/excludes 1 '.claude/' "\$p"; done
       exit 0
     fi
     cat >/dev/null; exit 128 ;;

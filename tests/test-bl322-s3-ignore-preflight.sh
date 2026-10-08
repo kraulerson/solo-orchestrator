@@ -39,14 +39,31 @@
 #       the refused paths, and every line naming the rules — for `lib/`, `*.md`,
 #       a negation, a nested .gitignore, a global core.excludesFile under a fake
 #       HOME, and .git/info/exclude
+#   D1  the decision, row by row (review round 1, R-S3-1 and R-S3-6): an
+#       untracked path is asked about itself; a tracked one under a file rule
+#       is not refused; a tracked top-level file is not refused; a tracked one
+#       under an ignored folder is refused by asking about the folder; a
+#       tracked name with a newline in it forges no tracked path; and a path
+#       beyond a symbolic link is F, rc 2 — git could not answer, so no answer
+#   E1  a project whose .claude is a symlink, end to end: Scout reports it
+#       cannot tell and that adoption would stop; adoption refuses before it
+#       writes anything, and the tree is byte-identical
 #   M1  a blocked adoption with "set it up now": no `claude mcp add`, no
 #       container, and nothing written outside the project (the fake HOME, the
 #       Claude Code configuration and TMPDIR are byte-identical afterwards)
 #   M2  a passing adoption with "set it up now" still registers both servers,
 #       records it, and runs the commands after the pre-write checks and before
 #       the first writer
+#   M3  the note at the question is true of a LATER stop too (R-S3-2): the
+#       project's own pre-commit hook refuses the adoption commit, after the
+#       commands ran, and the block names what they registered
+#   M4  I20 (an overwrite with no archive row, reproduced by the inventory's
+#       own seam) stops the run before the commands (R-S3-4)
 #   X*  mutants: each rewrites ONE marked line in a mirror, checks the edit
 #       landed and still parses, and needs a named case to go RED
+#
+# A case that needs gitleaks (a personal adoption stops for it first) SKIPS
+# without it — and FAILS when CI is set, where a skip would be a silent pass.
 #
 # Hermetic: temp HOME, XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL and TMPDIR; stub
 # claude/docker/curl/uvx/npx for the MCP cases; no network; no Guardrails clone
@@ -214,13 +231,80 @@ case_U1() {   # FW
   grep -qF '`*.md` refuses 2 of them (for example .claude/x.md)' <<<"$fwd" || { CASE_DETAIL="not the C-order example: $(printf '%s' "$fwd" | head -1)"; return 1; }
 }
 
+# D1 — the decision, row by row. A1-A6 cannot see a mutant of it: Scout and
+# adoption call the same function, so they agree by construction.
+case_D1() {   # FW
+  local fw="$1" d="" s="" want="" got="" rc=0 bad="" sha=""
+  d="$(newtmp)"
+  mk_project "$d/p" '*.json' '*.md' '!README.md' 'lib/' 'build/' 'keep.txt' || { CASE_DETAIL="fixture"; return 1; }
+  mkdir -p "$d/p/.claude" "$d/p/build" && printf '{}\n' > "$d/p/.claude/settings.json" && printf '# r\n' > "$d/p/CLAUDE.md" \
+    && printf 'x\n' > "$d/p/build/x.sh" && ( cd "$d/p" && git add -f .claude/settings.json CLAUDE.md build/x.sh \
+    && git commit -q -m 'chore: tracked under rules' ) >/dev/null 2>&1 || { CASE_DETAIL="fixture: tracked files"; return 1; }
+  # A tracked name with a newline in it (R-S3-6), index only: split on the
+  # newline, it would forge `.claude/keep.txt` as tracked and the check would
+  # ask about `.claude` instead, which is not ignored — fail open.
+  sha="$(cd "$d/p" && printf 'x\n' | git hash-object -w --stdin)" \
+    && printf '100644 %s\tx\n.claude/keep.txt\0' "$sha" | ( cd "$d/p" && git update-index --add -z --index-info ) \
+    || { CASE_DETAIL="fixture: the newline name"; return 1; }
+  got="$( . "$fw/scripts/lib/scout/scout-ignore.sh" && printf '%s\n' .claude/keep.txt .claude/settings.json CLAUDE.md build/x.sh scripts/lib/a.sh \
+          | scout_ignore_refused "$d/p"; printf 'rc=%s' "$?" )"
+  want="$(printf 'R\t%s\t%s\n' .claude/keep.txt .claude/keep.txt build/x.sh build scripts/lib/a.sh scripts/lib/a.sh; printf 'rc=0')"
+  [ "$got" = "$want" ] || bad="$bad [rows: got [$(printf '%s' "$got" | tr '\t\n' ' |')] want [$(printf '%s' "$want" | tr '\t\n' ' |')]]"
+  # Beyond a symbolic link git exits 128: no answer, so the decision gives none.
+  mk_project "$d/q" || { CASE_DETAIL="fixture: symlink"; return 1; }
+  mkdir -p "$d/q/real" && ln -s real "$d/q/link" || { CASE_DETAIL="fixture: symlink"; return 1; }
+  got="$( . "$fw/scripts/lib/scout/scout-ignore.sh" && printf '%s\n' README.md link/x.json | scout_ignore_refused "$d/q"; printf 'rc=%s' "$?" )"
+  want="$(printf 'F\tlink/x.json\t128\nrc=2')"
+  [ "$got" = "$want" ] || bad="$bad [beyond a symlink: got [$(printf '%s' "$got" | tr '\t\n' ' |')] want [$(printf '%s' "$want" | tr '\t\n' ' |')]]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
+# E1 — a project whose .claude is a symlink (untracked) to a folder it tracks,
+# end to end. Every path adoption writes under .claude is beyond a symbolic
+# link, git exits 128 for it, and both callers must stop rather than guess
+# (review round 1, R-S3-1: with the fail-closed arm broken, adoption wrote 105
+# files and then failed half-installed).
+mk_symclaude() {
+  mk_project "$1" || return 1
+  mkdir -p "$1/claude-config" && printf '{}\n' > "$1/claude-config/settings.json" && commit_all "$1" \
+    && ln -s claude-config "$1/.claude"
+}
+case_E1() {   # FW
+  local fw="$1" d="" h0="" rc=0 bad=""
+  d="$(newtmp)"
+  mk_symclaude "$d/p" || { CASE_DETAIL="fixture"; return 1; }
+  h0="$(tree_hash "$d/p")"
+  scout_run "$fw" "$d/p" "$d/scan" || { CASE_DETAIL="scout produced no report"; return 1; }
+  [ "$(ign "$d/scan" '.collisions.ignoreRules.checked')" = false ] || bad="$bad [Scout says it checked]"
+  [ "$(ign "$d/scan" '.collisions.ignoreRules.wouldBlock')" = true ] || bad="$bad [Scout does not say adoption would stop]"
+  ign "$d/scan" '.collisions.ignoreRules.why' | grep -q 'git check-ignore exited 128' || bad="$bad [why: '$(ign "$d/scan" '.collisions.ignoreRules.why')']"
+  grep -qF '**Yes: adoption would stop before it writes anything.** git could not say' "$d/scan/scout-report.md" || bad="$bad [the report does not say so]"
+  if [ "$HAVE_GITLEAKS" = 1 ]; then
+    adopt_run "$fw" "$d/p" "$d/out" "$d/err" || rc=$?
+    [ "$rc" -ne 0 ] || bad="$bad [adoption did not stop]"
+    grep -q "cannot tell whether .* is covered by your ignore rules (git check-ignore exited 128)" "$d/err" || bad="$bad [not refused by the check: $(grep -E 'BLOCKED|REFUSED' "$d/err" | head -1)]"
+    grep -qF 'Adoption did not begin. Nothing was committed and nothing was written to this project.' "$d/err" || bad="$bad [the refusal does not say nothing was written]"
+    grep -q 'already written' "$d/err" && bad="$bad [files were written: $(grep 'already written' "$d/err" | head -1)]"
+  else
+    bad="$bad [SKIP-ADOPT]"
+  fi
+  [ "$(tree_hash "$d/p")" = "$h0" ] || bad="$bad [the project changed]"
+  case "$bad" in
+    " [SKIP-ADOPT]") CASE_DETAIL="SKIP: Scout's half passed; the adoption half needs gitleaks, and a personal adoption stops for it first"; return 2 ;;
+  esac
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
 # ════════════════════════════════════════════════════════════════════════════
 # P — Scout's set of the files adoption writes is the rehearsal's
 # ════════════════════════════════════════════════════════════════════════════
-# What Scout deliberately does not predict, because it depends on the answers
-# or on a choice: the archive (a per-run folder of copies), .claude/test-command
-# (only when the operator keeps the scan's command) and the Guardrails' own
-# files (only when they are installed). The pin allows exactly these.
+# What Scout's set leaves out: .claude/test-command (only when the operator
+# keeps the scan's command) and the Guardrails' own files (only when they are
+# installed), which depend on an answer or the host; and the archive (a per-run
+# folder of copies), which never blocks — an ignored copy is withheld
+# (`# BF-ADOPT-IGNORE-ARCHIVE`). The pin allows exactly these.
 not_predicted() {
   awk '!/^\.claude\/adoption-archive\// && !/^\.claude\/framework\// && !/^\.claude\/project\// && $0 != ".claude/test-command"'
 }
@@ -424,14 +508,14 @@ STUB
 }
 STUBS="$WORK/stubs"; mkstubs "$STUBS" || { echo "FATAL: stubs"; exit 1; }
 
-# mcp_adopt FW DIR C — a whole adoption with the MCP step live: stubs first on
-# PATH, a fake HOME, CLAUDE_CONFIG_DIR and TMPDIR of the case's own, and "set it
-# up now" as the third answer.
+# mcp_adopt FW DIR C [ENV=VAL...] — a whole adoption with the MCP step live:
+# stubs first on PATH, a fake HOME, CLAUDE_CONFIG_DIR and TMPDIR of the case's
+# own, and "set it up now" as the third answer.
 mcp_adopt() {
-  local fw="$1" d="$2" c="$3"
+  local fw="$1" d="$2" c="$3"; shift 3
   ( cd "$d" && { printf '1\nstandard\nset it up now\n'; i=0; while [ "$i" -lt 40 ]; do printf '1\n'; i=$((i + 1)); done; } \
       | env -u SOIF_ADOPT_MCP PATH="$STUBS:$PATH" HOME="$c/home" CLAUDE_CONFIG_DIR="$c/cfg" STUB_STATE="$c/state" \
-          TMPDIR="$c/tmp" SOIF_ADOPT_QDRANT_WAIT=2 SOIF_ADOPT_GUARDRAILS_DIR="$WORK/no-guardrails" \
+          TMPDIR="$c/tmp" SOIF_ADOPT_QDRANT_WAIT=2 SOIF_ADOPT_GUARDRAILS_DIR="$WORK/no-guardrails" "$@" \
           bash "$fw/scripts/adopt-project.sh" ) > "$c/out" 2> "$c/err"
 }
 mcp_fixture() {   # C — the case's outside world
@@ -480,14 +564,78 @@ case_M2() {   # FW — passing: the servers are still set up, after the checks a
   [ -z "$bad" ]
 }
 
+# M3 — the note at the question is true of a later stop too (review round 1,
+# R-S3-2). The project's own pre-commit hook refuses the adoption commit: the
+# commands have run by then, so the registration stays, and the block says so.
+case_M3() {   # FW
+  local fw="$1" c="" rc=0 bad=""
+  [ "$HAVE_GITLEAKS" = 1 ] || { CASE_DETAIL="SKIP: gitleaks is not on PATH, and a personal adoption stops for it first"; return 2; }
+  c="$(newtmp)"; mcp_fixture "$c" || { CASE_DETAIL="fixture"; return 1; }
+  mk_project "$c/p" 'node_modules/' || { CASE_DETAIL="fixture"; return 1; }
+  printf '#!/bin/sh\necho "my-lint: refusing this commit" >&2\nexit 1\n' > "$c/p/.git/hooks/pre-commit" && chmod +x "$c/p/.git/hooks/pre-commit"
+  mcp_adopt "$fw" "$c/p" "$c" || rc=$?
+  grep -qF 'A stop before then registers nothing;' "$c/out" \
+    && grep -qF 'a later stop (a file it cannot write, your own commit hook) leaves the' "$c/out" \
+    || bad="$bad [the note does not say what a later stop leaves: $(grep -A3 'Noted\.' "$c/out" | tr '\n' ' ' | cut -c1-200)]"
+  grep -qF 'stops leaves your Claude Code configuration as it was' "$c/out" && bad="$bad [the note still promises the configuration is left as it was]"
+  [ "$rc" -ne 0 ] || bad="$bad [the adoption did not stop]"
+  grep -q 'the adoption commit did not succeed' "$c/err" || bad="$bad [not stopped at the commit: $(grep -E 'BLOCKED|REFUSED' "$c/err" | head -1)]"
+  grep -q 'claude \[mcp\] \[add\] \[context7\]' "$c/state/calls.log" || bad="$bad [fixture: the commands did not run before the commit]"
+  grep -q 'this run DID register context7 and qdrant' "$c/err" || bad="$bad [the block does not name the registration]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
+# M4 — I20 stops the run before the commands (R-S3-4). The inventory's own seam
+# (`SOIF_ADOPT_INVENTORY_SKIP_CLASS`, as tests/test-brownfield-wp11-archive-classes.sh
+# E3 uses it) drops the row for a document the project already has: the shape
+# of a writer added without one.
+case_M4() {   # FW
+  local fw="$1" c="" rc=0 bad=""
+  [ "$HAVE_GITLEAKS" = 1 ] || { CASE_DETAIL="SKIP: gitleaks is not on PATH, and a personal adoption stops for it first"; return 2; }
+  c="$(newtmp)"; mcp_fixture "$c" || { CASE_DETAIL="fixture"; return 1; }
+  mk_project "$c/p" 'node_modules/' || { CASE_DETAIL="fixture"; return 1; }
+  printf '# their intake\n' > "$c/p/PROJECT_INTAKE.md" && commit_all "$c/p" || { CASE_DETAIL="fixture"; return 1; }
+  mcp_adopt "$fw" "$c/p" "$c" SOIF_ADOPT_INVENTORY_SKIP_CLASS=document || rc=$?
+  [ "$rc" -ne 0 ] || bad="$bad [the adoption did not stop]"
+  grep -q 'would be replaced with no copy kept' "$c/err" || bad="$bad [not stopped by I20: $(grep -E 'BLOCKED|REFUSED' "$c/err" | head -1)]"
+  grep -q 'Set them up now' "$c/out" || bad="$bad [fixture: the MCP question was not asked]"
+  grep -q '\[mcp\] \[add\]' "$c/state/calls.log" && bad="$bad [claude mcp add ran before I20]"
+  [ -e "$c/cfg/.claude.json" ] && bad="$bad [the Claude Code configuration was written]"
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
+# I1 — the order the claims above rest on, read from adopt_main: the pre-write
+# check, then I20, then the MCP commands, then the first write. M1 and M4 prove
+# the first two behaviourally; this is the map they are checked against.
+case_I1() {   # FW
+  local f="$1/scripts/lib/adopt/adopt-state.sh" m="" n="" prev=0 ln="" bad=""
+  for m in BL-225-PREWRITE-CALL BL-242-OVERWRITE-INVENTORY BL-322-S3-MCP-APPLY-CALL BL-225-WRITE-PHASE-REAL; do
+    n="$(grep -c "# $m\$" "$f")"
+    [ "$n" = 1 ] || { bad="$bad [# $m ends $n lines]"; continue; }
+    ln="$(grep -n "# $m\$" "$f" | cut -d: -f1)"
+    [ "$ln" -gt "$prev" ] || bad="$bad [# $m at line $ln is not after line $prev]"
+    prev="$ln"
+  done
+  CASE_DETAIL="${bad:-}"
+  [ -z "$bad" ]
+}
+
 # ── the cases ────────────────────────────────────────────────────────────────
-run_case() {   # LABEL FN — a SKIP (rc 2) is reported as one, never as a pass
+# A SKIP (rc 2) is reported as one, never as a pass — and on CI it is a
+# FAILURE: every shard installs gitleaks, so a skip there means a case that
+# guards the adoption never ran (review round 1, R-S3-7).
+skip_or_fail() {   # LABEL WHY
+  if [ -n "${CI:-}" ]; then fail_ "$1" "$2 — and CI is set, where this must run"; else skip "$1" "$2"; fi
+}
+run_case() {   # LABEL FN
   local label="$1" fn="$2" rc=0
   CASE_DETAIL=""
   "$fn" "$REPO_ROOT" || rc=$?
   case "$rc" in
     0) pass "$label" ;;
-    2) skip "$label" "${CASE_DETAIL#SKIP: }" ;;
+    2) skip_or_fail "$label" "${CASE_DETAIL#SKIP: }" ;;
     *) fail_ "$label" "${CASE_DETAIL:-failed}" ;;
   esac
 }
@@ -497,6 +645,8 @@ run_case "S2 a clean project: checked, and quiet" case_S2
 run_case "S3 the rule anchored (/lib/): quiet" case_S3
 run_case "S4 Scout outside a framework clone: not checked, and says why" case_S4
 run_case "U1 the rule lines are the same whatever order the paths come in (the example is the first in C order)" case_U1
+run_case "D1 the decision row by row: untracked asks itself, tracked under a file rule and tracked top-level are not refused, tracked under an ignored folder asks the folder, a newline in a tracked name forges nothing, beyond a symlink is F 128 rc 2" case_D1
+run_case "E1 a symlinked .claude: Scout says it cannot tell and adoption would stop; adoption refuses before writing; the tree is unchanged" case_E1
 echo "=== P — Scout's set of the files adoption writes is the rehearsal's ==="
 run_case "P1 a plain project: Scout's set equals the rehearsal ledger of a real adoption" case_P1
 run_case "P2 a project adoption partly leaves alone, with CI, a test command and an archive: equal but for the classes Scout does not predict" case_P2
@@ -510,6 +660,9 @@ run_case "A6 .git/info/exclude: .claude/" case_A6
 echo "=== M — the MCP step's side effects wait for the checks ==="
 run_case "M1 a blocked adoption that was told to set the servers up runs no claude mcp add, starts no container, and writes nothing outside the project" case_M1
 run_case "M2 a passing adoption still sets both servers up, records it, and runs the commands after the pre-write checks and before the first writer" case_M2
+run_case "M3 the note says a later stop keeps the registration, and the project's own commit hook stopping the run after the commands is named as such" case_M3
+run_case "M4 I20 stops the run before the MCP commands" case_M4
+run_case "I1 adopt_main's order: the pre-write check, I20, the MCP commands, the first write" case_I1
 
 # ════════════════════════════════════════════════════════════════════════════
 # X — mutants. Each rewrites ONE line ending in its marker, in a mirror of the
@@ -551,7 +704,7 @@ run_mutant() {   # ID WHAT KILLER MIRROR
   "$3" "$4" || rc=$?
   case "$rc" in
     0) fail_ "$1" "$2 — SURVIVED: ${3#case_} still passes against the mutant" ;;
-    2) skip "$1" "$2 — ${CASE_DETAIL#SKIP: }" ;;
+    2) skip_or_fail "$1" "$2 — ${CASE_DETAIL#SKIP: }" ;;
     *) pass "$1 (MUTATION) — $2: killed by ${3#case_} (${CASE_DETAIL:-failed})" ;;
   esac
 }
@@ -592,5 +745,14 @@ mutant_sub X16 "$SR" '# BL-322-S3-MD-BLOCK' 'adoption would stop before it write
 mutant_sub X17 "$AS" '# BL-311-MCP-CALL' 'adopt_mcp_resolve "$root" ||' 'adopt_mcp_resolve "$root" && adopt_mcp_apply "$root" ||' case_M1 "the MCP commands run where the question is, before the ignore check (the dogfood order)"
 mutant     X18 "$AS" '# BL-322-S3-MCP-APPLY-CALL' '  :   # BL-322-S3-MCP-APPLY-CALL' case_M2 "the MCP commands never run"
 mutant_sub X19 "$AM" '# BL-322-S3-MCP-DEFER' 'ADOPT_MCP_PENDING=1' 'ADOPT_MCP_PENDING=1; adopt_mcp_apply "$root"' case_M1 "the step runs its commands as soon as it is answered"
+# Review round 1 (R-S3-1, R-S3-2, R-S3-4, R-S3-6): the reviewer's MA, MB, MC, MF and MG.
+mutant     X20 "$SI" '# BL-225-ORACLE-FAIL-CLOSED' '      *) : ;;   # BL-225-ORACLE-FAIL-CLOSED' case_D1 "MA: a path git cannot answer for reads as not ignored (fail open)"
+mutant_sub X21 "$SI" '# BL-322-S3-BATCH-ANSWERED' '0|1)' '0|1|128)' case_D1 "MB: a batch git could not answer is read as answered"
+mutant_sub X22 "$AS" '# BL-322-S3-DECIDE-FAILCLOSED' '[ "$_st" -ne 0 ]' 'false' case_E1 "MC: adoption carries on when the decision could not be made (the half-install)"
+mutant_sub X23 "$SI" '# BL-322-S3-TRACKED-ASK' 'if ($0 in t)' 'if (0)' case_D1 "MF: a tracked path is asked about itself, so a file rule refuses it"
+mutant_sub X24 "$SI" '# BL-322-S3-TRACKED-ASK' 'next }' 'q = $0 }' case_D1 "MG: a tracked top-level file is asked about itself"
+mutant_sub X25 "$SI" '# BL-322-S3-TRACKED-NUL' "tr '\\n\\0' '\\002\\n'" "tr '\\0' '\\n'" case_D1 "a newline in a tracked name forges a tracked path (fails open)"
+mutant     X26 "$AS" '# BL-242-OVERWRITE-INVENTORY' '  adopt_mcp_apply "$root" || return 1; _adopt_overwrite_inventory_check "$root" || return 1   # BL-242-OVERWRITE-INVENTORY' case_M4 "the MCP commands run before I20"
+mutant_sub X27 "$AM" '# BL-322-S3-MCP-DEFER-SAY' 'a later stop (a file it cannot write, your own commit hook) leaves the' 'an adoption that stops leaves your Claude Code configuration as it was. The' case_M3 "the note promises any stop leaves the configuration as it was"
 
 _done
