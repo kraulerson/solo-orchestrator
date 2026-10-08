@@ -454,32 +454,27 @@ done
 # this, T1 passes for any reason at all, including a preflight that refuses
 # every project.
 #
+# Since `## BL-322:` S3 the arm is in Scout's lib (scripts/lib/scout/scout-ignore.sh,
+# `scout_ignore_refused`), which adopt-state.sh sources from beside itself, so
+# the mirror carries both folders and the mutation is made there: the one line
+# that turns git's answer into a refused row.
+#
 # The mutation is awk, not python3: the runner has python3 and a bare
 # `ubuntu:24.04` does not, and this suite must give the same verdict on both.
-# It rewrites a TWO-LINE anchor, so the edit cannot be a one-line sed; and it
-# asserts the anchor was unique AND that the replacement LANDED, because "the
-# mutator ran" is not "the mutant mutates".
-MP="$WORK/mp/lib"; mkdir -p "$MP" && cp -p "$LIB"/*.sh "$MP/"
-mp_anchor='      0) ignored="$ignored'
-mp_tail='$rel" ;;'
-mp_n="$(grep -cF "$mp_anchor" "$MP/adopt-state.sh")"; case "$mp_n" in ''|*[!0-9]*) mp_n=0 ;; esac
-mp_t0="$(grep -cFx "$mp_tail" "$MP/adopt-state.sh")"; case "$mp_t0" in ''|*[!0-9]*) mp_t0=0 ;; esac
-awk -v anchor="$mp_anchor" '
-  $0 == anchor { print "      0) : ;;"; skip = 1; next }
-  skip == 1    { skip = 0; next }
-  { print }
-' "$MP/adopt-state.sh" > "$MP/adopt-state.sh.mut" && mv "$MP/adopt-state.sh.mut" "$MP/adopt-state.sh"
-mp_left="$(grep -cF "$mp_anchor" "$MP/adopt-state.sh")"; case "$mp_left" in ''|*[!0-9]*) mp_left=0 ;; esac
-mp_new="$(grep -c '^      0) : ;;$' "$MP/adopt-state.sh")"; case "$mp_new" in ''|*[!0-9]*) mp_new=0 ;; esac
-# The awk deletes the line AFTER the anchor unconditionally. Assert that line
-# was the one intended: if the source ever changes so anchor+1 is something
-# else, this mutator would silently delete an arbitrary line and could still
-# satisfy the other three postconditions and `bash -n`.
-mp_t1="$(grep -cFx "$mp_tail" "$MP/adopt-state.sh")"; case "$mp_t1" in ''|*[!0-9]*) mp_t1=0 ;; esac
+# It asserts the anchor was unique AND that the replacement LANDED, because
+# "the mutator ran" is not "the mutant mutates".
+MPR="$WORK/mp"; mkdir -p "$MPR/adopt" "$MPR/scout" && cp -p "$LIB"/*.sh "$MPR/adopt/" && cp -p "$LIB/../scout"/*.sh "$MPR/scout/"
+MP="$MPR/adopt"; MPS="$MPR/scout/scout-ignore.sh"
+mp_anchor='        ($2 in i) { print "R\t" $1 "\t" $2 }'"'"'   # BL-322-S3-REFUSED-ROW'
+mp_repl='        ($2 in i) { next }'"'"'   # BL-322-S3-REFUSED-ROW'
+mp_n="$(grep -cxF -- "$mp_anchor" "$MPS")"; case "$mp_n" in ''|*[!0-9]*) mp_n=0 ;; esac
+# ENVIRON, not -v: awk would read the `\t` in the anchor as a tab.
+MP_A="$mp_anchor" MP_R="$mp_repl" awk '$0 == ENVIRON["MP_A"] { print ENVIRON["MP_R"]; next } { print }' "$MPS" > "$MPS.mut" && mv "$MPS.mut" "$MPS"
+mp_left="$(grep -cxF -- "$mp_anchor" "$MPS")"; case "$mp_left" in ''|*[!0-9]*) mp_left=0 ;; esac
+mp_new="$(grep -cxF -- "$mp_repl" "$MPS")"; case "$mp_new" in ''|*[!0-9]*) mp_new=0 ;; esac
 if [ "$mp_n" -ne 1 ] || [ "$mp_left" -ne 0 ] || [ "$mp_new" -ne 1 ] \
-   || [ "$mp_t0" -ne 1 ] || [ "$mp_t1" -ne 0 ] \
-   || ! bash -n "$MP/adopt-state.sh" 2>/dev/null; then
-  bad "MP1 setup: the mutation did not apply cleanly (anchors=$mp_n left=$mp_left new=$mp_new tail=$mp_t0->$mp_t1)"
+   || ! bash -n "$MPS" 2>/dev/null; then
+  bad "MP1 setup: the mutation did not apply cleanly (anchors=$mp_n left=$mp_left new=$mp_new)"
 else
   P9="$WORK/t9"; _adoptee "$P9" '.claude/'
   mp_rc=$( set +e

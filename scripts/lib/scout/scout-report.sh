@@ -263,9 +263,46 @@ _scout_emit_collisions() {
     done < "$work/coldetail"
   fi
   printf '],\n'
+  _scout_emit_ignore "$work"
   printf '    "note": %s\n' \
     "$(scout_json_str "Report-only. Scout changed none of these files and adoption would not change the audit-only ones at all. Findings name the rule, the file and the line; the matched text is deliberately not quoted.")"
   printf '  },\n'
+  return 0
+}
+
+# SCOUT_IGNORE_NOT_PREDICTED — what `ignoreRules` leaves out, said in both views.
+SCOUT_IGNORE_NOT_PREDICTED="Not predicted here, because they depend on your answers or on a choice: .claude/test-command and the Development Guardrails' own files. Adoption checks those itself before it writes anything. Not counted, because they never stop an adoption: the archive of your own files that adoption replaces (.claude/adoption-archive/), APPROVAL_LOG.md and .claude/bypass-audit.json. Adoption leaves whichever of them your rules ignore out of its commit."
+
+# _scout_emit_ignore WORK — `collisions.ignoreRules` (`## BL-322:` S3), trailing
+# comma included. Every value is read from the files scout_ignore_scan wrote; a
+# file that is missing reads as "not checked", never as clean.
+_scout_emit_ignore() {
+  local work="$1" TAB="" first=1 src="" ln="" pat="" cnt="" ex="" chk="" blk="" n=""
+  TAB=$(printf '\t')
+  chk="$(_scout_meta "$work" ignchecked)"; blk="$(_scout_meta "$work" ignblock)"
+  n="$(_scout_meta "$work" ignpaths)"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '    "ignoreRules": {\n'
+  printf '      "checked": %s,\n' "$(_scout_bool "$chk")"
+  printf '      "why": %s,\n' "$(scout_json_str_or_null "$(_scout_meta "$work" ignwhy)")"
+  printf '      "pathsChecked": %s,\n' "$n"
+  printf '      "wouldBlock": %s,\n' "$(_scout_bool "$blk")"   # BL-322-S3-REPORT-BLOCK
+  printf '      "refused": %s,\n' "$(scout_json_array_from_file "$work/ignrefused")"
+  printf '      "rules": ['
+  if [ -s "$work/ignrules" ]; then
+    while IFS="$TAB" read -r src ln pat cnt ex; do
+      [ -n "$src" ] || continue
+      case "$ln" in ''|*[!0-9]*) ln=0 ;; esac
+      case "$cnt" in ''|*[!0-9]*) cnt=0 ;; esac
+      [ "$first" -eq 1 ] || printf ', '
+      printf '{"source": %s, "line": %s, "pattern": %s, "refuses": %s, "example": %s}' \
+        "$(scout_json_str "$src")" "$ln" "$(scout_json_str "$pat")" "$cnt" "$(scout_json_str "$ex")"
+      first=0
+    done < "$work/ignrules"
+  fi
+  printf '],\n'
+  printf '      "explanation": %s,\n' "$(scout_json_array_from_file "$work/ignexplain")"
+  printf '      "notChecked": %s\n' "$(scout_json_str "$SCOUT_IGNORE_NOT_PREDICTED")"
+  printf '    },\n'
   return 0
 }
 
@@ -388,6 +425,11 @@ scout_emit_markdown() {
     printf 'This version looked at everything it knows how to look at: **%s**.\n\n' \
       "$(printf '%s' "$SCOUT_SECTIONS_EMITTED" | sed -e 's/ /, /g')"
   fi
+  # `## BL-322:` S3 — a stop the operator would otherwise meet only after
+  # answering every adoption question is said at the top, as well as below.
+  if [ "$(_scout_meta "$work" ignblock)" = "1" ]; then
+    printf '> **Adoption would stop before it writes anything here.** See "Would your ignore rules stop the adoption?" below.\n\n'
+  fi
 
   # ── What it is built with ────────────────────────────────────────────────
   printf -- '---\n\n## What this project is built with\n\n'
@@ -457,6 +499,7 @@ scout_emit_markdown() {
 
   _scout_md_secrets    "$work"
   _scout_md_collisions "$work"
+  _scout_md_ignore     "$work"
   _scout_md_tests      "$work"
   _scout_md_prefill    "$work"
   return 0
@@ -619,6 +662,37 @@ _scout_md_collisions() {
     done < "$work/coldetail"
     printf '\n'
   fi
+  return 0
+}
+
+# _scout_md_ignore WORK — `## BL-322:` S3, for a person: will adoption stop on
+# this project's ignore rules, and what to change. The rule lines are the ones
+# adoption's own block prints, verbatim, in a code block so their backticks
+# survive.
+_scout_md_ignore() {
+  local work="$1" n="" k=""
+  printf -- '---\n\n'
+  printf '## Would your ignore rules stop the adoption?\n\n'
+  n="$(_scout_meta "$work" ignpaths)"
+  if [ "$(_scout_meta "$work" ignchecked)" != "1" ]; then
+    if [ "$(_scout_meta "$work" ignblock)" = "1" ]; then
+      printf '**Yes: adoption would stop before it writes anything.** %s\n\n' "$(_scout_meta "$work" ignwhy)"
+    else
+      printf '**Not checked.** %s\n\n' "$(_scout_meta "$work" ignwhy)"
+    fi
+    return 0
+  fi
+  if [ "$(_scout_meta "$work" ignblock)" = "1" ]; then
+    k="$(grep -c . "$work/ignrefused" 2>/dev/null)"
+    printf '**Yes: adoption would stop before it writes anything.** Your ignore rules refuse **%s** of the files adoption must write, and it will not leave a project half-installed. The rule(s), as `git check-ignore -v` names each:\n\n' "${k:-0}"   # BL-322-S3-MD-BLOCK
+    printf '```\n'
+    cat "$work/ignexplain"
+    printf '```\n\n'
+    printf 'Change the rule, then scan again. Neither Scout nor adoption edits your ignore files. Every refused path is in the JSON report, under `collisions.ignoreRules.refused`.\n\n'
+  else
+    printf '**No.** None of the %s files adoption writes whatever you answer is refused by your ignore rules.\n\n' "${n:-0}"
+  fi
+  printf '%s\n\n' "$SCOUT_IGNORE_NOT_PREDICTED"
   return 0
 }
 

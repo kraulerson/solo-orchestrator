@@ -340,7 +340,9 @@ ADOPT_FRAMEWORK_ROOT="$1"; ADOPT_CORE_LIB_DIR="$1/scripts/lib"; ADOPT_WORK="$2"
 . "$1/scripts/lib/adopt/adopt-core.sh"
 . "$1/scripts/lib/adopt/adopt-mcp.sh"
 adopt_stdin_init
-adopt_mcp_resolve "$3"; rc=$?
+# The question, then (`## BL-322:` S3) the commands, which the driver runs later,
+# after its pre-write checks; here nothing stands between them.
+adopt_mcp_resolve "$3" && adopt_mcp_apply "$3"; rc=$?
 printf 'RC=%s\nRESULT=%s\n' "$rc" "$ADOPT_MCP_RESULT"
 HARN
 _step() {   # _step ANSWERS [ENV=VAL...]

@@ -344,6 +344,50 @@ Some of your automated checks do things that would work against the safety rails
 | `.github/workflows/deploy.yml` | 3 | A deploy triggered by a branch push rather than a tag or a dispatch reaches production without crossing the release gate. |
 ```
 
+#### Would your ignore rules stop the adoption? (`collisions.ignoreRules`)
+
+Adoption stops, before it writes anything, if your ignore rules would keep one of
+its files out of its commit: it checks every file before it writes the first one
+(`## BL-322:` S3). Scout
+runs that same check, from the same code (`scripts/lib/scout/scout-ignore.sh`,
+which adoption sources), over the files an adoption writes whatever you answer,
+so you learn about a block before you answer any of adoption's questions. In
+dogfood run 3 the first adoption stopped on k-pdf's `.gitignore` line 20, `lib/`
+(a standard Python template line), after every question had been answered. Scout
+on that commit, `0bb0465`, now says:
+
+```text
+## Would your ignore rules stop the adoption?
+
+**Yes: adoption would stop before it writes anything.** Your ignore rules refuse **26** of the files adoption must write, and it will not leave a project half-installed. The rule(s), as `git check-ignore -v` names each:
+
+  .gitignore, line 20: `lib/` refuses 26 of them (for example scripts/lib/accumulation.sh)
+    It has no leading slash, so it matches `lib` at any depth, not only at the top: here it matched scripts/lib.
+    One-line fix, if the rule was meant for the top-level lib/ only: change line 20 of .gitignore to `/lib/`.
+    Whether it was is your judgement: if it is meant to ignore every lib/ at any depth, anchoring it is wrong, and these files stay refused until the rule changes. Adoption never edits your ignore files.
+```
+
+The rule lines are the ones adoption's own block prints. A block is also said in
+one line at the top of the report. The JSON carries `checked`, `why` (when it was
+not checked), `pathsChecked`, `wouldBlock`, every `refused` path, the `rules`
+(`source`, `line`, `pattern`, `refuses`, `example`), the `explanation` lines and
+`notChecked`.
+
+**What it does not predict, and says so:** `.claude/test-command` (written only
+when you keep the scan's test command) and the Development Guardrails' own files
+(installed only when their clone is on the machine). Adoption checks those itself
+before it writes anything. **What never stops an adoption, so it is not counted:**
+the archive of your own files that adoption replaces, `APPROVAL_LOG.md` and
+`.claude/bypass-audit.json` — adoption leaves whichever of them your rules ignore
+out of its commit.
+
+**It needs the framework beside it.** Scout reads the list of files adoption
+writes from the Solo Orchestrator clone it runs from (`init.sh`'s copy lines, the
+framework's templates and guides). Copied out on its own, it reports
+`checked: false` and says why. `tests/test-bl322-s3-ignore-preflight.sh` holds
+Scout's list equal to the list a real adoption's rehearsal writes, and Scout's
+answer equal to adoption's on the same tree.
+
 ### `testsBaseline` — what the tests do today
 
 ```text

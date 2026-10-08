@@ -1040,6 +1040,12 @@ run_child_suite "tests/test-bl322-s1-audit-loop.sh" \
 run_child_suite "tests/test-bl322-s2-project-rules.sh" \
   "BL-322 S2: a replaced CLAUDE.md's imports keep loading, the rest is named and warned about; the archive and Scout say what adoption does" \
   "BL-322 S2 project-rules tests FAILED (run tests/test-bl322-s2-project-rules.sh for details)"
+# BL-322 S3: adoption stopped on the project's own `lib/` ignore rule after
+# every question had been answered, and Scout had not predicted it; the stopped
+# run had already registered two MCP servers in the operator's user config.
+run_child_suite "tests/test-bl322-s3-ignore-preflight.sh" \
+  "BL-322 S3: Scout reports the ignore-rule block adoption would meet, from adoption's own check; a stopped adoption runs no claude mcp add and writes nothing outside the project" \
+  "BL-322 S3 ignore-preflight tests FAILED (run tests/test-bl322-s3-ignore-preflight.sh for details)"
 # BL-322 S2 (Karl, 2026-10-07): zsh is installed only on the unit-shard legs
 # that run a suite marked NEEDS-ZSH, and the shard script refuses one elsewhere.
 run_child_suite "tests/test-bl322-zsh-legs.sh" \

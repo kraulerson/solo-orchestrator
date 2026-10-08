@@ -23484,8 +23484,8 @@ decision.
 Development Guardrails' in a separate CDF session)
 **Category:** Bug (correctness) + Docs
 **Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
-**Status:** Open — S1 merged (PR #502); S2 built on branch `fix/bl322-s2-project-rules` (below), review round 1
-addressed, not merged; S3 and S4 are not started
+**Status:** Open — S1 merged (PR #502); S2 merged (PR #503); S3 built on branch `fix/bl322-s3-ignore-preflight`
+(below), review round 1 addressed, not merged; S4 not started
 
 **What ran.** The third dogfood run, the one that closed `## BL-318:`. A headless Claude Code session (Sonnet)
 played the same systems technician (not a developer), driven in 14 turns, with a stand-in for Karl answering
@@ -23705,6 +23705,110 @@ check-session-state, and resume.sh's `# BL-318-G2-CURRENT-STATE`); warning alone
   so an unassessed one lacks step 8's new sentence; nothing re-carries their imports.
 - **The run-1 transcript of the Guardrails manifest's disclosure** in `docs/adoption.md` is kept as observed,
   so it predates the per-file line.
+
+**S3's design.** Finding 4 asked Scout to run adoption's ignore test; finding 5 asked that a blocked run leave
+nothing outside the project. The test is two parts: the decision (which paths the rules refuse) and the naming
+of each rule (`## BL-311:` row 5). Both moved, unchanged but for one sort, from
+`scripts/lib/adopt/adopt-state.sh` to `scripts/lib/scout/scout-ignore.sh`, which adoption sources
+(`# BL-322-S3-SHARED`, refusing if it is missing: `# BL-322-S3-SHARED-LOADED`); a module may source Scout,
+as `adopt-tools.sh` already did, and Scout still sources nothing (M5). The set of paths is the part that
+cannot be shared: adoption's is the ledger of a rehearsal of its real write phase, which needs the
+operator's answers and the driver. So Scout derives the set from the framework clone it runs from, by
+extraction (init.sh's copy lines, the templates, the guides, each writer's leave-alone rule), and the suite
+holds it equal to a real rehearsal's ledger.
+
+**S3, as built (branch `fix/bl322-s3-ignore-preflight`).**
+- **Scout** (`scout_ignore_scan`, `# BL-322-S3-SCOUT-CALL`) asks the shared decision over the files an
+  adoption writes whatever the operator answers (`scout_adoption_write_set`) and reports
+  `collisions.ignoreRules`: `checked`, `why`, `pathsChecked`, `wouldBlock`, every `refused` path, the `rules`
+  (source, line, pattern, count, example), the `explanation` lines adoption's block prints, and `notChecked`.
+  The Markdown report says it at the top and in a section, "Would your ignore rules stop the adoption?".
+  Not predicted, and said so: `.claude/test-command` (written only when the operator keeps the scan's
+  command) and the Guardrails' own files. Never counted, because they never block: the archive (an ignored copy
+  is withheld from the commit, `# BF-ADOPT-IGNORE-ARCHIVE`), `APPROVAL_LOG.md` and `.claude/bypass-audit.json`
+  (`# BL-322-S3-STAGEABLE-ONLY`: recorded only when git will stage them, `_adopt_record_if_stageable`). Copied out of a framework clone,
+  Scout reports `checked: false` and why (`# BL-322-S3-FW-GUARD`).
+- **The rule lines are sorted** (`# BL-322-S3-EXPLAIN-SORT`), so the example each rule names does not depend on
+  the order a caller found the paths in: Scout's set is in C order, adoption's is `sort -u` in the caller's
+  locale.
+- **The decision is batched**: one `git ls-files -z` and one `git check-ignore --no-index --stdin -z` instead
+  of two git processes per path, on every Scout run and every adoption. Measured over the 114 paths Scout asks
+  about: 2.1-2.2s per path, 0.03-0.04s batched, the same 26 refused. Scout on a clean project: 0.67s at
+  `c324a0d`, 0.73-0.75s here.
+  The per-path form stays as the fallback when git cannot answer the batch, so the path it could not answer
+  for is still named (`# BL-225-ORACLE-FAIL-CLOSED`; only rc 0 and 1 are answers, `# BL-322-S3-BATCH-ANSWERED`).
+  The tracked names are read NUL-separated (`# BL-322-S3-TRACKED-NUL`), and the rule naming asks git once for
+  every refused path (`git check-ignore -v -n -z --stdin`), one table feeding both Scout's `rules` and the prose.
+- **The MCP step asks where it did and runs later.** `adopt_mcp_resolve` asks; after "set it up now" it says
+  nothing has run yet, that a stop before then registers nothing and that a later stop (a file it cannot
+  write, the project's own commit hook) leaves the registration and says so (`# BL-322-S3-MCP-DEFER`,
+  `# BL-322-S3-MCP-DEFER-SAY`). `adopt_mcp_apply` runs the commands, the receipt, Claude
+  Code's launch check and the record's cell after the pre-write check and I20, directly before the write phase
+  (`# BL-322-S3-MCP-APPLY-CALL`). The question stays where it was because the answer sequences the adoption
+  suites pipe are written against its position (TL;DR mode's comment at `adopt_ask_tldr_mode` records the
+  same constraint). A stop after the commands — a writer, the staging check, the commit — still names what
+  they registered (`# BL-318-G6-OUTSIDE`).
+- **Replay of run 3** (the git bundle at `0bb0465`, line 20 `lib/` as committed). Scout at `c324a0d`: no
+  `ignoreRules`. Scout here: `wouldBlock: true`, `.gitignore` line 20 `lib/` refusing 26 paths, "change line 20
+  of .gitignore to `/lib/`", the project unchanged. Adoption with the run's answers (1, standard, set it up
+  now, keep ×4, TL;DR yes), `claude`, `docker` and `curl` stubbed and a scratch `CLAUDE_CONFIG_DIR`: at
+  `c324a0d` both `claude mcp add` calls ran, the block said "this run DID register context7 and qdrant"; here
+  the stub logged only `docker info` and `docker ps`, the config folder stayed empty, and the block ends
+  "Adoption did not begin. Nothing was committed and nothing was written to this project." With line 20
+  anchored (uncommitted, as the operator did), Scout is quiet and adoption registers both servers after the
+  rehearsal and before the first writer; the record says "set up by adoption".
+- **Tests.** `tests/test-bl322-s3-ignore-preflight.sh`: 20 cases and 27 mutants, each killed by a named case.
+  S1-S4 Scout's report; U1 the sort; D1 the decision row by row (untracked, tracked under a file rule, tracked
+  top-level, tracked under an ignored folder, a newline in a tracked name, beyond a symlink: F 128, rc 2); E1 a
+  symlinked `.claude` end to end (Scout cannot tell and says adoption would stop; adoption refuses before
+  writing; the tree is unchanged); P1-P2 Scout's set equals a real rehearsal's ledger (P2 on a project
+  adoption partly leaves alone, with its CI, a test command and an archive); A1-A6 Scout's answer equals the
+  real driver's on the same tree (`lib/`, `*.md`, a negation, a nested `.gitignore`, a global
+  `core.excludesFile` under a fake HOME, `.git/info/exclude`); M1 a blocked adoption told to set the servers
+  up runs no `claude mcp add`, starts no container and leaves HOME, the Claude Code config and TMPDIR
+  byte-identical; M2 a passing one still registers both, after the checks; M3 the project's own pre-commit hook
+  stops the run after the commands, and the block names the registration, as the note says; M4 I20 (reproduced
+  with the inventory's own seam, `SOIF_ADOPT_INVENTORY_SKIP_CLASS`) stops the run before the commands; I1
+  adopt_main's order. A case that needs gitleaks skips without it, and fails when `CI` is set. `tests/test-bl311-c-scout-runner-ignore-rule.sh`'s
+  mutants of the rule naming and `tests/test-bl225-prewrite-preflight.sh`'s MP1 now mutate the moved code;
+  the MCP suites' harnesses call the question and then the commands; `tests/test-bl318-g4g6.sh` B1 (a stop at
+  a later question after "set it up now") now asserts nothing was registered.
+
+**S3 review round 1 (major_concerns; all addressed).** The reviewer found the moved decision equal to the base
+loop on 500 fuzzed and 22 hand-built trees, and the replay reproducible. R-S3-1: the fail-closed half was
+pinned by nothing — their mutants MA (the per-path arm reads 128 as not ignored), MB (the batch reads 128 as an
+answer) and MC (adoption ignores a failed decision) left every suite green, and on a project whose `.claude` is
+a symlink MC wrote 105 files and failed half-installed; MF and MG (a tracked path, or a tracked top-level file,
+asked about itself) over-refused unseen. D1 and E1 kill all five (X20-X24). R-S3-2: the note at the question
+promised the configuration would be left as it was after any stop; a stop after the commands keeps it (M3,
+X27). R-S3-3: an ignored archive copy is withheld, never blocks (corrected above and in the report). R-S3-4:
+"after I20" is pinned by M4 and I1 (X26). R-S3-5: the rule naming ran one `git check-ignore -v` per refused
+path, twice in Scout; on k-pdf at `0bb0465` Scout made 66 git calls (52 of them `-v`) and took 3.20-3.23s, now
+15 (1) and 2.35-2.41s (2.18-2.27s at `c324a0d`). R-S3-6: a newline in a tracked name forged a tracked path and
+the check failed open (D1, X25). R-S3-7: without gitleaks the suite skipped its adoption cases and passed; under
+`CI` it now fails.
+
+**S3 residuals (not fixed):**
+- **What Scout does not predict can still block.** A rule that refuses only `.claude/test-command` or only a
+  Guardrails file: Scout says no block, adoption's own check blocks, and nothing outside the project has
+  changed by then.
+- **A `.claude/settings.json` adoption cannot compose into** (not a JSON object) is left alone, and Scout,
+  which reads no JSON, still counts it: Scout over-claims only if a rule refuses that one path.
+- **The tool resolver's installs still precede the ignore check.** On an explicit yes, a missing scanner is
+  installed before the secrets check, which needs it, and that check precedes the questions; the ignore check
+  needs every answer, because it rehearses the real write phase. A later stop does not name an install
+  (`# BL-318-G6-OUTSIDE` names MCP registrations only). Not changed here.
+- **An early ignore check inside adoption was not built.** Adoption could ask Scout's derived set at its start
+  and stop before any question; a derived set that over-includes would then refuse a project the rehearsal
+  accepts, and the rehearsal is the only exact set. Scout's report is the early warning.
+- **Paths are literal now.** The batched decision reads a planned path literally where the per-path
+  `ls-files --error-unmatch` read `*`, `?` and `[` as globs; only an archive copy of a project file with such a
+  name could differ.
+- **The sort is proven only by U1.** On this Mac and on C.UTF-8 the planned set's `sort -u` order is C order,
+  so A1-A6 cannot see the sort; a glibc collating locale (en_US.UTF-8 on Linux) would. Not measured in one.
+- **Follow-up idea (review round 1, not built):** adoption already runs Scout, or reads the report it is
+  given, before its first question; it could warn there when `ignoreRules.wouldBlock` is true, for an operator
+  who skipped Scout. A warning, not a refusal: the rehearsal stays the check that decides.
 
 **Found while building S1, not fixed by it: the Claude-commit ledger is never written.**
 `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code` and treats
