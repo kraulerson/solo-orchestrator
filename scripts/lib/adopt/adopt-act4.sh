@@ -213,8 +213,8 @@ adopt_act3_next() {                                    # BL-242-ACT3-NEXT
   adopt_note "The project stays at phase 0 whatever the verdict."
   # `## BL-322:` S2 — said again here, at the end of the run, where it is read.
   if [ "${ADOPT_CLAUDE_MD_REPLACED:-0}" = 1 ]; then   # BL-322-ACT3-RULES
-    adopt_note "Until it has run, the rules written in your old CLAUDE.md do not load: only its"
-    adopt_note "imports of files still in the project were carried over."
+    adopt_note "Until it has run, the rules written in your old CLAUDE.md do not load. Nothing of"
+    adopt_note "it was carried over but the imports named above, if any."
   fi
 }
 
@@ -313,7 +313,8 @@ Then, WITH ME — ask, do not infer:
 8. Fold what is worth keeping from the archived documents into CLAUDE.md, FEATURES.md, BUGS.md and
    RELEASE_NOTES.md, and tell me what you moved.
    If CLAUDE.md has a section "Carried over from your CLAUDE.md": it keeps loading the files
-   the old CLAUDE.md imported, but not the rules written in the old file itself, so fold those in.
+   the old CLAUDE.md imported, and any it lists as perhaps imported, but not the rules written in
+   the old file itself, so fold those in. Ask me about each import listed as perhaps imported.
    Then keep each import you still want, outside that section, and delete the section, marker
    lines included.
    RELEASE_NOTES.md is the framework's blank template: adoption did not carry this project's

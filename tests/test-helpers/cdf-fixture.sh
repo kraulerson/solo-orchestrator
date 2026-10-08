@@ -30,7 +30,10 @@
 #   history (a depth-1 clone has none); otherwise 77. Read HOME before a suite
 #   points it anywhere else.
 #
-# bash 3.2 safe. Network only in cdf_fixture_fetch, which only CI runs.
+# bash 3.2 safe. Network only in cdf_fixture_fetch, which only CI runs. If
+# GitHub or the CDF repository cannot be reached, that step fails, and with it
+# every leg: the fixture is a hard dependency of the lane, on purpose (a
+# skipped fetch would let the real-clone cases fail on every leg anyway).
 
 # CDF v4.4.1: the merge of PR #27 (kraulerson/claude-dev-framework), 2026-10-07.
 CDF_FIXTURE_PIN=4180f22be0a8b4410aeaa4e65800aed8e2299805   # BL-322-S5-FIXTURE-PIN
@@ -75,7 +78,8 @@ cdf_fixture_fetch() {
   git init -q "$d" || { echo "cdf_fixture_fetch: git init $d failed" >&2; return 1; }
   while :; do
     try=$((try + 1))
-    git -C "$d" fetch -q --no-tags "$url" "$CDF_FIXTURE_PIN" && break
+    # A stalled transfer (under 1000 bytes/s for 30s) fails the try, not the leg's clock.
+    git -C "$d" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch -q --no-tags "$url" "$CDF_FIXTURE_PIN" && break   # BL-322-S5-FIXTURE-FETCH
     [ "$try" -lt 3 ] || { echo "cdf_fixture_fetch: could not fetch $CDF_FIXTURE_PIN from $url (3 tries)" >&2; return 1; }
     sleep 5
   done

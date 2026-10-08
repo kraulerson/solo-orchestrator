@@ -1105,7 +1105,8 @@ fi
 # -c, -C and -t take one, attached or as the next word; -S[<key-id>] and
 # -u[<mode>] take an optional one, attached only, so they never take the next
 # word. -U <n> is left out: its value is a number, which spells no option, and
-# git refuses one that is not.
+# git refuses one that is not. A leading `:(optional)` (gitcli, "Magic filename
+# options": a missing file means no -F at all) is not part of the path (R-S5-5).
 #
 # `## BL-322:` S4, review round 1 (R-S4-1). The four readers below matched
 # "-F, whitespace, then non-spaces" with sed: a QUOTED path kept its quotes and
@@ -1115,6 +1116,7 @@ fi
 # refused it later). S4 tells the agent to commit with `git commit -F <file>`.
 _commit_msg_file() {   # BL-322-S4-MSGFILE
   printf '%s' "$COMMAND" | awk '
+    function fp(p) { if (substr(p, 1, 11) == ":(optional)") p = substr(p, 12); return p }   # BL-322-S5-MSGFILE-OPTIONAL
     { src = src (NR > 1 ? "\n" : "") $0 }
     END {
       n = 0; tok = ""; have = 0; q = ""; L = length(src)
@@ -1137,14 +1139,14 @@ _commit_msg_file() {   # BL-322-S4-MSGFILE
       for (k = k + 1; k <= n; k++) {
         w = t[k]
         if (w == "&&" || w == "||" || w == ";" || w == "|" || w == "&" || w == "--") exit
-        if (w == "-F" || w == "--file") { if (k < n) print t[k + 1]; exit }   # BL-322-S4-MSGFILE-LONG
-        if (substr(w, 1, 7) == "--file=") { print substr(w, 8); exit }   # BL-322-S4-MSGFILE-LONGEQ
+        if (w == "-F" || w == "--file") { if (k < n) print fp(t[k + 1]); exit }   # BL-322-S4-MSGFILE-LONG
+        if (substr(w, 1, 7) == "--file=") { print fp(substr(w, 8)); exit }   # BL-322-S4-MSGFILE-LONGEQ
         if (w == "--message" || w == "--author" || w == "--date" || w == "--cleanup" || w == "--trailer" \
             || w == "--reuse-message" || w == "--reedit-message" || w == "--fixup" || w == "--squash") { k++; continue }
         if (substr(w, 1, 1) == "-" && substr(w, 2, 1) != "-") {
           for (j = 2; j <= length(w); j++) {
             l = substr(w, j, 1)
-            if (l == "F") { r = substr(w, j + 1); if (r != "") print r; else if (k < n) print t[k + 1]; exit }   # BL-322-S4-MSGFILE-CLUSTER
+            if (l == "F") { r = substr(w, j + 1); if (r != "") print fp(r); else if (k < n) print fp(t[k + 1]); exit }   # BL-322-S4-MSGFILE-CLUSTER
             if (l == "m" || l == "c" || l == "C" || l == "t") {   # BL-322-S5-MSGFILE-REQVAL
               if (j == length(w)) k++   # BL-322-S4-MSGFILE-SKIPVAL
               break

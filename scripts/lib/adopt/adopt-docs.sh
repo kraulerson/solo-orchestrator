@@ -107,19 +107,32 @@ _adopt_doc_value() {
 # starts `./`, `~/`, `/x` or `[A-Za-z0-9._-]`. Code (fenced or indented) and code
 # spans are never scanned; an HTML comment is cut out first; any other HTML
 # block is skipped whole. A shell step cannot run a Markdown lexer, so this is
-# an approximation. Where it knows it cannot tell, it does not carry: a false
-# carry would turn on text the project had switched off (a commented-out
-# import, an example in a code block); a missed import is named in no list, but
-# the warning names the archived file. It does NOT err in one direction only:
-# three kinds of shape it cannot see make it carry an `@` Claude Code would not
-# import: a fence or an HTML block inside a list item or a block quote; a code
-# span that runs across lines; and `<!--> @x.md -->` or `<!---> @x.md -->`
-# (Claude Code cuts from the `<!--` to the next `-->`; this reads `<!-->` as a
-# whole comment). Measured against the replica on 2026-10-08 (`## BL-322:` S5):
-# 9000 fuzzed one-line emphasis and link-text shapes, no false carry (166, 154
-# and 162 per 3000 at `c125f0f`); the review's 41 fixtures, 9 false carries,
-# every one of them one of those shapes.
-# What it reads, line by line (`_adopt_claude_md_import_tokens`):
+# an approximation, and where the Markdown is ambiguous it CARRIES ON DOUBT and
+# NAMES the import apart as unsure (`## BL-322:` S5, review R-S5-2, within
+# Karl's S2 ruling): a missed import silently stops a rule loading, which is
+# the defect S2 exists for; an unsure one loads a file that is in the project,
+# and the run, the carried section and the assessment prompt all say so. Only
+# what it reads as certain is never an import: code, code spans, comments,
+# HTML blocks, an `@` inside a word or after an opener that cannot open.
+# It still carries an `@` Claude Code would not import, as CERTAIN, in three
+# kinds of shape it cannot see: a fence or an HTML block inside a list item or
+# a block quote; a code span that runs across lines; and `<!--> @x.md -->` or
+# `<!---> @x.md -->` (Claude Code cuts from the `<!--` to the next `-->`; this
+# reads `<!-->` as a whole comment). Measured against the replica (marked
+# 13.0.3) on 2026-10-08:
+#   - 66 realistic CLAUDE.md shapes (review round 1): 4 false carries, all
+#     named unsure; 18 unsure rows, 14 of them real imports; 1 import missed,
+#     `docs/style.md**`, a path that cannot exist, which Claude Code reads by
+#     also scanning a tight list item raw (base: 1 false, 9 missed; at
+#     `6d69a80`: 0 false, 24 missed);
+#   - the review's 41 fixtures: 14 false carries (9 certain, each one of the
+#     three shapes above; 5 unsure), no miss;
+#   - 18000 fuzzed one-line emphasis and link-text shapes (two generators, three
+#     seeds each): misses 0/0/0 and 42/46/43 (base 11/14/11 and 78/87/81);
+#     false carries are most of the lines, every one named unsure but 1, 2 and
+#     1 certain, an escaped `\*` before a longer closing run.
+# What it reads, line by line (`_adopt_claude_md_import_tokens`; one path per
+# line, a TAB and `unsure` after one the line does not settle):
 #   - a trailing CR is dropped (a CRLF file);
 #   - a fence runs from ``` or ~~~ (up to three spaces in) to a line of the
 #     same character at least as long, and nothing in it is read;
@@ -133,20 +146,22 @@ _adopt_doc_value() {
 #   - code spans are cut out (a run of N backticks closed by the next run of
 #     exactly N), then HTML comments, which may run across lines;
 #   - a no-break space counts as a space, as JavaScript's `\s` counts it;
-#   - an `@` counts at a line start or after whitespace, and also as the first
-#     character of emphasis (`*@x.md*`, `**@x.md**`, `_@x.md_`) or of a link's
-#     text (`[@x.md](…)`), where Markdown starts a new text token — but only
-#     when, on the same line, the emphasis meets a run that can close it (the
-#     flanking rules, at least as long, before any nested opener) or the link
-#     text meets `](`, a destination and `)` (`emclose`, `linkclose`, R-S2-12);
-#   - the path runs to whitespace or to a backslash not followed by a space.
-# What it misses, recorded on `## BL-322:` (each is not carried): an `@` right
-# after a CLOSING delimiter (`**bold**@x.md`) or an inline tag (`<b>@x.md</b>`),
-# an `@` inside a code span in a tight list item (Claude Code scans that raw), a
-# code span across lines, whitespace other than the space, the tab and the
-# no-break space, and emphasis or link text that closes on a later line, holds
-# a bracket, a tag or a nested emphasis, or has a non-ASCII neighbour at a
-# delimiter.
+#   - a new text, and so an import, starts at an `@` after whitespace or a line
+#     start; after a run of `*` or `_` that opens emphasis, or closes emphasis
+#     opened earlier on the line; after `[` (not an image's `![`); after an
+#     escaped character; and after an inline tag. Emphasis or link text the `@`
+#     opens is certain only when the same line shows it closing (the flanking
+#     rules, `emclose`) or the link being real (`linkclose`); a non-ASCII
+#     neighbour is tried as a space, punctuation and a letter, and counts only
+#     when all three agree; otherwise the import is unsure;
+#   - the path runs to whitespace, a backslash not followed by a space, or an
+#     inline tag, and ends at a closer of emphasis or link text opened before
+#     it (`tokcut`) or, when unsure, at the likeliest one (`guess`).
+# What it misses, recorded on `## BL-322:` (each is not carried): an `@`
+# inside a code span in a tight list item (Claude Code scans that raw), a code
+# span across lines, whitespace other than the space, the tab and the no-break
+# space, a line that opens with an inline tag (read as an HTML block), and an
+# `@` after a run that closes emphasis opened on an earlier line.
 ADOPT_CARRY_BEGIN='<!-- SOIF-CARRIED-IMPORTS-BEGIN (BL-322) -->'
 ADOPT_CARRY_END='<!-- SOIF-CARRIED-IMPORTS-END -->'
 ADOPT_CLAUDE_MD_REPLACED=0
@@ -172,67 +187,142 @@ _adopt_claude_md_import_tokens() {
       return out t
     }
     function isws(c) { return c == "" || c == " " || c == "\t" }
-    function ispunct(c) { return c != "" && index("!\"#$%&\047()*+,-./:;<=>?@[\\]^_`{|}~", c) > 0 }
+    function ispunct(c) { return c != "" && index("!\"#$%&\047()*+,-./:;<=>?@[\\]^_`{|}~", c) > 0 }   # BL-322-CARRY-PUNCT
+    # cls(c) — a space (w; a line end counts), ASCII punctuation (p), another
+    # ASCII character (a), or a byte of a non-ASCII character (?): any of them.
+    function cls(c) { return isws(c) ? "w" : (c > "\177") ? "?" : ispunct(c) ? "p" : "a" }   # BL-322-CARRY-CLASS
+    # flank(p, x, d, L, n) — what a run of n of d between characters of classes p
+    # and x does to emphasis a run of L opened (the Markdown flanking rules):
+    # "close" it, "stop" the search (it can open, closes too short, or the rule
+    # of three keeps it open), or "skip" (literal). With L 0, only whether the
+    # run can open: "open" or "no".
+    function flank(p, x, d, L, n,    lf, rf, op, cl) {
+      lf = (x != "w") && (x != "p" || p == "w" || p == "p")   # BL-322-CARRY-EMPH-LEFT
+      rf = (p != "w") && (p != "p" || x == "w" || x == "p")   # BL-322-CARRY-EMPH-FLANK
+      if (d == "*") { op = lf; cl = rf } else { op = lf && (!rf || p == "p"); cl = rf && (!lf || x == "p") }   # BL-322-CARRY-EMPH-UNDER
+      if (!L) return op ? "open" : "no"
+      if (cl && n >= L) return (op && (L + n) % 3 == 0 && (L % 3 || n % 3)) ? "stop" : "close"   # BL-322-CARRY-EMPH-RUN
+      return (op || cl) ? "stop" : "skip"   # BL-322-CARRY-EMPH-NESTED
+    }
+    # runsays(s, a, e, d, L) — flank() for the run s[a..e]; "?" when a
+    # non-ASCII neighbour leaves it open (every class it could be is tried).
+    function runsays(s, a, e, d, L,    p, x, j, k, v, w) {
+      p = cls(substr(s, a - 1, 1)); x = cls(substr(s, e + 1, 1)); v = ""
+      for (j = 1; j <= 3; j++) for (k = 1; k <= 3; k++) {
+        w = flank((p == "?") ? substr("wpa", j, 1) : p, (x == "?") ? substr("wpa", k, 1) : x, d, L, e - a + 1)
+        if (v == "") v = w; else if (v != w) return "?"   # BL-322-CARRY-EMPH-ASCII
+      }
+      return v
+    }
     # emclose(s, from, d, L) — where, on this line, the run of d that closes the
-    # emphasis an `@` opened (a run of L) starts; 0 when none does, or when what
-    # comes first could change the answer: a run that can open (a nested
-    # emphasis), a closing run shorter than L, a bracket, a tag or a backtick, a
-    # non-ASCII neighbour, or a run that can open and close whose length breaks
-    # the rule of three.
-    function emclose(s, from, d, L,    n, i, a, c, p, x, lf, rf, op, cl) {
+    # emphasis a run of L opened starts; 0 when that is not certain here: a run
+    # that stops the search, a bracket, a tag or a backtick first, or the end.
+    function emclose(s, from, d, L,    n, i, a, c, v) {
       n = length(s)
       for (i = from; i <= n; i++) {
         c = substr(s, i, 1)
-        if (c == "\\") { i++; continue }
+        if (c == "\\") { i++; continue }   # BL-322-CARRY-EMPH-ESC
         if (index("[]<`", c)) return 0   # BL-322-CARRY-EMPH-STOP
-        if (c != d) continue
-        a = i; while (i < n && substr(s, i + 1, 1) == d) i++
-        p = substr(s, a - 1, 1); x = substr(s, i + 1, 1)
-        if (p > "\177" || x > "\177") return 0   # BL-322-CARRY-EMPH-ASCII
-        lf = !isws(x) && (!ispunct(x) || isws(p) || ispunct(p))
-        rf = !isws(p) && (!ispunct(p) || isws(x) || ispunct(x))   # BL-322-CARRY-EMPH-FLANK
-        if (d == "*") { op = lf; cl = rf } else { op = lf && (!rf || ispunct(p)); cl = rf && (!lf || ispunct(x)) }   # BL-322-CARRY-EMPH-UNDER
-        if (cl && i - a + 1 >= L) { if (op && (L + i - a + 1) % 3 == 0 && (L % 3 || (i - a + 1) % 3)) return 0; return a }   # BL-322-CARRY-EMPH-RUN
-        if (op || cl) return 0   # BL-322-CARRY-EMPH-NESTED
+        if (c != d) continue   # BL-322-CARRY-EMPH-CHAR
+        a = i; while (i < n && substr(s, i + 1, 1) == d) i++   # BL-322-CARRY-EMPH-RUNLEN
+        v = runsays(s, a, i, d, L)
+        if (v == "close") return a   # BL-322-CARRY-EMPH-CLOSE
+        if (v != "skip") return 0   # BL-322-CARRY-EMPH-VERDICT
       }
       return 0
     }
-    # linkclose(s, from) — where the `]` that ends the link text an `@` opened
-    # is, when an inline link follows it: `(`, a destination (`<…>`, or no
-    # space, a `)` in it only after a `(`, or none), an optional title after a
-    # space (in double quotes, single quotes or parentheses), `)`. 0 otherwise,
-    # or when the text holds a bracket, a tag or a backtick. A reference link is
-    # not read.
+    # prior(s, upto, target, d) — whether a run of d before upto opens emphasis
+    # that the run at target closes: 2 certainly, 1 perhaps, 0 no. A run whose
+    # emphasis certainly closes elsewhere is spent.
+    function prior(s, upto, target, d,    i, a, c, v, r, best) {
+      best = 0
+      for (i = 1; i < upto; i++) {
+        c = substr(s, i, 1)
+        if (c == "\\") { i++; continue }
+        if (c != d) continue
+        a = i; while (i < upto - 1 && substr(s, i + 1, 1) == d) i++
+        v = runsays(s, a, i, d, 0)
+        if (v == "no") continue   # BL-322-CARRY-PRIOR-OPENS
+        r = emclose(s, i + 1, d, i - a + 1)   # BL-322-CARRY-PRIOR-CLOSE
+        if (r == target && v == "open") return 2   # BL-322-CARRY-PRIOR
+        if (r == target || r == 0) best = 1   # BL-322-CARRY-PRIOR-PERHAPS
+      }
+      return best
+    }
+    # linkprior(s, upto, target) — the same for link text: whether a `[` before
+    # upto (not of an image, not escaped) opens a link whose text ends at target.
+    function linkprior(s, upto, target,    i, c, r, best) {
+      best = 0
+      for (i = 1; i < upto; i++) {
+        c = substr(s, i, 1)
+        if (c == "\\") { i++; continue }
+        if (c != "[" || (i > 1 && substr(s, i - 1, 1) == "!")) continue
+        r = linkclose(s, i + 1)
+        if (r == target) return 2   # BL-322-CARRY-LINKPRIOR
+        if (r == 0) best = 1   # BL-322-CARRY-LINKPRIOR-PERHAPS
+      }
+      return best
+    }
+    # tokcut(s, at, t, k) — where the path t (the @ at `at`, read to k) ends at
+    # a closer of emphasis or link text opened earlier on the line: where that
+    # closer is, negated when that is not certain; k when nothing ends it.
+    function tokcut(s, at, t, k,    i, n, c, a, w) {
+      n = length(t)
+      for (i = 1; i <= n; i++) {
+        c = substr(t, i, 1); a = i
+        if (c == "]") w = linkprior(s, at, at + i)
+        else if (c == "*" || c == "_") {
+          while (i < n && substr(t, i + 1, 1) == c) i++
+          w = prior(s, at, at + a, c)
+        } else continue
+        if (w == 2) return at + a   # BL-322-CARRY-TOKCUT
+        if (w == 1) return -(at + a)   # BL-322-CARRY-TOKCUT-UNSURE
+      }
+      return k
+    }
+    # guess(t, d, L) — where in path t emphasis a run of L of d opened, or link
+    # text (d is "]"), most likely ends when the line does not say for certain:
+    # its first run of d at least L long (of underscores, only when no letter or
+    # digit follows it); 0 for none.
+    function guess(t, d, L,    i, n, a) {
+      n = length(t)
+      for (i = 1; i <= n; i++) {
+        if (substr(t, i, 1) != d) continue
+        a = i; while (i < n && substr(t, i + 1, 1) == d) i++
+        if (i - a + 1 >= L && (d != "_" || substr(t, i + 1, 1) !~ /[A-Za-z0-9]/)) return a   # BL-322-CARRY-GUESS
+      }
+      return 0
+    }
     function linkclose(s, from,    n, i, e, c, dp, q) {
       n = length(s)
       for (i = from; i <= n; i++) {
         c = substr(s, i, 1)
-        if (c == "\\") { i++; continue }
-        if (index("[<`", c)) return 0
-        if (c == "]") break
+        if (c == "\\") { i++; continue }   # BL-322-CARRY-LINK-ESC
+        if (index("[<`", c)) return 0   # BL-322-CARRY-LINK-STOP
+        if (c == "]") break   # BL-322-CARRY-LINK-END
       }
       if (i > n || substr(s, i + 1, 1) != "(") return 0   # BL-322-CARRY-LINK-PAREN
-      e = i; i += 2
-      while (substr(s, i, 1) == " " || substr(s, i, 1) == "\t") i++
+      e = i; i += 2   # BL-322-CARRY-LINK-OPEN
+      while (substr(s, i, 1) == " " || substr(s, i, 1) == "\t") i++   # BL-322-CARRY-LINK-LEAD
       if (substr(s, i, 1) == "<") {
-        for (i++; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") { i++; continue }; if (c == "<") return 0; if (c == ">") break }
-        i++
+        for (i++; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") { i++; continue }; if (c == "<") return 0; if (c == ">") break }   # BL-322-CARRY-LINK-ANGLE
+        i++   # BL-322-CARRY-LINK-ANGLE-END
       } else {
         for (dp = 0; i <= n; i++) {
           c = substr(s, i, 1)
-          if (c == "\\") { i++; continue }
+          if (c == "\\") { i++; continue }   # BL-322-CARRY-LINK-DEST-ESC
           if (c <= " " || c == "\177") break   # BL-322-CARRY-LINK-DEST
-          if (c == "(") dp++
-          else if (c == ")") { if (!dp) break; dp-- }
+          if (c == "(") dp++   # BL-322-CARRY-LINK-DEPTH
+          else if (c == ")") { if (!dp) break; dp-- }   # BL-322-CARRY-LINK-DEPTH-CLOSE
         }
       }
       q = i; while (substr(s, i, 1) == " " || substr(s, i, 1) == "\t") i++
       c = substr(s, i, 1)
-      if (c == ")") return e
+      if (c == ")") return e   # BL-322-CARRY-LINK-NOTITLE
       if (i == q || !index("\"\047(", c)) return 0   # BL-322-CARRY-LINK-TITLE
-      q = (c == "(") ? ")" : c
-      for (i++; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") { i++; continue }; if (c == q) break }
-      for (i++; substr(s, i, 1) == " " || substr(s, i, 1) == "\t"; i++) ;
+      q = (c == "(") ? ")" : c   # BL-322-CARRY-LINK-PARENQ
+      for (i++; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") { i++; continue }; if (c == q) break }   # BL-322-CARRY-LINK-TITLE-END
+      for (i++; substr(s, i, 1) == " " || substr(s, i, 1) == "\t"; i++) ;   # BL-322-CARRY-LINK-TRAIL
       return (substr(s, i, 1) == ")") ? e : 0   # BL-322-CARRY-LINK-CLOSE
     }
     {
@@ -292,32 +382,50 @@ _adopt_claude_md_import_tokens() {
       n = length(line)
       for (pos = 1; pos <= n; pos++) {
         if (substr(line, pos, 1) != "@") continue
-        kind = 0; closer = ""; pc = (pos > 1) ? substr(line, pos - 1, 1) : " "
+        u = 0; kind = 0; pc = (pos > 1) ? substr(line, pos - 1, 1) : " "
+        # Where a new text starts at the @: after a space (1); after a run of *
+        # or _ that opens emphasis (2), or closes emphasis opened earlier (1);
+        # after `[` that opens the text of a link (3); after an escaped character or
+        # an inline tag (1). u marks one the line does not settle for certain:
+        # it is carried, and named apart (R-S5-2).
         if (pc == " " || pc == "\t") kind = 1   # BL-322-CARRY-WS
         else if (raw) kind = 0
+        else if (pos > 2 && substr(line, pos - 2, 1) == "\\" && ispunct(pc)) kind = 1   # BL-322-CARRY-ESCAPE
         else if (pc == "*" || pc == "_") {
           j = pos - 1; while (j > 1 && substr(line, j - 1, 1) == pc) j--
-          if (j == 1 || substr(line, j - 1, 1) ~ /[ \t]/) { kind = 2; closer = substr(line, j, pos - j) }   # BL-322-CARRY-EMPH
-        } else if (pc == "[" && (pos == 2 || substr(line, pos - 2, 1) ~ /[ \t]/)) { kind = 3 }   # BL-322-CARRY-LINKTEXT
+          L = pos - j; v = runsays(line, j, pos - 1, pc, 0); w = prior(line, j, j, pc)
+          if (w == 2) kind = 1   # BL-322-CARRY-AFTER
+          else if (v == "open") kind = 2   # BL-322-CARRY-EMPH
+          else if (v == "?") { kind = 2; u = 1 }
+          else if (w == 1) { kind = 1; u = 1 }
+        } else if (pc == "[") {
+          if (pos == 2 || substr(line, pos - 2, 1) != "!") kind = 3   # BL-322-CARRY-LINKTEXT
+        } else if (pc == ">" && substr(line, 1, pos - 1) ~ /<\/?[A-Za-z][A-Za-z0-9-]*([ \t][^<>]*)?\/?>$/) kind = 1   # BL-322-CARRY-TAG
         if (!kind) continue
         tok = ""; at = pos; k = pos + 1
         while (k <= n) {
           c = substr(line, k, 1)
           if (c == "\\") { if (substr(line, k + 1, 1) != " ") break; tok = tok "\\ "; k += 2; continue }   # BL-322-CARRY-BACKSLASH
           if (c == " " || c == "\t") break
+          if (c == "<" && substr(line, k) ~ /^<\/?[A-Za-z][A-Za-z0-9-]*([ \t][^<>]*)?\/?>/) break   # BL-322-CARRY-TAGEND
           tok = tok c; k++
         }
         pos = k - 1
-        # Emphasis or link text counts only once it is known to close (R-S2-12);
-        # a closer inside the path ends the path there.
-        m = (kind == 2) ? emclose(line, at + 1, pc, length(closer)) : (kind == 3) ? linkclose(line, at + 1) : k   # BL-322-CARRY-CLOSES
-        if (!m) continue
+        # Where the path ends: at the closer of the emphasis or link text the @
+        # opened, when the line shows it (R-S2-12); otherwise at the likeliest
+        # closer, and the import is unsure (R-S5-2). After a space, at a closer
+        # of something opened earlier on the line.
+        if (kind == 2) { m = emclose(line, at + 1, pc, L); if (!m) { u = 1; m = guess(tok, pc, L); m = m ? at + m : k } }   # BL-322-CARRY-CLOSES
+        else if (kind == 3) { m = linkclose(line, at + 1); if (!m) { u = 1; m = guess(tok, "]", 1); m = m ? at + m : k } }   # BL-322-CARRY-LINKCLOSES
+        else { m = tokcut(line, at, tok, k); if (m < 0) { u = 1; m = -m } }
         if (m < k) tok = substr(tok, 1, m - at - 1)
         h = index(tok, "#"); if (h) tok = substr(tok, 1, h - 1)   # BL-322-CARRY-FRAGMENT
         if (!(tok ~ /^~\// || (substr(tok, 1, 1) == "/" && tok != "/") || tok ~ /^[A-Za-z0-9._-]/)) continue   # BL-322-CARRY-PATHCHAR
-        if (!(tok in seen)) { seen[tok] = 1; print tok }
+        if (!(tok in seen)) { seen[tok] = u; order[++no] = tok } else if (!u) seen[tok] = 0   # BL-322-CARRY-ONCE
       }
-    }' "$1"
+    }
+    END { for (i = 1; i <= no; i++) print order[i] (seen[order[i]] ? "\tunsure" : "") }   # BL-322-CARRY-UNSURE-OUT
+    ' "$1"
 }
 
 # _adopt_carry_norm PATH — PATH with `.` and `..` resolved lexically (as Claude
@@ -353,9 +461,10 @@ HITS
   return 1
 }
 
-# _adopt_claude_md_carry ROOT FILE — one row per import in FILE:
-#   carry<TAB>PATH, or skip<TAB>TOKEN<TAB>REASON
-# PATH is the import normalised (`./`, `..` and a `#…` gone; a space written
+# _adopt_claude_md_carry ROOT FILE — one row per import in FILE, in its order:
+#   carry<TAB>PATH, unsure<TAB>PATH, or skip<TAB>TOKEN<TAB>REASON
+# unsure is carried too: the reading could not tell whether Claude Code imports
+# it (R-S5-2), and the run names it apart. PATH is the import normalised (`./`, `..` and a `#…` gone; a space written
 # `\ `): what Claude Code will load, exactly. REASON is control, home, outside,
 # link, missing, not-a-file, unchecked, archived or written. Asked BEFORE this
 # stage writes anything, so "adoption did not write it" is two questions: the
@@ -364,13 +473,15 @@ HITS
 # (FEATURES.md here, `.claude/settings.json` in the session layer). An archive
 # record that cannot be read FAILS CLOSED: nothing is carried on its say-so.
 _adopt_claude_md_carry() {                             # BL-322-CARRY
-  local root="$1" src="$2" tok="" path="" norm="" reason="" mj="" written="" arch="" arch_bad=0 out="" done_list=""
+  local root="$1" src="$2" tok="" flag="" path="" norm="" reason="" mj="" written="" arch="" arch_bad=0 out="" done_list=""
+  local rows="" upgrade="" nl="
+"
   if [ -n "${ADOPT_ARCHIVE_DIR:-}" ]; then
     mj="$root/$ADOPT_ARCHIVE_DIR/MANIFEST.json"
     arch="$(jq -r '.entries[] | select(.disposition != "kept") | .originalPath' "$mj" 2>/dev/null)" || arch_bad=1   # BL-322-CARRY-FAILCLOSED
   fi
   written="$(adopt_written_paths)"
-  while IFS= read -r tok; do
+  while IFS="$(printf '\t')" read -r tok flag; do
     [ -n "$tok" ] || continue
     reason=""; norm=""
     case "$tok" in *[[:cntrl:]]*) reason=control; tok="$(printf '%s' "$tok" | tr '[:cntrl:]' '?')" ;; esac   # BL-322-CARRY-CNTRL
@@ -390,15 +501,18 @@ _adopt_claude_md_carry() {                             # BL-322-CARRY
       elif _adopt_carry_hit "$written" "$root" "$norm"; then reason=written   # BL-322-CARRY-WRITTEN
       fi
     fi
-    if [ -n "$reason" ]; then printf 'skip\t%s\t%s\n' "$tok" "$reason"; continue; fi
+    if [ -n "$reason" ]; then rows="${rows}skip	$tok	$reason$nl"; continue; fi
     out="$(printf '%s' "$norm" | sed 's/ /\\ /g')"   # BL-322-CARRY-NORMWRITE
-    grep -qxF -- "$out" <<< "$done_list" && continue   # BL-322-CARRY-DEDUPE
-    done_list="$done_list$out
-"
-    printf 'carry\t%s\n' "$out"
+    # Once per file; a spelling read for certain makes an unsure one certain.
+    grep -qxF -- "$out" <<< "$done_list" && { [ "$flag" = unsure ] || upgrade="$upgrade$out$nl"; continue; }   # BL-322-CARRY-DEDUPE
+    done_list="$done_list$out$nl"
+    if [ "$flag" = unsure ]; then rows="${rows}unsure	$out$nl"; else rows="${rows}carry	$out$nl"; fi   # BL-322-CARRY-UNSURE-ROW
   done <<TOKENS
 $(_adopt_claude_md_import_tokens "$src")
 TOKENS
+  printf '%s' "$rows" | UPG="$upgrade" awk -F '\t' 'BEGIN { n = split(ENVIRON["UPG"], u, "\n"); for (i = 1; i <= n; i++) if (u[i] != "") up[u[i]] = 1 }
+    $1 == "unsure" && ($2 in up) { print "carry\t" $2; next } { print }   # BL-322-CARRY-UPGRADE
+    '
 }
 
 # _adopt_carry_reason REASON — the reason, for a person.
@@ -423,9 +537,17 @@ _adopt_carry_section() {
   printf '## Carried over from your CLAUDE.md\n\n'
   printf "Adoption replaced this project's own CLAUDE.md. The original is archived at\n"
   printf '`%s`.\n' "$2"
-  printf 'It imported the files below, which are still in the project, so they keep loading:\n\n'
-  printf '%s\n' "$1" | awk -F '\t' '$1 == "carry" { print "@" $2 }'
-  printf '\nOnly its imports were carried. The rules written in the original file itself\n'
+  if grep -q '^carry' <<< "$1"; then   # BL-322-CARRY-SECTION-CERTAIN
+    printf '\nIt imported the files below, which are still in the project, so they keep loading:\n\n'
+    printf '%s\n' "$1" | awk -F '\t' '$1 == "carry" { print "@" $2 }'
+  fi
+  if grep -q '^unsure' <<< "$1"; then   # BL-322-CARRY-UNSURE-SECTION
+    printf '\nIts Markdown does not show for certain whether Claude Code reads the files below\n'
+    printf 'as its imports, so they were carried, and they load now: delete any line here it\n'
+    printf 'did not mean as an import.\n\n'
+    printf '%s\n' "$1" | awk -F '\t' '$1 == "unsure" { print "@" $2 }'
+  fi
+  printf '\nNothing else in it was carried. The rules written in the original file itself\n'
   printf 'load again only once the adoption assessment folds what is worth keeping into\n'
   printf 'this file; the assessment then keeps or drops each import above and deletes\n'
   printf 'this section. Where an imported file disagrees with the rest of this file, say\n'
@@ -488,7 +610,7 @@ adopt_write_framework_docs() {                         # BL-242-DOCS-STAGE
   # The literal scratch path, not "$rendered": the same file, but spelled so
   # the touched-disk net (tests/test-bl225-staging-preflight.sh, T9) can see it
   # is the driver's scratch and not the adoptee's tree.
-  if grep -q '^carry' <<< "$carry"; then
+  if grep -qE '^(carry|unsure)' <<< "$carry"; then
     _adopt_carry_section "$carry" "$arc_claude" >> "$ADOPT_WORK/claude-md.rendered" || { adopt_refuse "could not add the carried imports to CLAUDE.md"; return 1; }   # BL-322-CARRY-APPEND
   fi
   # `## BL-312:` the TL;DR Mode section, when the operator said yes — added to
@@ -534,7 +656,7 @@ REFS
     adopt_note "These replaced documents of yours:"
     for rel in $replaced; do adopt_say "     $rel"; done
     adopt_note "Your originals are in ${ADOPT_ARCHIVE_DIR:-the adoption archive}, each with a restore line in its"
-    if [ "${ADOPT_CLAUDE_MD_REPLACED:-0}" = 1 ] && grep -q '^carry' <<< "$carry"; then   # BL-322-CARRY-MERGED
+    if [ "${ADOPT_CLAUDE_MD_REPLACED:-0}" = 1 ] && grep -qE '^(carry|unsure)' <<< "$carry"; then   # BL-322-CARRY-MERGED
       adopt_note "MANIFEST.md. Apart from your CLAUDE.md's imports (below), nothing in them was merged into"
       adopt_note "the new files — copy across anything you want to keep, or leave it for the assessment"
       adopt_note "conversation to fold in."
@@ -550,14 +672,23 @@ REFS
     adopt_note "The rules written in it load again only once the assessment folds them into the"
     adopt_note "new CLAUDE.md. Until then, tell the agent any rule it must keep. Yours is"
     adopt_note "$arc_claude."
-    if grep -q '^carry' <<< "$carry"; then
+    if grep -q '^carry' <<< "$carry"; then   # BL-322-CARRY-SAY-CERTAIN
       adopt_note "Its imports of files still in this project were carried into the new CLAUDE.md,"
       adopt_note "under \"Carried over from your CLAUDE.md\", so those files keep loading:"
       printf '%s\n' "$carry" | while IFS="$(printf '\t')" read -r why tok _; do
         [ "$why" = carry ] && adopt_say "     @$tok"
       done
-    elif [ -z "$carry" ]; then
-      adopt_note "It imported no files, so nothing was carried over."
+    fi
+    if grep -q '^unsure' <<< "$carry"; then   # BL-322-CARRY-UNSURE-SAY
+      adopt_note "Carried, though adoption could not tell from its Markdown whether Claude Code"
+      adopt_note "imports them (each sits in emphasis or link text it could not read for certain)."
+      adopt_note "They load now: remove any from the new CLAUDE.md you did not mean to import:"
+      printf '%s\n' "$carry" | while IFS="$(printf '\t')" read -r why tok _; do
+        [ "$why" = unsure ] && adopt_say "     @$tok"
+      done
+    fi
+    if [ -z "$carry" ]; then   # BL-322-CARRY-NONE
+      adopt_note "Adoption found no imports in it, so nothing was carried over."
     fi
     if grep -q '^skip' <<< "$carry"; then
       adopt_note "These imports in it were NOT carried; add back any you need by hand:"
