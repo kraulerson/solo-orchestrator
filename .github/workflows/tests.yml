@@ -301,16 +301,35 @@ jobs:
         # EMPTY today, measured: no suite runs zsh. BL-311 added it for the
         # S22p/S22q/S22m paste-into-zsh cases, and BL-311 round 13 (8b5a031)
         # removed those cases with the Qdrant recreate commands they pasted.
-        # A suite that needs zsh says so with a whole-line `# NEEDS-ZSH`
-        # comment. What replaces "installed everywhere, so the pin map stays
-        # free to move" is a guard: the shard script refuses to run such a
-        # suite on a leg where zsh is absent (`# BL-322-ZSH-GUARD`), and the
+        # A suite that needs zsh says so with a `# NEEDS-ZSH` comment line
+        # (any case, indented or not; `## BL-322:` S5). What replaces
+        # "installed everywhere, so the pin map stays free to move" is a
+        # guard: the shard script refuses to run such a suite on a leg where
+        # zsh is absent (`# BL-322-ZSH-GUARD`), and the
         # zsh-legs suite (test-bl322-zsh-legs) fails when one is pinned to, or
         # falls into, a leg missing from this list. On a listed leg a failed
         # install still fails the shard loudly rather than quietly dropping
         # back to bash only: no continue-on-error, no `|| true`.
         if: contains(fromJSON('[]'), matrix.shard)   # BL-322-ZSH-LEGS
         run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y zsh   # BL-322-ZSH-INSTALL
+
+      - name: Fetch the pinned Guardrails fixture (BL-322 S5)
+        # `## BL-322:` S5. The cases that need a REAL Development Guardrails
+        # (CDF) clone (bl320 R10/E1, upgrade-cdf-refresh T1/T3-T5, bl318-g4g6
+        # P4/P4m/P4u) read ONE fixture: CDF at the full commit id pinned in
+        # tests/test-helpers/cdf-fixture.sh (CDF_FIXTURE_PIN, v4.4.1), fetched
+        # here once per leg with its whole history (the repository is ~0.5MB)
+        # and refused unless `git rev-parse HEAD` is the pin. Each suite copies
+        # it into its own temp dir, so no suite can change it, and under CI a
+        # missing or wrong fixture makes those cases FAIL, never skip. Before
+        # S5 they read a depth-1 clone of CDF main that `verify-install.sh
+        # --auto-fix` left in the runner's HOME, on `rest` only. A failed
+        # fetch fails the leg: no continue-on-error, nothing swallowed.
+        run: |
+          set -euo pipefail
+          . tests/test-helpers/cdf-fixture.sh
+          cdf_fixture_fetch "$RUNNER_TEMP/cdf-fixture"
+          echo "SOIF_TEST_CDF_FIXTURE=$RUNNER_TEMP/cdf-fixture" >> "$GITHUB_ENV"
 
       - name: Run fast unit tests — shard ${{ matrix.shard }}
         env:
@@ -643,6 +662,7 @@ jobs:
             tests/test-bl322-s3-ignore-preflight.sh
             tests/test-bl322-s4-wording.sh
             tests/test-bl322-zsh-legs.sh
+            tests/test-bl322-s5-hardening.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1094,19 +1114,18 @@ jobs:
           # delta-db-ledger-close `rest` -> `mcp`, and bl256 plus two lint
           # suites `rest` -> `slow-misc`. Each lands last in its leg.
           #
-          # A SUITE LEAVING `rest` CAN LOSE CASES WITHOUT GOING RED.
-          # tests/test-bl141-commitmsg-repair.sh leaves a depth-1 Guardrails
-          # clone in the runner's HOME (`verify-install.sh --auto-fix`), and
-          # two later `rest` suites run cases only when it is there:
-          # tests/test-bl320-approval-schema2.sh R10 and E1 (124/0/0 with it,
-          # 122/0/2 without) and tests/test-upgrade-cdf-refresh.sh T1, T3, T4
-          # and T5 (6/0/0 with it, 2/0/4 without). No other leg has a clone,
-          # so on another leg those cases SKIP and the leg stays green. Both
-          # stay in `rest`. bl318-g4g6, `rest`'s largest, does NOT depend on
-          # it: its clone cases P4/P4m need history a depth-1 clone lacks, so
-          # they skip on every leg (47/0/3 with or without it), and it could
-          # move later without losing coverage. It stayed here for this
-          # change. Each of the six that left was run locally with an empty
+          # A SUITE LEAVING `rest` NO LONGER LOSES CASES (`## BL-322:` S5).
+          # Until S5 tests/test-bl141-commitmsg-repair.sh left a depth-1
+          # Guardrails clone in the runner's HOME (`verify-install.sh
+          # --auto-fix`), and later `rest` suites ran cases only when it was
+          # there: bl320 R10 and E1 (124/0/0 with it, 122/0/2 without) and
+          # upgrade-cdf-refresh T1, T3, T4 and T5 (6/0/0, 2/0/4); bl318-g4g6's
+          # P4/P4m skipped on every leg, the clone being too shallow. Now
+          # bl141, bl145 and pr-review-gate run with a temp HOME and fetch
+          # nothing, and those cases read the pinned fixture the "Fetch the
+          # pinned Guardrails fixture" step fetches on every leg: they run on
+          # any leg, and under CI they FAIL rather than skip without it. Each
+          # of the six that left `rest` above was run locally with an empty
           # HOME and matched its `rest` counts.
           # NO DIGIT IN THE NAME: tests/test-bl322-zsh-legs.sh's `fixture` finds
           # a pin array with `pin_[a-z_]+=\(`, which a `pin_adopt_2` slips past.
@@ -1184,6 +1203,7 @@ jobs:
             tests/test-bl311-d-relayed-escape.sh          # 34s and 33s on PR #498 and main run 37400574352 — from `rest`, its second pole, moved with bl296 (to `commit-hooks`) so `rest` drops ~112s, to ~525s of 720s on PR #498's figures; this leg's job ran 457s and 456s on those runs
             tests/test-bl318-g3-ci-template.sh            # 35s local, measured after review round 1 — two real adoptions and two under mutants, 24 cases and 36 mutants; here, not in `rest` (job 638s of 720s on PR #498) or `mcp` (job 521s on main run 37400574352); this leg's job ran 457s on PR #498
             tests/test-bl200-syntax-detector.sh           # 35.9s at its slowest of three runs — from `lint-sweep` with the tenth leg (the `pin_adopt_b` note); semgrep is on every leg
+            tests/test-bl322-s5-hardening.sh              # ~60s local — runs bl141, bl145 and pr-review-gate once each, and 13 mutants; here because this leg ran 467s of 720s on PR #506, the lightest of the ten
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
@@ -1286,15 +1306,18 @@ jobs:
           echo "partition verified: ${n_pinned} pinned + ${#rest_list[@]} rest == ${#tests[@]} canonical"
 
           # ── `## BL-322:` S2 — zsh only where a suite says it needs it ──────
-          # A suite that runs zsh carries a whole-line `# NEEDS-ZSH` comment,
-          # and zsh is installed only on the legs the "Install zsh" step lists.
+          # A suite that runs zsh carries a `# NEEDS-ZSH` comment line, in any
+          # spelling (`## BL-322:` S5, R-S2-13): indented or not, any case,
+          # with or without a space after the `#`, a reason after it. The
+          # zsh-legs suite's Z5 fails an unmarked unit-lane suite that runs zsh.
+          # zsh is installed only on the legs the "Install zsh" step lists.
           # Such a suite pinned to, or left in `rest` on, any other leg would
           # run without the shell it tests. Refuse it here, by name, before
           # any suite runs: a loud red, never a silent skip.
           zsh_missing=""
           if ! command -v zsh >/dev/null 2>&1; then   # BL-322-ZSH-GUARD-PROBE
             for t in "${run_list[@]}"; do
-              if grep -qE '^# NEEDS-ZSH([[:space:]]|$)' "${t}" 2>/dev/null; then   # BL-322-ZSH-GUARD
+              if grep -qiE '^[[:space:]]*#[[:space:]]*NEEDS-ZSH' "${t}" 2>/dev/null; then   # BL-322-ZSH-GUARD
                 zsh_missing="${zsh_missing} ${t}"
               fi
             done
@@ -1461,6 +1484,16 @@ jobs:
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
+
+      - name: Fetch the pinned Guardrails fixture (BL-322 S5)
+        # The same step as the unit-shard job's (see its note): the full
+        # suite runs the same real-clone cases, and under CI they fail
+        # without it.
+        run: |
+          set -euo pipefail
+          . tests/test-helpers/cdf-fixture.sh
+          cdf_fixture_fetch "$RUNNER_TEMP/cdf-fixture"
+          echo "SOIF_TEST_CDF_FIXTURE=$RUNNER_TEMP/cdf-fixture" >> "$GITHUB_ENV"
 
       - name: Run shard — ${{ matrix.shard }}
         # SKIP_KNOWN_FAILING left unset -> 0, so known-RED guards still run.
