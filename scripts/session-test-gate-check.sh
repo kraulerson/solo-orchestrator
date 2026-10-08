@@ -185,7 +185,9 @@ fi
 # first edit was refused.
 if [ "$QDRANT_CONFIGURED" = true ] || [ "$CONTEXT7_CONFIGURED" = true ]; then
   echo ""
-  echo "MCP GATE ACTIVE: Write/Edit operations are blocked until each call below has returned successfully in this session:"
+  # "check", not "gate": the messaging standard keeps gate for the check
+  # between one phase and the next (S4 review round 1).
+  echo "MCP CHECK ACTIVE: Write/Edit operations are blocked until each call below has returned successfully in this session:"   # BL-322-S4-GATE-HEAD
   if [ "$QDRANT_CONFIGURED" = true ]; then   # BL-322-S4-GATE-QDRANT-IF
     echo "  - qdrant-find. An empty result counts; a call that errors does not."   # BL-322-S4-GATE-QDRANT
   fi

@@ -249,9 +249,9 @@ cmd_offer() {
       echo "After a pick that approves the commit, commit with one lone command: git commit -m \"subject\" -m \"body\""   # BL-322-S4-OFFER-COMMIT
       echo "(one -m per paragraph; nothing before it, not even cd <folder> &&; nothing after it; no -a, no paths)."
       echo "If the message names a Guardrails hook script (mark-evaluated.sh, record-approval.sh, marker-tracker.sh,"
-      echo "session-start.sh, session-end.sh, stop-checklist.sh, mark-plan-closed.sh) or a protected path"
-      echo "(.claude/settings.json, .claude/manifest.json, .claude/framework/hooks/, .git/hooks), they refuse the command:"
-      echo "write the message to a file outside the project with the Write tool, then: git commit -F <that file>"   # BL-322-S4-OFFER-FILE
+      echo "session-start.sh, session-end.sh, stop-checklist.sh, mark-plan-closed.sh) or a path they protect, such as"
+      echo ".claude/settings.json, .claude/manifest.json, .claude/framework, .git/hooks or .git/config, they refuse the"
+      echo "command: write the message to a file outside the project with the Write tool, then: git commit -F <that file>"   # BL-322-S4-OFFER-FILE
     fi
   else
     echo "Stop now and wait for the user's answer, then: scripts/pending-approval.sh --resolve"

@@ -285,7 +285,7 @@ scout_collisions_scan() {
   bucket="keep-theirs"   # BL-322-S4-SCOUT-LOCAL
   [ -f "$root/.claude/settings.local.json" ] && _scout_col_add "$work" \
     ".claude/settings.local.json" "ai-settings-local" "$bucket" "" \
-    "Adoption copies it into its archive and leaves yours as it is. It is the usual home for a developer's personal MCP roster, and it is usually untracked." ""
+    "Adoption copies it into its archive and leaves yours as it is. It usually holds your personal permissions, and is usually untracked." ""   # BL-322-S4-SCOUT-LOCAL-NOTE
   bucket="keep-theirs"   # BL-322-S4-SCOUT-MCP
   [ -f "$root/.mcp.json" ] && _scout_col_add "$work" \
     ".mcp.json" "mcp" "$bucket" "" \
@@ -362,7 +362,7 @@ CIIN
   # ── Project files: keep theirs (§7.5) ────────────────────────────────────
   # CHANGELOG.md only: adoption never writes it.
   [ -f "$root/CHANGELOG.md" ] && _scout_col_add "$work" "CHANGELOG.md" "project-doc" "keep-theirs" "" \
-    "OVERWRITTEN from a template today. Under adoption it is treated as theirs: kept, and reconciled by the interview." ""
+    "Adoption never writes it; the assessment reads it for your release history." ""   # BL-322-S4-SCOUT-CHANGELOG
 
   # ── The documents adoption REPLACES (`## BL-322:` S2) ────────────────────
   # These rows said "yours stays", and run 3's adoption replaced CLAUDE.md the
@@ -399,7 +399,7 @@ CIIN
     case "$n" in ''|*[!0-9]*) n=0 ;; esac
     if [ "$n" -gt 0 ]; then
       _scout_col_add "$work" "(uncommitted working tree)" "working-tree" "audit-only" "" \
-        "$n path(s) are uncommitted. The scaffolder sweeps existing uncommitted work into a 'chore: initialize' commit WITH VERIFICATION BYPASSED. Commit or stash it yourself first — Scout will not touch it." ""
+        "$n path(s) are uncommitted. Adoption commits only the files it writes, named one by one; anything else you had in progress stays as you left it. Scout will not touch it." ""   # BL-322-S4-SCOUT-UNCOMMITTED
     fi
   fi
   return 0

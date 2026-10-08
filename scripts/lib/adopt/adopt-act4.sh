@@ -268,8 +268,9 @@ _adopt_act4_merge() {
 #
 # `## BL-322:` S4 (dogfood run 3, findings 17 and 18): step 9 says what the
 # pre-filled adoptedAtCommit is (the stamp's anchor; _adopt_act4_record_errors
-# refuses any other value) and where availability and exposure go, since no
-# intake wizard key holds them; step 8 says the release history was not
+# refuses any other value), that exposure has no intake wizard key, and that
+# the wizard's uptime key is the intake's own question, not the interview's
+# availability answer; step 8 says the release history was not
 # carried. Seeding RELEASE_NOTES.md from `git tag` was not built: a tag names a
 # release and says nothing a user reads, so the file would gain headings with no
 # notes; the assessment asks instead.
@@ -343,8 +344,9 @@ Then, WITH ME — ask, do not infer:
    exactly as printed; the finisher refuses any other value.
    "answers" may use ONLY these intake wizard keys, with string values:
    $ADOPT_ACT4_ANSWER_KEYS
-   The finisher refuses any other key. Availability and exposure have no intake wizard key: they
-   live only in interview.availability and interview.exposure.
+   The finisher refuses any other key. Exposure has no intake wizard key: it lives only in
+   interview.exposure. Availability lives in interview.availability; the wizard's uptime key is the
+   intake's own uptime expectation, so add it to "answers" only if you asked that question.
 10. Run the finisher, and show me everything it prints:
 
     bash "\$(jq -r .source_dir .claude/orchestrator-source.json)/scripts/adopt-project.sh" --act4 --root .
