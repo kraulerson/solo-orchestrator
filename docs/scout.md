@@ -310,10 +310,10 @@ Scout found **6** things here that the framework also has an opinion about. It m
 
 | What you have | What would happen to it | Why |
 |---|---|---|
-| `.claude/settings.json` | kept a copy, then replaced | The scaffolder OVERWRITES this file, then merges its own hook registrations into its own output — theirs is not consulted. |
-| `.git/hooks/pre-commit` | kept a copy, then replaced | OVERWRITTEN today, unguarded. Husky, lefthook, pre-commit-framework and hand-rolled hooks are all destroyed. |
+| `.claude/settings.json` | kept a copy; yours stays, and the framework adds to it | Adoption keeps a copy, then composes: your keys, rules and hooks stay, and the framework's rules and hooks are added beside them. A symlink, a read-only file, or one that is not a JSON object is left alone. |
+| `.git/hooks/pre-commit` | kept a copy, then replaced | Adoption keeps a copy, then installs the framework's hook in its place; adopt-project.sh --re-add .git/hooks/pre-commit puts yours back. A read-only hook is left alone. |
 | | *(what it does today)* | Invokes npm. Advisory only: a hook can do anything, and this names only the tools Scout recognises. |
-| `.git/hooks/*.sample` | kept a copy, then replaced | 14 sample hooks git wrote at init. The scaffolder DELETES them (rm -f) so it does not misdetect the tree as an existing project. |
+| `.git/hooks/*.sample` | yours stays | 14 sample hooks git wrote at init. Adoption leaves them alone; git never runs a .sample hook. |
 | `.github/workflows/ci.yml` | not touched at all | Never archived, never touched. The framework installs its gates as its own files so a working pipeline is not taken offline on day one. |
 | `.github/workflows/deploy.yml` | not touched at all | Never archived, never touched. …|
 | `CHANGELOG.md` | yours stays | OVERWRITTEN from a template today. Under adoption it is treated as theirs: kept, and reconciled by the interview. |
@@ -330,6 +330,20 @@ the new one, and the rules written in it load again only once the assessment
 folds them in. `CHANGELOG.md` is the one document that stays yours: adoption
 never writes it. Scout sources no adoption code, so the set is spelled twice;
 `tests/test-bl322-s2-project-rules.sh` (S1) holds the two equal.
+
+**Every row says what adoption does to that file** (`## BL-322:` S4). The
+bucket is adoption's own record of the path, the archive `MANIFEST`'s
+disposition: *kept a copy, then replaced* where it is `replaced`; *kept a copy;
+yours stays, and the framework adds to it* where it is `composed` (your
+`.claude/settings.json` and your commit-msg hook); *yours stays* where adoption
+only copies the file into its archive (`.mcp.json`, `.claude/settings.local.json`,
+git hooks other than pre-commit and commit-msg) or never touches it
+(`.claude-backup/`, the sample hooks, `.gitignore`, `CHANGELOG.md`). Several of
+those rows said *kept a copy, then replaced* until then: they described what
+`init.sh` does to a new project, not what adoption does. A
+`.claude/phase-state.json` row says adoption stops on that project.
+`tests/test-bl322-s4-wording.sh` (S1) holds every row to a real adoption of the
+same tree, on disk and in its `MANIFEST`.
 
 **Your CI is the deliberate exception** — inspected and reported on, never
 touched. Breaking your deploys on day one would be an unforgivable way to say

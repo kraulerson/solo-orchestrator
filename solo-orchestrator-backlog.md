@@ -23484,8 +23484,9 @@ decision.
 Development Guardrails' in a separate CDF session)
 **Category:** Bug (correctness) + Docs
 **Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
-**Status:** Open — S1 merged (PR #502); S2 merged (PR #503); S3 built on branch `fix/bl322-s3-ignore-preflight`
-(below), review round 1 addressed, not merged; S4 not started
+**Status:** Open — S1 done (PR #502, merge `92b485d`); S2 done (PR #503, merge `c324a0d`); S3 done (PR #504, merge
+`69b06a5`); S4 built on branch `fix/bl322-s4-wording` (below), not merged; S5 not started (its row in the table). Stays
+Open until S5 merges
 
 **What ran.** The third dogfood run, the one that closed `## BL-318:`. A headless Claude Code session (Sonnet)
 played the same systems technician (not a developer), driven in 14 turns, with a stand-in for Karl answering
@@ -23517,9 +23518,10 @@ the run deliberately did not act on; it needs no change.
 | **S1** | After each approved commit (the adoptee's `d0d3d73`, `d77fc1b`, `2c333be`), the next session start wrote an `out_of_band_commit` row with `actor: user_terminal_inferred` into the TRACKED `.claude/bypass-audit.json`: a wrong audit record, which also left the file modified. Solo's two runtime files sat untracked. The stop hook's "Uncommitted source changes. Commit before finishing." that the run blamed on these (findings 15, 20) was **not** caused by them: measured with the real `stop-checklist.sh` (review round 1, and again here), a modified audit file alone and the two runtime files alone pass; an untracked `.claude/approvals.jsonl` or `.claude/tdd-warn-ledger.jsonl` alone blocks, because the Guardrails' source-file test counts an unknown extension as source. That is a Guardrails defect, handed to them (Karl, 2026-10-07); Solo does not ignore those two logs. | `scripts/detect-out-of-band-commits.sh` knows an agent's commit only by its SHA in `.claude/claude-commits.jsonl`, and that ledger is never written in a real session (below), so every commit reads as one made from the user's own terminal. The detector does not read the Guardrails' record of an approved commit in `.claude/approvals.jsonl`. Adoption writes no ignore rules for Solo's runtime files: `init.sh`'s `.gitignore` template has them, adoption has no ignore step. | 16, 20 (Solo half), 15 (Solo half) |
 | **S2** | Adoption replaced the project's 146-line `CLAUDE.md` with the framework's generic one ("Description: Not yet recorded"). Its hard rules (the colorblind constraint, the architecture rules, the never-do list) and its `@` imports of project docs still in the tree (`@PROJECT_BIBLE.md`, `@PRODUCT_MANIFESTO.md`, `@CONTRIBUTING.md`) stopped loading until the assessment folded them back in. Nothing warned. Scout had said "yours stays". The archive summary said files were "moved" that were only copied (sha256-identical in the tree). | Adoption archives and replaces `CLAUDE.md` by design (the merge is the assessment's job), but the closing block does not say the project's rules stop loading meanwhile. Scout's collision table classes `CLAUDE.md` as keep-theirs (`_scout_md_bucket_phrase`), which is not what adoption does. | 2, 8, 9 |
 | **S3** | The first adoption was blocked by the project's own `lib/` ignore rule, which Scout had not predicted. That blocked run had already registered context7 and qdrant in the user's Claude Code configuration, a change outside the project that a blocked run leaves behind. | Scout does not run adoption's `git check-ignore` test of the files adoption writes. In `adopt_main`, `adopt_mcp_resolve` (`# BL-311-MCP-CALL`) runs before `adopt_prewrite_preflight` (`# BL-225-PREWRITE-CALL`), where the ignore check is. | 4, 5 |
-| **S4** | Wording. (11) The MCP check needs `query-docs`, not `resolve-library-id` alone; the session-start text does not say so, and the first edit was refused. (14) The lone-commit rule ("a lone `git commit -m`, nothing else on the line") is not visible in the docs the technician was told to read before committing; it was learned from block messages. (17) The assessment record's shape pre-fills `adoptedAtCommit` with the pre-adoption HEAD (by design, unexplained), and its `answers` keys lack availability and exposure, which live only in `interview.*`. (18) `RELEASE_NOTES.md` is not seeded from the project's real tags (`v0.2.0`, `v0.3.0`). | Missing or unclear text. | 11, 14, 17, 18 |
+| **S4** | Wording. (11) The MCP check needs `query-docs`, not `resolve-library-id` alone; the session-start text does not say so, and the first edit was refused. (14) The lone-commit rule ("a lone `git commit -m`, nothing else on the line") is not visible in the docs the technician was told to read before committing; it was learned from block messages. (17) The assessment record's shape pre-fills `adoptedAtCommit` with the pre-adoption HEAD (by design, unexplained), and its `answers` keys lack availability and exposure, which live only in `interview.*`. (18) `RELEASE_NOTES.md` is not seeded from the project's real tags (`v0.2.0`, `v0.3.0`). Also the Development Guardrails 4.4.1 doc follow-ups and S2's review residuals R-S2-6 and R-S2-7. | Missing or unclear text. | 11, 14, 17, 18 |
+| **S5** | Not from the run: what S2's review and the tenth CI leg left. R-S2-12 (improbable): unusual Markdown shapes make the import reading carry an `@` Claude Code would not import (`*@x.md *`, `*@x.md costs 2 * 3`, `_@x.md and snake_case`, an unclosed `[@x.md](url`, `[@x.md](my url)`), each needing an existing in-repo file; the `# BL-322-CARRY` header says it errs in one direction. R-S2-13 (latent): `# BL-322-ZSH-GUARD` fails open on a marker spelled `#NEEDS-ZSH`, indented, lowercase or suffixed, and on an unmarked suite that skips without zsh. R-S2-14 (test strength): `tests/test-bl318-g4g6.sh` P4 skips when a quoted hook is missing from a current clone. Hermeticity: `tests/test-bl141-commitmsg-repair.sh`, `tests/test-bl145-hook-symlink-hookspath.sh` and `tests/test-pr-review-gate.sh` run `verify-install.sh --auto-fix` with the runner's real HOME, which clones the Guardrails from GitHub into `~/.claude-dev-framework`; bl320 (R10, E1), upgrade-cdf-refresh (T1, T3–T5) and bl318-g4g6 get real-clone coverage only from that leftover clone. | Review residuals and a CI fixture that leaks state between suites. | — (S2 review round 1; PRs #503, #505) |
 
-**S1's design (branch `fix/bl322-s1-audit-loop`).** The detector recognises a commit that the Guardrails
+**S1's design (PR #502).** The detector recognises a commit that the Guardrails
 recorded as approved and matched, and writes nothing for it. It writes no `approved_commit` row either: the
 approval's evidence is already in `.claude/approvals.jsonl`, and a row in the tracked audit file after every
 approved commit would modify it after every one. A `matched: false` commit is
@@ -23528,7 +23530,7 @@ files (`.claude/last-checked-commit.txt`, `.claude/tool-usage.json`); `init.sh`'
 `.claude/approvals.jsonl` is the Guardrails' file: whether a project commits it (an audit trail) or ignores it is
 the CDF session's call, so it is left alone here and is **pending** that answer.
 
-**S1, as built (branch `fix/bl322-s1-audit-loop`).**
+**S1, as built (PR #502, merge `92b485d`).**
 - **The detector** (`scripts/detect-out-of-band-commits.sh`) reads `.claude/approvals.jsonl` once, in file
   order, and skips a commit it finds approved (`# BL-322-OOB-APPROVED`). An approval line opens when it is a
   pick of an option that approves a commit, or the user's override (`# BL-322-APPROVED-APPROVES`); any other
@@ -23612,7 +23614,7 @@ file's stale state ("Phase: 2", "Next: merge the branch"); the third breaks ever
 check-session-state, and resume.sh's `# BL-318-G2-CURRENT-STATE`); warning alone leaves the rules unloaded.
 `~/` and absolute imports are named, never carried.
 
-**S2, as built (branch `fix/bl322-s2-project-rules`).**
+**S2, as built (PR #503, merge `c324a0d`).**
 - **The carry** (`scripts/lib/adopt/adopt-docs.sh`, `# BL-322-CARRY`). Before the documents stage writes
   anything it reads the project's own `CLAUDE.md` (not a symlink, which is left alone) for imports the way
   Claude Code reads them (`_adopt_claude_md_import_tokens`, below). An import is carried when it is relative,
@@ -23695,10 +23697,14 @@ check-session-state, and resume.sh's `# BL-318-G2-CURRENT-STATE`); warning alone
   import whose file is missing is not measured.
 - **`adopt_stub_framework_script_collisions` contradicts the disclosure** (review round 1, R-S2-6,
   pre-existing): after a framework script was replaced it still prints "NOT DONE … LEFT ALONE … yours, kept:
-  scripts/validate.sh", and `docs/adoption.md`'s "Still not built" says the same.
+  scripts/validate.sh", and `docs/adoption.md`'s "Still not built" says the same. **Fixed by S4** (below).
 - **Scout's other collision rows overstate** (R-S2-7): `.mcp.json`, `.claude/settings.local.json` and git hooks
   other than pre-commit and commit-msg read "kept a copy, then replaced", though adoption only copies them, and
-  `.claude/settings.json` is composed.
+  `.claude/settings.json` is composed. **Fixed by S4** (below).
+- **CI, recorded here late:** S2 also made zsh an install step only on the unit-shard legs that run a suite marked
+  `# NEEDS-ZSH`, and the shard script refuses such a suite anywhere else (`c8f3f71`, `# BL-322-ZSH-GUARD`); no
+  suite needs zsh today. The g4g6 and wp11 pins moved twice since; `.github/workflows/tests.yml`'s pin notes
+  carry each move. R-S2-13 (S5) is that guard's residual.
 - **`reconfigure-project.sh`'s rename** (R-S2-10 d): its `sed` over `CLAUDE.md` also rewrites a carried import
   whose path contains the old project name.
 - **Projects adopted before this change are not backfilled.** Their assessment prompt was written at adoption,
@@ -23717,7 +23723,7 @@ operator's answers and the driver. So Scout derives the set from the framework c
 extraction (init.sh's copy lines, the templates, the guides, each writer's leave-alone rule), and the suite
 holds it equal to a real rehearsal's ledger.
 
-**S3, as built (branch `fix/bl322-s3-ignore-preflight`).**
+**S3, as built (PR #504, merge `69b06a5`).**
 - **Scout** (`scout_ignore_scan`, `# BL-322-S3-SCOUT-CALL`) asks the shared decision over the files an
   adoption writes whatever the operator answers (`scout_adoption_write_set`) and reports
   `collisions.ignoreRules`: `checked`, `why`, `pathsChecked`, `wouldBlock`, every `refused` path, the `rules`
@@ -23809,6 +23815,90 @@ the check failed open (D1, X25). R-S3-7: without gitleaks the suite skipped its 
 - **Follow-up idea (review round 1, not built):** adoption already runs Scout, or reads the report it is
   given, before its first question; it could warn there when `ignoreRules.wouldBlock` is true, for an operator
   who skipped Scout. A warning, not a refusal: the rehearsal stays the check that decides.
+
+**S4's choices.** Findings 11, 14, 17 and 18 are text the technician read at the wrong moment or not at all, so
+each fix puts the sentence where it is read: the session start, the approval guidance the agent gets when it
+records a question and when the commit check holds it, the assessment prompt, and `docs/adoption.md` §7. Two
+calls were asked for. Finding 17's `answers` keys: not added, because the finisher's allowlist is keys
+`intake-wizard.sh` saves (`ADOPT_ACT4_ANSWER_KEYS`; `tests/test-brownfield-wp12a-assessment.sh` K8 derives that)
+and the wizard has no key for availability or exposure; the prompt says where they live. Finding 18's seeding
+from `git tag`: not built, because a tag names a release and carries no note a user reads, so
+`RELEASE_NOTES.md` would gain empty headings, and which tags are releases is judgement; the prompt says the
+history was not carried and asks the session to add the releases the user wants.
+
+**S4, as built (branch `fix/bl322-s4-wording`).**
+- **The MCP check's requirement (finding 11).** `scripts/session-test-gate-check.sh`, the SessionStart hook that
+  announces the check, said "blocked until you call: qdrant-find, context7". It now prints one line per
+  configured server with what counts: a `qdrant-find` that returned, an empty result included, and Context7's
+  `query-docs`, with "resolve-library-id alone does not count" (`# BL-322-S4-GATE-QDRANT`,
+  `# BL-322-S4-GATE-C7`). `scripts/session-mcp-gate.sh`, which decides, already said so when it refused; it is
+  unchanged.
+- **The lone-commit rule (finding 14).** `docs/adoption.md` §7 has "The commit is one lone command":
+  `git commit -m "subject" -m "body"`, nothing before it (not even `cd … &&`), nothing after it, no `-a`, no
+  file names, and the Guardrails' refusal text, `it is not a lone git commit`. `scripts/pending-approval.sh
+  --offer` prints the rule when the question can approve a commit and the Guardrails take replies
+  (`# BL-322-S4-OFFER-IF`, `# BL-322-S4-OFFER-COMMIT`); the commit check's hold message says it
+  (`# BL-322-S4-GATE-HINT`); the CLAUDE.md template and the Builder's Guide add the `cd` case.
+- **The assessment record (finding 17).** Step 9 says `adoptedAtCommit` is pre-filled with the commit the project
+  was at just before the adoption commit, adoption's anchor, that the finisher refuses any other value, and that
+  availability and exposure live only in `interview.availability` and `interview.exposure`.
+- **The release history (finding 18).** Step 8 says `RELEASE_NOTES.md` is the template and the history was not
+  carried, and names `git tag` and `CHANGELOG.md`; `docs/adoption.md` (*The framework documents*) says the same.
+- **Development Guardrails 4.4.1** (CDF PR #27, merge `4180f22`, read with `gh api` on GitHub, read only). (a) The
+  override `mark-evaluated.sh` now opens `/dev/tty`, refuses without one, shows
+  `Type <six digits> and press Enter to approve (anything else cancels):` and approves only on that code;
+  `docs/adoption.md` §7 (*The override*), the Builder's Guide and the User Guide say so. No Solo script prints
+  the override. (b) config-guard's new `STATE_HOOKS_RE` refuses any command whose text names
+  `mark-evaluated.sh`, `mark-plan-closed.sh`, `record-approval.sh`, `marker-tracker.sh`, `session-start.sh`,
+  `session-end.sh` or `stop-checklist.sh` (reads aside), so a commit message naming one is refused, as one naming
+  a protected path (`CONFIG_GUARD_PROTECTED_RE`) already was; `commit_shape_problem` admits `-F`/`--file` under an
+  approval. Every place above that shows the rule gives the route: write the message to a file outside the project
+  with the Write tool, then `git commit -F <that file>`. (c) `STATE_HOOKS_RE` matches the name exactly, between
+  non-name characters: measured with its own pattern and `/usr/bin/grep -iE`, `bash
+  scripts/session-end-qdrant-reminder.sh` does not match and `bash scripts/session-end.sh` does. Solo ships no
+  `session-start.sh` or `session-end.sh`, and no Solo document tells the agent to run the reminder (a Stop hook).
+  Nothing changed. (d) `SOIF_GUARDRAILS_MIN` stays 4.4.0 (Karl); `docs/adoption.md` §7, the Builder's Guide and
+  the User Guide say 4.4.1 closes ways an agent could approve its own commit (the override run with
+  `CLAUDECODE` cleared, a made-up prompt piped into `record-approval.sh`, a marker name split with quotes) and
+  that the session start offers it once the clone holds it. 4.4.1 also withdraws an unused approval when the user
+  picks an option that approves nothing, which S1's hold rule asked of them; the detector's hold rule stays.
+- **R-S2-6.** Measured at `7d12ba5` on a real adoption of a project with its own `scripts/validate.sh`: the
+  framework's file at the path, theirs in the archive, and the run printing both "replaced by the framework's
+  version" and "NOT DONE … LEFT ALONE … yours, kept: scripts/validate.sh". The call is gone and
+  `adopt_stub_framework_script_collisions` is a headstone in `scripts/lib/adopt/adopt-stubs.sh`; it was the last
+  stub called, so `tests/test-brownfield-wp7b-commit-hook.sh` B9 now pins the called-stub set at 0.
+  `docs/adoption.md`'s "Still not built by this package" says nothing is.
+- **R-S2-7.** Measured on one tree (settings, local settings, `.mcp.json`, a skill, three hooks, the samples,
+  `.claude-backup/`, CI, `CHANGELOG.md`, `FEATURES.md`, `.gitignore`): 7 of Scout's 13 rows disagreed with the
+  adoption's MANIFEST and disk. Each row's bucket is now adoption's disposition (`# BL-322-S4-SCOUT-SETTINGS` …
+  `# BL-322-S4-SCOUT-GITIGNORE`): `.claude/settings.json` marker-composed, whose phrase was "left alone; the
+  framework adds to it" and is now "kept a copy; yours stays, and the framework adds to it"
+  (`# BL-322-S4-SCOUT-COMPOSED-PHRASE`); `.mcp.json`, `.claude/settings.local.json` and other git hooks
+  keep-theirs, their notes naming the archive copy; `.claude-backup/`, the sample hooks and `.gitignore`
+  keep-theirs; `.claude/phase-state.json` keep-theirs, its note saying adoption stops on that project
+  (`# BL-322-S4-SCOUT-PHASESTATE`). The skill and pre-commit notes describe adoption, not `init.sh`.
+  `docs/scout.md` says the same.
+- **Tests.** `tests/test-bl322-s4-wording.sh` (unit lane, `adopt` shard): 11 cases and 27 mutants, each killed by
+  a named case; red on base, 0 of 11. S1 holds every Scout row to a real adoption of the same tree, on disk and in
+  its MANIFEST. `tests/test-brownfield-wp2-scout-sections.sh` C1 expects `.claude/settings.local.json`
+  keep-theirs.
+
+**S4 residuals (not fixed):**
+- **Projects adopted before S4 keep the prompt written at their adoption**, without steps 8's and 9's new
+  sentences.
+- **Scout is held to an adoption without the Guardrails installer** (the suites' seam). CDF 4.4.1's
+  `scripts/init.sh`, read on GitHub, preserves `.claude/settings.local.json` and existing git hooks and backs up
+  `.git/hooks/pre-*` into `.claude-backup/<timestamp>/`, which adoption then removes; not run here.
+- **Scout says marker-composed for a `.claude/settings.json` adoption cannot compose** (a symlink, read-only, not a
+  JSON object), which adoption leaves alone; the note says so, and Scout reads no JSON (S3's residual).
+- **The `-F` route needs a path with no spaces** for Solo's own commit check to read the message
+  (`scripts/pre-commit-gate.sh` takes `-F` followed by `[^ ]+`); with a space its message checks find no message.
+  Whether Claude Code asks the user before the Write tool writes outside the project depends on their settings;
+  not measured.
+- **`docs/adoption.md`'s "What lands in `scripts/`" transcript** reads "Installed 70 framework script(s); left 0
+  of your own file(s) untouched."; the run now says "Installed 76 framework script(s); none of your own files
+  collided." (measured 2026-10-08). Not changed: its parity claim beside it (70 each, measured 2026-09-16) was
+  not re-measured.
 
 **Found while building S1, not fixed by it: the Claude-commit ledger is never written.**
 `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code` and treats
