@@ -384,14 +384,19 @@ here.
     legs since 2026-10-07), but only the
     measured long poles are pinned to a shard by the `pin_*` arrays; `rest`
     is the COMPLEMENT, so a new entry lands there automatically.
-  - **Moving a suite out of `rest` can quietly cost coverage.**
-    `tests/test-bl141-commitmsg-repair.sh` leaves a depth-1 Guardrails clone
-    in the runner's HOME, and later `rest` suites run cases only when it is
-    there (`tests/test-bl320-approval-schema2.sh` R10 and E1;
-    `tests/test-upgrade-cdf-refresh.sh` T1, T3, T4 and T5); on any other leg
-    those cases SKIP and the leg stays green. Compare a suite's SKIP count with
-    an empty HOME before you move it. The `pin_adopt_b` note in `tests.yml`
-    has the detail.
+  - **A case that needs a real Guardrails clone reads the pinned fixture,
+    never `~/.claude-dev-framework` on CI** (`## BL-322:` S5).
+    `tests/test-helpers/cdf-fixture.sh` is the one way in:
+    `SOIF_TEST_CDF_FIXTURE`, a clone of CDF at the pin in that file, which the
+    "Fetch the pinned Guardrails fixture" step fetches on every unit-shard and
+    full leg; each suite copies it into its own temp dir with
+    `cdf_fixture_copy`. Under `CI` a missing or wrong fixture FAILS the case;
+    locally it falls back to `~/.claude-dev-framework` when that is new enough
+    and has the history, else SKIPS. A suite that runs
+    `verify-install.sh --auto-fix` gives it a temp HOME with a stand-in clone
+    (`# BL-322-S5-HOME`): with the runner's HOME it clones CDF over the
+    network, which is how `rest` once leaked a clone that later suites
+    silently depended on.
   - **Never write the literal array-opening token (`tests`+`=`+`(`) anywhere
     else in that file below the array.** `_build_unit_list_set` scopes with an
     UNANCHORED `awk '/tests=\(/'` and does not strip comments, so a second

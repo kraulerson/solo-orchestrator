@@ -23489,7 +23489,7 @@ Development Guardrails' in a separate CDF session)
 **Category:** Bug (correctness) + Docs
 **Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
 **Status:** Open — S1 done (PR #502, merge `92b485d`); S2 done (PR #503, merge `c324a0d`); S3 done (PR #504, merge
-`69b06a5`); S4 built on branch `fix/bl322-s4-wording` (below), not merged; S5 not started (its row in the table). Stays
+`69b06a5`); S4 done (PR #506, merge `c125f0f`); S5 built on branch `fix/bl322-s5-hardening` (below), not merged. Stays
 Open until S5 merges
 
 **What ran.** The third dogfood run, the one that closed `## BL-318:`. A headless Claude Code session (Sonnet)
@@ -23708,7 +23708,7 @@ check-session-state, and resume.sh's `# BL-318-G2-CURRENT-STATE`); warning alone
 - **CI, recorded here late:** S2 also made zsh an install step only on the unit-shard legs that run a suite marked
   `# NEEDS-ZSH`, and the shard script refuses such a suite anywhere else (`c8f3f71`, `# BL-322-ZSH-GUARD`); no
   suite needs zsh today. The g4g6 and wp11 pins moved twice since; `.github/workflows/tests.yml`'s pin notes
-  carry each move. R-S2-13 (S5) is that guard's residual.
+  carry each move. R-S2-13 (S5) is that guard's residual. **Fixed by S5** (below).
 - **`reconfigure-project.sh`'s rename** (R-S2-10 d): its `sed` over `CLAUDE.md` also rewrites a carried import
   whose path contains the old project name.
 - **Projects adopted before this change are not backfilled.** Their assessment prompt was written at adoption,
@@ -23831,7 +23831,7 @@ from `git tag`: not built, because a tag names a release and carries no note a u
 `RELEASE_NOTES.md` would gain empty headings, and which tags are releases is judgement; the prompt says the
 history was not carried and asks the session to add the releases the user wants.
 
-**S4, as built (branch `fix/bl322-s4-wording`).**
+**S4, as built (PR #506, merge `c125f0f`).**
 - **The MCP check's requirement (finding 11).** `scripts/session-test-gate-check.sh`, the SessionStart hook that
   announces the check, said "blocked until you call: qdrant-find, context7". It now prints one line per
   configured server with what counts: a `qdrant-find` that returned, an empty result included, and Context7's
@@ -23954,4 +23954,79 @@ of the Guardrails from GitHub into the runner's HOME, and `tests/test-bl320-appr
 `tests/test-upgrade-cdf-refresh.sh` (T1, T3, T4, T5) run those cases only when that clone is there. With an
 empty HOME they skip (122/0/2 and 2/0/4, against 124/0/0 and 6/0/0 on PR #504's `rest` leg), so a failed
 clone, or either suite moving off `rest`, costs those cases while the lane stays green. The `pin_adopt_b`
-note in `.github/workflows/tests.yml` records the leg half of this.
+note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S5** (below).
+
+**S5, as built (branch `fix/bl322-s5-hardening`).**
+- **The import reading, R-S2-12** (`scripts/lib/adopt/adopt-docs.sh`). An `@` that opens emphasis or a link's text
+  is carried only once the same line shows it closing: emphasis needs a run of the same character, at least as
+  long, that can close it by Markdown's flanking rules, before any run that can open (`emclose`,
+  `# BL-322-CARRY-EMPH-STOP` … `# BL-322-CARRY-EMPH-NESTED`, `# BL-322-CARRY-EMPH-ASCII`); link text needs `](`, a
+  destination (`<…>`, or no space), an optional title after a space and `)` (`linkclose`,
+  `# BL-322-CARRY-LINK-PAREN` … `# BL-322-CARRY-LINK-CLOSE`); `# BL-322-CARRY-CLOSES` routes both. The five shapes
+  no longer carry. Measured against the replica (marked 13.0.3), 2026-10-08: on 9000 fuzzed one-line emphasis
+  and link shapes (three seeds of 3000) no false carry, against 166, 154 and 162 at `c125f0f`, and 111, 116 and
+  120 misses (11, 14, 11 at `c125f0f`), each where it stops; on the review's 41 fixtures 31 agree, 9 are false
+  carries (14 at `c125f0f`) and 1 a miss. The `# BL-322-CARRY` header no longer says it errs in one direction: it
+  names the shapes where it does not, with those numbers.
+- **The zsh guard, R-S2-13** (`.github/workflows/tests.yml`, `# BL-322-ZSH-GUARD`). The marker is any line
+  matching `grep -iE '^[[:space:]]*#[[:space:]]*NEEDS-ZSH'`: `#NEEDS-ZSH`, indented, lowercase, suffixed.
+  `tests/test-bl322-zsh-legs.sh` runs six spellings through Z2 and Z3, and Z5 fails a unit-lane suite that runs
+  zsh without the marker, "runs" read from executed lines only (comments dropped as
+  `# BL-181-UNIT-LANE-PREDICATE` drops them) with zsh as a command word: probed, given an option, or in command
+  position. 17 shapes pin the reading; none of the 249 suites runs zsh today.
+- **P4, R-S2-14** (`tests/test-bl318-g4g6.sh`). A quoted hook missing from a clone that passes the version gate and
+  the ea2025a history check now fails P4 instead of skipping it. P4u deletes `hooks/record-approval.sh` from a
+  copy and P4 fails naming it; at `c125f0f` the fit check named the hook and P4 skipped. The two checks moved
+  into the fixture helper.
+- **`_commit_msg_file`, S4 review round 2's R2-1** (`scripts/pre-commit-gate.sh`). A short-option cluster ends at
+  the first option that takes a value: `-m`, `-c`, `-C`, `-t` (attached, or the next word;
+  `# BL-322-S5-MSGFILE-REQVAL`) and `-S`, `-u` (attached only; `# BL-322-S5-MSGFILE-OPTVAL`), the set `git commit
+  -h` lists (2.54). `-U <n>` is left out: a number spells no option. `git commit -Sabc -F f`, `-S0xC -F f` and
+  `-tc -F f` now read `f`; at `c125f0f` none did. `-u` changes no reading of a valid mode.
+- **Hermeticity.** `tests/test-bl141-commitmsg-repair.sh`, `tests/test-bl145-hook-symlink-hookspath.sh` and
+  `tests/test-pr-review-gate.sh` export a temp HOME holding a stand-in `.claude-dev-framework/.git`
+  (`# BL-322-S5-HOME`, `# BL-322-S5-STANDIN`; the seam `tests/test-bl284-verify-install-context.sh` already used)
+  and unset `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL`. No product code changed, and none of
+  the three reads the clone's contents. Run with an empty inherited HOME, a `git`
+  that refuses any remote URL and a dead proxy, at `c125f0f` they tried 4, 9 and 2 network clones into it; now
+  none, and it stays empty. With the real HOME, `~/.claude-dev-framework`'s HEAD and mtimes are unchanged.
+- **The fixture.** One way in, `tests/test-helpers/cdf-fixture.sh`: `SOIF_TEST_CDF_FIXTURE`, a clone of CDF at
+  `4180f22be0a8b4410aeaa4e65800aed8e2299805` (v4.4.1, PR #27's merge, confirmed with `gh api`), which a new
+  "Fetch the pinned Guardrails fixture" step fetches with full history on every unit-shard and full leg and
+  refuses unless `git rev-parse HEAD` is the pin (`# BL-322-S5-FIXTURE-HEAD`). `cdf_fixture_copy` gives each
+  suite a private clone (`git clone --no-local`, the commit checked out, its HEAD checked). Under `CI` a missing
+  fixture, one not at the pin, or a pin short of a suite's need FAILS the cases (`# BL-322-S5-FIXTURE-FAIL` in
+  each suite); locally a suite falls back to `~/.claude-dev-framework` when it is new enough and has the
+  history, else skips. `BL320_CDF_CLONE`, `BL318_CDF_CLONE` and upgrade-cdf-refresh's `CDF_REFRESH_SRC` are gone.
+  Measured with `CI=1`, an empty HOME and the runner's git config (`GIT_CONFIG_NOSYSTEM=1
+  GIT_CONFIG_GLOBAL=/dev/null`): bl320 124/0/0 with the fixture, 122/2/0 rc 1 without (122/0/2 rc 0 at
+  `c125f0f`); upgrade-cdf-refresh 6/0/0, and 2/4/0 rc 1 (2/0/4 rc 0); bl318-g4g6 50/0/1 (D1 reads a local
+  bundle), and 47/3/1 rc 1 (47/0/3 rc 0). Every real-clone case runs on any leg.
+- **Tests.** `tests/test-bl322-s5-hardening.sh` (unit lane, `mcp-mutants`): 12 cases (H1 the three suites under
+  that probe; X1-X7 the helper against a local upstream; W1-W2 the workflow step and the pin; C1
+  upgrade-cdf-refresh under CI with no fixture; C2 bl320 and g4g6, static) and 13 mutants, each killed by a named
+  case, M12 and M13 only statically. `tests/test-bl322-s2-project-rules.sh` U8 (42 one-line shapes, checked against
+  the replica) and M55-M67; `tests/test-bl322-zsh-legs.sh` Z5, the spellings in Z2 and Z3, M7-M10;
+  `tests/test-bl322-s4-wording.sh` F1's four new forms, MF11-MF12; `tests/test-bl318-g4g6.sh` P4u.
+
+**S5 residuals (not fixed):**
+- **The import reading still carries an `@` Claude Code would not import** in three kinds of shape, each needing
+  an existing in-repo file of that name: a fence or an HTML block inside a list item or a block quote; a code
+  span that runs across lines; `<!--> @x.md -->` and `<!---> @x.md -->`.
+- **It now misses more**: emphasis or link text that closes on a later line, holds a bracket, a tag, a backtick
+  or a nested emphasis, or meets a non-ASCII character at a delimiter (`*@Résumé.md*`); a run the rule of three
+  keeps open (`*@x.md**y*`, where Claude Code imports `x.md**y`); a reference link. A missed import is named in
+  no list; the warning names the archived original.
+- **Z5 reads text, not execution**: a zsh run spelled at run time (`"${s}sh"`) or only inside a heredoc the suite
+  writes out is not seen, and a string with `; zsh ` on an executed line reads as a run.
+- **R2-2** (S4 review round 2): the gate's reading of the commit's words does not take a newline or a glued
+  `;`/`&&` as a command separator. The commit-msg hook still checks the message.
+- **A `$VAR` in a `-F` path is still not expanded** (S4's residual): expanding it would take an `eval` of the
+  agent's command, which the gate must never do.
+- **Two more suites read `~/.claude-dev-framework` and skip on CI**: `tests/test-bl296-adopt-guardrails.sh` G6 (the
+  Guardrails' own installer; `commit-hooks`) and `tests/test-bl318-g5-guardrails-refresh.sh` E1 (`CDF_REFRESH_SRC`;
+  `mcp`). Neither leg ever had the leftover clone; both could read the fixture.
+- **Not run here**: mawk (the runner's `awk`) on the new reading, bash 5.2 and GNU grep on the zsh guard and Z5,
+  and the step on a runner. Its lines ran here against a local copy of the pin (the URL replaced), and its git
+  commands by hand against GitHub (HEAD `4180f22`, 166 commits, not shallow). It is a network fetch on each of
+  the ten legs and the four full legs: three tries, then the leg fails.
