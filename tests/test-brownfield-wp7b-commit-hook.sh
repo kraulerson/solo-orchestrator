@@ -282,7 +282,11 @@ b9() {
   done < "$WORK/stubsrc"
   # ZERO since `## BL-322:` S4 retired the last one, the framework-script
   # collision notice, which said "LEFT ALONE" about scripts the same run had
-  # just replaced (R-S2-6).
+  # just replaced (R-S2-6). Zero is also what a scan that read nothing finds,
+  # so the scan must have read the driver and its modules (S4 review, R-S4-7):
+  # 16 files and ~11,000 lines on 2026-10-08, floors set well under both.
+  [ "$(grep -c . "$WORK/stubsrc")" -ge 10 ] || bad="$bad [the scan listed $(grep -c . "$WORK/stubsrc") source file(s), want at least 10]"
+  [ "$(grep -c 'adopt_' "$WORK/stubstrip")" -ge 1000 ] || bad="$bad [the scan read $(grep -c 'adopt_' "$WORK/stubstrip") line(s) naming adopt_, want at least 1000]"
   called="$(grep -ohE '\badopt_stub_[a-z_]+' "$WORK/stubstrip" | LC_ALL=C sort -u | grep -c .)"
   [ "$called" -eq 0 ] || bad="$bad [the called-stub set is $called, not 0 — re-derive it and update this case deliberately]"
   [ -z "$bad" ] && pass "$label (no stub still called)" || fail_ "$label" "$bad"
