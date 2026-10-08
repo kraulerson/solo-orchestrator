@@ -292,11 +292,13 @@ mk_nongit_secret_fixture() {
 # THE COLLISION FIXTURE — the §1.2 surfaces, in the shapes a real adoptee has.
 #   husky-style .git/hooks/pre-commit          archive-and-replace
 #   .git/hooks/commit-msg                      marker-composed
-#   .claude/settings.json + settings.local.json archive-and-replace
+#   .claude/settings.json                      marker-composed (`## BL-322:` S4)
+#   .claude/settings.local.json                keep-theirs: adoption only copies it (S4)
 #   .claude/skills/session-handoff/SKILL.md    archive-and-replace
-#   .mcp.json                                  archive-and-replace
+#   .mcp.json                                  keep-theirs: adoption only copies it (S4)
 #   a FOREIGN .gitlab-ci.yml                   audit-only, never touched
-#   .gitignore, CHANGELOG.md, FEATURES.md      keep-theirs / composed
+#   .gitignore, CHANGELOG.md                   keep-theirs
+#   FEATURES.md                                archive-and-replace (`## BL-322:` S2)
 #   .claude-backup/, uncommitted work
 mk_collision_fixture() {
   local d="$1"
@@ -886,9 +888,9 @@ b_gl=$(_bucket_of "$col" ".gitlab-ci.yml")
 b_sl=$(_bucket_of "$col" ".claude/settings.local.json")
 b_ch=$(_bucket_of "$col" "CHANGELOG.md")
 if [ "$b_hook" = "archive-and-replace" ] && [ "$b_cm" = "marker-composed" ] \
-   && [ "$b_gl" = "audit-only" ] && [ "$b_sl" = "archive-and-replace" ] \
+   && [ "$b_gl" = "audit-only" ] && [ "$b_sl" = "keep-theirs" ] \
    && [ "$b_ch" = "keep-theirs" ]; then
-  pass "C1: husky pre-commit=archive-and-replace, commit-msg=marker-composed, foreign .gitlab-ci.yml=audit-only, settings.local.json=archive-and-replace, CHANGELOG.md=keep-theirs"
+  pass "C1: husky pre-commit=archive-and-replace, commit-msg=marker-composed, foreign .gitlab-ci.yml=audit-only, settings.local.json=keep-theirs (adoption only copies it, BL-322 S4), CHANGELOG.md=keep-theirs"
 else
   fail_ "C1" "pre-commit='$b_hook' commit-msg='$b_cm' gitlab-ci='$b_gl' settings.local='$b_sl' CHANGELOG='$b_ch'"
 fi

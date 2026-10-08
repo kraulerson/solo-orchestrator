@@ -1046,6 +1046,14 @@ run_child_suite "tests/test-bl322-s2-project-rules.sh" \
 run_child_suite "tests/test-bl322-s3-ignore-preflight.sh" \
   "BL-322 S3: Scout reports the ignore-rule block adoption would meet, from adoption's own check; a stopped adoption runs no claude mcp add and writes nothing outside the project" \
   "BL-322 S3 ignore-preflight tests FAILED (run tests/test-bl322-s3-ignore-preflight.sh for details)"
+# BL-322 S4: dogfood run 3's wording — the MCP check's real requirement, the
+# lone-commit rule and its -F route, the assessment record's anchor and missing
+# keys, the release history — the Guardrails 4.4.1 override, a stale "left
+# alone" notice for replaced scripts, and Scout's rows for files adoption only
+# copies or composes.
+run_child_suite "tests/test-bl322-s4-wording.sh" \
+  "BL-322 S4: the session start, the approval guidance, the assessment prompt and the docs say what the checks need; Scout's rows match what adoption does" \
+  "BL-322 S4 wording tests FAILED (run tests/test-bl322-s4-wording.sh for details)"
 # BL-322 S2 (Karl, 2026-10-07): zsh is installed only on the unit-shard legs
 # that run a suite marked NEEDS-ZSH, and the shard script refuses one elsewhere.
 run_child_suite "tests/test-bl322-zsh-legs.sh" \
