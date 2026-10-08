@@ -1043,7 +1043,7 @@ jobs:
             tests/test-bl253-adoption-state-parity.sh         #  36s on PR #444 — from rest
             tests/test-brownfield-wp12b-framework-docs.sh     #  20s on PR #444 — from rest
             tests/test-brownfield-wp12a-assessment.sh         #  new — one real adoption, then the Act 4 finisher run a dozen times
-            tests/test-bl322-s3-ignore-preflight.sh           # 141s local, measured alone (177s under four-way load) — 15 cases, 19 mutants, about a dozen real adoptions and twenty Scout runs; here, the leg with the most room on PR #503's final run (437s of 720s; sast 447s, mcp-mutants 457s)
+            tests/test-bl322-s3-ignore-preflight.sh           # 166s local, measured alone after review round 1 (141s before it) — 20 cases, 27 mutants, about sixteen real adoptions and twenty Scout runs; here, the leg with the most room on PR #503's final run (437s of 720s; sast 447s, mcp-mutants 457s)
             # wp11-archive-classes was here for one PR (#503): on run 37676814405
             # the cap cancelled this leg at 722s with every suite finished, 605s
             # of tests behind a 117s setup. It is in `pin_lint_sweep` now.
