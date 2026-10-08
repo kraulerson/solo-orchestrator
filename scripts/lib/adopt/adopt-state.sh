@@ -2170,7 +2170,7 @@ adopt_prewrite_preflight() {
     return 1
   fi
   _rows="$(printf '%s\n' "$planned" | scout_ignore_refused "$root")" || _st=$?
-  if [ "$_st" -ne 0 ]; then
+  if [ "$_st" -ne 0 ]; then   # BL-322-S3-DECIDE-FAILCLOSED
     _frel="$(printf '%s\n' "$_rows" | awk -F '\t' '$1 == "F" { print $2; exit }')"
     _frc="$(printf '%s\n' "$_rows" | awk -F '\t' '$1 == "F" { print $3; exit }')"
     adopt_refuse "cannot tell whether '${_frel:-a planned path}' is covered by your ignore rules (git check-ignore exited ${_frc:-$_st}) — refusing rather than guessing"
@@ -2412,8 +2412,9 @@ adopt_main() {
   # and a run the ignore check then stopped had already registered two servers.
   # The question stays where it is (`# BL-311-MCP-CALL`): the answer sequences
   # the adoption suites pipe are written against its position. Directly before
-  # the first write, so a refusal raised by a writer is the only kind that can
-  # follow it, and `# BL-318-G6-OUTSIDE` still names what it registered.
+  # the first write. A stop after it — a file adoption cannot write, the staging
+  # check, the project's own commit hook — leaves what it registered, and
+  # `# BL-318-G6-OUTSIDE` names it.
   adopt_mcp_apply "$root" || return 1   # BL-322-S3-MCP-APPLY-CALL
 
   _adopt_write_phase "$root" "$ADOPT_WORK" "$report" || return 1   # BL-225-WRITE-PHASE-REAL

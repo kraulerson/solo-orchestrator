@@ -36,12 +36,13 @@
 # EQUAL to a real rehearsal's ledger (P1, P2) and holds the two answers equal on
 # the same tree (A1-A6). A writer added to adoption and not here reds P1.
 #
-# WHAT SCOUT DOES NOT PREDICT: the archive (a folder of copies named for each
-# run), `.claude/test-command` (written only when the operator keeps the scan's
-# command) and the Development Guardrails' own files (installed only when the
-# operator chooses to). Adoption checks those itself before it writes anything,
-# and the report says so. APPROVAL_LOG.md and `.claude/bypass-audit.json` never
-# stop an adoption: it stages them only when git will (`_adopt_record_if_stageable`).
+# WHAT SCOUT DOES NOT PREDICT: `.claude/test-command` (written only when the
+# operator keeps the scan's command) and the Development Guardrails' own files
+# (installed only when the Guardrails clone is there). Adoption checks those
+# itself before it writes anything, and the report says so. WHAT NEVER STOPS AN
+# ADOPTION, so it is not counted: the archive (an ignored copy is withheld from
+# the commit, `# BF-ADOPT-IGNORE-ARCHIVE`), APPROVAL_LOG.md and
+# `.claude/bypass-audit.json` (staged only when git will, `_adopt_record_if_stageable`).
 #
 # bash 3.2 safe; every local is assigned where it is declared.
 
@@ -73,7 +74,7 @@
 # rule naming later asks `check-ignore -v` about, so the rule it names is the
 # rule that fired, not a rule git would report for some other spelling.
 scout_ignore_refused() {
-  local root="$1" paths="" asked="" qs="" ign="" st="" sep=""
+  local root="$1" paths="" tracked="" asked="" qs="" ign="" st="" sep=""
   paths="$(grep .)"
   [ -n "$paths" ] || return 0
   # BATCHED, because the per-path form spawned two git processes per path, on
@@ -84,28 +85,38 @@ scout_ignore_refused() {
   # --error-unmatch` answers for a folder), then `check-ignore --stdin`, which
   # runs each path through the matcher the one-path form runs. Paths are
   # literal here, where `ls-files` would have read `*` in one as a glob.
-  sep="$(printf '\001')"
-  asked="$( { ( cd "$root" && git ls-files -z ) 2>/dev/null | tr '\0' '\n'; printf '%s\n' "$sep"; printf '%s\n' "$paths"; } \
-    | awk -v SEP="$sep" '
-        !s && $0 == SEP { s = 1; next }
+  #
+  # THE TRACKED NAMES ARE READ NUL-SEPARATED, a newline inside one turned into
+  # \002, so `x<LF>.claude/settings.json` cannot pass for a tracked
+  # `.claude/settings.json` (review round 1, R-S3-6: it did, and the check
+  # failed open). No name is empty, so an EMPTY LINE ends the list, whatever
+  # bytes the names hold.
+  tracked="$( ( cd "$root" && git ls-files -z ) 2>/dev/null | tr '\n\0' '\002\n' )"   # BL-322-S3-TRACKED-NUL
+  asked="$( { [ -n "$tracked" ] && printf '%s\n' "$tracked"; printf '\n'; printf '%s\n' "$paths"; } \
+    | awk '
+        !s && $0 == "" { s = 1; next }
         !s { t[$0] = 1; d = $0; while (sub(/\/[^\/]*$/, "", d)) t[d] = 1; next }
         $0 == "" { next }
         {
           q = $0
-          if ($0 in t) { q = $0; if (!sub(/\/[^\/]*$/, "", q)) next }   # tracked: ask its folder; top-level: git add accepts it
+          # Tracked: ask about its folder. Tracked and top-level: git add accepts it.
+          if ($0 in t) { q = $0; if (!sub(/\/[^\/]*$/, "", q)) next }   # BL-322-S3-TRACKED-ASK
           print $0 "\t" q
         }')"
   [ -n "$asked" ] || return 0
   qs="$(printf '%s\n' "$asked" | cut -f2 | LC_ALL=C sort -u)"
+  sep="$(printf '\001')"
   ign="$( cd "$root" 2>/dev/null || exit 3
-          printf '%s\n' "$qs" | tr '\n' '\0' | git check-ignore --no-index --stdin -z 2>/dev/null | tr '\0' '\n'
+          printf '%s\n' "$qs" | tr '\n' '\0' | git check-ignore --no-index --stdin -z 2>/dev/null | tr '\n\0' '\002\n'
           printf '%s%s\n' "$sep" "${PIPESTATUS[2]}" )"
   st="${ign##*"$sep"}"; ign="${ign%"$sep"*}"
+  # FAIL CLOSED: only 0 (some ignored) and 1 (none) are answers. Anything else
+  # falls through to the per-path loop below, which names the path.
   case "$st" in
-    0|1)
-      { printf '%s\n' "$ign"; printf '%s\n' "$sep"; printf '%s\n' "$asked"; } | awk -F '\t' -v SEP="$sep" '
-        !s && $0 == SEP { s = 1; next }
-        !s { if ($0 != "") i[$0] = 1; next }
+    0|1)   # BL-322-S3-BATCH-ANSWERED
+      { printf '%s' "$ign"; printf '\n'; printf '%s\n' "$asked"; } | awk -F '\t' '
+        !s && $0 == "" { s = 1; next }
+        !s { i[$0] = 1; next }
         ($2 in i) { print "R\t" $1 "\t" $2 }'   # BL-322-S3-REFUSED-ROW
       return 0 ;;
   esac
@@ -131,25 +142,39 @@ ASKED
 # `<source>\t<line>\t<pattern>\t<refused path>\t<asked>` as `git check-ignore -v`
 # names the rule. Returns 1, having named nothing it could not verify, when git
 # cannot name a rule for every row.
+#
+# ONE GIT CALL FOR EVERY ROW (review round 1, R-S3-5): one per row cost 52 calls
+# on k-pdf, twice over in Scout. `-n` (`--non-matching`) makes git answer for
+# every path, with empty fields where no rule matched, so every path's answer is
+# found by its name and a path with none is caught below.
 scout_ignore_rule_rows() {
-  local root="$1" rows="$2" rel="" q="" out="" src="" ln="" pat="" echoed=""
-  local tab=""
+  local root="$1" rows="$2" out="" joined="" rel="" q="" src="" ln="" pat="" tab=""
   tab="$(printf '\t')"
-  while IFS="$tab" read -r rel q; do
+  [ -n "$rows" ] || return 0
+  out="$( cd "$root" 2>/dev/null && printf '%s\n' "$rows" | cut -f2 | grep . | LC_ALL=C sort -u | tr '\n' '\0' \
+          | git check-ignore -v -n -z --stdin --no-index 2>/dev/null | tr '\n\0' '\002\n' )"
+  # ENVIRON, not -v: awk would read a backslash in a path as an escape.
+  joined="$(printf '%s\n' "$out" | ROWS="$rows" awk -F '\t' '
+    { f[++m] = $0 }
+    END {
+      for (k = 1; k + 3 <= m; k += 4) { s[f[k + 3]] = f[k]; l[f[k + 3]] = f[k + 1]; p[f[k + 3]] = f[k + 2] }
+      n = split(ENVIRON["ROWS"], r, "\n")
+      for (i = 1; i <= n; i++) {
+        if (r[i] == "") continue
+        split(r[i], c, "\t"); q = c[2]
+        if ((q in s) && s[q] != "" && l[q] != "" && p[q] != "") print c[1] "\t" q "\t" s[q] "\t" l[q] "\t" p[q]
+        else print c[1] "\t" q "\t-\t-\t-"
+      }
+    }')"
+  while IFS="$tab" read -r rel q src ln pat; do
     [ -n "$rel" ] || continue
-    out="$( cd "$root" 2>/dev/null && printf '%s\0' "$q" \
-      | git check-ignore -v -z --stdin --no-index 2>/dev/null | tr '\0' '\n' )"
-    src="$(printf '%s\n' "$out" | sed -n 1p)"
-    ln="$(printf '%s\n' "$out" | sed -n 2p)"
-    pat="$(printf '%s\n' "$out" | sed -n 3p)"
-    echoed="$(printf '%s\n' "$out" | sed -n 4p)"
     case "$ln" in ''|*[!0-9]*) return 1 ;; esac
-    [ -n "$src" ] && [ -n "$pat" ] && [ "$echoed" = "$q" ] || return 1
+    [ -n "$src" ] && [ -n "$pat" ] || return 1
     case "$pat" in '!'*) return 1 ;; esac   # BL-311-IGNORE-RULE-NEGATED
     printf '%s\t%s\t%s\t%s\t%s\n' "$src" "$ln" "$pat" "$rel" "$q"
-  done <<ROWS
-$rows
-ROWS
+  done <<JOINED
+$joined
+JOINED
   return 0
 }
 
@@ -191,10 +216,18 @@ ROWS
 # paths in: Scout derives its set and adoption rehearses its own, and the two
 # must say the same thing about the same tree.
 scout_ignore_rules_explain() {
-  local root="$1" rows="$2" table="" tab=""
-  tab="$(printf '\t')"
+  local root="$1" rows="$2" table=""
   rows="$(printf '%s\n' "$rows" | LC_ALL=C sort)"   # BL-322-S3-EXPLAIN-SORT
   table="$(scout_ignore_rule_rows "$root" "$rows")" || return 1
+  scout_ignore_explain_table "$root" "$table"
+}
+
+# scout_ignore_explain_table ROOT TABLE — the prose for a table
+# scout_ignore_rule_rows built, so a caller that also wants the table (Scout's
+# `rules`) asks git once (R-S3-5).
+scout_ignore_explain_table() {
+  local root="$1" table="$2" tab=""
+  tab="$(printf '\t')"
   [ -n "$table" ] || return 1
   # `--type=path` expands `~/` the way git does, so the value compares equal to
   # the source `-v` printed (measured, git 2.54.0: both give the expanded path).
@@ -370,7 +403,7 @@ scout_adoption_write_set() {
 # (`<source>\t<line>\t<pattern>\t<count>\t<example>`, one row per rule) and
 # ignexplain (the lines adoption's block would print about the rules).
 scout_ignore_scan() {
-  local root="$1" work="$2" fw="$3" paths="" rows="" st=0 frow="" n=0 expl=""
+  local root="$1" work="$2" fw="$3" paths="" rows="" st=0 frow="" n=0 expl="" table=""
   printf '0\n' > "$work/ignchecked"; printf '0\n' > "$work/ignblock"; printf '0\n' > "$work/ignpaths"
   : > "$work/ignwhy"; : > "$work/ignrefused"; : > "$work/ignrules"; : > "$work/ignexplain"
   if ! _scout_ignore_is_framework "$fw"; then
@@ -397,9 +430,11 @@ scout_ignore_scan() {
   [ -n "$rows" ] || return 0
   printf '1\n' > "$work/ignblock"
   printf '%s\n' "$rows" | cut -f1 > "$work/ignrefused"
-  if expl="$(scout_ignore_rules_explain "$root" "$rows")" && [ -n "$expl" ]; then
+  # ONE TABLE for both the prose and `rules` (R-S3-5); the rows are already
+  # sorted, as scout_ignore_rules_explain sorts them for adoption.
+  if table="$(scout_ignore_rule_rows "$root" "$rows")" && expl="$(scout_ignore_explain_table "$root" "$table")" && [ -n "$expl" ]; then
     printf '%s\n' "$expl" > "$work/ignexplain"
-    scout_ignore_rule_rows "$root" "$rows" | awk -F '\t' '
+    printf '%s\n' "$table" | awk -F '\t' '
       { k = $1 FS $2 FS $3; if (!(k in n)) { o[++c] = k; ex[k] = $4 }; n[k]++ }
       END { for (i = 1; i <= c; i++) print o[i] "\t" n[o[i]] "\t" ex[o[i]] }' > "$work/ignrules"
   else

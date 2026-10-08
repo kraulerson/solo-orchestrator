@@ -542,9 +542,10 @@ EOF
   _ADOPT_MCP_C7_WHY="$c7_why"; _ADOPT_MCP_Q_WHY="$q_why"; _ADOPT_MCP_C7_BEFORE="$c7_before"; _ADOPT_MCP_Q_BEFORE="$q_before"
   if [ "$ans" = "$ADOPT_MCP_SETUP" ]; then
     ADOPT_MCP_PENDING=1   # BL-322-S3-MCP-DEFER
-    adopt_note "Noted. Nothing has run yet: these run once every check that can still stop this"
-    adopt_note "adoption has passed, just before its first file is written, so an adoption that"
-    adopt_note "stops leaves your Claude Code configuration as it was."
+    adopt_note "Noted. Nothing has run yet: these run once the checks that can stop this"
+    adopt_note "adoption before it writes have passed. A stop before then registers nothing;"
+    adopt_note "a later stop (a file it cannot write, your own commit hook) leaves the"   # BL-322-S3-MCP-DEFER-SAY
+    adopt_note "registration, and says so."
     return 0
   elif [ "${#ADOPT_MCP_PLAN[@]}" -gt 0 ]; then
     adopt_note "Skipped. Nothing was run."

@@ -271,7 +271,7 @@ _scout_emit_collisions() {
 }
 
 # SCOUT_IGNORE_NOT_PREDICTED — what `ignoreRules` leaves out, said in both views.
-SCOUT_IGNORE_NOT_PREDICTED="Not predicted here, because they depend on your answers or on a choice: the archive of your own files that adoption replaces (.claude/adoption-archive/), .claude/test-command, and the Development Guardrails' own files. Adoption checks those itself before it writes anything. APPROVAL_LOG.md and .claude/bypass-audit.json are not counted: adoption commits them only when git will, so they never stop it."
+SCOUT_IGNORE_NOT_PREDICTED="Not predicted here, because they depend on your answers or on a choice: .claude/test-command and the Development Guardrails' own files. Adoption checks those itself before it writes anything. Not counted, because they never stop an adoption: the archive of your own files that adoption replaces (.claude/adoption-archive/), APPROVAL_LOG.md and .claude/bypass-audit.json. Adoption leaves whichever of them your rules ignore out of its commit."
 
 # _scout_emit_ignore WORK — `collisions.ignoreRules` (`## BL-322:` S3), trailing
 # comma included. Every value is read from the files scout_ignore_scan wrote; a
