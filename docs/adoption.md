@@ -317,7 +317,8 @@ a stop, or a halt); `2` bad usage.
   (`## BL-322:` S3; in dogfood run 3 they ran at the question, and a run the
   ignore check then stopped had already registered two servers). Your Claude
   Code configuration is as it was, and the next run asks again. If the run stops
-  *after* they ran — a file adoption could not write, or the commit — a server
+  *after* they ran — a file adoption could not write, or your own commit hook
+  refusing the adoption commit — a server
   they registered is in your Claude Code user configuration, outside the
   project, and it stays registered. The stop is then labelled `[BLOCKED]`, not
   `[REFUSED]`, because the run had begun; it says nothing was written to the
@@ -860,15 +861,18 @@ question — a script that answers `1` to everything — skips, rather than
 registering servers for every project on the machine.
 
 `set it up now` (or `2`) does not run them yet. They change your Claude Code
-configuration for every project, so they wait until every check that can stop
-the adoption has passed — every question, the ignore-rule check and the archive
-check — and run just before the first file is written (`## BL-322:` S3):
+configuration for every project, so they wait until the checks that can stop
+the adoption before it writes have passed — every question, the ignore-rule
+check and the archive check — and run just before the first file is written
+(`## BL-322:` S3). A stop after that (a file it cannot write, your own commit
+hook) leaves them registered and says so:
 
 ```text
    Answer with the number or the words: 2
-   Noted. Nothing has run yet: these run once every check that can still stop this
-   adoption has passed, just before its first file is written, so an adoption that
-   stops leaves your Claude Code configuration as it was.
+   Noted. Nothing has run yet: these run once the checks that can stop this
+   adoption before it writes have passed. A stop before then registers nothing;
+   a later stop (a file it cannot write, your own commit hook) leaves the
+   registration, and says so.
 ```
 
 Then they run, from the run's own scratch directory, under their own heading;

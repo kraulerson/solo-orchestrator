@@ -373,12 +373,13 @@ not checked), `pathsChecked`, `wouldBlock`, every `refused` path, the `rules`
 (`source`, `line`, `pattern`, `refuses`, `example`), the `explanation` lines and
 `notChecked`.
 
-**What it does not predict, and says so:** the archive of your own files that
-adoption replaces (a folder named for each run), `.claude/test-command` (written
-only when you keep the scan's test command) and the Development Guardrails' own
-files (installed only when you choose to). Adoption checks those itself before it
-writes anything. `APPROVAL_LOG.md` and `.claude/bypass-audit.json` never stop an
-adoption: it commits them only when git will.
+**What it does not predict, and says so:** `.claude/test-command` (written only
+when you keep the scan's test command) and the Development Guardrails' own files
+(installed only when their clone is on the machine). Adoption checks those itself
+before it writes anything. **What never stops an adoption, so it is not counted:**
+the archive of your own files that adoption replaces, `APPROVAL_LOG.md` and
+`.claude/bypass-audit.json` — adoption leaves whichever of them your rules ignore
+out of its commit.
 
 **It needs the framework beside it.** Scout reads the list of files adoption
 writes from the Solo Orchestrator clone it runs from (`init.sh`'s copy lines, the
