@@ -267,7 +267,7 @@ _adopt_act4_merge() {
 # `git commit` at Act 4. C8 forbids both words in the paragraph.
 #
 # `## BL-322:` S4 (dogfood run 3, findings 17 and 18): step 9 says what the
-# pre-filled adoptedAtCommit is (the stamp's anchor, `# BL-242-ACT4-REFUSE-COMMIT`
+# pre-filled adoptedAtCommit is (the stamp's anchor; _adopt_act4_record_errors
 # refuses any other value) and where availability and exposure go, since no
 # intake wizard key holds them; step 8 says the release history was not
 # carried. Seeding RELEASE_NOTES.md from `git tag` was not built: a tag names a
