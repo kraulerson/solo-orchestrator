@@ -396,7 +396,11 @@ here.
     `verify-install.sh --auto-fix` gives it a temp HOME with a stand-in clone
     (`# BL-322-S5-HOME`): with the runner's HOME it clones CDF over the
     network, which is how `rest` once leaked a clone that later suites
-    silently depended on.
+    silently depended on. That covers those three suites only: others can still
+    reach the real HOME (`tests/test-bl312-tldr-mode.sh` U1 runs
+    `upgrade-project.sh`, whose `# BL-320-UP-PULL` pulls
+    `~/.claude-dev-framework`), so run any suite that runs `upgrade-project.sh`
+    with `HOME="$(mktemp -d)"`.
   - **Never write the literal array-opening token (`tests`+`=`+`(`) anywhere
     else in that file below the array.** `_build_unit_list_set` scopes with an
     UNANCHORED `awk '/tests=\(/'` and does not strip comments, so a second

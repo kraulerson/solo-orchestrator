@@ -2439,9 +2439,14 @@ Bible holds, with nothing said. Now:
   ambiguous (emphasis or link text whose close the line does not show for
   certain, a non-ASCII character beside a `*`), the import is **carried and named
   apart as unsure**: in the run, under its own sentence in the carried section,
-  and in the assessment prompt, which asks you about each. A missed import would
-  silently stop a rule loading; an unsure one loads a file that is in your
-  project, and you can delete its line.
+  and in the assessment prompt, which asks you about each. A path after a space
+  ends at a closer of emphasis or link text opened earlier on the line, but
+  only at a `*` or `_` the Markdown lets close — the `_` in
+  `@docs/coding_standards.md` never does (`# BL-322-CARRY-TOKCUT-CLOSES`) — and
+  a path cut there is carried whole as well, as unsure
+  (`# BL-322-CARRY-KEEPWHOLE`), so a closer read wrongly cannot lose the import.
+  A missed import would silently stop a rule loading; an unsure one loads a
+  file that is in your project, and you can delete its line.
 - **Every import not carried is named, with the reason**: an import of a file in
   your home folder or an absolute path (named only, never carried: it may not
   exist on another machine), outside the project, a symlink, missing, not a file,
@@ -2449,7 +2454,10 @@ Bible holds, with nothing said. Now:
   writes (`FEATURES.md`, `PROJECT_INTAKE.md`, `.claude/settings.json`, … — also
   under another case of the same name, `@features.md`, on a case-insensitive
   disk), whose content is no longer what you imported, or any file at all when
-  the archive's record cannot be read.
+  the archive's record cannot be read. An `@` read as unsure that is not carried
+  is named in a list of its own, as a mention whose Markdown does not show for
+  certain that it is an import at all (`# BL-322-CARRY-SKIP-UNSURE-SAY`): the
+  whole of a cut path usually names no file, and is listed there.
 - **The rules written in the file itself are not carried**, and the run says so
   in capitals. Telling a lasting rule from a stale claim ("Phase: 2", "Next: merge
   the branch") is the assessment's judgement. Until it folds them in, tell the

@@ -1125,7 +1125,8 @@ jobs:
           # there: bl320 R10 and E1 (124/0/0 with it, 122/0/2 without) and
           # upgrade-cdf-refresh T1, T3, T4 and T5 (6/0/0, 2/0/4); bl318-g4g6's
           # P4/P4m skipped on every leg, the clone being too shallow. Now
-          # bl141, bl145 and pr-review-gate run with a temp HOME and fetch
+          # bl141, bl145 and pr-review-gate (those three only; other suites
+          # can still reach the runner's HOME) run with a temp HOME and fetch
           # nothing, and those cases read the pinned fixture the "Fetch the
           # pinned Guardrails fixture" step fetches on every leg: they run on
           # any leg, and under CI they FAIL rather than skip without it. Each
@@ -1136,7 +1137,7 @@ jobs:
           pin_adopt_b=(
             tests/test-bl322-s3-ignore-preflight.sh           # 202.4s on PR #504; ~230s on main run 37714043379 (derived — cancelled at case 46 of 47) — from `adopt`
             tests/test-brownfield-wp4-driver.sh               # 128.2s at its slowest of three runs — from `adopt`
-            tests/test-bl322-s2-project-rules.sh              # 113.2s — from `mcp`; ~120s local after S5 review round 1 (74s before it: 48 more mutants, one more adoption)
+            tests/test-bl322-s2-project-rules.sh              # 113.2s — from `mcp`; ~120s local after S5 review round 1 (74s before it: 48 more mutants, one more adoption); 150s after round 2 (D1, 12 more mutants)
             tests/test-bl322-s1-audit-loop.sh                 #  38.5s — from `rest`
             tests/test-f015-tamper-pin-allowlist.sh           #  34.7s — from `rest`
           )

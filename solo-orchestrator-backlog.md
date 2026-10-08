@@ -23969,25 +23969,30 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
   that closes emphasis opened earlier on the line (`**bold**@x.md`, `# BL-322-CARRY-AFTER`), after an escaped
   character (`# BL-322-CARRY-ESCAPE`), after an inline tag (`# BL-322-CARRY-TAG`) and after any `[` but an
   image's; a path ends at an inline tag (`# BL-322-CARRY-TAGEND`) and at a closer of something opened earlier
-  (`# BL-322-CARRY-TOKCUT`). `_adopt_claude_md_carry` writes an `unsure` row, once per file, made certain by a
+  (`# BL-322-CARRY-TOKCUT`), but only at a run the flanking rules let close (`# BL-322-CARRY-TOKCUT-CLOSES`), and a
+  plain path cut there is also carried whole, as unsure (`# BL-322-CARRY-KEEPWHOLE`; review round 2, R-S5-7). `_adopt_claude_md_carry` writes an `unsure` row, once per file, made certain by a
   certain spelling of the same file (`# BL-322-CARRY-UNSURE-ROW`, `# BL-322-CARRY-UPGRADE`). Every sentence is now
   true whatever was carried: the section says "It imported the files below" only over certain rows and puts the
-  unsure ones under "Its Markdown does not show for certain whether Claude Code reads the files below as its
+  unsure ones under "Its Markdown does not show for certain that Claude Code reads the files below as its
   imports … delete any line here it did not mean as an import" (`# BL-322-CARRY-UNSURE-SECTION`); the run names
-  them under "Carried, though adoption could not tell …" (`# BL-322-CARRY-UNSURE-SAY`) and says "Adoption found no
+  them under "Carried, though its Markdown does not show for certain …" (`# BL-322-CARRY-UNSURE-SAY`) and says "Adoption found no
   imports in it" only when it found none (`# BL-322-CARRY-NONE`); *Next* and step 8 of the assessment prompt no
   longer say only the old file's imports were carried, and step 8 asks the user about each unsure one. Measured
   against the replica (marked 13.0.3), 2026-10-08:
 
   | Corpus | `c125f0f` (base) | `6d69a80` (strict) | now |
   |---|---|---|---|
-  | 66 realistic shapes (round 1's): false carries / missed | 1 / 9 | 0 / 24 | 4, all unsure / 1 |
+  | 66 realistic shapes (round 1's): false carries / missed | 1 / 9 | 0 / 24 | 4, all unsure / 0 |
   | the review's 41 fixtures | 14 / 1 | 9 / 1 | 14 (9 certain, 5 unsure) / 0 |
   | 9000 fuzzed lines, round 1's generator: missed | 78, 87, 81 | 164, 169, 174 | 42, 46, 43 |
   | 9000 fuzzed lines, this branch's generator: missed | 11, 14, 11 | 111, 116, 120 | 0, 0, 0 |
+  | 9000 plain-import lines, round 2's generator: real imports missed | 123, 124, 120 | 44, 46, 46 | 2, 1, 2 |
+  | the same: real imports `c125f0f` carried that are dropped | — | 42, 45, 45 | 0, 0, 0 |
+  | round 2's 13 realistic `_` lines (`@docs/coding_standards.md` after `_build/`): carried whole | 13 | 5 | 13 |
 
-  The one realistic miss is `docs/style.md**`, a path that cannot exist, which Claude Code reads by also scanning
-  a tight list item raw. On realistic shapes 18 imports are unsure, 14 of them real. On fuzz, which is built of
+  The last three rows' middle column is `0c0c519`, round 1's head. On realistic shapes 19 imports are unsure, 15
+  of them real, and none is missed: `docs/style.md**`, which Claude Code reads by also scanning a tight list item
+  raw, is now carried whole beside `docs/style.md`. On fuzz, which is built of
   unclosed emphasis, most lines carry an unsure import Claude Code would not take; 1, 2 and 1 per 3000 of round 1's
   lines are certain false carries (an escaped `\*` before a longer closing run). The 9 certain false carries on
   the 41 fixtures are the three shapes it cannot see (residuals).
@@ -24010,13 +24015,14 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
   `-tc -F f` now read `f`; at `c125f0f` none did. `-u` changes no reading of a valid mode. Review round 1
   (R-S5-5): a path with git's `:(optional)` prefix (gitcli, "Magic filename options") is read without it
   (`# BL-322-S5-MSGFILE-OPTIONAL`); at `6d69a80` `-F ':(optional)msg.txt'` was not read.
-- **Hermeticity.** `tests/test-bl141-commitmsg-repair.sh`, `tests/test-bl145-hook-symlink-hookspath.sh` and
+- **Hermeticity, of these three suites only.** `tests/test-bl141-commitmsg-repair.sh`, `tests/test-bl145-hook-symlink-hookspath.sh` and
   `tests/test-pr-review-gate.sh` export a temp HOME holding a stand-in `.claude-dev-framework/.git`
   (`# BL-322-S5-HOME`, `# BL-322-S5-STANDIN`; the seam `tests/test-bl284-verify-install-context.sh` already used)
   and unset `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL`. No product code changed, and none of
   the three reads the clone's contents. Run with an empty inherited HOME, a `git`
   that refuses any remote URL and a dead proxy, at `c125f0f` they tried 4, 9 and 2 network clones into it; now
-  none, and it stays empty. With the real HOME, `~/.claude-dev-framework`'s HEAD and mtimes are unchanged.
+  none, and it stays empty. With the real HOME, `~/.claude-dev-framework`'s HEAD and mtimes are unchanged. S5 makes no
+  claim about the rest of the unit lane: review round 2 found other suites that still reach the real HOME (residuals).
 - **The fixture.** One way in, `tests/test-helpers/cdf-fixture.sh`: `SOIF_TEST_CDF_FIXTURE`, a clone of CDF at
   `4180f22be0a8b4410aeaa4e65800aed8e2299805` (v4.4.1, PR #27's merge, confirmed with `gh api`), which a new
   "Fetch the pinned Guardrails fixture" step fetches with full history on every unit-shard and full leg and
@@ -24036,11 +24042,15 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
 - **Tests.** `tests/test-bl322-s5-hardening.sh` (unit lane, `mcp-mutants`): 12 cases (H1 the three suites under
   that probe; X1-X7 the helper against a local upstream; W1-W2 the workflow step and the pin; C1
   upgrade-cdf-refresh under CI with no fixture; C2 bl320 and g4g6, static) and 13 mutants, each killed by a named
-  case, M12 and M13 only statically. `tests/test-bl322-s2-project-rules.sh` (now 17 cases and 115 mutants): U8, 67
-  one-line shapes whose certain lines are exactly what the replica imports, U2's unsure and upgraded rows, A1's
+  case, M12 and M13 only statically. `tests/test-bl322-s2-project-rules.sh` (now 18 cases and 127 mutants): D1 (review round 2) runs
+  the reading at `c125f0f` and this one over 1040 generated plain-import lines amid `_`/`*` prose and paths and
+  round 2's 13 lines verbatim, and fails on any real import `c125f0f` carried that this drops or cuts (0 of 653
+  here; 112 at `0c0c519`, 104 generated and 8 of the 13; 8 with the cut fixed but no whole path kept, M122); U8, 83
+  one-line shapes whose certain lines are what the replica imports but one (an image's alt text, which names no
+  file), U2's unsure and upgraded rows, A1's
   unsure import beside two certain ones and A7's lone unsure import (every sentence true), and M55-M115, one per
   line of the reading that decides something (review round 1's R-S5-3: its linkclose bracket line and
-  `lf = !isws(x)` had survived); `tests/test-bl322-zsh-legs.sh` Z5, the spellings in Z2 and Z3, M7-M10;
+  `lf = !isws(x)` had survived; round 2's R-S5-8 found three more, now M117-M119); `tests/test-bl322-zsh-legs.sh` Z5, the spellings in Z2 and Z3, M7-M10;
   `tests/test-bl322-s4-wording.sh` F1's six new forms, MF11-MF13; `tests/test-bl318-g4g6.sh` P4u.
 
 **S5 review round 1 (BLOCK; all addressed).** R-S5-1: `CI=true bash tests/test-bl322-s5-hardening.sh` gave 24/1
@@ -24050,6 +24060,25 @@ now sets or unsets CI inside its own subshell (`# BL-322-S5-COPY-CI`), and every
 `CI=true` and without. R-S5-2: carry on doubt, named (above). R-S5-3: every decision line of the reading has a
 mutant killed by a named case. R-S5-4: Z5 reads any whole word (above). R-S5-5: `:(optional)` (above). R-S5-6:
 the step's timeout and the stalled-fetch limit (above).
+
+**S5 review round 2 (BLOCK; all addressed).** R-S5-7, a regression against `c125f0f` and `6d69a80` brought in by
+round 1's `tokcut`: a plain `@docs/coding_standards.md` after an unclosed `_build/` on the same line was cut at
+its underscore (`docs/coding`, then "no such file", and the rules stopped loading), because the earlier `_` could
+open emphasis that path never closes. A run in a path now ends it only when the flanking rules let it close, and
+a cut plain path is carried whole as well; D1 holds every real plain import `c125f0f` carried. R-S5-8: the run
+lengths in `prior` and `tokcut` and the image test in `linkprior` had no mutant (`# BL-322-CARRY-PRIOR-RUN`,
+`# BL-322-CARRY-TOKCUT-RUN`, `# BL-322-CARRY-LINKPRIOR-IMAGE`; M117-M119). R-S5-9: step 8 named the unsure files in
+words the section never uses; it now quotes the section's "Its Markdown does not show for certain", and a skip row
+from an unsure token is marked (`# BL-322-CARRY-SKIP-UNSURE`) and listed under "These @ mentions in it were NOT
+carried, and its Markdown does not show for certain that they are imports at all" (`# BL-322-CARRY-SKIP-UNSURE-SAY`)
+instead of being called an import; that list says no "either", since it may be the only one. The run's and the
+section's unsure sentences now say the Markdown does not show for certain *that* Claude Code imports a file, not
+that adoption "could not tell", which stays true of a whole path carried beside a cut one. Every sentence the run,
+the section and step 8 print was read in four adoptions: no imports; certain only (`**Always read @RULES.md**`,
+whose whole `RULES.md**` is listed as a mention not carried); certain and unsure; and only an unsure mention that
+names no file. The archive says nothing about imports.
+R-S5-8's three markers each have a U8 line that tells them apart: `_see @K46__x.md`, `__init__ @K43_.md` and
+`![see @N4.md](u)` (each read whole and certain; the mutant cuts it, unsure).
 
 **S5 residuals (not fixed):**
 - **The import reading still carries, as certain, an `@` Claude Code would not import** in three kinds of shape,
@@ -24074,6 +24103,16 @@ the step's timeout and the stalled-fetch limit (above).
 - **Two more suites read `~/.claude-dev-framework` and skip on CI**: `tests/test-bl296-adopt-guardrails.sh` G6 (the
   Guardrails' own installer; `commit-hooks`) and `tests/test-bl318-g5-guardrails-refresh.sh` E1 (`CDF_REFRESH_SRC`;
   `mcp`). Neither leg ever had the leftover clone; both could read the fixture.
+- **Other unit suites can still reach the real HOME** (review round 2; recorded here only, for a new backlog entry
+  the supervisor is filing): `tests/test-bl312-tldr-mode.sh` U1 runs `upgrade-project.sh`, whose `# BL-320-UP-PULL`
+  runs `git pull --ff-only` in `${CDF_HOME:-$HOME/.claude-dev-framework}` (`# BL-320-UP-CLONE`); run with the real
+  HOME during the review, it pulled the real clone. Of the 249 suites in the `tests.yml` unit list, 33 name
+  `upgrade-project.sh` on a line that is not a comment and 24 of those set neither `HOME` nor `CDF_HOME` (a grep,
+  2026-10-08: naming is not running); none is audited. S5 isolated bl141, bl145 and pr-review-gate only.
+- **A plain path cut at a closer is carried twice**: the cut path and, unsure, the whole one. When the cut is right
+  the whole one usually names no file, and the run lists it among the @ mentions not carried
+  (`**Always read @RULES.md**` lists `@RULES.md**`); when it does name a file, that file loads though Claude Code
+  would not have imported it.
 - **Not run here**: mawk (the runner's `awk`) on the new reading, bash 5.2 and GNU grep on the zsh guard and Z5,
   and the step on a runner. Its lines ran here against a local copy of the pin (the URL replaced), and its git
   commands by hand against GitHub (HEAD `4180f22`, 166 commits, not shallow). It is a network fetch on each of
