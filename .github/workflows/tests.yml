@@ -324,7 +324,11 @@ jobs:
         # missing or wrong fixture makes those cases FAIL, never skip. Before
         # S5 they read a depth-1 clone of CDF main that `verify-install.sh
         # --auto-fix` left in the runner's HOME, on `rest` only. A failed
-        # fetch fails the leg: no continue-on-error, nothing swallowed.
+        # fetch fails the leg: no continue-on-error, nothing swallowed. So if
+        # GitHub or the CDF repository is unreachable, EVERY leg goes red, by
+        # design. Three tries, each abandoned when the transfer stalls below
+        # 1000 bytes/s for 30s; the step itself is capped at 3 minutes.
+        timeout-minutes: 3
         run: |
           set -euo pipefail
           . tests/test-helpers/cdf-fixture.sh
@@ -1132,7 +1136,7 @@ jobs:
           pin_adopt_b=(
             tests/test-bl322-s3-ignore-preflight.sh           # 202.4s on PR #504; ~230s on main run 37714043379 (derived — cancelled at case 46 of 47) — from `adopt`
             tests/test-brownfield-wp4-driver.sh               # 128.2s at its slowest of three runs — from `adopt`
-            tests/test-bl322-s2-project-rules.sh              # 113.2s — from `mcp`
+            tests/test-bl322-s2-project-rules.sh              # 113.2s — from `mcp`; ~120s local after S5 review round 1 (74s before it: 48 more mutants, one more adoption)
             tests/test-bl322-s1-audit-loop.sh                 #  38.5s — from `rest`
             tests/test-f015-tamper-pin-allowlist.sh           #  34.7s — from `rest`
           )
@@ -1488,7 +1492,8 @@ jobs:
       - name: Fetch the pinned Guardrails fixture (BL-322 S5)
         # The same step as the unit-shard job's (see its note): the full
         # suite runs the same real-clone cases, and under CI they fail
-        # without it.
+        # without it. An unreachable GitHub turns every full leg red too.
+        timeout-minutes: 3
         run: |
           set -euo pipefail
           . tests/test-helpers/cdf-fixture.sh
