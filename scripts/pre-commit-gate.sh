@@ -1098,6 +1098,15 @@ fi
 # skipped, so a message that is the word "-F" is never read as the option.
 # Prints nothing when there is no message file; `$VAR` is not expanded.
 #
+# In a short-option cluster, the first option that takes a value ends it: the
+# rest of the word is that value (`## BL-322:` S5, review R2-1: in
+# `-Sabc -F f` the `c` of the key id was read as -c, whose value would then be
+# the -F). `git commit -h` (2.54) lists the short options with a value: -F, -m,
+# -c, -C and -t take one, attached or as the next word; -S[<key-id>] and
+# -u[<mode>] take an optional one, attached only, so they never take the next
+# word. -U <n> is left out: its value is a number, which spells no option, and
+# git refuses one that is not.
+#
 # `## BL-322:` S4, review round 1 (R-S4-1). The four readers below matched
 # "-F, whitespace, then non-spaces" with sed: a QUOTED path kept its quotes and
 # was never read, and `--file` was not seen at all, so the message checks here
@@ -1136,10 +1145,11 @@ _commit_msg_file() {   # BL-322-S4-MSGFILE
           for (j = 2; j <= length(w); j++) {
             l = substr(w, j, 1)
             if (l == "F") { r = substr(w, j + 1); if (r != "") print r; else if (k < n) print t[k + 1]; exit }   # BL-322-S4-MSGFILE-CLUSTER
-            if (l == "m" || l == "c" || l == "C") {
+            if (l == "m" || l == "c" || l == "C" || l == "t") {   # BL-322-S5-MSGFILE-REQVAL
               if (j == length(w)) k++   # BL-322-S4-MSGFILE-SKIPVAL
               break
             }
+            if (l == "S" || l == "u") break   # BL-322-S5-MSGFILE-OPTVAL
           }
         }
       }

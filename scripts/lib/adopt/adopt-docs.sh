@@ -107,10 +107,18 @@ _adopt_doc_value() {
 # starts `./`, `~/`, `/x` or `[A-Za-z0-9._-]`. Code (fenced or indented) and code
 # spans are never scanned; an HTML comment is cut out first; any other HTML
 # block is skipped whole. A shell step cannot run a Markdown lexer, so this is
-# an approximation, and it is built to err in ONE direction: what it cannot
-# tell apart it does not carry. A false carry would turn on text the project
-# had switched off (a commented-out import, an example in a code block); a
-# missed import is named in no list, but the warning names the archived file.
+# an approximation. Where it knows it cannot tell, it does not carry: a false
+# carry would turn on text the project had switched off (a commented-out
+# import, an example in a code block); a missed import is named in no list, but
+# the warning names the archived file. It does NOT err in one direction only:
+# three kinds of shape it cannot see make it carry an `@` Claude Code would not
+# import: a fence or an HTML block inside a list item or a block quote; a code
+# span that runs across lines; and `<!--> @x.md -->` or `<!---> @x.md -->`
+# (Claude Code cuts from the `<!--` to the next `-->`; this reads `<!-->` as a
+# whole comment). Measured against the replica on 2026-10-08 (`## BL-322:` S5):
+# 9000 fuzzed one-line emphasis and link-text shapes, no false carry (166, 154
+# and 162 per 3000 at `c125f0f`); the review's 41 fixtures, 9 false carries,
+# every one of them one of those shapes.
 # What it reads, line by line (`_adopt_claude_md_import_tokens`):
 #   - a trailing CR is dropped (a CRLF file);
 #   - a fence runs from ``` or ~~~ (up to three spaces in) to a line of the
@@ -127,13 +135,18 @@ _adopt_doc_value() {
 #   - a no-break space counts as a space, as JavaScript's `\s` counts it;
 #   - an `@` counts at a line start or after whitespace, and also as the first
 #     character of emphasis (`*@x.md*`, `**@x.md**`, `_@x.md_`) or of a link's
-#     text (`[@x.md](…)`), where Markdown starts a new text token;
+#     text (`[@x.md](…)`), where Markdown starts a new text token — but only
+#     when, on the same line, the emphasis meets a run that can close it (the
+#     flanking rules, at least as long, before any nested opener) or the link
+#     text meets `](`, a destination and `)` (`emclose`, `linkclose`, R-S2-12);
 #   - the path runs to whitespace or to a backslash not followed by a space.
 # What it misses, recorded on `## BL-322:` (each is not carried): an `@` right
 # after a CLOSING delimiter (`**bold**@x.md`) or an inline tag (`<b>@x.md</b>`),
 # an `@` inside a code span in a tight list item (Claude Code scans that raw), a
-# code span across lines, and whitespace other than the space, the tab and the
-# no-break space.
+# code span across lines, whitespace other than the space, the tab and the
+# no-break space, and emphasis or link text that closes on a later line, holds
+# a bracket, a tag or a nested emphasis, or has a non-ASCII neighbour at a
+# delimiter.
 ADOPT_CARRY_BEGIN='<!-- SOIF-CARRIED-IMPORTS-BEGIN (BL-322) -->'
 ADOPT_CARRY_END='<!-- SOIF-CARRIED-IMPORTS-END -->'
 ADOPT_CLAUDE_MD_REPLACED=0
@@ -157,6 +170,70 @@ _adopt_claude_md_import_tokens() {
         else { out = out substr(t, 1, p + n - 1); t = rest }
       }
       return out t
+    }
+    function isws(c) { return c == "" || c == " " || c == "\t" }
+    function ispunct(c) { return c != "" && index("!\"#$%&\047()*+,-./:;<=>?@[\\]^_`{|}~", c) > 0 }
+    # emclose(s, from, d, L) — where, on this line, the run of d that closes the
+    # emphasis an `@` opened (a run of L) starts; 0 when none does, or when what
+    # comes first could change the answer: a run that can open (a nested
+    # emphasis), a closing run shorter than L, a bracket, a tag or a backtick, a
+    # non-ASCII neighbour, or a run that can open and close whose length breaks
+    # the rule of three.
+    function emclose(s, from, d, L,    n, i, a, c, p, x, lf, rf, op, cl) {
+      n = length(s)
+      for (i = from; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "\\") { i++; continue }
+        if (index("[]<`", c)) return 0   # BL-322-CARRY-EMPH-STOP
+        if (c != d) continue
+        a = i; while (i < n && substr(s, i + 1, 1) == d) i++
+        p = substr(s, a - 1, 1); x = substr(s, i + 1, 1)
+        if (p > "\177" || x > "\177") return 0   # BL-322-CARRY-EMPH-ASCII
+        lf = !isws(x) && (!ispunct(x) || isws(p) || ispunct(p))
+        rf = !isws(p) && (!ispunct(p) || isws(x) || ispunct(x))   # BL-322-CARRY-EMPH-FLANK
+        if (d == "*") { op = lf; cl = rf } else { op = lf && (!rf || ispunct(p)); cl = rf && (!lf || ispunct(x)) }   # BL-322-CARRY-EMPH-UNDER
+        if (cl && i - a + 1 >= L) { if (op && (L + i - a + 1) % 3 == 0 && (L % 3 || (i - a + 1) % 3)) return 0; return a }   # BL-322-CARRY-EMPH-RUN
+        if (op || cl) return 0   # BL-322-CARRY-EMPH-NESTED
+      }
+      return 0
+    }
+    # linkclose(s, from) — where the `]` that ends the link text an `@` opened
+    # is, when an inline link follows it: `(`, a destination (`<…>`, or no
+    # space, a `)` in it only after a `(`, or none), an optional title after a
+    # space (in double quotes, single quotes or parentheses), `)`. 0 otherwise,
+    # or when the text holds a bracket, a tag or a backtick. A reference link is
+    # not read.
+    function linkclose(s, from,    n, i, e, c, dp, q) {
+      n = length(s)
+      for (i = from; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "\\") { i++; continue }
+        if (index("[<`", c)) return 0
+        if (c == "]") break
+      }
+      if (i > n || substr(s, i + 1, 1) != "(") return 0   # BL-322-CARRY-LINK-PAREN
+      e = i; i += 2
+      while (substr(s, i, 1) == " " || substr(s, i, 1) == "\t") i++
+      if (substr(s, i, 1) == "<") {
+        for (i++; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") { i++; continue }; if (c == "<") return 0; if (c == ">") break }
+        i++
+      } else {
+        for (dp = 0; i <= n; i++) {
+          c = substr(s, i, 1)
+          if (c == "\\") { i++; continue }
+          if (c <= " " || c == "\177") break   # BL-322-CARRY-LINK-DEST
+          if (c == "(") dp++
+          else if (c == ")") { if (!dp) break; dp-- }
+        }
+      }
+      q = i; while (substr(s, i, 1) == " " || substr(s, i, 1) == "\t") i++
+      c = substr(s, i, 1)
+      if (c == ")") return e
+      if (i == q || !index("\"\047(", c)) return 0   # BL-322-CARRY-LINK-TITLE
+      q = (c == "(") ? ")" : c
+      for (i++; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") { i++; continue }; if (c == q) break }
+      for (i++; substr(s, i, 1) == " " || substr(s, i, 1) == "\t"; i++) ;
+      return (substr(s, i, 1) == ")") ? e : 0   # BL-322-CARRY-LINK-CLOSE
     }
     {
       line = $0
@@ -221,28 +298,21 @@ _adopt_claude_md_import_tokens() {
         else if (pc == "*" || pc == "_") {
           j = pos - 1; while (j > 1 && substr(line, j - 1, 1) == pc) j--
           if (j == 1 || substr(line, j - 1, 1) ~ /[ \t]/) { kind = 2; closer = substr(line, j, pos - j) }   # BL-322-CARRY-EMPH
-        } else if (pc == "[" && (pos == 2 || substr(line, pos - 2, 1) ~ /[ \t]/)) { kind = 3; closer = "](" }   # BL-322-CARRY-LINKTEXT
+        } else if (pc == "[" && (pos == 2 || substr(line, pos - 2, 1) ~ /[ \t]/)) { kind = 3 }   # BL-322-CARRY-LINKTEXT
         if (!kind) continue
-        tok = ""; k = pos + 1
+        tok = ""; at = pos; k = pos + 1
         while (k <= n) {
           c = substr(line, k, 1)
           if (c == "\\") { if (substr(line, k + 1, 1) != " ") break; tok = tok "\\ "; k += 2; continue }   # BL-322-CARRY-BACKSLASH
           if (c == " " || c == "\t") break
           tok = tok c; k++
         }
-        after = substr(line, k); pos = k - 1
-        if (kind > 1) {
-          m = index(tok, closer)
-          if (m && closer ~ /^_/) {
-            m = 0; q = 1
-            while ((r = index(substr(tok, q), closer)) > 0) {
-              if (substr(tok, q + r - 1 + length(closer), 1) !~ /[A-Za-z0-9]/) { m = q + r - 1; break }
-              q += r
-            }
-          }
-          if (m) tok = substr(tok, 1, m - 1)
-          else if (!index(after, closer)) continue
-        }
+        pos = k - 1
+        # Emphasis or link text counts only once it is known to close (R-S2-12);
+        # a closer inside the path ends the path there.
+        m = (kind == 2) ? emclose(line, at + 1, pc, length(closer)) : (kind == 3) ? linkclose(line, at + 1) : k   # BL-322-CARRY-CLOSES
+        if (!m) continue
+        if (m < k) tok = substr(tok, 1, m - at - 1)
         h = index(tok, "#"); if (h) tok = substr(tok, 1, h - 1)   # BL-322-CARRY-FRAGMENT
         if (!(tok ~ /^~\// || (substr(tok, 1, 1) == "/" && tok != "/") || tok ~ /^[A-Za-z0-9._-]/)) continue   # BL-322-CARRY-PATHCHAR
         if (!(tok in seen)) { seen[tok] = 1; print tok }
