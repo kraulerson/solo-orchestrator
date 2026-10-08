@@ -36,7 +36,8 @@
 #   F1  every spelling of `git commit -F`/`--file`, quoted or not, reaches the
 #       Build-Loop message check; F2 the TDD warn detector and F3 the
 #       backlog-references lint read a quoted message file; F4 all four readers
-#       in pre-commit-gate.sh share _commit_msg_file (review R-S4-1)
+#       in pre-commit-gate.sh share _commit_msg_file; F5 the checklist's subject
+#       reads one (review R-S4-1)
 #   P1  the assessment prompt explains adoptedAtCommit and where availability and
 #       exposure live
 #   P2  the assessment prompt says the release history was not carried
@@ -178,9 +179,12 @@ case_H1() {   # the commit check's hold, while the question waits
 # Build-Loop message check (bl006_check), a fix: subject on a source file with no
 # test leaves a row in the TDD warn ledger (_tdd_extract_subject), and an unknown
 # BL id is refused by the backlog-references lint (extract_commit_message). The
-# fourth site, COMMIT_SUBJECT, feeds --check-commit-ready, which adds a check for
-# a feat: subject only — the one bl006_check refuses first — so it has no
-# observable effect of its own while bl006_check holds; F4 pins it by structure.
+# fourth site, COMMIT_SUBJECT, feeds --check-commit-ready, which refuses a feat:
+# subject only when a source file is staged and bl006_check has not refused it
+# first. So F1 stages a document only (the checklist exempts it; bl006_check alone
+# decides) and F5 puts the message file in a folder named merge, which makes
+# bl006_check stand aside (its derivative-commit filter) and leaves the checklist
+# alone deciding. F4 pins all four by structure.
 MSG_DIR="$WORK/msg"; SP_DIR="$WORK/sp ace"
 mkdir -p "$MSG_DIR" "$SP_DIR"
 for k in feat fix docs; do
@@ -211,7 +215,7 @@ gate_on() {   # FW DIR CMD [lint] — the PreToolUse decision's reason, or empty
 case_F1() {   # every spelling of the message file reaches the Build-Loop message check
   local d="" form="" cmd="" bad="" n=0
   d="$(newtmp)/p"; fx2 "$d" || { CASE_DETAIL="fixture"; return 1; }
-  printf 'console.log(1)\n' > "$d/src/a.js" && git -C "$d" add src/a.js
+  printf '# tweak\n' > "$d/README.md" && git -C "$d" add README.md
   cp "$MSG_DIR/feat.txt" "$d/msg.txt"
   while IFS= read -r form; do
     [ -n "$form" ] || continue
@@ -265,6 +269,16 @@ case_F3() {   # the backlog-references lint reads a quoted message file
   gate_on "$1" "$d" "git commit -F \"$SP_DIR/docs.txt\"" lint
   has "$GATE_REASON" "lint-backlog-references" && has "$GATE_REASON" "BL-999" \
     || { CASE_DETAIL="an unknown BL id in a quoted -F message was not refused: [$GATE_REASON]"; return 1; }
+  return 0
+}
+case_F5() {   # the checklist's subject reads a quoted message file
+  local d="" mf=""
+  d="$(newtmp)/p"; fx2 "$d" || { CASE_DETAIL="fixture"; return 1; }
+  mf="$(dirname "$d")/merge notes"; mkdir -p "$mf" && cp "$MSG_DIR/feat.txt" "$mf/feat.txt"
+  printf 'console.log(1)\n' > "$d/src/a.js" && git -C "$d" add src/a.js
+  gate_on "$1" "$d" "git commit -F \"$mf/feat.txt\""
+  has "$GATE_REASON" "no Build Loop active" \
+    || { CASE_DETAIL="--check-commit-ready did not get the feat: subject from a quoted -F: [$GATE_REASON]"; return 1; }
   return 0
 }
 case_F4() {   # every site reads the file through the one helper
@@ -552,6 +566,7 @@ check "F1: every spelling of -F/--file, quoted or not, reaches the Build-Loop me
 check "F2: the TDD warn detector reads a quoted message file" case_F2
 check "F3: the backlog-references lint reads a quoted message file" case_F3
 check "F4: all four sites read the file through _commit_msg_file" case_F4
+check "F5: the checklist's subject (COMMIT_SUBJECT) reads a quoted message file" case_F5
 echo "=== P — the assessment prompt ==="
 check "P1: it explains the pre-filled adoptedAtCommit and where availability and exposure live" case_P1
 check "P2: it says the release history was not carried into RELEASE_NOTES.md" case_P2
@@ -708,7 +723,7 @@ mutant MF6 "$PCG" '# BL-322-S4-MSGFILE-SKIPVAL' '          k = k' case_F1 "an -m
 mutant MF7 "$PCG" '# BL-322-S4-MSGFILE-TDD' "    $OLD_F_SED" case_F2 "the TDD warn detector parses -F with the old sed"
 mutant MF8 "$PCG" '# BL-322-S4-MSGFILE-BL006' "    $OLD_F_SED" case_F1 "the Build-Loop message check parses -F with the old sed"
 mutant MF9 "$PCG" '# BL-322-S4-MSGFILE-LINT' "    $OLD_F_SED" case_F3 "the backlog-references lint parses -F with the old sed"
-mutant MF10 "$PCG" '# BL-322-S4-MSGFILE-SUBJECT' "    F${OLD_F_SED#f}" case_F4 "COMMIT_SUBJECT parses -F with the old sed"
+mutant MF10 "$PCG" '# BL-322-S4-MSGFILE-SUBJECT' "    F${OLD_F_SED#f}" case_F5 "COMMIT_SUBJECT parses -F with the old sed"
 ACT=scripts/lib/adopt/adopt-act4.sh
 mutant_drop M8 "$ACT" '   "adoptedAtCommit" is already filled in: it is the commit this project was at just before the' case_P1 "the prompt stops explaining adoptedAtCommit"
 mutant_drop M9 "$ACT" "   interview.exposure. Availability lives in interview.availability; the wizard's uptime key is the" case_P1 "the prompt stops saying where availability lives"
