@@ -46,6 +46,9 @@
 #   U6  the assessment prompt's step 8 names the carried section; its reading
 #       list no longer says adoption replaced every archived document
 #   U7  every reason a run gives for not carrying an import (R-S2-4 C)
+#   U8  an `@` that opens emphasis or a link's text, against the replica: carried
+#       only when the emphasis has a closer that can close it or the link is a
+#       real inline link (`## BL-322:` S5, R-S2-12)
 #   S1  Scout's rows for the documents adoption replaces say "kept a copy, then
 #       replaced", and are exactly adoption's set; CHANGELOG.md stays theirs
 #   A1  a real adoption: the carried section holds exactly the two imports that
@@ -147,6 +150,71 @@ case_U1() {   # the import parser
   printf '# R\r\n\r\n<!-- @COMMENTED.md -->\r\n@LIVE.md\r\n@SECOND.md\r\n' > "$d/crlf.md"
   got="$(in_lib "$1" '_adopt_claude_md_import_tokens "'"$d"'/crlf.md"' 2>&1)"
   [ "$got" = "$(printf 'LIVE.md\nSECOND.md')" ] || { CASE_DETAIL="CRLF: got [$(printf '%s' "$got" | od -c | tr -s ' \n' ' ' | cut -c1-120)]"; return 1; }
+}
+
+# U8 (`## BL-322:` S5, R-S2-12). An `@` that opens emphasis or a link's text is
+# an import only when the emphasis closes (a closing run of the same character
+# at least as long, that can close by Markdown's flanking rules, before any
+# nested opener) or the link is a real inline link (`]` then `(`, a destination
+# with no space or inside `<>`, an optional title, `)`). The expected list is the
+# replica's output for this file, checked 2026-10-08 (marked 13.0.3), less one
+# import it reads that this does not: `E9.md**y` (a run that can open and close,
+# `**`, whose length with the opener's is a multiple of three: this stops there,
+# which is a miss; carrying E9.md instead would be a false carry). At `c125f0f`
+# E1-E3, E5, E6, E8, E9, E13, L1-L5, L8 and L9 were carried.
+case_U8() {   # emphasis and link text, closed or not
+  local d="" want="" got="" l=""
+  d="$(newtmp)"
+  { printf '# R\n'
+    while IFS= read -r l; do printf '\n%s\n' "$l"; done <<'U8'
+*@E1.md *
+*@E2.md costs 2 * 3
+_@E3.md and snake_case
+[@L1.md](url
+[@L2.md](my url)
+**@E4.md*
+*@E5.md *y*
+*@E6.md [l*](u)
+_@E7.md_foo
+[@L3.md](u "t)
+[@L4.md](<a>b)
+[@L5.md](u "t" x)
+[@L6.md] (u)
+*@E8.md.*x
+*@E9.md**y*
+*@E13.md—*x
+[@L7.md]x)
+[@L8.md](u xx)
+[@L9.md](<u>"t")
+*@K1.md*
+**@K2.md**
+***@K3.md***
+*@K4.md**
+*@K5.md*foo
+_@K6.md_.
+_@K7.md and snake_case_
+*@K8.md costs 2*3*
+*@K9.md\**
+__@K10.md__
+*@K22.md.*
+[@K11.md](u)
+[@K12.md](<my url>)
+[@K13.md]()
+[@K14.md](u "t")
+[@K15.md](u (t))
+[@K16.md](a(b)c)
+[@K17.md](a\)b)
+[@K18.md and more](u)
+[@K19.md](u"t")
+[@K20.md]( u )
+[@K21.md *x](u)
+[@K23.md](a(b "t")
+U8
+  } > "$d/CLAUDE.md"
+  want="$(printf '%s\n' K1.md K2.md K3.md K4.md K5.md K6.md K7.md K8.md K9.md K10.md K22.md. K11.md K12.md K13.md \
+          K14.md K15.md K16.md K17.md K18.md K19.md K20.md K21.md K23.md)"
+  got="$(in_lib "$1" '_adopt_claude_md_import_tokens "'"$d"'/CLAUDE.md"' 2>&1)"
+  [ "$got" = "$want" ] || { CASE_DETAIL="got [$(printf '%s' "$got" | tr '\n' '|')] want [$(printf '%s' "$want" | tr '\n' '|')]"; return 1; }
 }
 
 # u2_root T — the carry decision's fixture project in T/root, its archive record,
@@ -461,6 +529,7 @@ check "U4: MANIFEST.md says the same, with no cp for a kept row" case_U4
 check "U5: 'Next: the assessment' says the old rules do not load yet, only when CLAUDE.md was replaced" case_U5
 check "U6: the assessment prompt's step 8 names the carried section" case_U6
 check "U7: every reason a run can give for not carrying an import reads as written" case_U7
+check "U8: an @ opening emphasis or link text is read only when the emphasis closes or the link is real (R-S2-12)" case_U8
 echo "=== S — Scout ==="
 check "S1: Scout's replaced-document rows are adoption's set and say so; CHANGELOG.md stays theirs" case_S1
 echo "=== A — adoption ==="
@@ -570,6 +639,20 @@ mutant M23 "$DOC" '# BL-322-CARRY-LINKTEXT' '        } else if (0) { kind = 3 }'
 mutant M24 "$DOC" '# BL-322-CARRY-BACKSLASH' '          if (c == "\\") { if (substr(line, k + 1, 1) != " ") { tok = tok c; k++; continue }; tok = tok "\\ "; k += 2; continue }' case_U1 "a backslash that escapes no space stays in the path"
 mutant M25 "$DOC" '# BL-322-CARRY-FRAGMENT' '        h = 0' case_U1 "the #… of an import stays in the path (review R-S2-5)"
 mutant M26 "$DOC" '# BL-322-CARRY-PATHCHAR' '        if (0) continue' case_U1 "a quoted path is read as an import"
+# Emphasis and link text (U8; `## BL-322:` S5, R-S2-12).
+mutant M55 "$DOC" '# BL-322-CARRY-CLOSES' '        m = k' case_U8 "an @ opening emphasis or link text is carried whether or not it closes"
+mutant M56 "$DOC" '# BL-322-CARRY-EMPH-STOP' '        if (0) return 0' case_U8 "a closer inside link text closes the emphasis around it"
+mutant M57 "$DOC" '# BL-322-CARRY-EMPH-ASCII' '        if (0) return 0' case_U8 "a closer after a non-ASCII punctuation mark closes the emphasis"
+mutant M58 "$DOC" '# BL-322-CARRY-EMPH-FLANK' '        rf = !isws(p)' case_U8 "a run after punctuation and before a letter closes the emphasis"
+mutant M59 "$DOC" '# BL-322-CARRY-EMPH-UNDER' '        op = lf; cl = rf' case_U8 "an underscore inside a word closes the emphasis"
+mutant_sub M60 "$DOC" '# BL-322-CARRY-EMPH-RUN' 'cl && i - a + 1 >= L' 'cl' case_U8 "a shorter run closes the emphasis"
+mutant_sub M61 "$DOC" '# BL-322-CARRY-EMPH-RUN' 'if (op && (L + i - a + 1) % 3 == 0 && (L % 3 || (i - a + 1) % 3)) return 0; ' '' case_U8 "a run the rule of three keeps open closes the emphasis"
+mutant M62 "$DOC" '# BL-322-CARRY-EMPH-NESTED' '        if (0) return 0' case_U8 "a nested opener does not stop the search for a closer"
+mutant_sub M63 "$DOC" '# BL-322-CARRY-LINK-PAREN' ' || substr(s, i + 1, 1) != "("' '' case_U8 "link text not followed by ( is read as a link"
+mutant_sub M64 "$DOC" '# BL-322-CARRY-LINK-DEST' 'c <= " " || ' '' case_U8 "a link destination may hold a space"
+mutant_sub M65 "$DOC" '# BL-322-CARRY-LINK-TITLE' 'i == q || ' '' case_U8 "a title need not follow a space"
+mutant_sub M66 "$DOC" '# BL-322-CARRY-LINK-TITLE' ' || !index("\"\047(", c)' '' case_U8 "any character opens a title"
+mutant M67 "$DOC" '# BL-322-CARRY-LINK-CLOSE' '      return e' case_U8 "a link need not close with )"
 # The decision (U2, U2b).
 mutant M27 "$DOC" '# BL-322-CARRY-HOME' '      :' case_U2 "a home-folder or absolute import is treated as a project file"
 mutant M28 "$DOC" '# BL-322-CARRY-OUTSIDE' '      norm="$path"' case_U2 "an import outside the project is carried"
