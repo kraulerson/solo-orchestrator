@@ -45,20 +45,32 @@
 #        a return-1 regression).
 #
 # HERMETICITY
-#   T1/T3/T4/T5 need the canonical upstream refresh_cdf_assets implementation.
-#   It is located via CDF_REFRESH_SRC (default
-#   $HOME/.claude-dev-framework/scripts/cdf-refresh.sh). When that file is
-#   absent (e.g. a CI runner without the CDF clone) those scenarios SKIP
-#   with a clear notice and the suite still exits 0. T2 and T6 are fully
-#   hermetic (the wrapper short-circuits on a missing clone before it needs
-#   upstream).
+#   T1/T3/T4/T5 need the canonical upstream refresh_cdf_assets implementation:
+#   scripts/cdf-refresh.sh from a REAL Guardrails clone, read from a private
+#   copy of the pinned fixture (tests/test-helpers/cdf-fixture.sh,
+#   SOIF_TEST_CDF_FIXTURE; `## BL-322:` S5). Under CI with no fixture they
+#   FAIL; locally they fall back to ~/.claude-dev-framework when it is 4.2.4
+#   (the version that added scripts/cdf-refresh.sh) or later, and otherwise
+#   SKIP. Until S5 they read ~/.claude-dev-framework directly, which a CI leg
+#   had only when an earlier suite had cloned it there over the network. T2 and
+#   T6 are fully hermetic (the wrapper short-circuits on a missing clone before
+#   it needs upstream).
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 UPGRADE="$REPO_ROOT/scripts/upgrade-project.sh"
 WRAPPER="$REPO_ROOT/scripts/lib/cdf-refresh.sh"
-UPSTREAM_SRC="${CDF_REFRESH_SRC:-$HOME/.claude-dev-framework/scripts/cdf-refresh.sh}"
+# shellcheck source=/dev/null
+. "$REPO_ROOT/tests/test-helpers/cdf-fixture.sh" || { echo "FATAL: cannot source tests/test-helpers/cdf-fixture.sh" >&2; exit 1; }
+CDF_TMP="$(mktemp -d)" || exit 1
+trap 'rm -rf "$CDF_TMP"' EXIT
+CDF_RC=0
+cdf_fixture_copy "$CDF_TMP/cdf" 4.2.4 || CDF_RC=$?
+UPSTREAM_SRC="$CDF_TMP/cdf/scripts/cdf-refresh.sh"
+if [ "$CDF_RC" = 0 ] && [ ! -f "$UPSTREAM_SRC" ]; then
+  CDF_RC=1; CDF_FIXTURE_WHY="$CDF_FIXTURE_FROM has no scripts/cdf-refresh.sh"
+fi
 
 PASSED=0
 FAILED=0
@@ -68,7 +80,15 @@ fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 skip()  { echo "  [SKIP] $1"; SKIPPED=$((SKIPPED + 1)); }
 
 INTEGRATION_OK=1
-[ -f "$UPSTREAM_SRC" ] || INTEGRATION_OK=0
+[ "$CDF_RC" = 0 ] || INTEGRATION_OK=0
+# no_clone LABEL — a real-clone case that cannot run here: SKIP locally, FAIL
+# when the fixture says it must run (CI, or a fixture not at the pin).
+no_clone() {
+  case "$CDF_RC" in
+    77) skip "$1: $CDF_FIXTURE_WHY" ;;
+    *)  fail_ "$1" "$CDF_FIXTURE_WHY" ;;   # BL-322-S5-FIXTURE-FAIL
+  esac
+}
 
 # Build a fake CDF clone at $1 with FRAMEWORK_VERSION=$2 and a real upstream
 # cdf-refresh.sh, plus a demo hook/rule/gate stamped with the version. When
@@ -116,7 +136,7 @@ echo ""
 echo "=== T1: upgrade --backfill-only syncs CDF assets + bumps manifest ==="
 # ════════════════════════════════════════════════════════════════════
 if [ "$INTEGRATION_OK" = "0" ]; then
-  skip "T1: upstream CDF cdf-refresh.sh not found at $UPSTREAM_SRC (set CDF_REFRESH_SRC to enable)"
+  no_clone "T1"
 else
   T=$(mktemp -d); CLONE="$T/cdf"; PROJ="$T/proj"
   make_fake_clone "$CLONE" "99.9.9" with-remote
@@ -174,7 +194,7 @@ echo ""
 echo "=== T3: git pull --ff-only failure → refresh still proceeds from working tree ==="
 # ════════════════════════════════════════════════════════════════════
 if [ "$INTEGRATION_OK" = "0" ]; then
-  skip "T3: upstream CDF cdf-refresh.sh not found at $UPSTREAM_SRC (set CDF_REFRESH_SRC to enable)"
+  no_clone "T3"
 else
   T=$(mktemp -d); CLONE="$T/cdf"; PROJ="$T/proj"
   make_fake_clone "$CLONE" "88.8.8" no-remote    # no origin → git pull --ff-only fails
@@ -201,7 +221,7 @@ echo ""
 echo "=== T4: mutation proof — neutralizing the delegating call makes the sync a no-op ==="
 # ════════════════════════════════════════════════════════════════════
 if [ "$INTEGRATION_OK" = "0" ]; then
-  skip "T4: upstream CDF cdf-refresh.sh not found at $UPSTREAM_SRC (set CDF_REFRESH_SRC to enable)"
+  no_clone "T4"
 else
   T=$(mktemp -d); CLONE="$T/cdf"
   make_fake_clone "$CLONE" "77.7.7" with-remote
@@ -261,7 +281,7 @@ echo "=== T5: full upgrade (--deployment) also refreshes CDF, AFTER the sentinel
 # assets). This exercises that call site on a successful personal→org upgrade
 # and asserts the tier change AND the CDF refresh both land.
 if [ "$INTEGRATION_OK" = "0" ]; then
-  skip "T5: upstream CDF cdf-refresh.sh not found at $UPSTREAM_SRC (set CDF_REFRESH_SRC to enable)"
+  no_clone "T5"
 else
   T=$(mktemp -d); CLONE="$T/cdf"; PROJ="$T/proj"
   make_fake_clone "$CLONE" "66.6.6" with-remote

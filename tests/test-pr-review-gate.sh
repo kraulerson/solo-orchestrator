@@ -13,7 +13,9 @@
 # three different remedies, and collapsing them sends the operator to fix the
 # wrong problem.
 #
-# Hermetic: temp git repos only, no remotes, no network. bash 3.2 safe.
+# Hermetic: temp git repos only, no remotes, no network; HOME is a temp dir with
+# a stand-in Guardrails clone, so the Y cases' `verify-install.sh --auto-fix`
+# clones nothing (`## BL-322:` S5). bash 3.2 safe.
 set -o pipefail
 # #435 — `printf … | grep -q` under pipefail is a RACE: grep -q exits at the
 # first match, the writer can take SIGPIPE (141) before it finishes, and
@@ -45,6 +47,14 @@ TOPTMP="$(mktemp -d)"
   exit 1
 }
 trap 'chmod -R u+rwX "$TOPTMP" 2>/dev/null; rm -rf "$TOPTMP"' EXIT INT TERM
+# `## BL-322:` S5 — a temp HOME. `verify-install.sh --auto-fix` below clones
+# the Guardrails over the network into $HOME/.claude-dev-framework when it finds
+# none; with the runner's HOME it did, and later suites on the leg read that
+# clone. The stand-in clone is all check_framework looks for (the seam
+# tests/test-bl284-verify-install-context.sh uses); nothing here reads its
+# contents. Claude Code's and git's per-user config go with HOME.
+export HOME="$TOPTMP/home"; unset CLAUDE_CONFIG_DIR XDG_CONFIG_HOME GIT_CONFIG_GLOBAL   # BL-322-S5-HOME
+mkdir -p "$HOME/.claude-dev-framework/.git" || exit 1   # BL-322-S5-STANDIN
 # #435 — Z2b's orphan check counts fresh tmp.* entries in $TMPDIR; on a shared
 # TMPDIR every other suite running at the same time manufactured a failure
 # (the pr-review-gate entry's residual 13). Every mktemp here, the hook's

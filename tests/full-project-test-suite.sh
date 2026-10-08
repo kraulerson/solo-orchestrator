@@ -1059,6 +1059,11 @@ run_child_suite "tests/test-bl322-s4-wording.sh" \
 run_child_suite "tests/test-bl322-zsh-legs.sh" \
   "BL-322 S2: zsh only on the legs that need it; a NEEDS-ZSH suite cannot land on a leg without it" \
   "BL-322 zsh-legs tests FAILED (run tests/test-bl322-zsh-legs.sh for details)"
+# BL-322 S5: the suites that ran verify-install --auto-fix with the runner's
+# HOME fetch nothing, and the real-Guardrails cases read one pinned fixture.
+run_child_suite "tests/test-bl322-s5-hardening.sh" \
+  "BL-322 S5: no network or HOME writes from the verify-install suites; one pinned Guardrails fixture, failing under CI when absent" \
+  "BL-322 S5 hardening tests FAILED (run tests/test-bl322-s5-hardening.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

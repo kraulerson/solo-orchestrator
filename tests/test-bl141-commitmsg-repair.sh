@@ -27,8 +27,9 @@
 #
 # REGISTRATION: no init.sh, not an aggregator -> BOTH lists. Hermetic (hooks
 # emitted from hook-templates.sh, real git commits in mktemp fixtures, the
-# sync runs against this checkout with CDF_HOME pointed at a void). bash-3.2
-# safe.
+# sync runs against this checkout with CDF_HOME pointed at a void, and HOME is
+# a temp dir with a stand-in Guardrails clone, so `--auto-fix` fetches nothing:
+# `## BL-322:` S5). bash-3.2 safe.
 
 set -uo pipefail
 
@@ -50,6 +51,14 @@ fi
 
 TOPTMP="$(mktemp -d)"
 trap 'rm -rf "$TOPTMP"' EXIT
+# `## BL-322:` S5 — a temp HOME. `verify-install.sh --auto-fix` below clones
+# the Guardrails over the network into $HOME/.claude-dev-framework when it finds
+# none; with the runner's HOME it did, and later suites on the leg read that
+# clone. The stand-in clone is all check_framework looks for (the seam
+# tests/test-bl284-verify-install-context.sh uses); nothing here reads its
+# contents. Claude Code's and git's per-user config go with HOME.
+export HOME="$TOPTMP/home"; unset CLAUDE_CONFIG_DIR XDG_CONFIG_HOME GIT_CONFIG_GLOBAL   # BL-322-S5-HOME
+mkdir -p "$HOME/.claude-dev-framework/.git" || exit 1   # BL-322-S5-STANDIN
 
 TDD_OPEN='# >>> SOIF BL-072 TDD gate (commit-msg) — managed by init.sh'
 

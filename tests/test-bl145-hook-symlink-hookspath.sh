@@ -65,10 +65,10 @@ fi
 # that sets core.hooksPath there puts every fixture on the hooksPath arm of the
 # guard, and the symlink cases below would report a refusal that names the
 # directory instead of the link — a host-shaped RED, not a defect. Detect it
-# and SKIP LOUDLY. (Neutralizing it would need GIT_CONFIG_GLOBAL, which is
-# git >= 2.32 only, or an $HOME move, which would send check_framework off to
-# clone the framework for real — neither is worth it for a config almost
-# nobody sets.)
+# and SKIP LOUDLY. (Since `## BL-322:` S5 this suite runs with a temp HOME and a
+# stand-in Guardrails clone, below, so check_framework clones nothing; this
+# check still reads the config the suite was started with, and a system-level
+# core.hooksPath still reaches every fixture.)
 _inherited_hookspath="$(git config --global --get core.hooksPath 2>/dev/null || true)"
 if [ -z "$_inherited_hookspath" ]; then
   _inherited_hookspath="$(git config --system --get core.hooksPath 2>/dev/null || true)"
@@ -81,6 +81,14 @@ fi
 
 TOPTMP="$(mktemp -d)"
 trap 'rm -rf "$TOPTMP"' EXIT
+# `## BL-322:` S5 — a temp HOME. `verify-install.sh --auto-fix` below clones
+# the Guardrails over the network into $HOME/.claude-dev-framework when it finds
+# none; with the runner's HOME it did, and later suites on the leg read that
+# clone. The stand-in clone is all check_framework looks for (the seam
+# tests/test-bl284-verify-install-context.sh uses); nothing here reads its
+# contents. Claude Code's and git's per-user config go with HOME.
+export HOME="$TOPTMP/home"; unset CLAUDE_CONFIG_DIR XDG_CONFIG_HOME GIT_CONFIG_GLOBAL   # BL-322-S5-HOME
+mkdir -p "$HOME/.claude-dev-framework/.git" || exit 1   # BL-322-S5-STANDIN
 
 TDD_OPEN='# >>> SOIF BL-072 TDD gate (commit-msg) — managed by init.sh'
 
