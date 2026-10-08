@@ -316,7 +316,7 @@ Scout found **6** things here that the framework also has an opinion about. It m
 | `.git/hooks/*.sample` | yours stays | 14 sample hooks git wrote at init. Adoption leaves them alone; git never runs a .sample hook. |
 | `.github/workflows/ci.yml` | not touched at all | Never archived, never touched. The framework installs its gates as its own files so a working pipeline is not taken offline on day one. |
 | `.github/workflows/deploy.yml` | not touched at all | Never archived, never touched. …|
-| `CHANGELOG.md` | yours stays | OVERWRITTEN from a template today. Under adoption it is treated as theirs: kept, and reconciled by the interview. |
+| `CHANGELOG.md` | yours stays | Adoption never writes it; the assessment reads it for your release history. |
 ```
 
 **The documents adoption replaces say so** (`## BL-322:` S2, `# BL-322-SCOUT-DOCS`).
@@ -340,8 +340,10 @@ only copies the file into its archive (`.mcp.json`, `.claude/settings.local.json
 git hooks other than pre-commit and commit-msg) or never touches it
 (`.claude-backup/`, the sample hooks, `.gitignore`, `CHANGELOG.md`). Several of
 those rows said *kept a copy, then replaced* until then: they described what
-`init.sh` does to a new project, not what adoption does. A
-`.claude/phase-state.json` row says adoption stops on that project.
+`init.sh` does to a new project, not what adoption does, and so did several
+notes ("OVERWRITTEN today", "the scaffolder…"), the `CHANGELOG.md` and
+uncommitted-work rows among them. A `.claude/phase-state.json` row says
+adoption stops on that project.
 `tests/test-bl322-s4-wording.sh` (S1) holds every row to a real adoption of the
 same tree, on disk and in its `MANIFEST`.
 

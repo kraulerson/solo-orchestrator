@@ -562,10 +562,11 @@ paragraph, nothing before it (not even `cd … &&`), nothing after it (no
 `&&`, `;` or pipe), no `-a` and no file names. While an approval is open the
 Guardrails refuse any other shape, and the refusal says
 `it is not a lone git commit`. They also refuse a commit command whose text,
-the message included, names one of their protected paths
-(`.claude/settings.json`, `.claude/manifest.json`, `.claude/framework/hooks/`,
-`.git/hooks`) or, from 4.4.1, one of their hook scripts that create or clear
-an approval (`mark-evaluated.sh`, `record-approval.sh`, `marker-tracker.sh`,
+the message included,
+names a path the Guardrails protect, such as
+`.claude/settings.json`, `.claude/manifest.json`, `.claude/framework`,
+`.claude/approvals.jsonl`, `.git/hooks` or `.git/config`, or, from 4.4.1, one
+of their hook scripts that create or clear an approval (`mark-evaluated.sh`, `record-approval.sh`, `marker-tracker.sh`,
 `session-start.sh`, `session-end.sh`, `stop-checklist.sh`,
 `mark-plan-closed.sh`). For such a message
 the agent writes the message to a file outside the project with the Write tool and commits with `git commit -F <that file>`;
@@ -588,8 +589,11 @@ tree and your reason, then a line like
 `Type 418093 and press Enter to approve (anything else cancels):` with a
 six-digit code of its own; type that code and press Enter. Anything else
 approves nothing (`Cancelled: the code was not typed back. Nothing was approved.`).
-It reads the code from the terminal itself, never from a pipe, so a script
-cannot answer it, and a window with no terminal is refused. Then clear the
+It reads the code from the terminal, not from its input, so a pipe cannot
+answer it and a window with no terminal is refused.
+A terminal driver such as `expect` can, so what stops the agent
+is not the code: the Guardrails refuse to let the agent run this script at
+all, by its name, from any folder. Then clear the
 question the agent recorded — this framework's own commit check blocks every commit while
 `.claude/pending-approval.json` exists, and the override does not remove it:
 
@@ -2085,9 +2089,10 @@ answers. It is split in two, because half of it is judgement and half is fact:
    *in production* is not a plain true/false, the data classification is not
    one of the seven, a classification other than `public` has neither a ZDR
    attestation nor a written reason (the Phase 1→2 gate would block it later),
-   an interview answer uses a key outside the ten the prompt lists (availability
-   and exposure have none; they live only in `interview.availability` and
-   `interview.exposure`, as the prompt says), or the
+   an interview answer uses a key outside the ten the prompt lists (exposure
+   has none and lives only in `interview.exposure`; the `uptime` key is the
+   intake's own uptime question, not the interview's availability answer, as
+   the prompt says), or the
    verdict lacks its technical account or its `## Plain English` half with a
    `Recommendation:` and a `Reason:`. If it stops after it has written
    something, it says what. Measured:
@@ -2297,7 +2302,7 @@ hooks, which are the most important thing the archive holds.
 
 #### Still not built by this package
 
-Nothing, now. The framework documents ship
+Nothing, now, though one defect in it is open. The framework documents ship
 ([The framework documents](#the-framework-documents--ship-wp12b)), and so does
 the replacement half for framework-script collisions: a file of yours sitting
 where a framework *script* goes is archived, then replaced (D1 framework-wins),
@@ -2307,7 +2312,10 @@ alone, and the run printed a `NOT DONE` block saying the same ("LEFT ALONE …
 yours, kept: scripts/validate.sh") directly under the lines naming it as
 replaced. Both were left over from before WP11; `## BL-322:` S4 removed the
 block (measured on a real adoption: the framework's file at the path, theirs in
-the archive, and both sentences in one run).
+the archive, and both sentences in one run). Open: on a case-insensitive disk a
+file of yours whose name differs only in case (`scripts/Validate.sh`) is
+replaced and archived, but the run and the archive row name it by the
+framework's spelling (`## BL-293:`).
 
 ### The audit rows and the dispositions record — SHIP (WP7)
 
@@ -2696,11 +2704,12 @@ So from your next commit onward, an adopted project runs the same commit-time
 checks a scaffolded one does: secret detection, the static-analysis pass and the
 schema-migration checks, on top of the two message gates that were already on.
 
-**Your own pre-commit hook is REPLACED, not left alone.** That is §7.1's rule —
-its archive-and-replace population is your AI-layer settings and every
-non-`.sample` file in `.git/hooks/` — and the framework's hook is written whole,
-so it cannot compose the way the commit-msg gate does. Your copy is in the
-archive with a restore line, and the run says so:
+**Your own pre-commit hook is REPLACED, not left alone.** Adoption copies
+every non-`.sample` file in `.git/hooks/` into its archive; it composes with
+your commit-msg hook, leaves your other hooks in place, and replaces only
+pre-commit, because the framework's hook is written whole and cannot compose
+the way the commit-msg check does (`## BL-322:` S4 made Scout say the same).
+Your copy is in the archive with a restore line, and the run says so:
 
 ```text
    Your own pre-commit hook was REPLACED by the framework's. Your copy is in the

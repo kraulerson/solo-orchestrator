@@ -21618,6 +21618,10 @@ project's, so rehearsal and real run can disagree too.
 
 **Related:** `## BL-242:` (D1 framework-wins), `## BL-292:`.
 
+**Since `## BL-322:` S4 (2026-10-08):** the "yours, kept" notice quoted above is gone (it was stale for every
+colliding script, R-S2-6). The defect is not: the install step's "replaced by the framework's version" line and
+the archive row still name the framework's spelling.
+
 ---
 
 ## BL-294: the pre-write rehearsal copies the whole tree, `.git/objects` included, with no bound and no cost statement
@@ -23821,7 +23825,8 @@ each fix puts the sentence where it is read: the session start, the approval gui
 records a question and when the commit check holds it, the assessment prompt, and `docs/adoption.md` §7. Two
 calls were asked for. Finding 17's `answers` keys: not added, because the finisher's allowlist is keys
 `intake-wizard.sh` saves (`ADOPT_ACT4_ANSWER_KEYS`; `tests/test-brownfield-wp12a-assessment.sh` K8 derives that)
-and the wizard has no key for availability or exposure; the prompt says where they live. Finding 18's seeding
+and the wizard has no key for exposure, while its `uptime` key is the intake's own uptime question, not the
+interview's availability answer; the prompt says where each lives. Finding 18's seeding
 from `git tag`: not built, because a tag names a release and carries no note a user reads, so
 `RELEASE_NOTES.md` would gain empty headings, and which tags are releases is judgement; the prompt says the
 history was not carried and asks the session to add the releases the user wants.
@@ -23840,15 +23845,17 @@ history was not carried and asks the session to add the releases the user wants.
   (`# BL-322-S4-OFFER-IF`, `# BL-322-S4-OFFER-COMMIT`); the commit check's hold message says it
   (`# BL-322-S4-GATE-HINT`); the CLAUDE.md template and the Builder's Guide add the `cd` case.
 - **The assessment record (finding 17).** Step 9 says `adoptedAtCommit` is pre-filled with the commit the project
-  was at just before the adoption commit, adoption's anchor, that the finisher refuses any other value, and that
-  availability and exposure live only in `interview.availability` and `interview.exposure`.
+  was at just before the adoption commit, adoption's anchor, that the finisher refuses any other value, that
+  exposure has no wizard key and lives only in `interview.exposure`, and that availability lives in
+  `interview.availability`, the wizard's `uptime` key being the intake's own question.
 - **The release history (finding 18).** Step 8 says `RELEASE_NOTES.md` is the template and the history was not
   carried, and names `git tag` and `CHANGELOG.md`; `docs/adoption.md` (*The framework documents*) says the same.
 - **Development Guardrails 4.4.1** (CDF PR #27, merge `4180f22`, read with `gh api` on GitHub, read only). (a) The
   override `mark-evaluated.sh` now opens `/dev/tty`, refuses without one, shows
   `Type <six digits> and press Enter to approve (anything else cancels):` and approves only on that code;
-  `docs/adoption.md` §7 (*The override*), the Builder's Guide and the User Guide say so. No Solo script prints
-  the override. (b) config-guard's new `STATE_HOOKS_RE` refuses any command whose text names
+  `docs/adoption.md` §7 (*The override*), the Builder's Guide and the User Guide say so. A pipe cannot answer it;
+  a terminal driver such as `expect` can (their own header says so), so the barrier is config-guard refusing the
+  script by name, which §7 says. No Solo script prints the override. (b) config-guard's new `STATE_HOOKS_RE` refuses any command whose text names
   `mark-evaluated.sh`, `mark-plan-closed.sh`, `record-approval.sh`, `marker-tracker.sh`, `session-start.sh`,
   `session-end.sh` or `stop-checklist.sh` (reads aside), so a commit message naming one is refused, as one naming
   a protected path (`CONFIG_GUARD_PROTECTED_RE`) already was; `commit_shape_problem` admits `-F`/`--file` under an
@@ -23878,8 +23885,8 @@ history was not carried and asks the session to add the releases the user wants.
   keep-theirs; `.claude/phase-state.json` keep-theirs, its note saying adoption stops on that project
   (`# BL-322-S4-SCOUT-PHASESTATE`). The skill and pre-commit notes describe adoption, not `init.sh`.
   `docs/scout.md` says the same.
-- **Tests.** `tests/test-bl322-s4-wording.sh` (unit lane, `adopt` shard): 11 cases and 27 mutants, each killed by
-  a named case; red on base, 0 of 11. S1 holds every Scout row to a real adoption of the same tree, on disk and in
+- **Tests.** `tests/test-bl322-s4-wording.sh` (unit lane, `adopt` shard): 11 cases and 27 mutants at first, each
+  killed by a named case; red on base, 0 of 11; 18 cases and 48 mutants after review round 1 (below), 94s locally. S1 holds every Scout row to a real adoption of the same tree, on disk and in
   its MANIFEST. `tests/test-brownfield-wp2-scout-sections.sh` C1 expects `.claude/settings.local.json`
   keep-theirs.
 
@@ -23891,14 +23898,31 @@ history was not carried and asks the session to add the releases the user wants.
   `.git/hooks/pre-*` into `.claude-backup/<timestamp>/`, which adoption then removes; not run here.
 - **Scout says marker-composed for a `.claude/settings.json` adoption cannot compose** (a symlink, read-only, not a
   JSON object), which adoption leaves alone; the note says so, and Scout reads no JSON (S3's residual).
-- **The `-F` route needs a path with no spaces** for Solo's own commit check to read the message
-  (`scripts/pre-commit-gate.sh` takes `-F` followed by `[^ ]+`); with a space its message checks find no message.
-  Whether Claude Code asks the user before the Write tool writes outside the project depends on their settings;
-  not measured.
+- **A message file named through a variable** (`git commit -F "$TMPDIR/msg"`) is not read by Solo's own commit
+  check: `_commit_msg_file` removes quotes and expands an unquoted `~/`, but expands no `$VAR`, so those message
+  checks see no message and the commit-msg hook decides later. Whether Claude Code asks the user before the
+  Write tool writes outside the project depends on their settings; not measured.
 - **`docs/adoption.md`'s "What lands in `scripts/`" transcript** reads "Installed 70 framework script(s); left 0
   of your own file(s) untouched."; the run now says "Installed 76 framework script(s); none of your own files
   collided." (measured 2026-10-08). Not changed: its parity claim beside it (70 each, measured 2026-09-16) was
   not re-measured.
+
+**S4 review round 1 (major_concerns; all addressed).** R-S4-1: `scripts/pre-commit-gate.sh` read the `-F` file at
+four sites with "`-F`, whitespace, non-spaces", so a quoted path (no space needed) or `--file` was never read and
+the message checks saw no message — a `feat:` commit with no Build Loop, refused with an unquoted path, was
+allowed with the same path in quotes, and refused later by the commit-msg hook. The four sites now share
+`_commit_msg_file` (`# BL-322-S4-MSGFILE`): `-F <f>`, `-F<f>`, `-sF <f>`, `--file <f>`, `--file=<f>`, one layer of
+quotes removed, words after `commit` only, an option's value never read as an option. The "needs a path with no
+spaces" residual above was wrong and is replaced. R-S4-2: the User Guide, which projects receive without
+`adoption.md`, links §7 by its GitHub URL. R-S4-3: §7 said a script cannot answer the override's code; a terminal
+driver can, and §7 now names the real barrier. R-S4-4: the protected-path lists say "such as" (the Guardrails also
+protect `.claude/settings.local.json`, `.claude/approvals.jsonl`, `.git/info`, `.git/config`; a path such as
+`.claude/framework/rules/x.md` is not refused, so "any framework path" would be wrong too). R-S4-5, R-S4-6: Scout's
+`.claude/settings.local.json`, `CHANGELOG.md` and uncommitted-work notes described the wrong file or `init.sh`; every
+note now describes adoption, and S1 and S3 hold that. R-S4-7: wp7b B9 also requires its scan to have read the
+driver's sources. R-S4-8: R1 refuses any `NOT DONE` line. Nits: "MCP CHECK ACTIVE"; the `uptime` key; the
+`adopt-state.sh` header; `docs/adoption.md`'s pre-commit paragraph; "Still not built" names `## BL-293:`. Two
+neighbour suites my first build broke and fixed before review: bl311-d R8's window, g4g6 MC1's marker.
 
 **Found while building S1, not fixed by it: the Claude-commit ledger is never written.**
 `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code` and treats
