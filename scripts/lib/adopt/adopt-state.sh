@@ -122,8 +122,9 @@ _adopt_halt_requested() {
 # overwrite. §1.2's measured problem with init.sh is unguarded overwrites, and
 # a driver that reproduced them would have earned nothing by being separate.
 #
-# The collision LIST is kept in memory and PRINTED by the stub, not staged into
-# the run's temp directory. An earlier cut wrote it to a file under $ADOPT_WORK,
+# The collision LIST is kept in memory and printed by adopt_install_framework
+# (each path it replaced, under "Installing the framework's own scripts"), not
+# staged into the run's temp directory. An earlier cut wrote it to a file under $ADOPT_WORK,
 # which the EXIT trap deletes — so the list evaporated unread and only the count
 # was ever used (R-WP4-4). A seam that disappears before anything can consume it
 # is not a seam; WP6 owns the durable archive and its MANIFEST, and until then
@@ -306,7 +307,10 @@ INSTALL_SET
     return 1
   fi
   adopt_write_orchestrator_source "$root" || return 1   # BL-242-ORCH-SOURCE
-  adopt_stub_framework_script_collisions "$n_collided" "$ADOPT_COLLISION_LIST"
+  # The NOT DONE notice that followed here (`adopt_stub_framework_script_collisions`)
+  # said every colliding script was "LEFT ALONE … yours, kept" — true before
+  # WP11's framework-wins, false since, and printed right under the lines above
+  # that name each one as replaced (`## BL-322:` S4, review R-S2-6).
   return 0
 }
 

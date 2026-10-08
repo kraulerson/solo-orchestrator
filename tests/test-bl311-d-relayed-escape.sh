@@ -866,7 +866,11 @@ else
 fi
 
 R8_ACT4="$TMPROOT/r8-adopt-act4.sh"
-if mutate "$ACT4" "$R8_ACT4" BL-311-ASSESSMENT-AUTO-MODE '--act4 --root .' '--act4 --root . --yes' 80 \
+# The window is lines from the marker comment to the finisher line inside the
+# prompt: 78 at 7d12ba5, 93 after `## BL-322:` S4 added three prompt sentences
+# and a comment. The finisher line is the file's only `--act4 --root .`, so a
+# wider window cannot reach another one.
+if mutate "$ACT4" "$R8_ACT4" BL-311-ASSESSMENT-AUTO-MODE '--act4 --root .' '--act4 --root . --yes' 140 \
    && [ "$(diff "$ACT4" "$R8_ACT4" | grep -c '^>' || true)" = 1 ] && grep -qF -- '--act4 --root . --yes' "$R8_ACT4"; then
   if out=$(finisher_pin_check "$R8_ACT4"); then
     fail_ "R8" "a changed finisher line in adopt-act4.sh did not fail R7"

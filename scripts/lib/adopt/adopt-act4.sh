@@ -265,6 +265,15 @@ _adopt_act4_merge() {
 # names no terminal or shell: an agent's paraphrase of a terminal route matched
 # terminal_workaround (measured), and the sentinel that raises blocks
 # `git commit` at Act 4. C8 forbids both words in the paragraph.
+#
+# `## BL-322:` S4 (dogfood run 3, findings 17 and 18): step 9 says what the
+# pre-filled adoptedAtCommit is (the stamp's anchor; _adopt_act4_record_errors
+# refuses any other value), that exposure has no intake wizard key, and that
+# the wizard's uptime key is the intake's own question, not the interview's
+# availability answer; step 8 says the release history was not
+# carried. Seeding RELEASE_NOTES.md from `git tag` was not built: a tag names a
+# release and says nothing a user reads, so the file would gain headings with no
+# notes; the assessment asks instead.
 adopt_write_assessment_prompt() {                      # BL-242-ASSESSMENT-PROMPT
   local root="$1" commit
   commit="$(jq -r '.adoption.adoptedAtCommit // ""' "$root/.claude/manifest.json" 2>/dev/null)"
@@ -307,6 +316,9 @@ Then, WITH ME — ask, do not infer:
    the old CLAUDE.md imported, but not the rules written in the old file itself, so fold those in.
    Then keep each import you still want, outside that section, and delete the section, marker
    lines included.
+   RELEASE_NOTES.md is the framework's blank template: adoption did not carry this project's
+   release history into it. List the releases with git tag (and CHANGELOG.md, if there is one),
+   ask me which to record, and add those.
    PROJECT_INTAKE.md opens with a SOIF-PROVENANCE comment block: keep it exactly as it is, first in
    the file — the finisher refuses a file whose header is missing or altered.
 9. Write .claude/adoption/assessment-record.json in exactly this shape:
@@ -327,9 +339,14 @@ Then, WITH ME — ask, do not infer:
      "plan": { "path": "docs/phase-0/adoption-plan.md", "summary": "..." },
      "verdictArtifact": ".claude/adoption/verdict.md" }
 
+   "adoptedAtCommit" is already filled in: it is the commit this project was at just before the
+   adoption commit, which adoption recorded as its anchor, not the adoption commit itself. Keep it
+   exactly as printed; the finisher refuses any other value.
    "answers" may use ONLY these intake wizard keys, with string values:
    $ADOPT_ACT4_ANSWER_KEYS
-   The finisher refuses any other key.
+   The finisher refuses any other key. Exposure has no intake wizard key: it lives only in
+   interview.exposure. Availability lives in interview.availability; the wizard's uptime key is the
+   intake's own uptime expectation, so add it to "answers" only if you asked that question.
 10. Run the finisher, and show me everything it prints:
 
     bash "\$(jq -r .source_dir .claude/orchestrator-source.json)/scripts/adopt-project.sh" --act4 --root .

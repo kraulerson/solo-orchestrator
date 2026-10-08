@@ -413,7 +413,7 @@ bash ~/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre-commit
 What to expect the first time the agent commits in an adopted project — the
 assessment's own files first, then your first change to code — and what the
 framework expects of a change while the project is at phase 0. The Guardrails
-behaviour below was read from their hooks (versions 4.3.7 and 4.4.0).
+behaviour below was read from their hooks (versions 4.3.7, 4.4.0 and 4.4.1).
 
 **What the framework expects at phase 0.** The Builder's Guide builds in
 Phase 2: Phase 0 decides what the product is ("If it is not defined in Phase 0,
@@ -501,8 +501,8 @@ jq -r .frameworkVersion .claude/manifest.json
   `A1 — go ahead`. The framework then shows you the question, what each option
   does, the staged files and the git hooks that will run, ending
   `Reply with the option id again (for example: A1) to confirm.`; that second
-  reply is the approval. The agent then commits with a plain
-  `git commit -m "…"` — one `-m` per paragraph, nothing else on the line. A
+  reply is the approval. The agent then commits with one lone command
+  (*The commit is one lone command*, below). A
   reply that does not start with an option id approves nothing, and changing
   what is staged after you approve cancels the approval. Two things can still
   stop this working:
@@ -549,6 +549,31 @@ jq -r .frameworkVersion .claude/manifest.json
   the Guardrails update the session start offers ([section 6](#6-afterwards)),
   or stage the files and use the override yourself.
 
+**4.4.1** closes ways an agent could approve its own commit: running the
+override itself, feeding the hook that reads your reply a reply it made up,
+or writing the Guardrails' approval marker under a name split with quotes. This framework's
+minimum stays 4.4.0 (`SOIF_GUARDRAILS_MIN` in `scripts/lib/guardrails.sh`);
+once your Guardrails clone holds 4.4.1, every session start of a project at
+4.4.0 offers it like any other update.
+
+**The commit is one lone command.** After your approving pick, the agent
+commits with exactly `git commit -m "subject" -m "body"`: one `-m` per
+paragraph, nothing before it (not even `cd … &&`), nothing after it (no
+`&&`, `;` or pipe), no `-a` and no file names. While an approval is open the
+Guardrails refuse any other shape, and the refusal says
+`it is not a lone git commit`. They also refuse a commit command whose text,
+the message included,
+names a path the Guardrails protect, such as
+`.claude/settings.json`, `.claude/manifest.json`, `.claude/framework`,
+`.claude/approvals.jsonl`, `.git/hooks` or `.git/config`, or, from 4.4.1, one
+of their hook scripts that create or clear an approval (`mark-evaluated.sh`, `record-approval.sh`, `marker-tracker.sh`,
+`session-start.sh`, `session-end.sh`, `stop-checklist.sh`,
+`mark-plan-closed.sh`). For such a message
+the agent writes the message to a file outside the project with the Write tool and commits with `git commit -F <that file>`;
+rewording the message works too. The agent sees the same rule when it records
+the question (`scripts/pending-approval.sh --offer`) and in the commit check's
+hold message; dogfood run 3 had to learn it from refusals (`## BL-322:`).
+
 **The override.** You can record an approval yourself, from the project's
 folder, once the change is staged:
 
@@ -558,15 +583,25 @@ bash .claude/framework/hooks/mark-evaluated.sh "what you approved, in a few word
 
 With Guardrails 4.4.0 and later, run it in a separate terminal window: it
 refuses to run inside Claude Code, a command typed after `!` included, and it
-approves only the change staged at that moment. Then clear the question the
-agent recorded — this framework's own commit check blocks every commit while
+approves only the change staged at that moment. **With 4.4.1 and later it
+also asks you to type a code back at that terminal.** It shows the staged
+tree and your reason, then a line like
+`Type 418093 and press Enter to approve (anything else cancels):` with a
+six-digit code of its own; type that code and press Enter. Anything else
+approves nothing (`Cancelled: the code was not typed back. Nothing was approved.`).
+It reads the code from the terminal, not from its input, so a pipe cannot
+answer it and a window with no terminal is refused.
+A terminal driver such as `expect` can, so what stops the agent
+is not the code: the Guardrails refuse to let the agent run this script at
+all, by its name, from any folder. Then clear the
+question the agent recorded — this framework's own commit check blocks every commit while
 `.claude/pending-approval.json` exists, and the override does not remove it:
 
 ```bash
 bash scripts/pending-approval.sh --resolve
 ```
 
-Then tell the agent to commit it with a plain `git commit -m "…"`.
+Then tell the agent to commit it, with the one lone command above.
 
 **The commit's own checks.** Whoever commits, the commit-time checks adoption
 installed run next ([The commit-time scanners](#the-commit-time-scanners--ship-wp73)).
@@ -2054,7 +2089,10 @@ answers. It is split in two, because half of it is judgement and half is fact:
    *in production* is not a plain true/false, the data classification is not
    one of the seven, a classification other than `public` has neither a ZDR
    attestation nor a written reason (the Phase 1→2 gate would block it later),
-   an interview answer uses a key outside the ten the prompt lists, or the
+   an interview answer uses a key outside the ten the prompt lists (exposure
+   has none and lives only in `interview.exposure`; the `uptime` key is the
+   intake's own uptime question, not the interview's availability answer, as
+   the prompt says), or the
    verdict lacks its technical account or its `## Plain English` half with a
    `Recommendation:` and a `Reason:`. If it stops after it has written
    something, it says what. Measured:
@@ -2137,7 +2175,7 @@ command you run.
 Before any framework writer runs, adoption copies the files it would otherwise
 land on into `.claude/adoption-archive/<UTC-timestamp>-<pid>/`, mirroring your
 paths, and writes a `MANIFEST.json` and a `MANIFEST.md` beside them. The
-population is the archive-and-replace bucket: `.claude/settings.json`,
+population is your AI-layer surfaces and git hooks: `.claude/settings.json`,
 `.claude/settings.local.json`, `.mcp.json`, your `.claude/skills/*/SKILL.md`,
 every non-`.sample` file in `.git/hooks/`, and — since WP9b — `APPROVAL_LOG.md`.
 **Only files that exist are archived** — an absent surface produces no file and
@@ -2264,13 +2302,20 @@ hooks, which are the most important thing the archive holds.
 
 #### Still not built by this package
 
-The framework documents, which this section used to list here, ship now — see
-[The framework documents](#the-framework-documents--ship-wp12b). The remaining gap is the **replacement** half for framework-script collisions: a
-file of yours sitting where a framework *script* would go is still left alone
-and still not replaced, so the framework's version of it is not installed. That
-class is deliberately outside the archive — swapping out a `scripts/validate.sh`
-your own build may call is a decision nobody has made yet — and the run names
-it with its own `NOT DONE` block.
+Nothing, now, though one defect in it is open. The framework documents ship
+([The framework documents](#the-framework-documents--ship-wp12b)), and so does
+the replacement half for framework-script collisions: a file of yours sitting
+where a framework *script* goes is archived, then replaced (D1 framework-wins),
+the run names each one under "Installing the framework's own scripts", and its
+archive row says `replaced`. This paragraph used to say such a file was left
+alone, and the run printed a `NOT DONE` block saying the same ("LEFT ALONE …
+yours, kept: scripts/validate.sh") directly under the lines naming it as
+replaced. Both were left over from before WP11; `## BL-322:` S4 removed the
+block (measured on a real adoption: the framework's file at the path, theirs in
+the archive, and both sentences in one run). Open: on a case-insensitive disk a
+file of yours whose name differs only in case (`scripts/Validate.sh`) is
+replaced and archived, but the run and the archive row name it by the
+framework's spelling (`## BL-293:`).
 
 ### The audit rows and the dispositions record — SHIP (WP7)
 
@@ -2336,6 +2381,13 @@ from the same sources:
 | `CLAUDE.md` | rendered by the renderer `init.sh` uses, with your project's name, the tier you chose (an organizational adoption gets the branch-protection section), the track you chose, `undecided` for platform and language, and a placeholder description — the assessment asks for both |
 | `FEATURES.md`, `BUGS.md`, `RELEASE_NOTES.md`, `docs/INDEX.md`, `docs/IDENTIFIERS.md`, `docs/archive/README.md` | the framework's templates, copied |
 | `docs/reference/*.md` — the eight guides | copied **only where absent**; a guide you already have there is left alone |
+
+`RELEASE_NOTES.md` starts as the framework's blank template: your release
+history (your `git tag` releases, your `CHANGELOG.md`) is not carried into it.
+The assessment prompt says so and asks the session to add the releases you
+want recorded (`## BL-322:` S4; dogfood run 3's k-pdf had `v0.2.0` and
+`v0.3.0`). Seeding the file from the tags was not built: a tag names a release
+and says nothing a user reads, so it would add headings with no notes.
 
 Measured on a project that owned a `CLAUDE.md` and a `BUGS.md`, and had
 `FEATURES.md` as a symlink:
@@ -2652,11 +2704,12 @@ So from your next commit onward, an adopted project runs the same commit-time
 checks a scaffolded one does: secret detection, the static-analysis pass and the
 schema-migration checks, on top of the two message gates that were already on.
 
-**Your own pre-commit hook is REPLACED, not left alone.** That is §7.1's rule —
-its archive-and-replace population is your AI-layer settings and every
-non-`.sample` file in `.git/hooks/` — and the framework's hook is written whole,
-so it cannot compose the way the commit-msg gate does. Your copy is in the
-archive with a restore line, and the run says so:
+**Your own pre-commit hook is REPLACED, not left alone.** Adoption copies
+every non-`.sample` file in `.git/hooks/` into its archive; it composes with
+your commit-msg hook, leaves your other hooks in place, and replaces only
+pre-commit, because the framework's hook is written whole and cannot compose
+the way the commit-msg check does (`## BL-322:` S4 made Scout say the same).
+Your copy is in the archive with a restore line, and the run says so:
 
 ```text
    Your own pre-commit hook was REPLACED by the framework's. Your copy is in the

@@ -641,6 +641,7 @@ jobs:
             tests/test-bl322-s1-audit-loop.sh
             tests/test-bl322-s2-project-rules.sh
             tests/test-bl322-s3-ignore-preflight.sh
+            tests/test-bl322-s4-wording.sh
             tests/test-bl322-zsh-legs.sh
           )
 
@@ -1057,6 +1058,7 @@ jobs:
             # of tests behind a 117s setup. It went to `pin_lint_sweep`, and came
             # back on 2026-10-07 when wp4 and bl322-s3 left (the `pin_adopt_b` note).
             tests/test-brownfield-wp11-archive-classes.sh     #  42.0s at its slowest of three runs — real adoptions; the archive's classes and dispositions
+            tests/test-bl322-s4-wording.sh                    #  94s local, measured after review round 1 — three real adoptions, two more refused at the preflight, 48 mutants; here because this leg ran 420s of 720s on PR #505, the lightest of the ten
           )
           # ── `adopt-b` — the tenth leg (2026-10-07, Karl's decision) ─────────
           # Re-pinning inside nine legs had stopped making room. Job times on

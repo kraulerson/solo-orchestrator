@@ -76,42 +76,24 @@ adopt_stub_notice() {
 # commit-time hook — and adopt_stub_hooks below already carries that sentence,
 # so a second stub here would be a duplicate notice, not an extra honesty.
 
-# THE FRAMEWORK-SCRIPT COLLISION CLASS — a file of theirs sitting at a path a
-# framework SCRIPT wants. WP6 landed the collision archive, so this notice no
-# longer says "not archived": it says what is genuinely still missing, which is
-# the REPLACEMENT half.
+# adopt_stub_framework_script_collisions — RETIRED 2026-10-08 by `## BL-322:` S4
+# (review R-S2-6 of S2).
 #
-# WHY WP6'S ARCHIVE DOES NOT COVER THIS CLASS, stated rather than left as a
-# gap. §7.1's archive-and-replace population is their AI-LAYER surfaces and
-# their GIT HOOKS, and that boundary is deliberate: archiving-and-replacing an
-# adoptee's `scripts/validate.sh` with the framework's would swap out a file
-# their own CI may call, on day one, with no operator decision in between —
-# the same class of harm §7.4 refuses for their pipelines. Which package owns
-# that decision is not settled in §10, so it is named here and not assumed.
+# It announced the REPLACEMENT half of the framework-script collision class as
+# not built: "N of your files sit where a framework SCRIPT would go. They were
+# LEFT ALONE … yours, kept: scripts/validate.sh". WP11 built that half — D1
+# framework-wins: `adopt_install_framework` archives the operator's file
+# (`# BL-242-RECEIPT-CHECK` refuses when the copy is not on disk), installs the
+# framework's over it, names each path as replaced, and the archive row says
+# `replaced` (`# BL-322-ARCHIVE-DISPO-SCRIPT`). The notice outlived it and
+# printed directly under the lines saying the opposite. Measured on a real
+# adoption of a project with its own scripts/validate.sh at 7d12ba5: the file at
+# the path was the framework's, the archive held theirs, and the run said both
+# "replaced by the framework's version" and "yours, kept: scripts/validate.sh".
 #
-# adopt_stub_framework_script_collisions N [LIST] — LIST is passed explicitly
-# rather than read from a global, so the paths printed are the caller's own.
-adopt_stub_framework_script_collisions() {
-  local n="${1:-0}" list="${2:-}" p
-  [ "$n" -gt 0 ] || return 0
-  adopt_stub_notice "installing the framework's version of $n colliding script(s)" \
-    "unassigned — §10 gives this class to no work package" \
-    "$n of your files sit where a framework SCRIPT would go. They were LEFT ALONE, which is"
-  adopt_note "the safe direction, and it has a cost: the framework's version of each of those"
-  adopt_note "files is NOT installed, so anything that depends on it is inert. The collision"
-  adopt_note "ARCHIVE (WP6) covers your AI-layer settings and your git hooks; these are neither,"
-  adopt_note "and replacing a script your own build may call is a decision nobody has made yet."
-  # The PATHS, not just the count — "3 collisions" tells an operator nothing
-  # they can act on. Bounded, because a heavily-occupied tree could otherwise
-  # bury the rest of the run.
-  if [ -n "$list" ]; then
-    printf '%s\n' "$list" | head -20 | while IFS= read -r p; do
-      [ -n "$p" ] && adopt_note "  yours, kept: $p"
-    done
-    [ "$n" -gt 20 ] && adopt_note "  ...and $((n - 20)) more."
-  fi
-  return 0
-}
+# THE NAME IS LEFT AS A HEADSTONE, like the others in this file. It was the
+# last stub still called, so `## BL-242:`'s derived called-stub set is now empty
+# (tests/test-brownfield-wp7b-commit-hook.sh B9).
 
 # §6.3 — per-finding secrets disposition. Scout already reported the findings
 # (redacted); deciding what to do about each one is not WP4's.
