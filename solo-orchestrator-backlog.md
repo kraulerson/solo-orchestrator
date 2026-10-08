@@ -23957,23 +23957,48 @@ clone, or either suite moving off `rest`, costs those cases while the lane stays
 note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S5** (below).
 
 **S5, as built (branch `fix/bl322-s5-hardening`).**
-- **The import reading, R-S2-12** (`scripts/lib/adopt/adopt-docs.sh`). An `@` that opens emphasis or a link's text
-  is carried only once the same line shows it closing: emphasis needs a run of the same character, at least as
-  long, that can close it by Markdown's flanking rules, before any run that can open (`emclose`,
-  `# BL-322-CARRY-EMPH-STOP` … `# BL-322-CARRY-EMPH-NESTED`, `# BL-322-CARRY-EMPH-ASCII`); link text needs `](`, a
-  destination (`<…>`, or no space), an optional title after a space and `)` (`linkclose`,
-  `# BL-322-CARRY-LINK-PAREN` … `# BL-322-CARRY-LINK-CLOSE`); `# BL-322-CARRY-CLOSES` routes both. The five shapes
-  no longer carry. Measured against the replica (marked 13.0.3), 2026-10-08: on 9000 fuzzed one-line emphasis
-  and link shapes (three seeds of 3000) no false carry, against 166, 154 and 162 at `c125f0f`, and 111, 116 and
-  120 misses (11, 14, 11 at `c125f0f`), each where it stops; on the review's 41 fixtures 31 agree, 9 are false
-  carries (14 at `c125f0f`) and 1 a miss. The `# BL-322-CARRY` header no longer says it errs in one direction: it
-  names the shapes where it does not, with those numbers.
+- **The import reading, R-S2-12 and review round 1's R-S5-2** (`scripts/lib/adopt/adopt-docs.sh`). Carry on
+  doubt, named (the supervisor's call within Karl's S2 ruling, after round 1 measured the strict rule built
+  first: 0 false carries but 24 of 66 realistic imports missed, against 9 at base, and a run that then said
+  "It imported no files" of a file that did). An `@` that opens emphasis or the text of a link is carried for
+  certain when the same line shows it closing (`emclose`, the flanking rules, `# BL-322-CARRY-EMPH-STOP` …
+  `# BL-322-CARRY-EMPH-NESTED`) or the link being real (`linkclose`, `# BL-322-CARRY-LINK-PAREN` …
+  `# BL-322-CARRY-LINK-CLOSE`), and otherwise carried as **unsure** (`# BL-322-CARRY-CLOSES`,
+  `# BL-322-CARRY-LINKCLOSES`); a non-ASCII neighbour is tried as a space, punctuation and a letter and settles
+  it only when all three agree (`# BL-322-CARRY-EMPH-ASCII`). A new text, so an import, also starts after a run
+  that closes emphasis opened earlier on the line (`**bold**@x.md`, `# BL-322-CARRY-AFTER`), after an escaped
+  character (`# BL-322-CARRY-ESCAPE`), after an inline tag (`# BL-322-CARRY-TAG`) and after any `[` but an
+  image's; a path ends at an inline tag (`# BL-322-CARRY-TAGEND`) and at a closer of something opened earlier
+  (`# BL-322-CARRY-TOKCUT`). `_adopt_claude_md_carry` writes an `unsure` row, once per file, made certain by a
+  certain spelling of the same file (`# BL-322-CARRY-UNSURE-ROW`, `# BL-322-CARRY-UPGRADE`). Every sentence is now
+  true whatever was carried: the section says "It imported the files below" only over certain rows and puts the
+  unsure ones under "Its Markdown does not show for certain whether Claude Code reads the files below as its
+  imports … delete any line here it did not mean as an import" (`# BL-322-CARRY-UNSURE-SECTION`); the run names
+  them under "Carried, though adoption could not tell …" (`# BL-322-CARRY-UNSURE-SAY`) and says "Adoption found no
+  imports in it" only when it found none (`# BL-322-CARRY-NONE`); *Next* and step 8 of the assessment prompt no
+  longer say only the old file's imports were carried, and step 8 asks the user about each unsure one. Measured
+  against the replica (marked 13.0.3), 2026-10-08:
+
+  | Corpus | `c125f0f` (base) | `6d69a80` (strict) | now |
+  |---|---|---|---|
+  | 66 realistic shapes (round 1's): false carries / missed | 1 / 9 | 0 / 24 | 4, all unsure / 1 |
+  | the review's 41 fixtures | 14 / 1 | 9 / 1 | 14 (9 certain, 5 unsure) / 0 |
+  | 9000 fuzzed lines, round 1's generator: missed | 78, 87, 81 | 164, 169, 174 | 42, 46, 43 |
+  | 9000 fuzzed lines, this branch's generator: missed | 11, 14, 11 | 111, 116, 120 | 0, 0, 0 |
+
+  The one realistic miss is `docs/style.md**`, a path that cannot exist, which Claude Code reads by also scanning
+  a tight list item raw. On realistic shapes 18 imports are unsure, 14 of them real. On fuzz, which is built of
+  unclosed emphasis, most lines carry an unsure import Claude Code would not take; 1, 2 and 1 per 3000 of round 1's
+  lines are certain false carries (an escaped `\*` before a longer closing run). The 9 certain false carries on
+  the 41 fixtures are the three shapes it cannot see (residuals).
 - **The zsh guard, R-S2-13** (`.github/workflows/tests.yml`, `# BL-322-ZSH-GUARD`). The marker is any line
   matching `grep -iE '^[[:space:]]*#[[:space:]]*NEEDS-ZSH'`: `#NEEDS-ZSH`, indented, lowercase, suffixed.
-  `tests/test-bl322-zsh-legs.sh` runs six spellings through Z2 and Z3, and Z5 fails a unit-lane suite that runs
-  zsh without the marker, "runs" read from executed lines only (comments dropped as
-  `# BL-181-UNIT-LANE-PREDICATE` drops them) with zsh as a command word: probed, given an option, or in command
-  position. 17 shapes pin the reading; none of the 249 suites runs zsh today.
+  `tests/test-bl322-zsh-legs.sh` runs six spellings through Z2 and Z3, and Z5 fails a unit-lane suite that names
+  zsh as a whole word on an executed line (comments dropped as `# BL-181-UNIT-LANE-PREDICATE` drops them) unless it
+  carries the marker or is listed in `ZSH_NAMES_ONLY` with its reason. Review round 1 (R-S5-4) found the first
+  build's command-word reading missed `ZSH="/bin/zsh"; "$ZSH" -f`, `[ -x /bin/zsh ] ||`, `"/bin/zsh" -f` and
+  `for sh in bash zsh`; any whole word now counts, and the false flags it brings are listed. 21 shapes pin it;
+  of the 249 suites only the zsh-legs suite names zsh, and it is listed (it runs a stub, never zsh).
 - **P4, R-S2-14** (`tests/test-bl318-g4g6.sh`). A quoted hook missing from a clone that passes the version gate and
   the ea2025a history check now fails P4 instead of skipping it. P4u deletes `hooks/record-approval.sh` from a
   copy and P4 fails naming it; at `c125f0f` the fit check named the hook and P4 skipped. The two checks moved
@@ -23982,7 +24007,9 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
   the first option that takes a value: `-m`, `-c`, `-C`, `-t` (attached, or the next word;
   `# BL-322-S5-MSGFILE-REQVAL`) and `-S`, `-u` (attached only; `# BL-322-S5-MSGFILE-OPTVAL`), the set `git commit
   -h` lists (2.54). `-U <n>` is left out: a number spells no option. `git commit -Sabc -F f`, `-S0xC -F f` and
-  `-tc -F f` now read `f`; at `c125f0f` none did. `-u` changes no reading of a valid mode.
+  `-tc -F f` now read `f`; at `c125f0f` none did. `-u` changes no reading of a valid mode. Review round 1
+  (R-S5-5): a path with git's `:(optional)` prefix (gitcli, "Magic filename options") is read without it
+  (`# BL-322-S5-MSGFILE-OPTIONAL`); at `6d69a80` `-F ':(optional)msg.txt'` was not read.
 - **Hermeticity.** `tests/test-bl141-commitmsg-repair.sh`, `tests/test-bl145-hook-symlink-hookspath.sh` and
   `tests/test-pr-review-gate.sh` export a temp HOME holding a stand-in `.claude-dev-framework/.git`
   (`# BL-322-S5-HOME`, `# BL-322-S5-STANDIN`; the seam `tests/test-bl284-verify-install-context.sh` already used)
@@ -23993,7 +24020,11 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
 - **The fixture.** One way in, `tests/test-helpers/cdf-fixture.sh`: `SOIF_TEST_CDF_FIXTURE`, a clone of CDF at
   `4180f22be0a8b4410aeaa4e65800aed8e2299805` (v4.4.1, PR #27's merge, confirmed with `gh api`), which a new
   "Fetch the pinned Guardrails fixture" step fetches with full history on every unit-shard and full leg and
-  refuses unless `git rev-parse HEAD` is the pin (`# BL-322-S5-FIXTURE-HEAD`). `cdf_fixture_copy` gives each
+  refuses unless `git rev-parse HEAD` is the pin (`# BL-322-S5-FIXTURE-HEAD`). The step has its own 3-minute
+  timeout, and each of its three tries gives up on a transfer under 1000 bytes/s for 30s
+  (`# BL-322-S5-FIXTURE-FETCH`, review round 1's R-S5-6). **If GitHub or the CDF repository cannot be reached,
+  that step fails, and with it every unit-shard and full leg**: the fixture is a hard dependency of the lane, on
+  purpose. `cdf_fixture_copy` gives each
   suite a private clone (`git clone --no-local`, the commit checked out, its HEAD checked). Under `CI` a missing
   fixture, one not at the pin, or a pin short of a suite's need FAILS the cases (`# BL-322-S5-FIXTURE-FAIL` in
   each suite); locally a suite falls back to `~/.claude-dev-framework` when it is new enough and has the
@@ -24005,20 +24036,37 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
 - **Tests.** `tests/test-bl322-s5-hardening.sh` (unit lane, `mcp-mutants`): 12 cases (H1 the three suites under
   that probe; X1-X7 the helper against a local upstream; W1-W2 the workflow step and the pin; C1
   upgrade-cdf-refresh under CI with no fixture; C2 bl320 and g4g6, static) and 13 mutants, each killed by a named
-  case, M12 and M13 only statically. `tests/test-bl322-s2-project-rules.sh` U8 (42 one-line shapes, checked against
-  the replica) and M55-M67; `tests/test-bl322-zsh-legs.sh` Z5, the spellings in Z2 and Z3, M7-M10;
-  `tests/test-bl322-s4-wording.sh` F1's four new forms, MF11-MF12; `tests/test-bl318-g4g6.sh` P4u.
+  case, M12 and M13 only statically. `tests/test-bl322-s2-project-rules.sh` (now 17 cases and 115 mutants): U8, 67
+  one-line shapes whose certain lines are exactly what the replica imports, U2's unsure and upgraded rows, A1's
+  unsure import beside two certain ones and A7's lone unsure import (every sentence true), and M55-M115, one per
+  line of the reading that decides something (review round 1's R-S5-3: its linkclose bracket line and
+  `lf = !isws(x)` had survived); `tests/test-bl322-zsh-legs.sh` Z5, the spellings in Z2 and Z3, M7-M10;
+  `tests/test-bl322-s4-wording.sh` F1's six new forms, MF11-MF13; `tests/test-bl318-g4g6.sh` P4u.
+
+**S5 review round 1 (BLOCK; all addressed).** R-S5-1: `CI=true bash tests/test-bl322-s5-hardening.sh` gave 24/1
+(X6 failed): `copy_rc` put `CI=""` before a call to a function and then ran `unset CI`, which removes that
+binding and so exposes the exported `CI=true` every runner has; M8 and M9 counted as killed only by it. `copy_rc`
+now sets or unsets CI inside its own subshell (`# BL-322-S5-COPY-CI`), and every touched suite was run both with
+`CI=true` and without. R-S5-2: carry on doubt, named (above). R-S5-3: every decision line of the reading has a
+mutant killed by a named case. R-S5-4: Z5 reads any whole word (above). R-S5-5: `:(optional)` (above). R-S5-6:
+the step's timeout and the stalled-fetch limit (above).
 
 **S5 residuals (not fixed):**
-- **The import reading still carries an `@` Claude Code would not import** in three kinds of shape, each needing
-  an existing in-repo file of that name: a fence or an HTML block inside a list item or a block quote; a code
-  span that runs across lines; `<!--> @x.md -->` and `<!---> @x.md -->`.
-- **It now misses more**: emphasis or link text that closes on a later line, holds a bracket, a tag, a backtick
-  or a nested emphasis, or meets a non-ASCII character at a delimiter (`*@Résumé.md*`); a run the rule of three
-  keeps open (`*@x.md**y*`, where Claude Code imports `x.md**y`); a reference link. A missed import is named in
-  no list; the warning names the archived original.
-- **Z5 reads text, not execution**: a zsh run spelled at run time (`"${s}sh"`) or only inside a heredoc the suite
-  writes out is not seen, and a string with `; zsh ` on an executed line reads as a run.
+- **The import reading still carries, as certain, an `@` Claude Code would not import** in three kinds of shape,
+  each needing an existing in-repo file of that name: a fence or an HTML block inside a list item or a block
+  quote; a code span that runs across lines; `<!--> @x.md -->` and `<!---> @x.md -->`. Also, rarely, emphasis that
+  marked does not close although the flanking rules do (an escaped `\*` before a longer closing run: 4 of 9000
+  fuzzed lines).
+- **Unsure imports are carried, so R-S2-12's five shapes load their file again** (`*@x.md *`, `*@x.md costs 2 *
+  3`, `_@x.md and snake_case`, `[@x.md](url`, `[@x.md](my url)`), named apart as unsure. So does any `@` opening
+  emphasis or link text the line does not settle; on fuzz built of unclosed emphasis that is most lines. The
+  user removes what was not meant; the assessment prompt asks about each.
+- **What it still misses**: an `@` inside a code span in a tight list item (Claude Code scans the item raw too), a
+  code span across lines, whitespace other than the space, the tab and the no-break space, a line that opens with
+  an inline tag (read as an HTML block), and an `@` after a run that closes emphasis opened on an earlier line.
+  For an unsure import the path's end is a guess (`*@x.md**y*`: `x.md` carried, Claude Code reads `x.md**y`).
+- **Z5 reads text, not execution**: a zsh run spelled at run time (`"${s}sh"`) is not seen, and any suite that
+  only names zsh must be listed in `ZSH_NAMES_ONLY`.
 - **R2-2** (S4 review round 2): the gate's reading of the commit's words does not take a newline or a glued
   `;`/`&&` as a command separator. The commit-msg hook still checks the message.
 - **A `$VAR` in a `-F` path is still not expanded** (S4's residual): expanding it would take an `eval` of the
@@ -24029,4 +24077,4 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
 - **Not run here**: mawk (the runner's `awk`) on the new reading, bash 5.2 and GNU grep on the zsh guard and Z5,
   and the step on a runner. Its lines ran here against a local copy of the pin (the URL replaced), and its git
   commands by hand against GitHub (HEAD `4180f22`, 166 commits, not shallow). It is a network fetch on each of
-  the ten legs and the four full legs: three tries, then the leg fails.
+  the ten legs and the four full legs: an unreachable GitHub turns every one of them red.

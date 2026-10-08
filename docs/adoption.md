@@ -2435,9 +2435,13 @@ Bible holds, with nothing said. Now:
   block, a code span, an HTML comment (on one line or across several) or any
   other HTML block is an import; a CRLF file reads like an LF one; an `@` counts
   at a line start, after whitespace (a no-break space included), or opening
-  emphasis or a link's text (`*@x.md*`, `[@x.md](…)`). Where the approximation
-  cannot tell, it does not carry: carrying would switch on text you had switched
-  off.
+  emphasis or a link's text (`*@x.md*`, `[@x.md](…)`). Where the Markdown is
+  ambiguous (emphasis or link text whose close the line does not show for
+  certain, a non-ASCII character beside a `*`), the import is **carried and named
+  apart as unsure**: in the run, under its own sentence in the carried section,
+  and in the assessment prompt, which asks you about each. A missed import would
+  silently stop a rule loading; an unsure one loads a file that is in your
+  project, and you can delete its line.
 - **Every import not carried is named, with the reason**: an import of a file in
   your home folder or an absolute path (named only, never carried: it may not
   exist on another machine), outside the project, a symlink, missing, not a file,
