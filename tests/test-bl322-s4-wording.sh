@@ -30,7 +30,8 @@
 #       does not)
 #   G2  a server that is not configured is not listed
 #   O1  `pending-approval.sh --offer` (Guardrails 4.4.0+) states the lone-commit rule
-#       and the `git commit -F` route
+#       and the `git commit -F` route for a question that can approve a commit, and
+#       only for one
 #   H1  the commit check's hold message says the same
 #   P1  the assessment prompt explains adoptedAtCommit and where availability and
 #       exposure live
@@ -132,6 +133,11 @@ case_O1() {   # the offer's own output
   has "$out" "nothing before it, not even cd <folder> &&; nothing after it; no -a, no paths" || { CASE_DETAIL="the rule does not say what is refused"; return 1; }
   has "$out" "then: git commit -F <that file>" || { CASE_DETAIL="no -F route"; return 1; }
   has "$out" "mark-evaluated.sh, record-approval.sh" || { CASE_DETAIL="the -F route does not name the hook scripts"; return 1; }
+  # A question that approves nothing (a scope cut) is not about a commit.
+  d="$(newtmp)/p"; fx "$d" || { CASE_DETAIL="fixture 2"; return 1; }
+  out="$( cd "$d" && bash "$1/scripts/pending-approval.sh" --offer "Cut the scope?" --options "A1: Cut it" "A2: Keep it" --recommendation A1 </dev/null 2>&1 )" || rc=$?
+  [ "$rc" -eq 0 ] || { CASE_DETAIL="rc=$rc: $out"; return 1; }
+  has "$out" "git commit" && { CASE_DETAIL="a question that approves nothing gets the commit rule: $out"; return 1; }
   return 0
 }
 case_H1() {   # the commit check's hold, while the question waits
@@ -264,15 +270,16 @@ run_adopt() {   # FW DIR — Scout, then adoption, both from FW
 }
 adopt_ok() { [ "$RUN_RC" -eq 0 ] || { CASE_DETAIL="adoption rc $RUN_RC: $(grep -E 'BLOCKED|REFUSED|FAIL' "$RUN_OUT" | head -1)"; return 1; }; }
 
-RICH_FW=""; RICH_P=""; RICH_RC=0; RICH_OUT=""; RICH_SCAN=""
+RICH_FW=""; RICH_P=""; RICH_RC=0; RICH_OUT=""; RICH_SCAN=""; RICH_PRISTINE=""
 rich() {   # FW — the rich adoptee, adopted once per framework root
   local p=""
   [ "$RICH_FW" = "$1" ] && { RUN_RC="$RICH_RC"; RUN_OUT="$RICH_OUT"; RUN_SCAN="$RICH_SCAN"; return 0; }
   p="$(newtmp)/p"; mk_rich "$p" || return 1
+  cp -Rp "$p" "$(dirname "$p")/pristine" || return 1
   sums "$p" > "$(dirname "$p")/before.sums"
   run_adopt "$1" "$p"
   sums "$p" > "$(dirname "$p")/after.sums"
-  RICH_FW="$1"; RICH_P="$p"; RICH_RC="$RUN_RC"; RICH_OUT="$RUN_OUT"; RICH_SCAN="$RUN_SCAN"
+  RICH_FW="$1"; RICH_P="$p"; RICH_RC="$RUN_RC"; RICH_OUT="$RUN_OUT"; RICH_SCAN="$RUN_SCAN"; RICH_PRISTINE="$(dirname "$p")/pristine"
 }
 # changed PATH — yes when any file at PATH (a file, a folder ending in /, or a
 # `*.sample` glob) changed or went away in the rich adoptee; no otherwise.
@@ -301,11 +308,16 @@ case_R1() {   # R-S2-6: a replaced framework script is not reported as left alon
   return 0
 }
 
+# Scout runs from the root under test, on an untouched copy of the tree; the
+# adoption it is held to is this checkout's own, run once. Its mutants mutate
+# Scout, so the adoption half need not run again for each.
 case_S1() {   # R-S2-7: Scout's bucket per path is adoption's disposition on the same tree
-  local j="" md="" man="" path="" bucket="" dispo="" ch="" n=0 seen="" row="" bad=""
-  rich "$1" || { CASE_DETAIL="fixture"; return 1; }
+  local t="" j="" md="" man="" path="" bucket="" dispo="" ch="" n=0 seen="" row="" bad=""
+  rich "$REPO_ROOT" || { CASE_DETAIL="fixture"; return 1; }
   adopt_ok || return 1
-  j="$RUN_SCAN/scout-report.json"; md="$RUN_SCAN/scout-report.md"
+  t="$(newtmp)"; cp -Rp "$RICH_PRISTINE" "$t/p" || { CASE_DETAIL="could not copy the tree"; return 1; }
+  bash "$1/scripts/scout.sh" --root "$t/p" --out "$t/scan" </dev/null >/dev/null 2>&1
+  j="$t/scan/scout-report.json"; md="$t/scan/scout-report.md"
   man="$(ls "$RICH_P"/.claude/adoption-archive/*/MANIFEST.json 2>/dev/null | head -1)"
   [ -s "$j" ] && [ -s "$md" ] && [ -n "$man" ] || { CASE_DETAIL="no Scout report or no archive MANIFEST"; return 1; }
   while IFS="$TAB" read -r path bucket; do
@@ -502,6 +514,7 @@ mutant M4 "$GATE" '# BL-322-S4-GATE-QDRANT-IF' '  if true; then' case_G2 "the qd
 PA=scripts/pending-approval.sh
 mutant M5 "$PA" '# BL-322-S4-OFFER-COMMIT' '    :' case_O1 "--offer does not state the lone-commit rule"
 mutant M6 "$PA" '# BL-322-S4-OFFER-FILE' '    :' case_O1 "--offer does not give the -F route"
+mutant M6b "$PA" '# BL-322-S4-OFFER-IF' '    if true; then' case_O1 "--offer gives the commit rule for a question that approves nothing"
 mutant M7 scripts/pre-commit-gate.sh '# BL-322-S4-GATE-HINT' \
   '    hint="Stop and wait. The user answers by replying with the option id (for example: $recommendation), then again once the Development Guardrails have shown them the question and the staged change; the Guardrails then record the pick and remove this question. Do not remove it yourself. After a pick that approves the commit, commit with a lone git commit -m \"subject\" -m \"body\" (no -a, no paths, nothing else on the line). To withdraw the question instead: scripts/pending-approval.sh --clear"' \
   case_H1 "the hold message is the one before S4"
