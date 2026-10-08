@@ -380,9 +380,16 @@ here.
   HOUSE RULES).
   - **Adding a test is still a ONE-LINE edit** — append it to the canonical
     array. The lane is sharded (matrix `shard: [lint-sweep, lint-scan, sast,
-    slow-misc, adopt, commit-hooks, mcp, mcp-mutants, rest]`), but only the
+    slow-misc, adopt, adopt-b, commit-hooks, mcp, mcp-mutants, rest]`, ten
+    legs since 2026-10-07), but only the
     measured long poles are pinned to a shard by the `pin_*` arrays; `rest`
     is the COMPLEMENT, so a new entry lands there automatically.
+  - **Moving a suite out of `rest` can quietly cost coverage.**
+    `tests/test-bl141-commitmsg-repair.sh` leaves a Guardrails clone in the
+    runner's HOME, and later `rest` suites run cases only when it is there
+    (bl318-g4g6's G6, bl320's real-clone cases); on any other leg those cases
+    SKIP and the leg stays green. Compare a suite's SKIP count before you move
+    it. The `pin_adopt_b` note in `tests.yml` has the detail.
   - **Never write the literal array-opening token (`tests`+`=`+`(`) anywhere
     else in that file below the array.** `_build_unit_list_set` scopes with an
     UNANCHORED `awk '/tests=\(/'` and does not strip comments, so a second

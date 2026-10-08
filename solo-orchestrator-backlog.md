@@ -23574,7 +23574,7 @@ the CDF session's call, so it is left alone here and is **pending** that answer.
   Before: `⚠ 3 user-terminal commit(s) detected`, rows for `d0d3d73`, `d77fc1b` and `2c333be`. After: no
   row. From a clean checkout with the baseline at `d0d3d73`: before, the detector left
   ` M .claude/bypass-audit.json`; after, git status is unchanged.
-- **Tests.** `tests/test-bl322-s1-audit-loop.sh` (unit lane, `rest` shard): 14 cases and 14 mutants, each
+- **Tests.** `tests/test-bl322-s1-audit-loop.sh` (unit lane; `rest` shard, pinned to `adopt-b` since 2026-10-07): 14 cases and 14 mutants, each
   mutant killed by a named case. Two cases run a real adoption; on one, the adoptee's own copy of the
   detector skips an approved commit, leaves the audit file unchanged and still records a terminal commit.
   Its fixture commits use `--no-verify` (the detector reads history and `approvals.jsonl`, not how a commit
