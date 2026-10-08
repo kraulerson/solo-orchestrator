@@ -313,8 +313,9 @@ Then, WITH ME — ask, do not infer:
 8. Fold what is worth keeping from the archived documents into CLAUDE.md, FEATURES.md, BUGS.md and
    RELEASE_NOTES.md, and tell me what you moved.
    If CLAUDE.md has a section "Carried over from your CLAUDE.md": it keeps loading the files
-   the old CLAUDE.md imported, and any it lists as perhaps imported, but not the rules written in
-   the old file itself, so fold those in. Ask me about each import listed as perhaps imported.
+   the old CLAUDE.md imported, and the files it lists under "Its Markdown does not show for
+   certain", but not the rules written in the old file itself, so fold those in. Ask me whether
+   each file listed under "Its Markdown does not show for certain" was meant as an import.
    Then keep each import you still want, outside that section, and delete the section, marker
    lines included.
    RELEASE_NOTES.md is the framework's blank template: adoption did not carry this project's

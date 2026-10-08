@@ -195,12 +195,14 @@ _adopt_claude_md_import_tokens() {
     # and x does to emphasis a run of L opened (the Markdown flanking rules):
     # "close" it, "stop" the search (it can open, closes too short, or the rule
     # of three keeps it open), or "skip" (literal). With L 0, only whether the
-    # run can open: "open" or "no".
+    # run can open: "open" or "no"; with L below 0, only whether it can close:
+    # "close" or "no".
     function flank(p, x, d, L, n,    lf, rf, op, cl) {
       lf = (x != "w") && (x != "p" || p == "w" || p == "p")   # BL-322-CARRY-EMPH-LEFT
       rf = (p != "w") && (p != "p" || x == "w" || x == "p")   # BL-322-CARRY-EMPH-FLANK
       if (d == "*") { op = lf; cl = rf } else { op = lf && (!rf || p == "p"); cl = rf && (!lf || x == "p") }   # BL-322-CARRY-EMPH-UNDER
-      if (!L) return op ? "open" : "no"
+      if (!L) return op ? "open" : "no"   # BL-322-CARRY-EMPH-OPENS
+      if (L < 0) return cl ? "close" : "no"   # BL-322-CARRY-EMPH-CANCLOSE
       if (cl && n >= L) return (op && (L + n) % 3 == 0 && (L % 3 || n % 3)) ? "stop" : "close"   # BL-322-CARRY-EMPH-RUN
       return (op || cl) ? "stop" : "skip"   # BL-322-CARRY-EMPH-NESTED
     }
@@ -240,7 +242,7 @@ _adopt_claude_md_import_tokens() {
         c = substr(s, i, 1)
         if (c == "\\") { i++; continue }
         if (c != d) continue
-        a = i; while (i < upto - 1 && substr(s, i + 1, 1) == d) i++
+        a = i; while (i < upto - 1 && substr(s, i + 1, 1) == d) i++   # BL-322-CARRY-PRIOR-RUN
         v = runsays(s, a, i, d, 0)
         if (v == "no") continue   # BL-322-CARRY-PRIOR-OPENS
         r = emclose(s, i + 1, d, i - a + 1)   # BL-322-CARRY-PRIOR-CLOSE
@@ -256,7 +258,7 @@ _adopt_claude_md_import_tokens() {
       for (i = 1; i < upto; i++) {
         c = substr(s, i, 1)
         if (c == "\\") { i++; continue }
-        if (c != "[" || (i > 1 && substr(s, i - 1, 1) == "!")) continue
+        if (c != "[" || (i > 1 && substr(s, i - 1, 1) == "!")) continue   # BL-322-CARRY-LINKPRIOR-IMAGE
         r = linkclose(s, i + 1)
         if (r == target) return 2   # BL-322-CARRY-LINKPRIOR
         if (r == 0) best = 1   # BL-322-CARRY-LINKPRIOR-PERHAPS
@@ -265,20 +267,31 @@ _adopt_claude_md_import_tokens() {
     }
     # tokcut(s, at, t, k) — where the path t (the @ at `at`, read to k) ends at
     # a closer of emphasis or link text opened earlier on the line: where that
-    # closer is, negated when that is not certain; k when nothing ends it.
+    # closer is, negated when that is not certain; k when nothing ends it. A run
+    # of * or _ the flanking rules do not let close (the _ in coding_standards)
+    # is part of the path, whatever opened earlier (review R-S5-7).
     function tokcut(s, at, t, k,    i, n, c, a, w) {
       n = length(t)
       for (i = 1; i <= n; i++) {
         c = substr(t, i, 1); a = i
         if (c == "]") w = linkprior(s, at, at + i)
         else if (c == "*" || c == "_") {
-          while (i < n && substr(t, i + 1, 1) == c) i++
+          while (i < n && substr(t, i + 1, 1) == c) i++   # BL-322-CARRY-TOKCUT-RUN
+          if (runsays(s, at + a, at + i, c, -1) == "no") continue   # BL-322-CARRY-TOKCUT-CLOSES
           w = prior(s, at, at + a, c)
         } else continue
         if (w == 2) return at + a   # BL-322-CARRY-TOKCUT
         if (w == 1) return -(at + a)   # BL-322-CARRY-TOKCUT-UNSURE
       }
       return k
+    }
+    # emit(t, u) — record path t once, in file order (u: unsure), after cutting
+    # its `#…` and keeping it only when Claude Code would; a certain reading of
+    # a path an earlier line left unsure makes it certain.
+    function emit(t, u,    h) {
+      h = index(t, "#"); if (h) t = substr(t, 1, h - 1)   # BL-322-CARRY-FRAGMENT
+      if (!(t ~ /^~\// || (substr(t, 1, 1) == "/" && t != "/") || t ~ /^[A-Za-z0-9._-]/)) return   # BL-322-CARRY-PATHCHAR
+      if (!(t in seen)) { seen[t] = u; order[++no] = t } else if (!u) seen[t] = 0   # BL-322-CARRY-ONCE
     }
     # guess(t, d, L) — where in path t emphasis a run of L of d opened, or link
     # text (d is "]"), most likely ends when the line does not say for certain:
@@ -418,10 +431,13 @@ _adopt_claude_md_import_tokens() {
         if (kind == 2) { m = emclose(line, at + 1, pc, L); if (!m) { u = 1; m = guess(tok, pc, L); m = m ? at + m : k } }   # BL-322-CARRY-CLOSES
         else if (kind == 3) { m = linkclose(line, at + 1); if (!m) { u = 1; m = guess(tok, "]", 1); m = m ? at + m : k } }   # BL-322-CARRY-LINKCLOSES
         else { m = tokcut(line, at, tok, k); if (m < 0) { u = 1; m = -m } }
+        whole = tok
         if (m < k) tok = substr(tok, 1, m - at - 1)
-        h = index(tok, "#"); if (h) tok = substr(tok, 1, h - 1)   # BL-322-CARRY-FRAGMENT
-        if (!(tok ~ /^~\// || (substr(tok, 1, 1) == "/" && tok != "/") || tok ~ /^[A-Za-z0-9._-]/)) continue   # BL-322-CARRY-PATHCHAR
-        if (!(tok in seen)) { seen[tok] = u; order[++no] = tok } else if (!u) seen[tok] = 0   # BL-322-CARRY-ONCE
+        emit(tok, u)
+        # A plain path cut at a closer is ALSO carried whole, as unsure: the
+        # whole path is what was carried before S5, and a closer read wrongly
+        # must never lose a real import (review round 2, R-S5-7).
+        if (kind == 1 && m < k) emit(whole, 1)   # BL-322-CARRY-KEEPWHOLE
       }
     }
     END { for (i = 1; i <= no; i++) print order[i] (seen[order[i]] ? "\tunsure" : "") }   # BL-322-CARRY-UNSURE-OUT
@@ -462,9 +478,10 @@ HITS
 }
 
 # _adopt_claude_md_carry ROOT FILE — one row per import in FILE, in its order:
-#   carry<TAB>PATH, unsure<TAB>PATH, or skip<TAB>TOKEN<TAB>REASON
+#   carry<TAB>PATH, unsure<TAB>PATH, or skip<TAB>TOKEN<TAB>REASON[<TAB>unsure]
 # unsure is carried too: the reading could not tell whether Claude Code imports
-# it (R-S5-2), and the run names it apart. PATH is the import normalised (`./`, `..` and a `#…` gone; a space written
+# it (R-S5-2), and the run names it apart; a skip row says unsure when its
+# token was, because then it may be no import at all (R-S5-9). PATH is the import normalised (`./`, `..` and a `#…` gone; a space written
 # `\ `): what Claude Code will load, exactly. REASON is control, home, outside,
 # link, missing, not-a-file, unchecked, archived or written. Asked BEFORE this
 # stage writes anything, so "adoption did not write it" is two questions: the
@@ -501,7 +518,7 @@ _adopt_claude_md_carry() {                             # BL-322-CARRY
       elif _adopt_carry_hit "$written" "$root" "$norm"; then reason=written   # BL-322-CARRY-WRITTEN
       fi
     fi
-    if [ -n "$reason" ]; then rows="${rows}skip	$tok	$reason$nl"; continue; fi
+    if [ -n "$reason" ]; then rows="${rows}skip	$tok	$reason${flag:+	$flag}$nl"; continue; fi   # BL-322-CARRY-SKIP-UNSURE
     out="$(printf '%s' "$norm" | sed 's/ /\\ /g')"   # BL-322-CARRY-NORMWRITE
     # Once per file; a spelling read for certain makes an unsure one certain.
     grep -qxF -- "$out" <<< "$done_list" && { [ "$flag" = unsure ] || upgrade="$upgrade$out$nl"; continue; }   # BL-322-CARRY-DEDUPE
@@ -542,7 +559,7 @@ _adopt_carry_section() {
     printf '%s\n' "$1" | awk -F '\t' '$1 == "carry" { print "@" $2 }'
   fi
   if grep -q '^unsure' <<< "$1"; then   # BL-322-CARRY-UNSURE-SECTION
-    printf '\nIts Markdown does not show for certain whether Claude Code reads the files below\n'
+    printf '\nIts Markdown does not show for certain that Claude Code reads the files below\n'
     printf 'as its imports, so they were carried, and they load now: delete any line here it\n'
     printf 'did not mean as an import.\n\n'
     printf '%s\n' "$1" | awk -F '\t' '$1 == "unsure" { print "@" $2 }'
@@ -680,9 +697,9 @@ REFS
       done
     fi
     if grep -q '^unsure' <<< "$carry"; then   # BL-322-CARRY-UNSURE-SAY
-      adopt_note "Carried, though adoption could not tell from its Markdown whether Claude Code"
-      adopt_note "imports them (each sits in emphasis or link text it could not read for certain)."
-      adopt_note "They load now: remove any from the new CLAUDE.md you did not mean to import:"
+      adopt_note "Carried, though its Markdown does not show for certain that Claude Code imports"
+      adopt_note "them (each sits in or beside emphasis or link text). They load now: remove any"
+      adopt_note "from the new CLAUDE.md you did not mean to import:"
       printf '%s\n' "$carry" | while IFS="$(printf '\t')" read -r why tok _; do
         [ "$why" = unsure ] && adopt_say "     @$tok"
       done
@@ -690,10 +707,17 @@ REFS
     if [ -z "$carry" ]; then   # BL-322-CARRY-NONE
       adopt_note "Adoption found no imports in it, so nothing was carried over."
     fi
-    if grep -q '^skip' <<< "$carry"; then
+    if awk -F '\t' '$1 == "skip" && $4 == "" {f = 1} END {exit !f}' <<< "$carry"; then   # BL-322-CARRY-SKIP-SAY
       adopt_note "These imports in it were NOT carried; add back any you need by hand:"
-      printf '%s\n' "$carry" | while IFS="$(printf '\t')" read -r why tok rel; do
-        [ "$why" = skip ] && adopt_say "     @$tok — $(_adopt_carry_reason "$rel")"
+      printf '%s\n' "$carry" | while IFS="$(printf '\t')" read -r why tok rel fl; do
+        [ "$why" = skip ] && [ -z "$fl" ] && adopt_say "     @$tok — $(_adopt_carry_reason "$rel")"   # BL-322-CARRY-SKIP-SAY-ROW
+      done
+    fi
+    if awk -F '\t' '$1 == "skip" && $4 == "unsure" {f = 1} END {exit !f}' <<< "$carry"; then   # BL-322-CARRY-SKIP-UNSURE-SAY
+      adopt_note "These @ mentions in it were NOT carried, and its Markdown does not show for certain"
+      adopt_note "that they are imports at all:"
+      printf '%s\n' "$carry" | while IFS="$(printf '\t')" read -r why tok rel fl; do
+        [ "$why" = skip ] && [ "$fl" = unsure ] && adopt_say "     @$tok — $(_adopt_carry_reason "$rel")"
       done
     fi
   fi
