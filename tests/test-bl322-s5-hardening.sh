@@ -122,7 +122,9 @@ case_H1() {   # FW [SUITE…]
 UP_OLD=""; UP_PIN=""; UP_NEXT=""
 mk_upstream() {
   local u="$1"
-  mkdir -p "$u/hooks" && rgit init -q "$u" && rgit -C "$u" config user.email t@t.invalid && rgit -C "$u" config user.name t \
+  # The branch is named: X2 fetches it by name, and git's default branch name
+  # is a host setting (CLAUDE.md, `# BL-234-FIXTURE-BARE-HEAD`).
+  mkdir -p "$u/hooks" && rgit init -q -b master "$u" && rgit -C "$u" config user.email t@t.invalid && rgit -C "$u" config user.name t \
     && rgit -C "$u" config uploadpack.allowAnySHA1InWant true || return 1
   printf '4.3.0\n' > "$u/FRAMEWORK_VERSION"; printf 'echo old\n' > "$u/hooks/a.sh"
   rgit -C "$u" add -A && rgit -C "$u" commit -q -m old || return 1
