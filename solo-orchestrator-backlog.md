@@ -23574,7 +23574,7 @@ the CDF session's call, so it is left alone here and is **pending** that answer.
   Before: `⚠ 3 user-terminal commit(s) detected`, rows for `d0d3d73`, `d77fc1b` and `2c333be`. After: no
   row. From a clean checkout with the baseline at `d0d3d73`: before, the detector left
   ` M .claude/bypass-audit.json`; after, git status is unchanged.
-- **Tests.** `tests/test-bl322-s1-audit-loop.sh` (unit lane, `rest` shard): 14 cases and 14 mutants, each
+- **Tests.** `tests/test-bl322-s1-audit-loop.sh` (unit lane; `adopt-b` shard since 2026-10-07; `rest` before): 14 cases and 14 mutants, each
   mutant killed by a named case. Two cases run a real adoption; on one, the adoptee's own copy of the
   detector skips an approved commit, leaves the audit file unchanged and still records a terminal commit.
   Its fixture commits use `--no-verify` (the detector reads history and `approvals.jsonl`, not how a commit
@@ -23832,3 +23832,12 @@ Solo does not ignore those logs), their marker surviving a pick that approves no
 verified" banner without the plugin), 22 ("Run: init.sh --reconfigure" in an adopted project), and
 `hooks/session-end.sh` deleting the approval render record, so both approval replies must arrive in one Claude
 Code process (`## BL-320:`'s run-3 paragraph).
+
+**CI residual, hermeticity (recorded 2026-10-08 from the review of the tenth `unit-shard` leg, `264a4a4`;
+not fixed).** Two `rest` suites get part of their CI coverage from a live network fetch:
+`tests/test-bl141-commitmsg-repair.sh` runs `verify-install.sh --auto-fix`, which does a `git clone --depth 1`
+of the Guardrails from GitHub into the runner's HOME, and `tests/test-bl320-approval-schema2.sh` (R10, E1) and
+`tests/test-upgrade-cdf-refresh.sh` (T1, T3, T4, T5) run those cases only when that clone is there. With an
+empty HOME they skip (122/0/2 and 2/0/4, against 124/0/0 and 6/0/0 on PR #504's `rest` leg), so a failed
+clone, or either suite moving off `rest`, costs those cases while the lane stays green. The `pin_adopt_b`
+note in `.github/workflows/tests.yml` records the leg half of this.
