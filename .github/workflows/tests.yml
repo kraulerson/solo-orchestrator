@@ -1092,14 +1092,20 @@ jobs:
           # delta-db-ledger-close `rest` -> `mcp`, and bl256 plus two lint
           # suites `rest` -> `slow-misc`. Each lands last in its leg.
           #
-          # WHY `rest` GAVE UP SIX SMALL SUITES AND NOT ITS TWO LARGEST.
-          # tests/test-bl141-commitmsg-repair.sh leaves a Guardrails clone in
-          # the runner's HOME (`verify-install.sh --auto-fix`), and two later
-          # `rest` suites use it: bl318-g4g6's G6 and bl320-approval-schema2's
-          # real-clone cases (124 passed, 0 skipped on PR #504). No other leg
-          # has a clone, so on another leg those cases SKIP — green, with less
-          # coverage. Both stay in `rest`. Each of the six that left was run
-          # locally with an empty HOME and matched its `rest` counts.
+          # A SUITE LEAVING `rest` CAN LOSE CASES WITHOUT GOING RED.
+          # tests/test-bl141-commitmsg-repair.sh leaves a depth-1 Guardrails
+          # clone in the runner's HOME (`verify-install.sh --auto-fix`), and
+          # two later `rest` suites run cases only when it is there:
+          # tests/test-bl320-approval-schema2.sh R10 and E1 (124/0/0 with it,
+          # 122/0/2 without) and tests/test-upgrade-cdf-refresh.sh T1, T3, T4
+          # and T5 (6/0/0 with it, 2/0/4 without). No other leg has a clone,
+          # so on another leg those cases SKIP and the leg stays green. Both
+          # stay in `rest`. bl318-g4g6, `rest`'s largest, does NOT depend on
+          # it: its clone cases P4/P4m need history a depth-1 clone lacks, so
+          # they skip on every leg (47/0/3 with or without it), and it could
+          # move later without losing coverage. It stayed here for this
+          # change. Each of the six that left was run locally with an empty
+          # HOME and matched its `rest` counts.
           # NO DIGIT IN THE NAME: tests/test-bl322-zsh-legs.sh's `fixture` finds
           # a pin array with `pin_[a-z_]+=\(`, which a `pin_adopt_2` slips past.
           pin_adopt_b=(
