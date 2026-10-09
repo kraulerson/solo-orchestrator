@@ -24208,9 +24208,10 @@ contributor's reproduction shows each. No git hook Solo emits reads the question
 **Decision (Karl, 2026-10-08).** Widen `pa_check` now to every command that creates a commit: `merge`, `pull`
 (unless `--ff-only`), `cherry-pick`, `revert`, `rebase`, `am`, and `commit` behind `-C`/`-c`.
 
-**Not a git-hook fix.** No single git hook sees every one of these (measured on git 2.54.0 by the review of this
-entry): `cherry-pick`, `revert` and `rebase` fire neither `pre-commit` nor `commit-msg` (only `prepare-commit-msg`),
-`am` fires only `applypatch-msg` and `pre-applypatch`, and `commit-tree` plus `update-ref` fires none. `## BL-321:`
+**Not a git-hook fix.** No single git hook sees every one of these before the commit is written (measured on git
+2.54.0 by the review of this entry): before writing, `cherry-pick`, `revert` and `rebase` fire neither `pre-commit`
+nor `commit-msg` (only `prepare-commit-msg`; `rebase` also fires `pre-rebase` before it starts), `am` fires only
+`applypatch-msg` and `pre-applypatch`, and `commit-tree` plus `update-ref` fires none. `## BL-321:`
 (deferred) is a `pre-commit` tree comparison that does not read `.claude/pending-approval.json`, so as scoped it
 covers none of these commands.
 
@@ -24472,9 +24473,7 @@ absent, the bug count is not measured, and not measured is not zero (BL-280's ow
 **What was asked.** Ship `.claude/agents/pr-reviewer.md` to projects, make `record-pr-review.sh --reviewer`
 mandatory, and have `scripts/check-pr-review.sh` refuse when `reviewer` is empty or equals `by`.
 
-**Not decided.** The first part of the ask, shipping `.claude/agents/pr-reviewer.md`: Karl's decision covered the
-reviewer-identity check. Today `scripts/check-pr-review.sh` tells the user to "dispatch the pr-reviewer" agent, and
-init.sh does not ship it, so a generated project is pointed at an agent it does not have.
+The first part of the ask, shipping `.claude/agents/pr-reviewer.md`, was not decided and is `## BL-345:`.
 
 ## BL-342: a severable module that indexes the framework's own documentation for agents working in a project
 
@@ -24520,3 +24519,18 @@ Of the 249 suites in the unit list, 33 name `upgrade-project.sh` on a non-commen
 **Direction.** Audit by execution, not grep (the lesson of `## BL-181:`): run each suite with `HOME` pointing at a
 temp folder holding a stand-in clone, and record which ones reach the network or write under it; give each a temp
 HOME (or the pinned fixture from BL-322 S5); then a check that fails a suite which touches the real HOME.
+
+## BL-345: generated projects are told to dispatch a `pr-reviewer` agent that init.sh never ships
+
+**Logged:** 2026-10-09 (the undecided first part of issue #475; see `## BL-341:`)
+**Category:** Gap
+**Severity:** Low
+**Status:** Parked (2026-10-09) — not decided by Karl; `## BL-341:` decided only the reviewer-identity check
+
+**What.** When a push has no recorded review, `scripts/check-pr-review.sh` tells the user "Ask your agent to
+dispatch the pr-reviewer". The agent definition lives only in the framework clone's `.claude/agents/`; init.sh does
+not ship it (it names `pr-reviewer` nowhere), so a generated project is pointed at an agent it does not have. Issue
+#475 asked for it to be shipped.
+
+**Open question for Karl.** Ship `.claude/agents/pr-reviewer.md` into generated and adopted projects, or change the
+message to name a review the project can actually run.
