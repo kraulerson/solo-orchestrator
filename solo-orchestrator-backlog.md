@@ -23970,7 +23970,10 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
   character (`# BL-322-CARRY-ESCAPE`), after an inline tag (`# BL-322-CARRY-TAG`) and after any `[` but an
   image's; a path ends at an inline tag (`# BL-322-CARRY-TAGEND`) and at a closer of something opened earlier
   (`# BL-322-CARRY-TOKCUT`), but only at a run the flanking rules let close (`# BL-322-CARRY-TOKCUT-CLOSES`), and a
-  plain path cut there is also carried whole, as unsure (`# BL-322-CARRY-KEEPWHOLE`; review round 2, R-S5-7). `_adopt_claude_md_carry` writes an `unsure` row, once per file, made certain by a
+  plain path cut there is also read whole (`# BL-322-CARRY-KEEPWHOLE`; review round 2, R-S5-7), carried as unsure
+  when that whole path is a file and not named when it is none (`# BL-322-CARRY-WHOLE-MISSING`, round 3); link text
+  the line does not show real ends at a `]` its path did not open (`# BL-322-CARRY-LINKGUESS-DEPTH`, round 3,
+  R-S5-10). `_adopt_claude_md_carry` writes an `unsure` row, once per file, made certain by a
   certain spelling of the same file (`# BL-322-CARRY-UNSURE-ROW`, `# BL-322-CARRY-UPGRADE`). Every sentence is now
   true whatever was carried: the section says "It imported the files below" only over certain rows and puts the
   unsure ones under "Its Markdown does not show for certain that Claude Code reads the files below as its
@@ -24042,10 +24045,11 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
 - **Tests.** `tests/test-bl322-s5-hardening.sh` (unit lane, `mcp-mutants`): 12 cases (H1 the three suites under
   that probe; X1-X7 the helper against a local upstream; W1-W2 the workflow step and the pin; C1
   upgrade-cdf-refresh under CI with no fixture; C2 bl320 and g4g6, static) and 13 mutants, each killed by a named
-  case, M12 and M13 only statically. `tests/test-bl322-s2-project-rules.sh` (now 18 cases and 127 mutants): D1 (review round 2) runs
+  case, M12 and M13 only statically. `tests/test-bl322-s2-project-rules.sh` (now 19 cases and 136 mutants): D1 (review round 2) runs
   the reading at `c125f0f` and this one over 1040 generated plain-import lines amid `_`/`*` prose and paths and
   round 2's 13 lines verbatim, and fails on any real import `c125f0f` carried that this drops or cuts (0 of 653
-  here; 112 at `0c0c519`, 104 generated and 8 of the 13; 8 with the cut fixed but no whole path kept, M122); U8, 83
+  here; 112 at `0c0c519`, 104 generated and 8 of the 13; 8 with the cut fixed but no whole path kept, M122); D2 (review round 3) the same over 700 lines whose `@` opens
+  emphasis or link text (0 of 133 lost; 10 at `791ed0d`); U8, 85
   one-line shapes whose certain lines are what the replica imports but one (an image's alt text, which names no
   file), U2's unsure and upgraded rows, A1's
   unsure import beside two certain ones and A7's lone unsure import (every sentence true), and M55-M115, one per
@@ -24080,6 +24084,26 @@ names no file. The archive says nothing about imports.
 R-S5-8's three markers each have a U8 line that tells them apart: `_see @K46__x.md`, `__init__ @K43_.md` and
 `![see @N4.md](u)` (each read whole and certain; the mutant cuts it, unsure).
 
+**S5 review round 3 (minor concerns; all addressed).** R-S5-10, a regression against `c125f0f`, improbable: link
+text whose path holds brackets lost its import. `- [@app/[locale]/README.md](app/[locale]/README.md)`, the file
+present: `c125f0f` carried it; `791ed0d` cut it at its first `]` (`app/[locale`, "no such file"), because
+`linkclose` stops at a `[` and the guess took the first `]`. The guess now ends the text at the first `]` no `[`
+in the path opened (`linkguess`, `# BL-322-CARRY-LINKGUESS`, `-DEPTH`), so it is carried, unsure. The review's
+prototype (cut at the first `](`) left `[@app/[locale]/x.md and more](u)` lost, and once the depth scan was in it
+decided nothing (its mutant survived), so it is not kept. D2 (above) holds every real emphasis or link-text import
+`c125f0f` carried; U8's L11 and L12; M128, M136. R-S5-11: with only an unsure mention not carried, a mutant that
+opened the list of imports not carried with no rows survived; A7 now has such a mention and wants no such list
+(M129), and the mentions loop has a marker (`# BL-322-CARRY-SKIP-UNSURE-SAY-ROW`) and a mutant A1 kills (M130).
+R-S5-12: the S2 suite goes from 74s to 174s locally with S5, so `adopt-b` (523s on PR #506) projected about 660s
+of 720s; `bl322-s1-audit-loop` and `f015` (33.8s and 32.4s on that run) moved to `lint-scan` (481s), which projects
+`adopt-b` to about 595s and `lint-scan` to about 547s, projections to re-measure on this PR's run. R-S5-13: the
+merge sentence said "Apart from your CLAUDE.md's imports" when only unsure lines were carried; it now says "Apart
+from the @ lines carried over from your CLAUDE.md (below)" (M134). And the whole of a cut path is read with its
+own flag (`whole`): the carry drops it when it names no file (`**Always read @RULES.md**` no longer lists
+`@RULES.md**`) and otherwise treats it as unsure (`# BL-322-CARRY-WHOLE-MISSING`, `-WHOLE-UNSURE`; M131, M132,
+M133, M135). Verified by the review on `791ed0d`, not re-run on these changes: mawk 1.3.4 and bash 5.2.21
+(ubuntu:24.04, arm64) read the same tokens as macOS for `c125f0f` and `791ed0d` over about 8.5k files.
+
 **S5 residuals (not fixed):**
 - **The import reading still carries, as certain, an `@` Claude Code would not import** in three kinds of shape,
   each needing an existing in-repo file of that name: a fence or an HTML block inside a list item or a block
@@ -24109,11 +24133,12 @@ R-S5-8's three markers each have a U8 line that tells them apart: `_see @K46__x.
   HOME during the review, it pulled the real clone. Of the 249 suites in the `tests.yml` unit list, 33 name
   `upgrade-project.sh` on a line that is not a comment and 24 of those set neither `HOME` nor `CDF_HOME` (a grep,
   2026-10-08: naming is not running); none is audited. S5 isolated bl141, bl145 and pr-review-gate only.
-- **A plain path cut at a closer is carried twice**: the cut path and, unsure, the whole one. When the cut is right
-  the whole one usually names no file, and the run lists it among the @ mentions not carried
-  (`**Always read @RULES.md**` lists `@RULES.md**`); when it does name a file, that file loads though Claude Code
-  would not have imported it.
-- **Not run here**: mawk (the runner's `awk`) on the new reading, bash 5.2 and GNU grep on the zsh guard and Z5,
+- **A plain path cut at a closer is also read whole.** When the whole path names a file, that file is carried as
+  unsure and loads though Claude Code would not have imported it if the cut was right. When it names no file it
+  is dropped (round 3), but a whole `~/` or absolute path, or one outside the project, is still named among the @
+  mentions not carried (its reason is not "missing").
+- **Not run here**: mawk (the runner's `awk`) on round 3's reading (the review ran it on round 2's), bash 5.2 and
+  GNU grep on the zsh guard and Z5,
   and the step on a runner. Its lines ran here against a local copy of the pin (the URL replaced), and its git
   commands by hand against GitHub (HEAD `4180f22`, 166 commits, not shallow). It is a network fetch on each of
   the ten legs and the four full legs: an unreachable GitHub turns every one of them red.
