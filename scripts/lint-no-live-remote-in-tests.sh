@@ -95,7 +95,7 @@ LIST_ROWS=""
 # Tokens that make an init run hermetic.
 HERMETIC_RE='(--no-remote-creation|--dry-run|--validate-only|--git-host[[:space:]=]+other)'
 # File-level signal that the whole test mocks the host CLI on PATH.
-MOCK_FILE_RE='(write_mock_gh|write_mock_glab|write_mock_curl|PATH="\$\{?MOCK_DIR\}?|mock-cli\.sh)'
+MOCK_FILE_RE='(write_mock_gh|write_mock_glab|write_mock_curl|PATH="\$[{]?MOCK_DIR[}]?|mock-cli\.sh)'
 ALLOW_MARKER='# lint-no-live-remote: allow'
 
 # Collect the set of shell vars a file assigns to an .../init.sh path so
@@ -111,21 +111,25 @@ collect_init_vars() {
 # in genuine command position, not merely appear as substring text inside
 # a reporter string (echo/section/pass/fail_ "...init.sh --non-interactive...")
 # or a static grep/awk/`bash -n` of the init.sh SOURCE. Two shapes:
-#   A) `<interpreter> <init-token>` — an interpreter word directly governs
-#      an init path/var (flags between → e.g. `bash -n "$INIT"` syntax
-#      check → NOT an exec). The interpreter word is either a shell NAME,
-#      `bash` or `sh` (`/bin/bash`, `/usr/bin/env bash`, `command bash` and
+#   A) `<interpreter> [flags] <init-token>` — an interpreter word governs an
+#      init path/var. The interpreter word is either a shell NAME, `bash`
+#      or `sh` (`/bin/bash`, `/usr/bin/env bash`, `command bash` and
 #      `exec bash` reach it through the left boundary), or the shell-path
-#      VARIABLE `$BASH` / `$SHELL`, bare, braced or quoted. Before BL-346
-#      only the literal name `bash` counted, so a suite running
-#      `"$BASH" ./init.sh` with no --no-remote-creation passed this lint.
+#      VARIABLE `$BASH` / `$SHELL`, bare, braced or quoted. Option flags may
+#      sit between, except a syntax check (`bash -n "$INIT"` reads the
+#      SOURCE → NOT an exec). Before BL-346 only the literal name `bash`
+#      counted, and only with no flag at all, so a suite running
+#      `"$BASH" ./init.sh` or `bash -e ./init.sh` with no
+#      --no-remote-creation passed this lint.
 #   B) `<init-var>` as a command word — at line start or after
 #      ( ; & | && / a `cd .. &&` / `env ... ` prefix, then the init var
 #      followed by whitespace (its first flag).
 # $1=buf  $2=pipe-alternation of init var names (never-match sentinel if none)
+# A brace is matched as `[{]` / `[}]`, never `\{` / `\}`: a backslash before
+# an ordinary character is unspecified in a POSIX ERE.
 line_is_init_exec() {
   local buf="$1" var_alt="$2"
-  local token="(\\\$\{?(${var_alt})\}?|[^\"'\''[:space:];&|]*/init\.sh)"
+  local token="(\\\$[{]?(${var_alt})[}]?|[^\"'\''[:space:];&|]*/init\.sh)"
   # BL-346-INTERP-NAME: a shell name. The left boundary excludes `.` so the
   # `sh` ending a FILENAME (`cp ./init.sh "$T/init.sh"`) is never read as
   # the interpreter `sh`.
@@ -133,10 +137,19 @@ line_is_init_exec() {
   # BL-346-INTERP-VAR: the shell-path variable — `"$BASH"`, `"${BASH}"`,
   # `$BASH`, `$SHELL`. The `$` anchors it on the left; `$BASH_SOURCE` fails
   # at the `_`.
-  local interp_var='\$\{?(BASH|SHELL)\}?"?'
-  # A: an interpreter word directly followed by an init token (no
-  # intervening flags).
-  if printf '%s' "$buf" | grep -Eq "(${interp_name}|${interp_var})[[:space:]]+\"?${token}"; then
+  local interp_var='\$[{]?(BASH|SHELL)[}]?"?'
+  # BL-346-INTERP-FLAGS: option words between the interpreter and init.sh.
+  # A cluster of lowercase letters counts unless it holds `n`, which reads
+  # the script without running it (`-n`, `-en`, `-ne`); `-D` implies -n and
+  # is not admitted either. `-o` / `-O`, alone or ending a cluster, take the
+  # next word (`-o pipefail`, `-euo pipefail`, `-O inherit_errexit`); `--`
+  # ends the options. `-o noexec` is therefore read as a run — the loud
+  # direction, recorded on BL-346. The letters are spelled out rather than
+  # written as a range, so no locale's collation order can widen the set.
+  local flag_letters='abcdefghijklmopqrstuvwxyz'
+  local interp_flag="-[${flag_letters}]*[oO][[:space:]]+[[:lower:]_]+|-[${flag_letters}]+|--"
+  # A: an interpreter word, then any flags, then an init token.
+  if printf '%s' "$buf" | grep -Eq "(${interp_name}|${interp_var})([[:space:]]+(${interp_flag}))*[[:space:]]+\"?${token}"; then
     return 0
   fi
   # B: init var/path used as a command word.
