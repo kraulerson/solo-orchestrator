@@ -5242,6 +5242,20 @@ lane.) The prose rule in `tests.yml`
 ("NOTHING BELOW THIS LINE MAY CONTAIN THE LITERAL ARRAY-OPENING TOKEN") is enforced by nothing.
 Fix both halves in one change, since one awk line carries both.
 
+**Residual R-478-2 (2026-10-09, found reviewing PR #478; recorded with `## BL-346:`) — the split that keeps a
+suite in the unit lane also hides it from the live-remote lint.** The house convention for a fast suite that
+reads the scaffolder is to spell its name split, so `# BL-181-UNIT-LANE-PREDICATE` does not see `init.sh` on an
+executed line and exempt the suite: `INIT_FILE="init"".sh"` in `tests/test-delta-wp8-intake.sh` and
+`tests/test-delta-severability.sh`, and `INSTALLER="$REPO_ROOT/init"".sh"` in PR #478's
+`tests/test-bl308-gitleaks-vendored-clean.sh`. `scripts/lint-no-live-remote-in-tests.sh` finds init.sh only by the
+literal text `init.sh` or by a variable assigned a `…/init.sh` path, and the split defeats both. Measured: a fixture
+with `INSTALLER="$REPO_ROOT/init"".sh"` followed by `bash "$INSTALLER" --non-interactive --git-host github` and no
+`--no-remote-creation` gives rc 0 and no row, on main and with BL-346's fix. All three users only read the file
+(`cp`, `awk`, `grep`, the shipped-set parsers, `bash -n`) — established by reading the suites, not by an execution
+trace — so nothing is exposed today; a suite that ran the split path would get no hermeticity check at all. Not
+fixed, deliberately: teaching the lint to see through the split would undo what the split is for. It stays the
+house convention; this line is here so the cost is known.
+
 ---
 
 ## BL-182: A ~958+ character repo-relative path is UNREPRESENTABLE in the BL-132 index temp tree — PATH_MAX aborts materialization and the whole commit goes NOTRUN (third instance of the same class)
@@ -24534,3 +24548,91 @@ not ship it (it names `pr-reviewer` nowhere), so a generated project is pointed 
 
 **Open question for Karl.** Ship `.claude/agents/pr-reviewer.md` into generated and adopted projects, or change the
 message to name a review the project can actually run.
+
+## BL-346: the live-remote lint did not see init.sh run through `"$BASH"`, `$SHELL` or `sh`, so such a suite could drop `--no-remote-creation` and stay green
+
+**Logged:** 2026-10-09 (found reviewing contributor PR #478)
+**Category:** Lint precision / silent-success defect class (the `## BL-076:` hermeticity check)
+**Severity:** High — `no-live-remote-in-tests-lint` is a required check (confirmed in branch protection, 2026-10-09) and the check that stops a suite creating a real repo (the 2026-07-06 leak); a run it cannot see is not checked at all. No suite on main uses a missed spelling (the `--list` comparison below), so nothing on main was exposed.
+**Status:** Open — fixed on branch `fix/bl346-live-remote-lint-bash-var`, not merged
+
+**What.** `line_is_init_exec` in `scripts/lint-no-live-remote-in-tests.sh` counted an init token as executed in
+two shapes only: in command position (line start, after `( ; & |`, or behind an `env …` prefix), or right after the
+literal word `bash`. PR #478's `tests/test-bl308-gitleaks-generated-project.sh` runs
+
+    OUT="$( cd "$REPO_ROOT" && "$BASH" ./init.sh --non-interactive \ … --git-host github … --no-remote-creation 2>&1 )"
+
+`$BASH` is not the word `bash`, and `./init.sh` follows `"$BASH"` rather than a command separator, so the lint never
+saw a run. With `--no-remote-creation` deleted it still printed `OK: no test executes init.sh in a shape that can
+create a real remote.` and exited 0. Spelled `bash ./init.sh` or `env "$BASH" ./init.sh`, the same line gave
+`FAIL … live-remote-reachable`, rc 1.
+
+**Which spellings are seen** (a fixture pair per spelling, guard present and guard deleted, reading the `--list`
+row; 2026-10-09):
+
+| spelling in front of the flags | before | after |
+|---|---|---|
+| `bash ./init.sh`, `/bin/bash …`, `/usr/bin/env bash …`, `command bash …`, `exec bash …`, `env "$BASH" …`, `/usr/bin/env sh …`, `./init.sh`, `"$INIT"` | seen | seen |
+| `"$BASH"`, `"${BASH}"`, `$BASH`, `${BASH}` | not seen | seen |
+| `"$SHELL"`, `"${SHELL}"`, `$SHELL` | not seen | seen |
+| `sh …`, `/bin/sh …`, `command sh …`, `exec sh …` | not seen | seen |
+| `zsh …`; `bash -x "$INIT"`, `"$BASH" -e …`; `bash init.sh`; `if`, `exec`, `!` or `time` before `"$INIT"` or `./init.sh` | not seen | not seen — R-346-1 to R-346-4 |
+
+**Fix (`b1c3b53`, on the branch).** Shape A now takes an interpreter word, not only `bash`: a shell name, `bash` or `sh`
+(`# BL-346-INTERP-NAME`; its left boundary excludes `.`, so the `sh` that ends a filename, as in
+`cp ./init.sh "$T/init.sh"`, is not read as the interpreter), or the shell-path variable `$BASH` or `$SHELL`, bare,
+braced or quoted (`# BL-346-INTERP-VAR`). A flag between the interpreter and the init token still means "not a
+run", so `"$BASH" -n "$INIT"` stays ignored, as `bash -n` always was.
+
+**No new false positives.** `bash scripts/lint-no-live-remote-in-tests.sh --list` on the tree before and after the
+fix: byte-identical stdout and stderr — 115 rows (109 `hermetic-token`, 4 `mock-cli-on-path`, 2 `allow:`), rc 0
+both times. A grep of `tests/` on main for `$BASH`, `$SHELL`, `sh`, `zsh`, `dash`, `ksh` or a flagged `bash` in front
+of an init token finds no run: its only hits are two `bash -n` syntax checks and the unrelated variables
+`$SHELL_SIG` and `$SHELL_FIN`.
+
+**Tests.** `tests/test-lint-no-live-remote.sh` grows from 14 cases to 52: a pair per spelling (N15–N31, of which
+N15–N22 pin spellings already seen), PR #478's shape (N32), and two guards — the `sh` of a `.sh` filename is not an
+interpreter (N33); `"$BASH" -n` and `"$SHELL" -n` are not runs (N34). Each half reads the `--list` row as well as
+the exit code, because a run the lint does not see also exits 0. Red on the test commit `6dc75ee`: 32 passed,
+20 failed — both halves of N23–N32. Green with the fix: 52 passed, 0 failed. Mutation proofs, each mutant applied to
+a copy of the lint and the suite run against it (the unmutated copy: 52/0):
+
+| mutant | result | killed by |
+|---|---|---|
+| drop `sh` from the names | 48/4 | N30 N31 |
+| drop `bash` from the names | 41/11 | N1 N12 N13 N15 N17 N19 N20 |
+| drop `BASH` from the variables | 40/12 | N23–N27 N32 |
+| drop `SHELL` from the variables | 48/4 | N28 N29 |
+| drop the `\{?` | 46/6 | N24 N26 N29 |
+| drop the `\}?` | 46/6 | N24 N26 N29 |
+| drop the trailing `"?` | 40/12 | N23 N24 N27 N28 N29 N32 |
+| drop `.` from the left boundary | 51/1 | N33 |
+| drop the variable alternative | 36/16 | N23–N29 N32 |
+| drop the name alternative | 37/15 | N1 N12 N13 N15 N17 N19 N20 N30 N31 |
+
+Which unit-lane suites run this lint, by execution rather than grep: a marker line appended to the lint, then each
+of the 41 unit-lane suites that name the lint, `pre-commit-gate.sh` or `run-lints.sh` run once, and the lint
+restored byte-exact. Three fired it — `tests/test-lint-no-live-remote.sh` (52 calls, 52/0),
+`tests/test-pre-commit-gate-lints.sh` (4 calls, 14/0) and `tests/test-run-lints.sh` (1 call, 8/0) — all green with
+the fix. The other 208 unit-lane suites were not traced.
+
+**The lint's other target.** It has one: init.sh. `scripts/check-gate.sh --repair` also reaches `host_create_repo`
+when the project has no `origin` remote and `remote_repo_created` is not on record, and the lint does not look at it
+at all — a gap, not this defect (R-346-5). The seven suites that name `--repair` either add an `origin` remote first
+or put a stub `gh` on PATH; that is from reading the suites, not an execution trace.
+
+**Residuals.** No suite on the tree uses any of R-346-1 to R-346-4 (grep, 2026-10-09).
+- **R-346-1** a flag between the interpreter and init.sh: `bash -x "$INIT"`, `"$BASH" -e ./init.sh`. Flags are
+  excluded on purpose so `bash -n` stays a non-run; telling `-n` apart from other flags would close it.
+- **R-346-2** a keyword or prefix before a direct run: `if "$INIT" …`, `exec "$INIT"`, `! ./init.sh`,
+  `time ./init.sh`.
+- **R-346-3** init.sh named without a slash: `cd "$REPO_ROOT" && bash init.sh …` — the path token needs a `/`.
+- **R-346-4** other shell names: `zsh`, `dash`, `ksh`. The repo is bash-only, and `$SHELL` covers the route to zsh
+  on macOS.
+- **R-346-5** `check-gate.sh --repair`, above.
+- **R-478-2** the `init"".sh` split hides a suite from this lint as well — recorded on `## BL-181:`.
+- The lint's header ("WHAT COUNTS AS AN init run") says a run must carry `--non-interactive` or `--dry-run`; the
+  code checks for neither. The code is the stricter of the two (it classifies more lines as runs), so this is a
+  wrong sentence, not a hole.
+
+**Close** in a follow-up once the branch is merged, citing the PR.
