@@ -50,6 +50,8 @@
 #       plain-import lines amid `_`/`*` prose and review round 2's 13 verbatim:
 #       no real import it carried is dropped or cut (`## BL-322:` S5, review
 #       round 2, R-S5-7)
+#   D2  the same for an `@` that opens emphasis or a link's text (review round
+#       3, R-S5-10)
 #   U8  an `@` that opens emphasis or a link's text, against the replica:
 #       certain when the line shows the emphasis closing or the link real, and
 #       otherwise carried as unsure; a new text after a closer, an escape or an
@@ -267,23 +269,29 @@ Config lives in _config.yml and @P09_rules.md
 - Files named _*.md are drafts; the real rules are @P11_rules.md
 * _TODO_: rewrite; for now follow @P12_rules.md
 - Use _ for unused vars and read @P13_guide.md
+- [@L11/[v2]/x.md](L11/[v2]/x.md)
+[@L12/[v2]/y.md and more](u)
 U8
   } > "$d/CLAUDE.md"
-  # In file order. A plain path cut at a closer is also carried whole, unsure
-  # (U7, K30, K31, K42: review round 2).
+  # In file order. A plain path cut at a closer is also read whole, flagged
+  # `whole` (U7, K30, K31, K42: review rounds 2 and 3). L11, L12: link text
+  # whose path holds brackets ends at a `]` no `[` in the path opened, not at
+  # its first `]` (R-S5-10).
   want="$(printf '%s\tunsure\n' E1.md E2.md E3.md L1.md L2.md 'E4.md*' E5.md E6.md E7.md_foo L3.md L4.md L5.md L6.md E8.md. \
-            E9.md 'E13.md—' L7.md L8.md L9.md L10.md 'U1.mdé' U2.md U3.md U4.md U5.md U6.md U7.md 'U7.md](u)'
+            E9.md 'E13.md—' L7.md L8.md L9.md L10.md 'U1.mdé' U2.md U3.md U4.md U5.md U6.md U7.md
+          printf '%s\twhole\n' 'U7.md](u)'
           printf '%s\n' K1.md K2.md K3.md K4.md K5.md K6.md K7.md K8.md K9.md K10.md K22.md. K11.md K12.md K13.md \
             K14.md K15.md K16.md K17.md K18.md K19.md K20.md K21.md K23.md K24.md 'K25.md](u)' K26.md K27.md K28.md \
             K29.md K30.md
-          printf '%s\tunsure\n' 'K30.md**'
+          printf '%s\twhole\n' 'K30.md**'
           printf '%s\n' K31.md
-          printf '%s\tunsure\n' 'K31.md](u)'
+          printf '%s\twhole\n' 'K31.md](u)'
           printf '%s\n' 'K33.md*' K34.md K32.md K36.md K37.md K39.md K42_b.md
-          printf '%s\tunsure\n' 'K42_b.md_'
+          printf '%s\twhole\n' 'K42_b.md_'
           printf '%s\n' K43_.md 'N4.md](u)' K46__x.md \
             P01_standards.md P02_rules.md P03_guide.md .claude/P04_rules.md P05_standards.md P06_rules.md P07_style.md \
-            P08_plan.md P09_rules.md P10_rules.md P11_rules.md P12_rules.md P13_guide.md)"
+            P08_plan.md P09_rules.md P10_rules.md P11_rules.md P12_rules.md P13_guide.md
+          printf '%s\tunsure\n' 'L11/[v2]/x.md' 'L12/[v2]/y.md')"
   got="$(in_lib "$1" '_adopt_claude_md_import_tokens "'"$d"'/CLAUDE.md"' 2>&1)"
   [ "$got" = "$want" ] || { CASE_DETAIL="got [$(printf '%s' "$got" | tr '\n\t' '|:')] want [$(printf '%s' "$want" | tr '\n\t' '|:')]"; return 1; }
 }
@@ -372,6 +380,46 @@ D1V
   CASE_DETAIL="$i cross lines and $nv verbatim; c125f0f carried $nb real imports, this reading all $nh"
 }
 
+# D2 (`## BL-322:` S5, review round 3, R-S5-10): D1's comparison for an `@`
+# that opens emphasis or a link's text, the two kinds c125f0f also read: a
+# fixed cross of openers, paths that hold `[ ]`, `_` and `*`, and what follows
+# the path. Whatever real path c125f0f carried, this reading must carry too,
+# whole (certain or unsure). At 791ed0d it lost every link whose path held
+# brackets (`[@app/[locale]/README.md](…)`, cut at its first `]`).
+case_D2() {   # FW
+  local d="" f="" i=0 o=0 a=0 q=0 p="" base="" head="" lost="" nb=0 nh=0
+  local lead=( '' '- ' '> ' '1. ' 'See ' '* ' )
+  local open=( '[' '*' '_' '**' '__' )
+  local path=( docs/rules app/[locale]/README 'docs/[v2]' docs/a_b docs/my_rules 'docs/x(1)' notes/__init__ CLAUDE_LOCAL
+    'docs/a*b' .claude/rules )
+  local after=( '](u)' '](app/x.md)' '](u "t")' '](u) and [x](y)' ' and more](u)' ']' '*' '**' '_' '__' ' and *more*'
+    '* text' '_ text' '' )
+  d1_base || { CASE_DETAIL="cannot read c125f0f's reading from this clone's history (git -C REPO_ROOT show c125f0f:…)"; return 1; }
+  d="$(newtmp)"; f="$d/open.md"
+  { printf '# R\n'
+    for ((o = 0; o < ${#open[@]}; o++)); do
+      for ((a = 0; a < ${#after[@]}; a++)); do
+        for ((q = 0; q < ${#path[@]}; q++)); do
+          i=$((i + 1)); p="${path[$q]}$i.md"
+          printf '\n%s%s@%s%s\n' "${lead[$(( (o + a + q) % ${#lead[@]} ))]}" "${open[$o]}" "$p" "${after[$a]}"
+          printf 'open.md\t%s\n' "$p" >> "$d/real"
+        done
+      done
+    done; } > "$f"
+  base="$(d1_read "$D1_BASE" "$f" 2>&1)"
+  head="$(d1_read "$1" "$f" 2>&1)"
+  while IFS= read -r p; do
+    grep -qxF -- "$p" <<< "$base" || continue
+    nb=$((nb + 1))
+    if grep -qxF -- "$p" <<< "$head"; then nh=$((nh + 1)); else lost="$lost [$(grep -F -- "@${p#*"$TAB"}" "$f" | head -1)]"; fi
+  done < "$d/real"
+  # Not vacuous: c125f0f reads a link whose text is a plain path, so it carried
+  # some of these; a reading that did not run carries none.
+  [ "$nb" -gt 0 ] || { CASE_DETAIL="c125f0f's reading carried none of the $i lines, so the comparison proves nothing"; return 1; }
+  [ -z "$lost" ] || { CASE_DETAIL="$((nb - nh)) of the $nb real imports c125f0f carried are dropped or cut:$(printf '%s' "$lost" | cut -c1-600)"; return 1; }
+  CASE_DETAIL="$i lines; c125f0f carried $nb real imports, this reading all $nh"
+}
+
 # u2_root T — the carry decision's fixture project in T/root, its archive record,
 # and a write ledger padded past a pipe's buffer.
 u2_root() {
@@ -398,7 +446,12 @@ case_U2() {   # the carry decision
     printf '*@UNS.md is ours\n\n*@./NORM2.md is ours\n\n@NORM2.md\n'
     # An unsure token that names no file: its skip row says unsure (R-S5-9).
     printf '\n*@GONE2.md is gone\n'
+    # The whole of a path cut at a closer (R-S5-7): not named when it names no
+    # file (`WHOLE.md**`), carried as unsure when it does (`KW*b.md`; review
+    # round 3).
+    printf '\n**Always read @WHOLE.md**\n\n*em @KW*b.md *x*\n'
   } > "$r/CLAUDE.md"
+  printf '# whole\n' > "$r/WHOLE.md"; printf '# kw\n' > "$r/KW*b.md"
   # Another name for a file adoption replaces: the same file on a case-insensitive
   # file system (this Mac), a hard link on a case-sensitive one (the runner).
   [ -e "$r/features.md" ] || ln "$r/FEATURES.md" "$r/features.md" || { CASE_DETAIL="fixture: features.md"; return 1; }
@@ -410,7 +463,8 @@ case_U2() {   # the carry decision
           printf 'skip\t%s\tarchived\n' FEATURES.md ./FEATURES.md features.md claude.md COMPOSED.md
           printf 'skip\t%s\twritten\n' WRITTEN.md ./WRITTEN.md
           printf 'skip\tCTRL?.md\tcontrol\n'
-          printf 'unsure\tUNS.md\ncarry\tNORM2.md\nskip\tGONE2.md\tmissing\tunsure\n')"
+          printf 'unsure\tUNS.md\ncarry\tNORM2.md\nskip\tGONE2.md\tmissing\tunsure\n'
+          printf 'carry\tWHOLE.md\nskip\tKW\tmissing\nunsure\tKW*b.md\n')"
   got="$(in_lib "$1" 'ADOPT_WRITTEN_LEDGER="'"$t"'/ledger"; ADOPT_ARCHIVE_DIR=ARC; _adopt_claude_md_carry "'"$r"'" "'"$r"'/CLAUDE.md"' 2>&1)"
   [ "$got" = "$want" ] || { CASE_DETAIL="got [$(printf '%s' "$got" | tr '\n\t' '|:')] want [$(printf '%s' "$want" | tr '\n\t' '|:')]"; return 1; }
 }
@@ -623,12 +677,16 @@ case_A1() {   # the carried section, the warning, the names
   git -C "$p" diff --quiet HEAD -- CLAUDE.md || { CASE_DETAIL="the committed CLAUDE.md differs from the file"; return 1; }
   arc="$(arc_of "$p")"; arc="${arc#"$p"/}"
   grep -qF "$WARN_LINE" "$o" || { CASE_DETAIL="the run does not warn that the old CLAUDE.md is no longer loaded"; return 1; }
-  grep -qF "Apart from your CLAUDE.md's imports (below), nothing in them was merged into" "$o" \
+  grep -qF 'Apart from the @ lines carried over from your CLAUDE.md (below), nothing in' "$o" \
     && ! grep -qF 'Nothing in them was merged into the new files' "$o" \
     || { CASE_DETAIL="the run still says nothing was merged, beside imports it carried"; return 1; }
   grep -qF "$arc/CLAUDE.md" "$o" || { CASE_DETAIL="the run does not name the archived original ($arc/CLAUDE.md)"; return 1; }
   grep -qxF '     @PROJECT_BIBLE.md' "$o" && grep -qxF '     @CONTRIBUTING.md' "$o" || { CASE_DETAIL="the run does not list the carried imports"; return 1; }
-  grep -qF '@FEATURES.md — adoption replaced or changed that file' "$o" || { CASE_DETAIL="@FEATURES.md is not named with its reason"; return 1; }
+  awk '/^   These imports in it were NOT carried/ {f=1} /^   These @ mentions/ {f=0} f' "$o" | grep -qF '@FEATURES.md — adoption replaced or changed that file' \
+    || { CASE_DETAIL="@FEATURES.md is not named with its reason among the imports not carried"; return 1; }
+  # Review round 3 (R-S5-11): the mentions list holds only unsure tokens.
+  awk '/^   These @ mentions in it were NOT carried/ {f=1; next} f && /^   that they are imports at all:/ {next} f && !/^     @/ {f=0} f' "$o" | grep -qF '@FEATURES.md' \
+    && { CASE_DETAIL="the mentions that may not be imports list @FEATURES.md, a certain import"; return 1; }
   grep -qF '@GONE.md — no such file in this project' "$o" || { CASE_DETAIL="@GONE.md is not named with its reason"; return 1; }
   grep -qF '@~/acme-notes.md — in your home folder, or an absolute path: named only, never carried' "$o" \
     || { CASE_DETAIL="@~/acme-notes.md is not named with its reason"; return 1; }
@@ -687,7 +745,7 @@ case_A5() {   # a CLAUDE.md with no imports
 case_A7() {   # only an unsure import: every sentence about it is true (S5, R-S5-2)
   local p s
   p="$(newtmp)/p"; mk_base "$p" || { CASE_DETAIL="fixture"; return 1; }
-  printf '# Acme\n\n*@NOTES.md is where the team keeps its notes\n' > "$p/CLAUDE.md"
+  printf '# Acme\n\n*@NOTES.md is where the team keeps its notes\n\n*@GONE4.md is gone\n' > "$p/CLAUDE.md"
   printf '# Notes\n' > "$p/NOTES.md"
   commit_base "$p" || { CASE_DETAIL="fixture"; return 1; }
   run_adopt "$1" "$p"; adopt_ok || return 1
@@ -698,6 +756,15 @@ case_A7() {   # only an unsure import: every sentence about it is true (S5, R-S5
   grep -qF 'Its imports of files still in this project were carried' "$RUN_OUT" && { CASE_DETAIL="the run says certain imports were carried"; return 1; }
   grep -qF 'Adoption found no imports in it' "$RUN_OUT" && { CASE_DETAIL="the run says no imports were found"; return 1; }
   awk '/^   Carried, though its Markdown does not show for certain/ {f=1} f' "$RUN_OUT" | grep -qxF '     @NOTES.md' || { CASE_DETAIL="the run does not name @NOTES.md as unsure"; return 1; }
+  # Review round 3: the only thing not carried is an unsure mention, so no
+  # list of imports not carried (R-S5-11), and the merge sentence does not
+  # call an unsure carry an import (R-S5-13).
+  grep -qF 'These imports in it were NOT carried' "$RUN_OUT" && { CASE_DETAIL="the run opens a list of imports not carried when none was"; return 1; }
+  awk '/^   These @ mentions in it were NOT carried/ {f=1} f' "$RUN_OUT" | grep -qxF '     @GONE4.md — no such file in this project' \
+    || { CASE_DETAIL="the run does not name @GONE4.md as a mention not carried"; return 1; }
+  grep -qF "Apart from your CLAUDE.md's imports" "$RUN_OUT" && { CASE_DETAIL="the merge sentence calls an unsure carry an import"; return 1; }
+  grep -qF 'Apart from the @ lines carried over from your CLAUDE.md (below), nothing in' "$RUN_OUT" \
+    || { CASE_DETAIL="the merge sentence does not name what was carried"; return 1; }
   return 0
 }
 
@@ -731,6 +798,7 @@ check "U6: the assessment prompt's step 8 names the carried section" case_U6
 check "U7: every reason a run can give for not carrying an import reads as written" case_U7
 check "U8: an @ opening emphasis or link text is certain when the line shows it closing, else carried as unsure (R-S2-12, R-S5-2)" case_U8
 check "D1: every real plain import c125f0f carried is carried whole (review R-S5-7)" case_D1
+check "D2: every real emphasis or link-text import c125f0f carried is carried whole (review R-S5-10)" case_D2
 echo "=== S — Scout ==="
 check "S1: Scout's replaced-document rows are adoption's set and say so; CHANGELOG.md stays theirs" case_S1
 echo "=== A — adoption ==="
@@ -905,6 +973,11 @@ mutant M119 "$DOC" '# BL-322-CARRY-LINKPRIOR-IMAGE' '        if (c != "[") conti
 mutant M120 "$DOC" '# BL-322-CARRY-EMPH-OPENS' '      if (!L) return "open"' case_U8 "every run before the @ counts as an opener"
 mutant M121 "$DOC" '# BL-322-CARRY-EMPH-CANCLOSE' '      if (L < 0) return "close"' case_U8 "every run in a plain path counts as a closer"
 mutant M122 "$DOC" '# BL-322-CARRY-KEEPWHOLE' '        if (0) emit(whole, 1)' case_D1 "a plain path cut at a closer is no longer carried whole, so a real import c125f0f carried is lost (R-S5-7)"
+# Review round 3 (R-S5-10; the whole of a cut path flagged apart).
+mutant M128 "$DOC" '# BL-322-CARRY-LINKGUESS' '        if (0) dp++' case_U8 "link text whose path holds brackets is cut at its first ] (R-S5-10)"
+mutant M136 "$DOC" '# BL-322-CARRY-LINKGUESS-DEPTH' '        else if (c == "]") return i' case_D2 "a ] that closes a [ of the path ends link text, so a real import c125f0f carried is lost (R-S5-10)"
+mutant M133 "$DOC" '# BL-322-CARRY-UNSURE-OUT' '    END { for (i = 1; i <= no; i++) print order[i] (seen[order[i]] ? "\tunsure" : "") }' case_U8 "the whole of a cut path is not flagged apart from an unsure reading"
+mutant_sub M135 "$DOC" '# BL-322-CARRY-KEEPWHOLE' 'emit(whole, 2)' 'emit(whole, 1)' case_U2 "the whole of a cut path is read as unsure, so one that names no file is listed again (review round 3)"
 # The decision (U2, U2b).
 mutant M27 "$DOC" '# BL-322-CARRY-HOME' '      :' case_U2 "a home-folder or absolute import is treated as a project file"
 mutant M28 "$DOC" '# BL-322-CARRY-OUTSIDE' '      norm="$path"' case_U2 "an import outside the project is carried"
@@ -940,6 +1013,12 @@ mutant M115 "$DOC" '# BL-322-CARRY-NONE' '    if false; then' case_A5 "the run n
 mutant M124 "$DOC" '# BL-322-CARRY-SKIP-SAY' '    if false; then' case_A1 "the run no longer names the imports it did not carry (review round 2)"
 mutant M125 "$DOC" '# BL-322-CARRY-SKIP-SAY-ROW' '        [ "$why" = skip ] && adopt_say "     @$tok — $(_adopt_carry_reason "$rel")"' case_A1 "an unsure mention is listed as an import not carried (review R-S5-9)"
 mutant M126 "$DOC" '# BL-322-CARRY-SKIP-UNSURE-SAY' '    if false; then' case_A1 "an unsure mention not carried is not named (review R-S5-9)"
+# Review round 3 (R-S5-11, R-S5-13, the whole of a cut path).
+mutant_sub M129 "$DOC" '# BL-322-CARRY-SKIP-SAY' '$4 == ""' '$4 != "x"' case_A7 "the list of imports not carried opens when only an unsure mention was not carried (R-S5-11)"
+mutant_sub M130 "$DOC" '# BL-322-CARRY-SKIP-UNSURE-SAY-ROW' '[ "$fl" = unsure ] && ' '' case_A1 "the mentions list names every skip row, certain ones too (R-S5-11)"
+mutant M131 "$DOC" '# BL-322-CARRY-WHOLE-MISSING' '      :' case_U2 "the whole of a cut path that names no file is listed as a mention not carried (review round 3)"
+mutant M132 "$DOC" '# BL-322-CARRY-WHOLE-UNSURE' '      :' case_U2 "the whole of a cut path that names a file is carried as certain"
+mutant_drop M134 "$DOC" '      adopt_note "MANIFEST.md. Apart from the @ lines carried over from your CLAUDE.md (below), nothing in"' case_A7 "the merge sentence no longer names what was carried (R-S5-13)"
 ARC=scripts/lib/adopt/adopt-archive.sh
 mutant M48 "$ARC" '# BL-322-DISCLOSE-DISPO' '          *)        adopt_note "   moved" ;;' case_U3 "a kept file is not said to be only copied"
 mutant M49 "$ARC" '# BL-322-DISCLOSE-KEPT' '        elif false; then :' case_U3 "a kept file gets a restore line"
