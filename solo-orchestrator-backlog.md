@@ -23971,7 +23971,8 @@ note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S
   image's; a path ends at an inline tag (`# BL-322-CARRY-TAGEND`) and at a closer of something opened earlier
   (`# BL-322-CARRY-TOKCUT`), but only at a run the flanking rules let close (`# BL-322-CARRY-TOKCUT-CLOSES`), and a
   plain path cut there is also read whole (`# BL-322-CARRY-KEEPWHOLE`; review round 2, R-S5-7), carried as unsure
-  when that whole path is a file and not named when it is none (`# BL-322-CARRY-WHOLE-MISSING`, round 3); link text
+  when that whole path is a file and not named when its file is missing (`# BL-322-CARRY-WHOLE-MISSING`, round 3;
+  a `~/`, absolute or outside whole path is still named among the mentions not carried, R-S5-14); link text
   the line does not show real ends at a `]` its path did not open (`# BL-322-CARRY-LINKGUESS-DEPTH`, round 3,
   R-S5-10). `_adopt_claude_md_carry` writes an `unsure` row, once per file, made certain by a
   certain spelling of the same file (`# BL-322-CARRY-UNSURE-ROW`, `# BL-322-CARRY-UPGRADE`). Every sentence is now
@@ -24099,7 +24100,8 @@ of 720s; `bl322-s1-audit-loop` and `f015` (33.8s and 32.4s on that run) moved to
 `adopt-b` to about 595s and `lint-scan` to about 547s, projections to re-measure on this PR's run. R-S5-13: the
 merge sentence said "Apart from your CLAUDE.md's imports" when only unsure lines were carried; it now says "Apart
 from the @ lines carried over from your CLAUDE.md (below)" (M134). And the whole of a cut path is read with its
-own flag (`whole`): the carry drops it when it names no file (`**Always read @RULES.md**` no longer lists
+own flag (`whole`): the carry drops it when its file is missing from the project (a `~/`, absolute or outside
+whole path is still named among the mentions not carried; review round 4, R-S5-14) (`**Always read @RULES.md**` no longer lists
 `@RULES.md**`) and otherwise treats it as unsure (`# BL-322-CARRY-WHOLE-MISSING`, `-WHOLE-UNSURE`; M131, M132,
 M133, M135). Verified by the review on `791ed0d`, not re-run on these changes: mawk 1.3.4 and bash 5.2.21
 (ubuntu:24.04, arm64) read the same tokens as macOS for `c125f0f` and `791ed0d` over about 8.5k files.
@@ -24120,6 +24122,10 @@ M133, M135). Verified by the review on `791ed0d`, not re-run on these changes: m
   For an unsure import the path's end is a guess (`*@x.md**y*`: `x.md` carried, Claude Code reads `x.md**y`).
 - **Z5 reads text, not execution**: a zsh run spelled at run time (`"${s}sh"`) is not seen, and any suite that
   only names zsh must be listed in `ZSH_NAMES_ONLY`.
+- **Review round 4** (delta `791ed0d..89bb262`): two mutants survive, both improbable — `# BL-322-CARRY-ONCE`
+  reduced to `else if (!u) seen[t] = 0` (changes naming only), and `# BL-322-CARRY-LINKGUESS-DEPTH`'s `dp--` made
+  `dp = 0` (cuts `[[...slug]]`, which marked never reads as a link, so no real import is lost). `adopt-b`'s
+  projected 595s is 83% of its 720s cap, past the file's 80% watch band; re-measure on this PR's run.
 - **R2-2** (S4 review round 2): the gate's reading of the commit's words does not take a newline or a glued
   `;`/`&&` as a command separator. The commit-msg hook still checks the message.
 - **A `$VAR` in a `-F` path is still not expanded** (S4's residual): expanding it would take an `eval` of the

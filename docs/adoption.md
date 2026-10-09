@@ -2447,8 +2447,10 @@ Bible holds, with nothing said. Now:
   `@docs/coding_standards.md` never does (`# BL-322-CARRY-TOKCUT-CLOSES`) — and
   a path cut there is read whole as well (`# BL-322-CARRY-KEEPWHOLE`) and, when
   that whole path is a file, carried as unsure, so a closer read wrongly cannot
-  lose the import; when it names no file it is not mentioned
-  (`# BL-322-CARRY-WHOLE-MISSING`).
+  lose the import; when it names a file missing from the project it is not
+  mentioned (`# BL-322-CARRY-WHOLE-MISSING`), but a whole path in your home
+  folder (`~/`), absolute, or outside the project is still named among the @
+  mentions not carried.
   A missed import would silently stop a rule loading; an unsure one loads a
   file that is in your project, and you can delete its line.
 - **Every import not carried is named, with the reason**: an import of a file in
