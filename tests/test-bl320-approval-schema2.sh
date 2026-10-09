@@ -27,17 +27,21 @@
 #   I  init.sh's clone update: ask first (Enter = yes) at a terminal, never
 #      without one; adoption's minimum note (A1)
 #   E  the dogfood approval round trip (rows 20/21/23/29/30) against the REAL
-#      Guardrails hooks — SKIPPED with a reason where no 4.4.0+ clone exists
-#      (CI has none)
+#      Guardrails hooks
+#   R10 and E1 read a private copy of the pinned Guardrails fixture
+#   (tests/test-helpers/cdf-fixture.sh, SOIF_TEST_CDF_FIXTURE; `## BL-322:` S5):
+#   under CI with no fixture they FAIL; locally they fall back to a 4.4.0+
+#   ~/.claude-dev-framework and otherwise SKIP with the reason
 #   M  mutants: each rewrites ONE marked line in a mirror of the tree, checks
 #      the edit landed and still parses, and needs a named case to go RED
 #
 # Hermetic: temp dirs only; fake clones and a local bare repository (never
 # contacted over a network). The real-clone cases copy the clone's hooks into a
-# fixture and never write to the clone. The Guardrails hooks keep their state
+# fixture, from a private copy of it. The Guardrails hooks keep their state
 # in /tmp/.claude_*_<hash of the fixture path>; the EXIT trap removes exactly
 # the files named for this run's fixtures. bash 3.2 safe.
 set -uo pipefail
+BL320_CI="${CI:-}"   # the fixture's CI rule reads it; CI is unset below for the scripts under test
 unset GITHUB_BASE_REF CDF_HOME SOIF_NONINTERACTIVE CI 2>/dev/null || true
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,9 +53,6 @@ skip()  { echo "  [SKIP] $1 — $2"; SKIPPED=$((SKIPPED + 1)); }
 for t in jq git; do
   command -v "$t" >/dev/null 2>&1 || { skip "every case" "$t is not on PATH"; echo; echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"; exit 0; }
 done
-
-# The real Guardrails clone, read BEFORE any case fakes HOME.
-CDF_CLONE="${BL320_CDF_CLONE:-$HOME/.claude-dev-framework}"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/bl320.XXXXXX")"
 HASHES=""
@@ -66,6 +67,22 @@ cleanup() {
 trap cleanup EXIT
 newtmp() { mktemp -d "$WORK/tXXXXXX"; }
 CASE_DETAIL=""
+
+# The real Guardrails clone: a private copy of the pinned fixture, made BEFORE
+# any case fakes HOME (`## BL-322:` S5).
+# shellcheck source=/dev/null
+. "$REPO_ROOT/tests/test-helpers/cdf-fixture.sh" || { echo "FATAL: cannot source tests/test-helpers/cdf-fixture.sh" >&2; exit 1; }
+CDF_CLONE="$WORK/cdf"; CDF_RC=0
+CI="$BL320_CI" cdf_fixture_copy "$CDF_CLONE" 4.4.0 || CDF_RC=$?
+# cdf_gate — 0 when the real clone is here; 77 (SKIP_WHY) locally when it is
+# not; 1 (CASE_DETAIL) when the fixture says these cases must run.
+cdf_gate() {
+  case "$CDF_RC" in
+    0)  return 0 ;;
+    77) SKIP_WHY="$CDF_FIXTURE_WHY"; return 77 ;;
+    *)  CASE_DETAIL="$CDF_FIXTURE_WHY"; return 1 ;;   # BL-322-S5-FIXTURE-FAIL
+  esac
+}
 
 sha256_of() { { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"; } | awk '{print $1; exit}'; }
 count_f() { printf '%s\n' "$1" | command grep -cF -- "$2"; }
@@ -808,9 +825,9 @@ case_R11() {  # R-7a: the registration re-reads settings.json; a write that did 
   has_f "$REG_OUT" "registrations added" && { CASE_DETAIL="it still claims the additions: $REG_OUT"; return 1; }
   return 0
 }
-case_R10() {  # the real clone's entries (skipped without a 4.4.0+ clone)
+case_R10() {  # the real clone's entries (the pinned fixture: cdf_gate)
   local t d s
-  [ -f "$CDF_CLONE/scripts/_shared.sh" ] && [ -f "$CDF_CLONE/hooks/record-approval.sh" ] || { SKIP_WHY="no 4.4.0+ clone at $CDF_CLONE"; return 77; }
+  cdf_gate || return $?
   t="$(newtmp)"; d="$t/p"
   fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
   mkdir -p "$d/.claude/framework/hooks" && cp "$CDF_CLONE"/hooks/*.sh "$d/.claude/framework/hooks/"
@@ -1073,12 +1090,6 @@ case_A1() {   # adoption keeps an adoptee's own Guardrails and says when they ar
 }
 
 # ── E: the dogfood approval round trip, against the real Guardrails hooks ────
-have_real() {
-  [ -f "$CDF_CLONE/hooks/record-approval.sh" ] && [ -f "$CDF_CLONE/hooks/enforce-evaluate.sh" ] || return 1
-  local v; v="$(tr -d '[:space:]' < "$CDF_CLONE/FRAMEWORK_VERSION" 2>/dev/null)"
-  case "$v" in 4.[4-9].*|4.[1-9][0-9].*|[5-9].*) return 0 ;; esac
-  return 1
-}
 E_D=""
 hk() {   # HOOK — the fixture's copy of a real Guardrails hook, as Claude Code runs it (stdin = envelope)
   ( cd "$E_D" && env -u CLAUDECODE CLAUDE_PROJECT_DIR="$E_D" bash "$E_D/.claude/framework/hooks/$1" )
@@ -1089,7 +1100,7 @@ E_LOG=""
 elog() { E_LOG="${E_LOG}$1"$'\n'; }
 case_E1() {
   local r="$1" out rc h
-  have_real || { SKIP_WHY="no 4.4.0+ Guardrails clone at $CDF_CLONE (CI has none)"; return 77; }
+  cdf_gate || return $?
   E_D="$(newtmp)/eproj"; fx "$E_D" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
   h="$(printf '%s' "$E_D" | shasum -a 256 | cut -c1-12)"; HASHES="$HASHES $h"
   mkdir -p "$E_D/.claude/framework/hooks" && cp "$CDF_CLONE"/hooks/* "$E_D/.claude/framework/hooks/" && chmod +x "$E_D"/.claude/framework/hooks/*.sh

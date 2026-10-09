@@ -37,7 +37,10 @@
 #       Build-Loop message check; F2 the TDD warn detector and F3 the
 #       backlog-references lint read a quoted message file; F4 all four readers
 #       in pre-commit-gate.sh share _commit_msg_file; F5 the checklist's subject
-#       reads one (review R-S4-1)
+#       reads one (review R-S4-1). F1 also holds a cluster that ends at an
+#       option taking an attached value: `-S0xC -F`, `-Sabc -F`, `-tc -F`
+#       (`## BL-322:` S5, review R2-1), and `-uno -sF`; and a path with git's
+#       `:(optional)` prefix (review R-S5-5)
 #   P1  the assessment prompt explains adoptedAtCommit and where availability and
 #       exposure live
 #   P2  the assessment prompt says the release history was not carried
@@ -237,8 +240,14 @@ case_F1() {   # every spelling of the message file reaches the Build-Loop messag
 -q --file "$MSG_DIR/feat.txt"
 -F msg.txt
 -F "msg.txt"
+-S0xC -F $MSG_DIR/feat.txt
+-Sabc -F "$SP_DIR/feat.txt"
+-uno -sF $MSG_DIR/feat.txt
+-tc -F $MSG_DIR/feat.txt
+-F ':(optional)$MSG_DIR/feat.txt'
+--file=":(optional)$SP_DIR/feat.txt"
 FORMS
-  [ "$n" -eq 14 ] || bad="$bad [ran $n forms, want 14]"
+  [ "$n" -eq 20 ] || bad="$bad [ran $n forms, want 20]"
   # The value of an option that takes one is not an option: here -m's value is
   # the word -F, and the message file is the --file after it.
   gate_on "$1" "$d" "git commit -m -F --file \"$MSG_DIR/feat.txt\""
@@ -724,6 +733,10 @@ mutant MF7 "$PCG" '# BL-322-S4-MSGFILE-TDD' "    $OLD_F_SED" case_F2 "the TDD wa
 mutant MF8 "$PCG" '# BL-322-S4-MSGFILE-BL006' "    $OLD_F_SED" case_F1 "the Build-Loop message check parses -F with the old sed"
 mutant MF9 "$PCG" '# BL-322-S4-MSGFILE-LINT' "    $OLD_F_SED" case_F3 "the backlog-references lint parses -F with the old sed"
 mutant MF10 "$PCG" '# BL-322-S4-MSGFILE-SUBJECT' "    F${OLD_F_SED#f}" case_F5 "COMMIT_SUBJECT parses -F with the old sed"
+# `## BL-322:` S5, review R2-1: an attached value ends the cluster.
+mutant MF11 "$PCG" '# BL-322-S5-MSGFILE-OPTVAL' '            if (0) break' case_F1 "the c or C of an attached -S key id is read as -c, which takes the -F as its value"
+mutant MF12 "$PCG" '# BL-322-S5-MSGFILE-REQVAL' '            if (l == "m" || l == "c" || l == "C") {' case_F1 "-t's attached value is read as more options"
+mutant MF13 "$PCG" '# BL-322-S5-MSGFILE-OPTIONAL' '    function fp(p) { return p }' case_F1 "a :(optional) prefix is read as part of the path (review R-S5-5)"
 ACT=scripts/lib/adopt/adopt-act4.sh
 mutant_drop M8 "$ACT" '   "adoptedAtCommit" is already filled in: it is the commit this project was at just before the' case_P1 "the prompt stops explaining adoptedAtCommit"
 mutant_drop M9 "$ACT" "   interview.exposure. Availability lives in interview.availability; the wizard's uptime key is the" case_P1 "the prompt stops saying where availability lives"

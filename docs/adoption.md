@@ -2408,9 +2408,9 @@ Measured on a project that owned a `CLAUDE.md` and a `BUGS.md`, and had
 ```
 
 That transcript predates `## BL-322:` S2. A run that replaces your `CLAUDE.md`
-now also prints the warning shown below, and when it carried imports the
-merge sentence reads "Apart from your CLAUDE.md's imports (below), nothing in
-them was merged into the new files" (`# BL-322-CARRY-MERGED`).
+now also prints the warning shown below, and when it carried any `@` line the
+merge sentence reads "Apart from the @ lines carried over from your CLAUDE.md
+(below), nothing in them was merged into the new files" (`# BL-322-CARRY-MERGED`).
 
 **Nothing of yours is merged in, but your `CLAUDE.md`'s imports keep loading.**
 Adapting your prose into the framework's documents is judgement, and judgement
@@ -2435,9 +2435,24 @@ Bible holds, with nothing said. Now:
   block, a code span, an HTML comment (on one line or across several) or any
   other HTML block is an import; a CRLF file reads like an LF one; an `@` counts
   at a line start, after whitespace (a no-break space included), or opening
-  emphasis or a link's text (`*@x.md*`, `[@x.md](…)`). Where the approximation
-  cannot tell, it does not carry: carrying would switch on text you had switched
-  off.
+  emphasis or a link's text (`*@x.md*`, `[@x.md](…)`). Where the Markdown is
+  ambiguous (emphasis or link text whose close the line does not show for
+  certain, a non-ASCII character beside a `*`), the import is **carried and named
+  apart as unsure**: in the run, under its own sentence in the carried section,
+  and in the assessment prompt, which asks you about each. Such link text ends
+  at a `]` the path did not open, so `[@app/[locale]/README.md](…)` carries
+  `app/[locale]/README.md` (`# BL-322-CARRY-LINKGUESS-DEPTH`). A path after a space
+  ends at a closer of emphasis or link text opened earlier on the line, but
+  only at a `*` or `_` the Markdown lets close — the `_` in
+  `@docs/coding_standards.md` never does (`# BL-322-CARRY-TOKCUT-CLOSES`) — and
+  a path cut there is read whole as well (`# BL-322-CARRY-KEEPWHOLE`) and, when
+  that whole path is a file, carried as unsure, so a closer read wrongly cannot
+  lose the import; when it names a file missing from the project it is not
+  mentioned (`# BL-322-CARRY-WHOLE-MISSING`), but a whole path in your home
+  folder (`~/`), absolute, or outside the project is still named among the @
+  mentions not carried.
+  A missed import would silently stop a rule loading; an unsure one loads a
+  file that is in your project, and you can delete its line.
 - **Every import not carried is named, with the reason**: an import of a file in
   your home folder or an absolute path (named only, never carried: it may not
   exist on another machine), outside the project, a symlink, missing, not a file,
@@ -2445,7 +2460,9 @@ Bible holds, with nothing said. Now:
   writes (`FEATURES.md`, `PROJECT_INTAKE.md`, `.claude/settings.json`, … — also
   under another case of the same name, `@features.md`, on a case-insensitive
   disk), whose content is no longer what you imported, or any file at all when
-  the archive's record cannot be read.
+  the archive's record cannot be read. An `@` read as unsure that is not carried
+  is named in a list of its own, as a mention whose Markdown does not show for
+  certain that it is an import at all (`# BL-322-CARRY-SKIP-UNSURE-SAY`).
 - **The rules written in the file itself are not carried**, and the run says so
   in capitals. Telling a lasting rule from a stale claim ("Phase: 2", "Next: merge
   the branch") is the assessment's judgement. Until it folds them in, tell the

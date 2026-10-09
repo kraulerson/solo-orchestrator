@@ -22,7 +22,17 @@
 #       and the leg, before any suite runs; with zsh on PATH it lets it run.
 #   Z4  the step itself: gated on `matrix.shard` by a JSON list, and still
 #       loud when the install fails (no continue-on-error, no `|| true`).
+#   Z5  every unit-lane suite that names zsh as a whole word on an executed
+#       line carries the marker, or is listed in ZSH_NAMES_ONLY with its reason
+#       (`## BL-322:` S5, R-S2-13, R-S5-4); comments are dropped first (the
+#       `# BL-181-UNIT-LANE-PREDICATE` lesson). The same check on fixture lines
+#       proves it tells them apart. A zsh run built at run time (`"${s}sh"`) is
+#       not seen (BL-181's residual, here).
 #   M   mutants of the workflow, each needing a named case to go RED.
+#
+# THE MARKER, ANY SPELLING (R-S2-13). A line that starts, after any indent,
+# with `#`, any spaces, then NEEDS-ZSH in any case: `# NEEDS-ZSH`, `#NEEDS-ZSH`,
+# `  # needs-zsh`, `# NEEDS-ZSH: why`. Z2 and Z3 run every spelling.
 #
 # Hermetic: temp dirs only; the workflow is read, never run as CI. bash 3.2
 # safe. It needs no zsh: Z3 builds a PATH with and without a stand-in.
@@ -38,6 +48,11 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 newtmp() { mktemp -d "$WORK/tXXXXXX"; }
 CASE_DETAIL=""
 MARKED_SUITE="tests/test-zz-bl322-needs-zsh.sh"
+ZSH_MARK_RE='^[[:space:]]*#[[:space:]]*NEEDS-ZSH'
+# The spellings the marker must accept (R-S2-13); the default first.
+MARK_SPELLINGS="$(printf '%s\n' '# NEEDS-ZSH (a stand-in for a suite that needs zsh)' '#NEEDS-ZSH' '    # NEEDS-ZSH' \
+  '# needs-zsh' '# NEEDS-ZSH: the paste-into-zsh cases' "$(printf '\t#\tNeeds-Zsh')")"
+is_marked() { command grep -iE "$ZSH_MARK_RE" "$1" >/dev/null 2>&1; }
 
 # shard_script WF UPTO — the unit-shard step's `run: |` block, de-indented, cut
 # before the first line matching UPTO (a fixed string).
@@ -75,21 +90,23 @@ stranded() {
     grep -qxF -- "$leg" <<< "$listed" && continue
     while IFS= read -r t; do
       [ -n "$t" ] || continue
-      grep -qE '^# NEEDS-ZSH([[:space:]]|$)' "$dir/$t" 2>/dev/null && printf '%s\t%s\n' "$t" "$leg"
+      is_marked "$dir/$t" && printf '%s\t%s\n' "$t" "$leg"
     done <<RUN
 $(run_list "$wf" "$leg" "$dir")
 RUN
   done
 }
 
-# fixture WF_SRC DIR LEG [LISTED] — a copy of the workflow whose canonical list
-# gains MARKED_SUITE, pinned to LEG (or left in rest), with the zsh list set to
-# LISTED (a JSON array; default unchanged); DIR gets the marked suite. Prints
-# the fixture workflow's path.
+# fixture WF_SRC DIR LEG [LISTED] [MARK] — a copy of the workflow whose
+# canonical list gains MARKED_SUITE, pinned to LEG (or left in rest), with the
+# zsh list set to LISTED (a JSON array; default unchanged); DIR gets the marked
+# suite, its marker line spelled MARK (default the first of MARK_SPELLINGS).
+# Prints the fixture workflow's path.
 fixture() {
-  local src="$1" dir="$2" leg="$3" listed="${4:-}" wf="$2/tests.yml" arr=""
+  local src="$1" dir="$2" leg="$3" listed="${4:-}" mark="${5:-}" wf="$2/tests.yml" arr=""
+  [ -n "$mark" ] || mark="$(head -1 <<< "$MARK_SPELLINGS")"
   mkdir -p "$dir/tests" || return 1
-  printf '#!/usr/bin/env bash\n# NEEDS-ZSH (a stand-in for a suite that runs zsh -f -i)\nexit 0\n' > "$dir/$MARKED_SUITE"
+  printf '#!/usr/bin/env bash\n%s\nexit 0\n' "$mark" > "$dir/$MARKED_SUITE"
   case "$leg" in
     rest) arr="" ;;
     *) arr="pin_$(printf '%s' "$leg" | tr '-' '_')=(" ;;
@@ -112,10 +129,10 @@ case_Z1() {
   local wf="$1" marked="" s=""
   [ -n "$(legs "$wf")" ] || { CASE_DETAIL="no legs read from the matrix"; return 1; }
   [ -n "$(run_list "$wf" rest "$REPO_ROOT")" ] || { CASE_DETAIL="the partition code yields nothing for rest"; return 1; }
-  marked="$(cd "$REPO_ROOT" && grep -lE '^# NEEDS-ZSH([[:space:]]|$)' tests/*.sh 2>/dev/null)"
+  marked="$(cd "$REPO_ROOT" && command grep -liE "$ZSH_MARK_RE" tests/*.sh 2>/dev/null)"
   s="$(stranded "$wf" "$REPO_ROOT")"
   [ -z "$s" ] || { CASE_DETAIL="marked suites on legs without zsh: $(tr '\n\t' '|@' <<< "$s")"; return 1; }
-  CASE_DETAIL="$(grep -c . <<< "$marked") marked suite(s); zsh legs: [$(zsh_legs "$wf" | tr '\n' ' ')]"
+  CASE_DETAIL="$(grep -c . <<< "$marked") marked suite(s); legs with zsh: [$(zsh_legs "$wf" | tr '\n' ' ')]"
 }
 
 # ── Z2: the check catches a stranded suite ───────────────────────────────────
@@ -132,6 +149,14 @@ case_Z2() {
   [ -z "$s" ] || { CASE_DETAIL="listed leg still reported: [$(tr '\n\t' '|@' <<< "$s")]"; return 1; }
   # Not a pass by accident: the listed leg does run the suite.
   run_list "$f" lint-sweep "$d/c" | grep -qxF -- "$MARKED_SUITE" || { CASE_DETAIL="the fixture suite is not in lint-sweep's run list"; return 1; }
+  # Every spelling of the marker is a marker (R-S2-13).
+  local m="" i=0
+  while IFS= read -r m; do
+    i=$((i + 1))
+    f="$(fixture "$wf" "$d/s$i" lint-sweep '' "$m")" || { CASE_DETAIL="fixture s$i"; return 1; }
+    s="$(stranded "$f" "$d/s$i")"
+    [ "$s" = "$(printf '%s\tlint-sweep' "$MARKED_SUITE")" ] || { CASE_DETAIL="marker spelled [$m] not seen: got [$(tr '\n\t' '|@' <<< "$s")]"; return 1; }
+  done <<< "$MARK_SPELLINGS"
 }
 
 # ── Z3: the runtime guard ────────────────────────────────────────────────────
@@ -140,11 +165,22 @@ bin_without_zsh() {
   mkdir -p "$1" && ln -s "$(command -v bash)" "$1/bash" && ln -s "$(command -v grep)" "$1/grep"
 }
 case_Z3() {
-  local wf="$1" d="" f="" sc="" out="" rc=0 bin="" n=""
-  d="$(newtmp)"; f="$(fixture "$wf" "$d/p" mcp)" || { CASE_DETAIL="fixture"; return 1; }
-  sc="$d/guard.sh"; shard_script "$f" 'failed=()' > "$sc" || { CASE_DETAIL="no shard script"; return 1; }
+  local wf="$1" d="" f="" sc="" out="" rc=0 bin="" n="" m="" i=0
+  d="$(newtmp)"
   bin="$d/bin"; bin_without_zsh "$bin" || { CASE_DETAIL="bin"; return 1; }
+  # Every spelling of the marker is refused on a leg without zsh (R-S2-13).
+  while IFS= read -r m; do
+    i=$((i + 1))
+    f="$(fixture "$wf" "$d/s$i" mcp '' "$m")" || { CASE_DETAIL="fixture s$i"; return 1; }
+    sc="$d/guard$i.sh"; shard_script "$f" 'failed=()' > "$sc" || { CASE_DETAIL="no shard script"; return 1; }
+    n="$(legs "$f" | grep -c .)"
+    rc=0; out="$(cd "$d/s$i" && env -i PATH="$bin" SHARD=mcp SHARD_TOTAL="$n" "$bin/bash" "$sc" 2>&1)" || rc=$?
+    [ "$rc" -eq 1 ] && grep -qF "$MARKED_SUITE" <<< "$out" || { CASE_DETAIL="marker spelled [$m]: no zsh, rc $rc: $(tail -1 <<< "$out")"; return 1; }
+  done <<< "$MARK_SPELLINGS"
+  f="$(fixture "$wf" "$d/p" mcp)" || { CASE_DETAIL="fixture"; return 1; }
+  sc="$d/guard.sh"; shard_script "$f" 'failed=()' > "$sc" || { CASE_DETAIL="no shard script"; return 1; }
   n="$(legs "$f" | grep -c .)"
+  rc=0
   out="$(cd "$d/p" && env -i PATH="$bin" SHARD=mcp SHARD_TOTAL="$n" "$bin/bash" "$sc" 2>&1)" || rc=$?
   [ "$rc" -eq 1 ] || { CASE_DETAIL="no zsh: rc $rc, want 1"; return 1; }
   grep -qF "shard 'mcp': zsh is not installed on this leg" <<< "$out" && grep -qF "$MARKED_SUITE" <<< "$out" \
@@ -171,6 +207,85 @@ case_Z4() {
   grep -E '^ *run:' <<< "$step" | grep -q 'install -y zsh' || { CASE_DETAIL="the step no longer installs zsh"; return 1; }
 }
 
+# ── Z5: a suite that names zsh says so (R-S2-13, R-S5-4) ─────────────────────
+# executes_zsh FILE — FILE names zsh as a whole word on a line that executes.
+# Comments are dropped first, exactly as `# BL-181-UNIT-LANE-PREDICATE` drops
+# them (whole-line, and trailing after whitespace), so a mention in a comment
+# needs no marker. Any whole word, not only zsh in command position (review
+# R-S5-4): a path kept in a variable (`ZSH=/bin/zsh; "$ZSH" -f`), a quoted path,
+# a probe joined by `||`, a loop over shells all run it while naming it only as
+# a word. A suite that names zsh and never runs it (a message, a stand-in, this
+# guard's own tests) is listed in ZSH_NAMES_ONLY with its reason. No `grep -q`
+# at the end of the pipe: under pipefail its early exit can fail the writer (#435).
+ZSH_WORD_RE='(^|[^A-Za-z0-9_])zsh([^A-Za-z0-9_]|$)'
+executes_zsh() {
+  command grep -vE '^[[:space:]]*#' "$1" 2>/dev/null | sed 's/\([^[:space:]]\)[[:space:]][[:space:]]*#.*$/\1/' \
+    | command grep -E "$ZSH_WORD_RE" >/dev/null
+}
+# ZSH_NAMES_ONLY — suites that name zsh on executed lines and never run it, one
+# per line: the path, a tab, the reason. Z5 lets these through unmarked.
+ZSH_NAMES_ONLY="$(printf '%s\t%s\n' \
+  tests/test-bl322-zsh-legs.sh 'tests this guard: names zsh in messages and a fixture, and puts a stub called zsh on a PATH; runs no zsh')"
+names_only() { grep -qxF -- "$1" <<< "$(cut -f1 <<< "$ZSH_NAMES_ONLY")"; }
+# unit_list WF — the canonical `tests=(` array, anchored and sliced (CLAUDE.md's
+# recipe: never the unanchored scope, which a comment below the array reopens).
+unit_list() {
+  local s="" e=""
+  s="$(awk '/^[[:space:]]*tests=\(/{print NR; exit}' "$1")"
+  e="$(awk -v s="$s" 'NR>s && /^[[:space:]]*\)[[:space:]]*$/{print NR; exit}' "$1")"
+  [ -n "$s" ] && [ -n "$e" ] || return 1
+  sed -n "$((s + 1)),$((e - 1))p" "$1" | sed 's/#.*//' | sed 's/[[:space:]]//g' | command grep '^tests/'
+}
+case_Z5() {
+  local wf="$1" t="" n=0 runs="" bad="" d="" line="" want="" i=0
+  # The real tree: every unit-lane suite that names zsh carries the marker, or
+  # is listed as naming it only.
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    n=$((n + 1))
+    executes_zsh "$REPO_ROOT/$t" || continue
+    runs="$runs $t"
+    is_marked "$REPO_ROOT/$t" || names_only "$t" || bad="$bad $t"
+  done <<UL
+$(unit_list "$wf")
+UL
+  [ "$n" -gt 100 ] || { CASE_DETAIL="read only $n suites from the unit list"; return 1; }
+  [ -z "$bad" ] || { CASE_DETAIL="these unit-lane suites name zsh, carry no # NEEDS-ZSH and are not listed in ZSH_NAMES_ONLY:$bad"; return 1; }
+  # The check tells the shapes apart: R names zsh, N does not. Each shape
+  # spells zsh as @Z@ here.
+  d="$(newtmp)"
+  while IFS='|' read -r want line; do
+    [ -n "$want" ] || continue
+    line="${line//@Z@/zsh}"
+    i=$((i + 1)); printf '#!/usr/bin/env bash\n%s\n' "$line" > "$d/f$i.sh"
+    if executes_zsh "$d/f$i.sh"; then [ "$want" = R ] || { CASE_DETAIL="read as naming zsh: [$line]"; return 1; }
+    else [ "$want" = N ] || { CASE_DETAIL="not read as naming zsh: [$line]"; return 1; }; fi
+  done <<'SHAPES'
+R|command -v @Z@ >/dev/null 2>&1 || { echo "SKIP: no @Z@"; exit 0; }
+R|if command -v @Z@ >/dev/null 2>&1; then PASTE_SHELLS="$PASTE_SHELLS|@Z@ -f|@Z@ -f -i"; fi
+R|  @Z@ -f -i < steps.txt
+R|out="$(@Z@ -c 'echo hi')"
+R|/bin/@Z@ -c true
+R|printf 'x\n' | @Z@
+R|[ -x /bin/@Z@ ] && @Z@ steps.sh
+R|type @Z@ >/dev/null && echo yes
+R|then @Z@ run.sh
+R|ZSH="/bin/@Z@"; "$ZSH" -f -i < steps.txt
+R|[ -x /bin/@Z@ ] || exit 0
+R|"/bin/@Z@" -f -i < steps.txt
+R|for sh in bash @Z@; do "$sh" -c true; done
+R|echo "@Z@ is not installed on this leg"
+R|MARKED="tests/test-zz-needs-@Z@.sh"
+N|# @Z@ -f -i, run where it is installed
+N|    # if command -v @Z@; then ...
+N|x=1   # @Z@ -f -i
+N|@Z@_legs "$wf"
+N|[ -f "$HOME/.@Z@rc" ] && echo rc
+N|[ -n "${ZSH_VERSION:-}" ] && echo inside
+SHAPES
+  CASE_DETAIL="$n unit-lane suites read; name zsh:${runs:- none}; $i shapes told apart"
+}
+
 check() {   # LABEL CASE
   CASE_DETAIL=""
   if "$2" "$WF_REAL"; then pass "$1${CASE_DETAIL:+ ($CASE_DETAIL)}"; else fail_ "$1" "${CASE_DETAIL:-failed}"; fi
@@ -180,6 +295,7 @@ check "Z1: every suite marked NEEDS-ZSH runs on a leg the Install zsh step lists
 check "Z2: the check catches a marked suite pinned to, or left in rest on, an unlisted leg" case_Z2
 check "Z3: the shard script refuses a marked suite on a leg without zsh, by name, and only then" case_Z3
 check "Z4: the step is gated on the leg, and a failed install is still loud" case_Z4
+check "Z5: every unit-lane suite that names zsh on an executed line carries the marker or is listed as naming it only" case_Z5
 
 # ── M: mutants of the workflow ───────────────────────────────────────────────
 mutate() {   # FILE MARKER REPLACEMENT — exactly one line ends in MARKER; it now reads REPLACEMENT
@@ -206,6 +322,11 @@ mutant M3 '# BL-322-ZSH-GUARD-PROBE' '          if false; then' case_Z3 "the gua
 mutant M4 '# BL-322-ZSH-LEGS' '        if: always()' case_Z4 "zsh is installed on every leg again"
 mutant M5 '# BL-322-ZSH-INSTALL' '        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y zsh || true' case_Z4 "a failed install is ignored"
 mutant M6 '# BL-322-ZSH-LEGS' "        if: contains(fromJSON('[\"rest\"]'), matrix.shard) && false" case_Z4 "the list is bypassed by a condition that never runs the step"
+# R-S2-13: the guard reads every spelling of the marker.
+mutant M7 '# BL-322-ZSH-GUARD' "              if grep -qE '^# NEEDS-ZSH([[:space:]]|\$)' \"\${t}\" 2>/dev/null; then" case_Z3 "the guard reads only the old whole-line spelling"
+mutant M8 '# BL-322-ZSH-GUARD' "              if grep -qE '^[[:space:]]*#[[:space:]]*NEEDS-ZSH' \"\${t}\" 2>/dev/null; then" case_Z3 "the guard reads the marker in capitals only"
+mutant M9 '# BL-322-ZSH-GUARD' "              if grep -qiE '^#[[:space:]]*NEEDS-ZSH' \"\${t}\" 2>/dev/null; then" case_Z3 "the guard misses an indented marker"
+mutant M10 '# BL-322-ZSH-GUARD' "              if grep -qiE '^[[:space:]]*# NEEDS-ZSH' \"\${t}\" 2>/dev/null; then" case_Z3 "the guard misses a marker with no space after the #"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed"

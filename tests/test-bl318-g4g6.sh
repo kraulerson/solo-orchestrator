@@ -59,17 +59,20 @@
 #           need", and the adoption section names no tool itself.
 #       P3  README lists Superpowers under Prerequisites, not as optional.
 #       P4  every Guardrails message the docs quote is in the Guardrails hooks.
-#           It reads a clone only when that clone can answer: BL318_CDF_CLONE,
-#           else CDF_HOME, else ~/.claude-dev-framework, and only if it is
-#           4.4.0 or later, has every quoted hook, and has in its history each
-#           commit an old message is quoted from. Otherwise it SKIPS, naming
-#           why. (`## BL-322:` S2: on PR #503's `rest` leg it FAILED, reading a
-#           depth-1 clone of current Guardrails main that an earlier suite,
-#           tests/test-bl141-commitmsg-repair.sh, leaves in the runner's HOME
-#           through `verify-install.sh --auto-fix`; that history has no ea2025a.)
+#           It reads a private copy of the pinned Guardrails fixture
+#           (tests/test-helpers/cdf-fixture.sh, SOIF_TEST_CDF_FIXTURE, CDF
+#           4.4.1 with full history; `## BL-322:` S5), which must be 4.4.0 or
+#           later with each commit an old message is quoted from in its
+#           history. Under CI with no fixture P4, P4m and P4u FAIL; locally
+#           they fall back to ~/.claude-dev-framework when it passes the same
+#           test, and otherwise SKIP, naming why. (Until S5 it read a depth-1
+#           clone of Guardrails main that tests/test-bl141-commitmsg-repair.sh
+#           left in a CI runner's HOME, whose history has no ea2025a.)
 #       P4m the same check FAILS on a scratch copy of that clone with one
 #           quoted message taken out of its hook — P4 is a real check whenever
 #           it runs.
+#       P4u a copy of that clone missing a quoted hook still qualifies, and P4
+#           FAILS on it, naming the hook (R-S2-14: it skipped).
 #       P5  the session-start guidance names each kind of message, and each is
 #           text the session-start scripts really print.
 #       P6  the phase-0 paragraph cites `check_commit_ready`, which lets every
@@ -123,7 +126,8 @@ check() {
 
 KPDF_BUNDLE="${BL318_KPDF_BUNDLE:-$HOME/dogfood-2026-10/k-pdf-dogfood-2.bundle}"
 KPDF_AT="0bb0465"
-CDF="${BL318_CDF_CLONE:-${CDF_HOME:-$HOME/.claude-dev-framework}}"
+# shellcheck source=/dev/null
+. "$REPO_ROOT/tests/test-helpers/cdf-fixture.sh" || { echo "FATAL: cannot source tests/test-helpers/cdf-fixture.sh" >&2; exit 1; }
 SP_CMD='claude plugin install --scope user superpowers@claude-plugins-official'
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -628,40 +632,13 @@ Q
 )"
 # P4_FROM — the Guardrails version the current quotes come from.
 P4_FROM="4.4.0"
-# _ver_ge A B — A is at least B, both MAJOR.MINOR.PATCH.
-_ver_ge() {
-  local a1="" a2="" a3="" b1="" b2="" b3=""
-  IFS=. read -r a1 a2 a3 <<< "$1"; IFS=. read -r b1 b2 b3 <<< "$2"
-  [ "$a1" -gt "$b1" ] && return 0; [ "$a1" -lt "$b1" ] && return 1
-  [ "$a2" -gt "$b2" ] && return 0; [ "$a2" -lt "$b2" ] && return 1
-  [ "$a3" -ge "$b3" ]
-}
-# p4_unfit CLONE — why CLONE cannot answer P4, or nothing when it can. A clone
-# another suite left behind is read only when it passes all of this, and then
-# it IS a clone of the Guardrails the docs quote, so the answer is real.
-p4_unfit() {
-  local c="$1" v="" hook="" rev="" doc="" text=""
-  [ -d "$c/.git" ] && [ -d "$c/hooks" ] || { printf 'no Guardrails clone at %s' "$c"; return 0; }
-  v="$(tr -d '[:space:]' < "$c/FRAMEWORK_VERSION" 2>/dev/null)"
-  case "$v" in
-    [0-9]*.[0-9]*.[0-9]*) case "$v" in *[!0-9.]*) printf '%s has no MAJOR.MINOR.PATCH FRAMEWORK_VERSION' "$c"; return 0 ;; esac ;;
-    *) printf '%s has no MAJOR.MINOR.PATCH FRAMEWORK_VERSION' "$c"; return 0 ;;
-  esac
-  _ver_ge "$v" "$P4_FROM" || { printf 'the clone at %s is %s, older than %s, which the quoted messages come from' "$c" "$v" "$P4_FROM"; return 0; }
-  while IFS='|' read -r doc hook text; do
-    [ -n "$doc" ] || continue
-    rev=""; case "$hook" in *@*) rev="${hook#*@}"; hook="${hook%@*}" ;; esac
-    if [ -n "$rev" ]; then
-      git -C "$c" cat-file -e "$rev^{commit}" 2>/dev/null \
-        || { printf "the clone at %s has no %s in its history (a shallow clone?), which an older message is quoted from" "$c" "$rev"; return 0; }
-    else
-      [ -f "$c/$hook" ] || { printf 'the clone at %s has no %s' "$c" "$hook"; return 0; }
-    fi
-  done <<EOF
-$QUOTES
-EOF
-  return 0
-}
+# P4_REVS — each commit an older quoted message is read at.
+P4_REVS="$(printf '%s\n' "$QUOTES" | sed -n 's/^[^|]*|[^|]*@\([0-9a-f]*\)|.*/\1/p' | sort -u | tr '\n' ' ')"
+# Whether a clone can answer P4 is cdf_fixture_copy's question (the version
+# gate, 4.4.0 or later, and each of P4_REVS in its history), asked of the
+# pinned fixture (tests/test-helpers/cdf-fixture.sh, `## BL-322:` S5). A clone
+# that passes IS one of the Guardrails the docs quote, so a quoted hook it lacks
+# makes P4 fail, never skip (R-S2-14): until S5 a missing hook made it skip.
 case_P4() {   # FW CLONE
   local fw="$1" clone="$2" doc="" hook="" text="" rev="" body="" bad=""
   while IFS='|' read -r doc hook text; do
@@ -693,6 +670,27 @@ case_P4m() {
   case_P4 "$fw" "$copy" && { CASE_DETAIL="P4 passed against a clone that no longer prints a quoted message"; return 1; }
   case "$CASE_DETAIL" in
     *"hooks/stop-checklist.sh does not print: Uncommitted source changes. Commit before finishing."*) CASE_DETAIL=""; return 0 ;;
+    *) CASE_DETAIL="P4 failed for another reason: $CASE_DETAIL"; return 1 ;;
+  esac
+}
+
+# case_P4u FW CLONE — `## BL-322:` S5 (R-S2-14): a CURRENT clone missing a hook
+# the docs quote is a failure, never a reason to skip. A scratch copy of CLONE
+# with hooks/record-approval.sh deleted: the version and history checks find
+# nothing that stops P4 reading it, and P4 fails, naming that hook. (At
+# `c125f0f` p4_unfit named the missing hook, so P4 skipped.)
+case_P4u() {
+  local fw="$1" copy="" why=""
+  copy="$(newtmp)/cdf"
+  cp -R "$2" "$copy" 2>/dev/null || { CASE_DETAIL="could not copy the clone"; return 1; }
+  [ -f "$copy/hooks/record-approval.sh" ] || { CASE_DETAIL="precondition: the copy has no hooks/record-approval.sh"; return 1; }
+  rm -f "$copy/hooks/record-approval.sh"
+  # shellcheck disable=SC2086
+  why="$(_cdf_fixture_unfit "$copy" "$P4_FROM" $P4_REVS)"
+  [ -z "$why" ] || { CASE_DETAIL="P4 would skip a current clone that lacks a quoted hook: $why"; return 1; }
+  case_P4 "$fw" "$copy" && { CASE_DETAIL="P4 passed against a clone with no hooks/record-approval.sh"; return 1; }
+  case "$CASE_DETAIL" in
+    *"[the clone has no hooks/record-approval.sh]"*) CASE_DETAIL=""; return 0 ;;
     *) CASE_DETAIL="P4 failed for another reason: $CASE_DETAIL"; return 1 ;;
   esac
 }
@@ -775,14 +773,20 @@ echo "=== P — G4: what the docs claim, checked ==="
 check "P1 adoption.md 'What you need' names Superpowers, its exact command (the tool matrix's) and the block without it" case_P1 "$REPO_ROOT"
 check "P2 one prerequisites list: README links to adoption.md#what-you-need from both places and lists no adoption tool itself" case_P2 "$REPO_ROOT"
 check "P3 README lists Superpowers under Prerequisites, not as an optional enhancement" case_P3 "$REPO_ROOT"
-P4_UNFIT="$(p4_unfit "$CDF")"
-if [ -z "$P4_UNFIT" ]; then
-  check "P4 every Guardrails message the docs quote is printed by the Guardrails hooks ($CDF, $(tr -d '[:space:]' < "$CDF/FRAMEWORK_VERSION"))" case_P4 "$REPO_ROOT" "$CDF"
-  check "P4m P4 fails against a scratch copy of that clone whose stop hook no longer prints the quoted message" case_P4m "$REPO_ROOT" "$CDF"
-else
-  skip "P4 the quoted Guardrails messages" "$P4_UNFIT"
-  skip "P4m P4 against an altered copy of the clone" "$P4_UNFIT"
-fi
+# The clone P4 reads: a private copy of the pinned fixture (`## BL-322:` S5).
+CDF="$WORK/cdf"; CDF_RC=0
+# shellcheck disable=SC2086
+cdf_fixture_copy "$CDF" "$P4_FROM" $P4_REVS || CDF_RC=$?
+P4_LABELS="P4 the quoted Guardrails messages|P4m P4 against an altered copy of the clone|P4u a current clone missing a quoted hook"
+case "$CDF_RC" in
+  0)
+    check "P4 every Guardrails message the docs quote is printed by the Guardrails hooks ($CDF_FIXTURE_FROM, $(git -C "$CDF" show HEAD:FRAMEWORK_VERSION | tr -d '[:space:]'))" case_P4 "$REPO_ROOT" "$CDF"
+    check "P4m P4 fails against a scratch copy of that clone whose stop hook no longer prints the quoted message" case_P4m "$REPO_ROOT" "$CDF"
+    check "P4u a current clone missing a quoted hook fails P4, never skips it (R-S2-14)" case_P4u "$REPO_ROOT" "$CDF"
+    ;;
+  77) while IFS= read -r l; do skip "$l" "$CDF_FIXTURE_WHY"; done <<< "$(tr '|' '\n' <<< "$P4_LABELS")" ;;
+  *)  while IFS= read -r l; do fail_ "$l" "$CDF_FIXTURE_WHY"; done <<< "$(tr '|' '\n' <<< "$P4_LABELS")" ;;   # BL-322-S5-FIXTURE-FAIL
+esac
 check "P5 the session-start guidance names each kind of message, and each is real script output" case_P5 "$REPO_ROOT"
 check "P6 the phase-0 paragraph cites check_commit_ready, which lets every commit through below phase 2" case_P6 "$REPO_ROOT"
 check "P7 the override clears the recorded question first (bash scripts/pending-approval.sh --resolve)" case_P7 "$REPO_ROOT"
