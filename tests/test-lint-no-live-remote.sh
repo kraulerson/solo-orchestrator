@@ -138,6 +138,174 @@ assert_lint "N13: gitlab host without guard is flagged" 1 \
 INIT="$REPO_ROOT/init.sh"
 bash "$INIT" --non-interactive --project x --git-host gitlab --platform web'
 
+# ── BL-346: an init run spelled through an interpreter WORD ─────────────
+# Found reviewing PR #478 (2026-10-09). Its suite ran
+#   OUT="$( cd "$REPO_ROOT" && "$BASH" ./init.sh --non-interactive \ … )"
+# and the lint did not see an init.sh EXECUTION there at all, so deleting
+# --no-remote-creation still gave rc 0. Before BL-346 only the literal word
+# `bash` (or an `env …` prefix) counted as an interpreter in front of an
+# init token. Every spelling below gets a PAIR, and each half asserts the
+# --list ROW as well as the exit code: an UNRECOGNISED run also exits 0 —
+# that is the blind spot — so "guard present => rc 0" proves nothing unless
+# a `PASS hermetic-token` row shows the lint saw the run.
+
+ROW_HERMETIC="$(printf 'PASS\thermetic-token')"
+ROW_LIVE="$(printf 'FAIL\tlive-remote-reachable')"
+
+# assert_lint_row NAME EXPECT_RC EXPECT_ROWS BODY — EXPECT_ROWS is the exact
+# set of STATUS<TAB>DETAIL rows (the FILE:LINE column dropped); "" = no row.
+assert_lint_row() {
+  local name="$1" expect="$2" want="$3" body="$4"
+  local dir="" rc=0 got=""
+  dir=$(mktemp -d)
+  printf '%s\n' "$body" > "$dir/fixture.sh"
+  got=$(bash "$LINT" --list --dir "$dir" 2>/dev/null) || rc=$?
+  got=$(printf '%s\n' "$got" | awk -F'\t' '$1 == "PASS" || $1 == "FAIL" { print $1 "\t" $3 }')
+  if [ "$rc" = "$expect" ] && [ "$got" = "$want" ]; then
+    pass "$name (rc=$rc)"
+  else
+    fail_ "$name" "expected rc=$expect rows=[$want], got rc=$rc rows=[$got]"
+  fi
+  rm -rf "$dir"
+}
+
+# assert_interp_pair ID SPELLING — SPELLING is everything in front of the
+# first flag. The fixture names --git-host github and puts the guard on its
+# own continuation line, as PR #478's suite does.
+assert_interp_pair() {
+  local id="$1" spelling="$2"
+  local head='#!/usr/bin/env bash
+INIT="$REPO_ROOT/init.sh"'
+  assert_lint_row "$id: $spelling + --no-remote-creation is seen and hermetic" 0 "$ROW_HERMETIC" \
+"$head
+$spelling --non-interactive --project x --git-host github \\
+  --no-remote-creation \\
+  --project-dir \"\$P\""
+  assert_lint_row "$id: $spelling with the guard deleted is flagged" 1 "$ROW_LIVE" \
+"$head
+$spelling --non-interactive --project x --git-host github \\
+  --project-dir \"\$P\""
+}
+
+# Recognised before BL-346 — pinned so the fix cannot lose them.
+assert_interp_pair N15 'bash ./init.sh'
+assert_interp_pair N16 'env "$BASH" ./init.sh'
+assert_interp_pair N17 '/bin/bash ./init.sh'
+assert_interp_pair N18 '/usr/bin/env bash ./init.sh'
+assert_interp_pair N19 'command bash ./init.sh'
+assert_interp_pair N20 'exec bash ./init.sh'
+assert_interp_pair N21 './init.sh'
+assert_interp_pair N22 '"$INIT"'
+
+# Not recognised before BL-346: the shell-path VARIABLE in every quoting and
+# brace form (`# BL-346-INTERP-VAR`) and the shell name `sh`
+# (`# BL-346-INTERP-NAME`).
+assert_interp_pair N23 '"$BASH" ./init.sh'
+assert_interp_pair N24 '"${BASH}" ./init.sh'
+assert_interp_pair N25 '$BASH ./init.sh'
+assert_interp_pair N26 '${BASH} "$INIT"'
+assert_interp_pair N27 '"$BASH" "$INIT"'
+assert_interp_pair N28 '"$SHELL" ./init.sh'
+assert_interp_pair N29 '"${SHELL}" "$INIT"'
+assert_interp_pair N30 'sh ./init.sh'
+assert_interp_pair N31 '/bin/sh "$INIT"'
+
+# N32: PR #478's suite shape, near verbatim — inside $( ), after `cd … &&`.
+assert_lint_row "N32: PR #478 shape with --no-remote-creation is seen and hermetic" 0 "$ROW_HERMETIC" \
+'#!/usr/bin/env bash
+OUT="$( cd "$REPO_ROOT" && "$BASH" ./init.sh --non-interactive \
+          --project bl308-posture --platform web --git-host github \
+          --project-dir "$P" \
+          --no-remote-creation 2>&1 )" || RC=$?'
+assert_lint_row "N32: PR #478 shape with the guard deleted is flagged" 1 "$ROW_LIVE" \
+'#!/usr/bin/env bash
+OUT="$( cd "$REPO_ROOT" && "$BASH" ./init.sh --non-interactive \
+          --project bl308-posture --platform web --git-host github \
+          --project-dir "$P" 2>&1 )" || RC=$?'
+
+# N33: the `sh` that ends a FILENAME is not the interpreter `sh`. In
+# `cp ./init.sh "$T/init.sh"` the first path's `sh` is followed by a space
+# and an init token; copying is not a run. Pins the `.` in
+# `# BL-346-INTERP-NAME`'s left boundary.
+assert_lint_row "N33: the sh of a .sh filename is not an interpreter" 0 "" \
+'#!/usr/bin/env bash
+INIT="$REPO_ROOT/init.sh"
+cp ./init.sh "$T/init.sh"'
+
+# N34: a syntax check through the variable stays ignored, as `bash -n` does
+# in N10 — `-n` reads init.sh without running it.
+assert_lint_row "N34: \"\$BASH\" -n of init.sh is not a run" 0 "" \
+'#!/usr/bin/env bash
+INIT="$REPO_ROOT/init.sh"
+"$BASH" -n "$INIT"
+"$SHELL" -n ./init.sh'
+
+# ── BL-346 review round 1 ────────────────────────────────────────────────
+# RV-1: the left boundary of `# BL-346-INTERP-NAME` is a negated class, so
+# every character it admits is an atom a one-character edit can drop, and
+# N15–N31 all start at column 0 — they pin only `^`, space and `/`. Excluding
+# `(` from the class kept this suite at 52/0 and the live tree at rc 0 while
+# it hid the six `e*=$(bash "$REPO_DIR/init.sh"` runs in
+# tests/edge-cases-pre-init.sh. One pair per character a run is realistically
+# written right behind: `(` and `'` (live-tree rows sit behind both), a
+# backtick, a double quote and a tab.
+# assert_boundary_pair ID LABEL LEFT RIGHT — the run is `bash ./init.sh …`,
+# written as LEFT<run>RIGHT.
+assert_boundary_pair() {
+  local id="$1" label="$2" left="$3" right="$4"
+  local run='bash ./init.sh --non-interactive --project x --git-host github'
+  assert_lint_row "$id: $label + --no-remote-creation is seen and hermetic" 0 "$ROW_HERMETIC" \
+"#!/usr/bin/env bash
+${left}${run} --no-remote-creation --project-dir /tmp/p${right}"
+  assert_lint_row "$id: $label with the guard deleted is flagged" 1 "$ROW_LIVE" \
+"#!/usr/bin/env bash
+${left}${run} --project-dir /tmp/p${right}"
+}
+
+assert_boundary_pair N35 'OUT=$(bash ./init.sh …)' 'OUT=$(' ' 2>&1)'
+assert_boundary_pair N36 "sh -c 'bash ./init.sh …'" "sh -c '" "'"
+assert_boundary_pair N37 'OUT=`bash ./init.sh …`' 'OUT=`' '`'
+assert_boundary_pair N38 'sh -c "bash ./init.sh …"' 'sh -c "' '"'
+assert_boundary_pair N39 'a TAB-indented bash ./init.sh' "$(printf '\t')" ''
+
+# RV-3: option flags between the interpreter and init.sh. Before round 1 any
+# flag hid the run (`bash -e ./init.sh` got no row) so that `bash -n` stays a
+# syntax check. Now a flag cluster counts unless it carries `n` (no
+# execution) — and `-D`, which implies `-n`, is not admitted at all. `-o`/`-O`
+# and a cluster ending in them take the next word; `--` ends the options.
+assert_interp_pair N40 'bash -e ./init.sh'
+assert_interp_pair N41 'bash -eu "$INIT"'
+assert_interp_pair N42 '"$BASH" -e -o pipefail ./init.sh'
+assert_interp_pair N43 'bash -euo pipefail ./init.sh'
+assert_interp_pair N44 'bash -O inherit_errexit "$INIT"'
+assert_interp_pair N45 'bash -- ./init.sh'
+
+# N46: `-n` anywhere in a cluster, a later `-n`, and `-D` (which implies -n)
+# are syntax checks, not runs. No line carries a guard, so any one of them
+# read as a run turns this case red.
+assert_lint_row "N46: -n in any cluster or position, and -D, are not runs" 0 "" \
+'#!/usr/bin/env bash
+INIT="$REPO_ROOT/init.sh"
+bash -en ./init.sh --non-interactive --project x
+bash -ne "$INIT" --non-interactive --project x
+bash -e -n ./init.sh --non-interactive --project x
+"$BASH" -xn "$INIT" --non-interactive --project x
+bash -D ./init.sh --non-interactive --project x'
+
+# RV-5 respells every optional brace in the lint as `[{]?` / `[}]?` (a
+# backslash before an ordinary character is unspecified in a POSIX ERE).
+# N47 and N48 pin the two braces no earlier case reached: a braced init
+# variable, and a braced $MOCK_DIR as a file's only mock signal. The closing
+# brace of the init variable matters only where the variable is the command
+# word (shape B needs a quote or a space right after it), so N49 runs a
+# braced variable directly.
+assert_interp_pair N47 'bash "${INIT}"'
+assert_interp_pair N49 '"${INIT}"'
+assert_lint_row "N48: PATH=\"\${MOCK_DIR}:…\" alone marks the file mock-driven" 0 "$(printf 'PASS\tmock-cli-on-path')" \
+'#!/usr/bin/env bash
+INIT="$REPO_ROOT/init.sh"
+PATH="${MOCK_DIR}:$PATH" bash "$INIT" --non-interactive --project x --git-host github'
+
 # N14: end-to-end — the REAL repo tree must currently pass clean.
 real_rc=0
 bash "$LINT" >/dev/null 2>&1 || real_rc=$?
