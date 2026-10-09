@@ -463,7 +463,7 @@ run_child_suite "scripts/lint-no-live-remote-in-tests.sh" \
   "No test executes init.sh in a live-remote-reachable shape" \
   "Non-hermetic init run found (see scripts/lint-no-live-remote-in-tests.sh --list)"
 run_child_suite "tests/test-lint-no-live-remote.sh" \
-  "scripts/lint-no-live-remote-in-tests.sh behavior tests (14/14)" \
+  "scripts/lint-no-live-remote-in-tests.sh behavior tests (52/52)" \
   "scripts/lint-no-live-remote-in-tests.sh behavior tests FAILED (run tests/test-lint-no-live-remote.sh for details)"
 
 # BL-051: tests/test-resolve-tools-memoization.sh — proves init.sh's
