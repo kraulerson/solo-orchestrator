@@ -1277,7 +1277,7 @@ EOM
   local wf_maps=0 wf_invokes=0 wf_swallows=0 wf_failfast=1 wf_enforces=1
   local wf_exec="" wf_gate="" wf_dev="" wf_scope="" wf_n_inv=0
   local wf_step_coe="" wf_step_if="" wf_job_coe="" wf_job_if=""
-  local wf_has_step_coe=0 wf_has_step_if=0 wf_bad_key="" wf_unlocated="" wf_k=""
+  local wf_has_step_coe=0 wf_has_step_if=0 wf_unrecognised="" wf_unlocated="" wf_k=""
   local wf_merge="" wf_merge_txt=""
   local wf_folded="" wf_dupkey="" wf_mapscope="" wf_maps_src=""
   local wf_opaque="" wf_opaque_txt=""
@@ -1375,7 +1375,7 @@ EOM
       case "$wf_k" in
         # The documented run-step key set (# D-A-PARITY-3-STEP-KEYSET).
         name|id|if|env|run|shell|working-directory|timeout-minutes|continue-on-error) ;;
-        *) wf_bad_key="$wf_bad_key $wf_k" ;;
+        *) wf_unrecognised="$wf_unrecognised $wf_k" ;;
       esac
     done
     if printf '%s\n' "$wf_scope" | grep -qx 'STEP none'; then wf_unlocated="step"; fi   # D-A-SCOPE-GRAMMAR-STEP-NONE
@@ -1444,7 +1444,7 @@ EOM
     if [ "$wf_has_step_if" -ge 1 ] && [ "$wf_step_if" != "${wf_allow_if#if: }" ]; then
       wf_swallows=1   # D-A-STEP-IF-VERDICT
     fi
-    if [ -n "$wf_bad_key" ]; then
+    if [ -n "$wf_unrecognised" ]; then
       wf_swallows=1   # D-A-STEP-KEY-VERDICT
     fi
     if [ -n "$wf_job_if" ] || { [ -n "$wf_job_coe" ] && [ "$wf_job_coe" != "false" ]; }; then
@@ -1509,8 +1509,8 @@ EOM
     if [ "$wf_has_step_if" -ge 1 ] && [ "$wf_step_if" != "${wf_allow_if#if: }" ]; then
       echo "  - The phase-gate step's condition is 'if: $wf_step_if', which is not the one this framework ships, so the step may be SKIPPED rather than obeyed — and a step that never runs cannot enforce. Use \"$wf_allow_if\", or drop the 'if:' line entirely (a step with no condition always runs)."
     fi
-    if [ -n "$wf_bad_key" ]; then
-      echo "  - The phase-gate step carries a key this check does not recognise:$wf_bad_key. An unrecognised key can change how the step's verdict is graded, so enforcement cannot be claimed. Remove it, or move the gate into a step without it."
+    if [ -n "$wf_unrecognised" ]; then
+      echo "  - The phase-gate step carries a key this check does not recognise:$wf_unrecognised. An unrecognised key can change how the step's verdict is graded, so enforcement cannot be claimed. Remove it, or move the gate into a step without it."
     fi
     if [ -n "$wf_job_if" ]; then
       echo "  - The job that HOLDS the phase-gate step carries 'if: $wf_job_if'. A job that never starts discards the gate's verdict as completely as any step-level swallow. Remove that key from the job."

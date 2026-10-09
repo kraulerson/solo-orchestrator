@@ -629,6 +629,7 @@ jobs:
             tests/test-bl275-selfapproval-remedy.sh
             tests/test-bl287-reconfigure-ci-host.sh
             tests/test-bl288-scout-shallow-history-claim.sh
+            tests/test-bl308-gitleaks-vendored-clean.sh
             tests/test-bl278-sentinel-root.sh
             tests/test-bl280-bug-gate-unmeasured-source.sh
             tests/test-bl261-contributor-sast-live.sh

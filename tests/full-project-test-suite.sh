@@ -1128,6 +1128,12 @@ run_child_suite "tests/test-bl287-reconfigure-ci-host.sh" \
 run_child_suite "tests/test-bl288-scout-shallow-history-claim.sh" \
   "BL-288: a shallow clone must not be reported as a full-history secrets scan" \
   "BL-288 shallow-history-claim tests FAILED (run tests/test-bl288-scout-shallow-history-claim.sh for details)"
+run_child_suite "tests/test-bl308-gitleaks-vendored-clean.sh" \
+  "BL-308: the shipped surface scans clean under the rules a generated project's CI runs, and the scanner is live over it" \
+  "BL-308 vendored-clean tests FAILED (run tests/test-bl308-gitleaks-vendored-clean.sh for details)"
+run_child_suite "tests/test-bl308-gitleaks-generated-project.sh" \
+  "BL-308: a project born from init.sh passes the gitleaks git scan its own ci.yml runs" \
+  "BL-308 generated-project tests FAILED (run tests/test-bl308-gitleaks-generated-project.sh for details)"
 # BL-278: the pending-approval sentinel is read from the repo the commit
 # targets, not only from the session's project directory.
 run_child_suite "tests/test-bl278-sentinel-root.sh" \
