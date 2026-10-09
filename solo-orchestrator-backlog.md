@@ -23488,9 +23488,10 @@ decision.
 Development Guardrails' in a separate CDF session)
 **Category:** Bug (correctness) + Docs
 **Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
-**Status:** Open — S1 done (PR #502, merge `92b485d`); S2 done (PR #503, merge `c324a0d`); S3 done (PR #504, merge
-`69b06a5`); S4 done (PR #506, merge `c125f0f`); S5 built on branch `fix/bl322-s5-hardening` (below), not merged. Stays
-Open until S5 merges
+**Status:** Closed — shipped 2026-10-09 in five groups: S1 (PR #502, merge `92b485d`); S2 (PR #503, merge `c324a0d`);
+S3 (PR #504, merge `69b06a5`); S4 (PR #506, merge `c125f0f`); S5 (PR #507, merge `8dd7fe1`). The residuals below stay
+recorded; two have their own entries: the Claude-commit ledger that is never written (`## BL-324:`) and the unit suites
+that run `upgrade-project.sh` with the real HOME (`## BL-344:`)
 
 **What ran.** The third dogfood run, the one that closed `## BL-318:`. A headless Claude Code session (Sonnet)
 played the same systems technician (not a developer), driven in 14 turns, with a stand-in for Karl answering
@@ -24133,8 +24134,8 @@ M133, M135). Verified by the review on `791ed0d`, not re-run on these changes: m
 - **Two more suites read `~/.claude-dev-framework` and skip on CI**: `tests/test-bl296-adopt-guardrails.sh` G6 (the
   Guardrails' own installer; `commit-hooks`) and `tests/test-bl318-g5-guardrails-refresh.sh` E1 (`CDF_REFRESH_SRC`;
   `mcp`). Neither leg ever had the leftover clone; both could read the fixture.
-- **Other unit suites can still reach the real HOME** (review round 2; recorded here only, for a new backlog entry
-  the supervisor is filing): `tests/test-bl312-tldr-mode.sh` U1 runs `upgrade-project.sh`, whose `# BL-320-UP-PULL`
+- **Other unit suites can still reach the real HOME** (review round 2; its own entry is `## BL-344:`):
+  `tests/test-bl312-tldr-mode.sh` U1 runs `upgrade-project.sh`, whose `# BL-320-UP-PULL`
   runs `git pull --ff-only` in `${CDF_HOME:-$HOME/.claude-dev-framework}` (`# BL-320-UP-CLONE`); run with the real
   HOME during the review, it pulled the real clone. Of the 249 suites in the `tests.yml` unit list, 33 name
   `upgrade-project.sh` on a line that is not a comment and 24 of those set neither `HOME` nor `CDF_HOME` (a grep,
@@ -24148,3 +24149,348 @@ M133, M135). Verified by the review on `791ed0d`, not re-run on these changes: m
   and the step on a runner. Its lines ran here against a local copy of the pin (the URL replaced), and its git
   commands by hand against GitHub (HEAD `4180f22`, 166 commits, not shallow). It is a network fetch on each of
   the ten legs and the four full legs: an unreachable GitHub turns every one of them red.
+
+## BL-323: init.sh's own pre-push review check refuses init.sh's first push, so the new remote is left empty
+
+**Logged:** 2026-10-08 (issue #421, filed by an outside contributor 2026-09-17; route decided by Karl 2026-10-08)
+**Category:** Bug (correctness)
+**Severity:** High — every host's scaffold push fails, and the remedy init prints fails the same way
+**Status:** Open
+
+**What.** `install_precommit_hook` writes `.git/hooks/pre-push` (`# BL-243-HOOK-TEMPLATE`) before the remote
+step pushes the scaffold. A new project has no review record, so `scripts/check-pr-review.sh` refuses the push
+("no review has ever been recorded for this project") and the bare remote keeps zero refs. The push line runs
+`host_push_initial main 2>/dev/null || host_push_initial master`, so the refusal's text is discarded and the
+operator sees the `master` fallback fail for an unrelated reason (no such branch). The same push sits in
+init.sh's bring-your-own-host branch (both attempts silenced) and in `scripts/check-gate.sh --repair`, the
+remedy init prints, which runs after the hook exists and is refused the same way. Measured by the contributor
+at `579b0b0`: `tests/host-drivers/run-all.sh` 11 suites, 3 failed — the `e2e-init*` trio at T1, T2 and T5 —
+and the push lands with the hook moved aside.
+
+**Decision (Karl, 2026-10-08).** The scaffold push uses the attested route `check-pr-review.sh` already has
+(`SOLO_PR_REVIEW_ATTESTED=1` with a fixed `SOLO_PR_REVIEW_ATTESTED_REASON` naming the initial scaffold push,
+which holds no operator code to review), in all three call sites, so each push leaves a dated record. The first
+attempt's error is no longer discarded. Pushing before the hook is installed was considered and rejected: it
+leaves no record and cannot help `check-gate.sh --repair`.
+
+## BL-324: record-claude-commit.sh never records a commit, because Claude Code's Bash result carries no exit code
+
+**Logged:** 2026-10-08 (issue #483, filed 2026-09-30; found independently while building `## BL-322:` S1)
+**Category:** Bug (correctness)
+**Severity:** Medium — every agent commit not covered by a Guardrails approval is recorded as a user-terminal commit
+**Status:** Open
+
+**What.** `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code // 1`
+and exits before writing when the value is not 0. Claude Code's PostToolUse result for Bash has no `exit_code`
+(its keys are `stdout`, `stderr`, `interrupted`, `isImage`, `noOutputExpected`, plus `gitOperation` on a commit),
+so `.claude/claude-commits.jsonl` is never written and `scripts/detect-out-of-band-commits.sh` labels every such
+agent commit `out_of_band_commit`. `tests/test-record-claude-commit.sh` feeds `{"tool_response":{"exit_code":0}}`,
+a shape the host never sends. `## BL-322:` records the same finding from run 3's transcript.
+
+**Direction (from the issue).** PostToolUse fires only after the tool succeeded (a failed call fires
+PostToolUseFailure), so the event itself is the success signal: record on PostToolUse for a `git commit` that was
+not interrupted, keep honouring an explicit non-zero `exit_code` from any host that sends one, and test with the
+real envelope. Still to decide when this is built: whether `.claude/claude-commits.jsonl` is tracked or ignored
+(the Guardrails keep their own `.jsonl` audit logs tracked, and their stop check treats `.jsonl` as data from 4.4.2).
+
+## BL-325: the pending-approval hold stops `git commit` and `gh pr create` only, so other commands still create commits while a decision is pending
+
+**Logged:** 2026-10-08 (issue #470, filed 2026-09-30; decided by Karl 2026-10-08)
+**Category:** Bug (enforcement gap)
+**Severity:** Medium
+**Status:** Open
+
+**What.** `pa_check` in `scripts/pre-commit-gate.sh` holds a Bash call while `.claude/pending-approval.json`
+exists only when `_is_git_commit` or `_is_gh_pr_create` matches. `git merge`, a merging `git pull`,
+`git cherry-pick`, `git revert`, `git rebase --continue`, `git am` and `git -C <dir> commit` pass; the
+contributor's reproduction shows each. No git hook Solo emits reads the question file.
+
+**Decision (Karl, 2026-10-08).** Widen `pa_check` now to every command that creates a commit: `merge`, `pull`
+(unless `--ff-only`), `cherry-pick`, `revert`, `rebase`, `am`, and `commit` behind `-C`/`-c`. The git-hook route,
+which would catch every route including ones a text match cannot see, stays with `## BL-321:` (deferred).
+
+## BL-326: the pull-request check does not recognise `gh pr new` or a pull request opened through the REST API
+
+**Logged:** 2026-10-08 (issues #472 and #485, filed 2026-09-30)
+**Category:** Bug (enforcement gap)
+**Severity:** Medium
+**Status:** Open
+
+**What.** `_is_gh_pr_create` in `scripts/pre-commit-gate.sh` matches the literal `gh pr create`. gh documents
+`gh pr new` as its alias, and `gh api repos/<owner>/<repo>/pulls` with `-X POST` (or with `-f`/`-F` fields, which
+make gh send a POST) also opens a pull request. Neither is classified, so the Build Loop step count, the UAT check
+and the pending-approval hold (`pa_check` uses the same classifier) all let them through.
+
+**Direction.** Accept `(create|new)` and a POST to the pulls endpoint through `gh api`. Residual by design: a
+project script that opens the pull request (`bash scripts/<name>.sh`) is invisible to a check that sees only the
+outer command.
+
+## BL-327: the pull-request check allows a pull request for a Build Loop with 0 of 5 steps recorded
+
+**Logged:** 2026-10-08 (issue #473, filed 2026-09-30)
+**Category:** Bug (enforcement gap)
+**Severity:** Medium
+**Status:** Open
+
+**What.** The pull-request block in `scripts/pre-commit-gate.sh` (after the comment "For PR creation: additional
+checks") refuses only when `BUILD_STEPS_DONE` is greater than 0 and less than 5, so a feature opened with
+`--start-feature` and nothing recorded passes. The commit side (`require_build_loop_state_for_commit`) refuses a
+`feat:` commit at 0 of 5, so the two checks disagree on the same state. Dropping the lower bound makes them agree;
+the feature-present test already exempts the no-loop state.
+
+## BL-328: a UAT session whose steps are recorded without `--start-uat` is invisible to the pull-request and commit checks
+
+**Logged:** 2026-10-08 (issue #474, filed 2026-09-30)
+**Category:** Bug (enforcement gap)
+**Severity:** Medium
+**Status:** Open
+
+**What.** `complete_step` in `scripts/process-checklist.sh` accepts `uat_session` steps when no session was
+started and never sets `uat_session.started_at`; only `start_uat` writes it. The pull-request block in
+`scripts/pre-commit-gate.sh` and the UAT block in `check_commit_ready` both key on `started_at` alone, so a
+session reported as "(3/9)" lets a pull request open and a source commit through.
+
+**Direction.** Either `complete_step` refuses a `uat_session` step while no session is started, or both checks
+treat recorded steps without `gate_passed` as a session in progress.
+
+## BL-329: the Build Loop check matches the `feat` type case-sensitively, so `FEAT:` and `Feat:` commits skip it
+
+**Logged:** 2026-10-08 (issue #476, filed 2026-09-30)
+**Category:** Bug (enforcement gap)
+**Severity:** Medium
+**Status:** Open
+
+**What.** `check_commit_message` in `scripts/process-checklist.sh` tests the subject with
+`^feat(\([^\)]*\))?!?:[[:space:]]`, case-sensitively, and exits 0 for anything else; the second copy of the same
+pattern ("Same feat regex as check_commit_message") does the same. Conventional Commits 1.0.0 item 15 says the
+type must not be treated as case-sensitive. A project whose house style writes `FEAT:` gets no Build Loop
+enforcement and no message saying so.
+
+## BL-330: `process-checklist.sh --verify-init` exits 0 when Phase 2 initialisation is incomplete
+
+**Logged:** 2026-10-08 (issue #466, filed 2026-09-30)
+**Category:** Bug (correctness)
+**Severity:** Medium
+**Status:** Open
+
+**What.** `verify_init` prints `[FAIL]` lines and "Phase 2 initialization incomplete" but has no non-zero exit
+path, so `--verify-init && <next step>` proceeds either way. `--start-phase1`, `--start-phase3` and
+`--start-phase4` exit 1 when they refuse. Expected: exit 1 whenever `phase2_init.verified` is not true at the end,
+output unchanged. `## BL-155:`'s check in `--check-commit-ready` catches the state later, at the first source
+commit.
+
+## BL-331: four evidence steps complete on a file name alone — `handoff_tested`, `integration_testing`, `accessibility_audit`, `performance_audit`
+
+**Logged:** 2026-10-08 (issues #467 and #471, filed 2026-09-30)
+**Category:** Bug (enforcement gap)
+**Severity:** Medium
+**Status:** Open
+
+**What.** In `complete_step` (`scripts/process-checklist.sh`), `phase4_release:handoff_tested` accepts anything
+matching `docs/test-results/*handoff*`, including an empty file from `touch`.
+`phase3_validation:integration_testing` accepts `ls tests/`, which every project reaching Phase 3 has;
+`accessibility_audit` and `performance_audit` accept any `*accessibility*`, `*performance*` or `*lighthouse*` file,
+so one empty `*lighthouse*` file completes both, and a record of a failed audit completes them too. The
+Phase 3 → Phase 4 gate does not re-check these three. Their neighbours `rollback_tested` (`## BL-105:`) and
+`production_build` (`## BL-117:`) already require a non-empty record with a date and an outcome.
+
+**Direction.** The same bar as BL-105 and BL-117 for all four, and a result file rather than the `tests/` folder
+for `integration_testing`.
+
+## BL-332: `--start-feature`'s health-check counter fails open on a value that is not a plain integer
+
+**Logged:** 2026-10-08 (issue #468, filed 2026-09-30)
+**Category:** Bug (enforcement gap)
+**Severity:** Low — the framework's own writers store integers; reaching it needs a hand edit or a damaged file
+**Status:** Open
+
+**What.** `start_feature` reads `features_since_last_health_check` with `jq '… // 0' … || echo "0"` and tests
+`[ "$health_count" -ge 4 ] 2>/dev/null`. A string `"5"` or `4.0` makes the test error, the error is discarded, and
+the Build Loop opens; an unparseable file reads as 0. `scripts/session-test-gate-check.sh` reads the counter the
+same way for its reminder. Expected: refuse, with a message, when the value is not a non-negative integer or the
+file cannot be read.
+
+## BL-333: `upgrade-project.sh --sync-framework` does not refresh `templates/tool-matrix/`, so an existing project keeps its install-time version floors
+
+**Logged:** 2026-10-08 (issue #469, filed 2026-09-30; also a residual on `## BL-235:`)
+**Category:** Bug (correctness)
+**Severity:** Medium
+**Status:** Open
+
+**What.** init.sh copies the tool matrix into every project, and `scripts/check-versions.sh` reads the project's
+copy first. `--sync-framework` refreshes scripts, hooks and the verbatim reference documents but nothing under
+`templates/tool-matrix/`, so a floor raised upstream — for example gitleaks 8.18.0 → 8.19.0, enforced, in
+`7578fb9` — never reaches a project installed before it.
+
+**Direction.** Add the matrix to the sync's shipped set as a verbatim copy with the same drift report the reference
+documents get.
+
+## BL-334: the Phase 1 → Phase 2 protection backstop and `--verify-init` check `main`, not the project's integration branch
+
+**Logged:** 2026-10-08 (issue #486, filed 2026-09-30; decided by Karl 2026-10-08)
+**Category:** Bug (correctness)
+**Severity:** Medium — a protected `main` passes the backstop while an unprotected integration branch goes unchecked
+**Status:** Open
+
+**What.** `verify_init` in `scripts/process-checklist.sh` and the Phase 1 → Phase 2 backstop in
+`scripts/check-phase-gate.sh` call `host_verify_protection "main"`, and the push check (`# BL-084-PUSH-VERIFY`)
+accepts a push only when `main` or `master` exists on the remote. `scripts/pre-commit-gate.sh` already reads
+`.integration_branch` from `.claude/manifest.json` for `## BL-072:`'s branch exemption. `## BL-286:` covers the
+TDD half of the same assumption.
+
+**Decision (Karl, 2026-10-08).** Read `.integration_branch // "main"` in all three places, so today's default holds.
+
+## BL-335: `mcp_requirements.additional_required` is erased at every fresh session, though the MCP notice tells the Orchestrator to set it there
+
+**Logged:** 2026-10-08 (issue #484, filed 2026-09-30; decided by Karl 2026-10-08)
+**Category:** Bug (correctness)
+**Severity:** Medium
+**Status:** Open
+
+**What.** `scripts/session-test-gate-check.sh`'s MCP notice tells the Orchestrator to add a server under
+`mcp_requirements.additional_required` in `.claude/tool-usage.json`, and `scripts/session-mcp-gate.sh` enforces
+that list (`# BL-233-ADDITIONAL-OUTCOME`). The startup path rewrites the file from a heredoc with
+`"additional_required": []` (so does the merge path's jq-failure fallback); only resume, compact and clear keep it.
+An entry added as advised lasts until the next fresh session, then disappears without a message.
+
+**Decision (Karl, 2026-10-08).** Carry `additional_required` across the startup rewrite, as the merge path already
+does. The startup path's reason for not carrying outcome flags (a committed ledger must not pre-satisfy the check in
+a clone's first session) applies to satisfaction, not to the list of requirements.
+
+## BL-336: the bypass detector does not scan text the agent writes with Edit or MultiEdit
+
+**Logged:** 2026-10-08 (issue #479, filed 2026-09-30; decided by Karl 2026-10-08)
+**Category:** Bug (enforcement gap)
+**Severity:** Medium
+**Status:** Open — to land with or after `## BL-277:` (PR #454)
+
+**What.** `scripts/hooks/bypass-detector.sh` reads the text to scan from
+`.tool_response.stdout // .stderr // .output // .content`. A Write result carries `.content`; an Edit result
+carries `filePath`, `oldString`, `newString` and others, none of which is read. The same bypass proposal raises the
+sentinel when written with Write and is silent when written with Edit, which routes round Karl's ruling on #454
+that files the agent writes are still scanned.
+
+**Decision (Karl, 2026-10-08).** Scan `tool_input.new_string` for Edit and each `tool_input.edits[].new_string` for
+MultiEdit, as authored text. Not `originalFile`, which would re-scan text the agent did not write.
+
+## BL-337: adoption never stamps the Currency System's block in `.claude/manifest.json`
+
+**Logged:** 2026-10-08 (issue #464, filed 2026-09-29; decided by Karl 2026-10-08)
+**Category:** Gap (brownfield parity)
+**Severity:** Low — the Currency System has nothing to check in an adopted project
+**Status:** Open
+
+**What.** `soif_currency_stamp` (`scripts/lib/currency-manifest.sh`) has one caller, init.sh
+(`# BL-109-CURRENCY`); adoption never calls it, so an adopted project has `soloFrameworkCommit` but no `currency`
+block. The brownfield design's init-parity table lists it as row 29, unowned. It is not a one-line call: the stamp
+has one call site on purpose ("a birth stamp that acquires a second caller has become a backfill"), and the A1 and
+A2 render bases come from a file only init.sh's render step produces.
+
+**Decision (Karl, 2026-10-08).** Adoption owns the stamp, with the A1 and A2 render-base rows recorded as unknown,
+not empty.
+
+## BL-338: the agent is never told the date — Solo's half: `resume.sh` prints today's date and the days left beside each due date
+
+**Logged:** 2026-10-08 (issue #423, filed 2026-09-17; split by Karl 2026-10-08)
+**Category:** Gap
+**Severity:** Low — a resumed or compacted session can write a stale date into briefs and messages
+**Status:** Open
+
+**What.** Claude Code states the date once at session start, so a session resumed on a later day or compacted
+carries a stale date. `scripts/resume.sh` prints owed write-ups as `<id> — due <due_by>` and never prints today's
+date; `scripts/delta.sh --status` already computes the state and days for the same rows. The contributor's project
+wrote "tomorrow, 18 September" on Thursday 17 September into a brief and a message to the gate approver.
+
+**Solo's half.** `resume.sh` prints today's date and, beside each due date, the days remaining or overdue, computed
+by the script, read through one clock function with a test override (as `soif_freshness_now` does). **The hook
+half** (the time on the Guardrails' per-prompt line and in their `session-start.sh`) belongs to the Development
+Guardrails and was handed to that project on 2026-10-08 as their issue #30
+(https://github.com/kraulerson/claude-dev-framework/issues/30); it shipped in Guardrails 4.4.5 (their PR #32,
+merge `da3b478`), which starts every per-prompt reminder and the session-start output with a `Now:` line.
+Solo's docs can say Guardrails 4.4.5 and later show the date.
+
+## BL-339: a single-maintainer organisation cannot pass the org-mode protection check, which requires one approving review
+
+**Logged:** 2026-10-08 (issue #487, filed 2026-09-30, with a narrowed proposal in its comments; decided by Karl 2026-10-08)
+**Category:** Gap (enforcement)
+**Severity:** Medium
+**Status:** Open — after `## BL-274:` (PR #452) merges
+
+**What.** `host_verify_protection` in `scripts/host-drivers/github.sh` fails org mode when
+`required_approving_review_count` is 0, and both the Phase 1 → Phase 2 backstop and `--verify-init` call it. GitHub
+does not count an author's approval of their own pull request, so a one-person organisation (the BL-274 case) must
+set the count to 0. The backstop already accepts recorded platform limits (`github_free_tier`,
+`gitlab_free_tier_approvals`) but has no reason for this.
+
+**Decision (Karl, 2026-10-08).** Accept a count of 0 only while a recorded BL-274 single-authority attestation
+stands, as a new `branch_protection.reason` tied to it so the two cannot disagree; without the attestation the
+check fails as today, and the other protection checks are unchanged. Not in scope: reading repository rulesets
+(the issue notes a repository protected by rulesets alone reads as unprotected; untested).
+
+## BL-340: with GitHub Issues named as the bug tracker, the Phase 2 → Phase 3 bug gate passes on an empty BUGS.md while GitHub is not counted
+
+**Logged:** 2026-10-08 (issue #488, filed 2026-09-30; decided by Karl 2026-10-08)
+**Category:** Bug (enforcement gap)
+**Severity:** Medium
+**Status:** Open
+
+**What.** `## BL-280:` made `scripts/test-gate.sh` say when GitHub's issues are not counted (no `SEV-1`/`SEV-2`/
+`SEV-3` label exists). When BUGS.md exists, the counts come from it alone, so a header-only BUGS.md gives a clean
+gate with a printed note, while the tracker the intake declared (`bug_tracking_tool`) holds open bugs nobody
+measured.
+
+**Decision (Karl, 2026-10-08).** Refuse: when the declared tracker is GitHub Issues and its severity labels are
+absent, the bug count is not measured, and not measured is not zero (BL-280's own rule). This needs
+`bug_tracking_tool` read by the gate, which nothing reads today.
+
+## BL-341: bind the review record to a reviewer distinct from the author
+
+**Logged:** 2026-10-08 (issue #475, filed 2026-09-30)
+**Category:** Feature (enforcement)
+**Severity:** Low
+**Status:** Won't Fix (2026-10-08, Karl decision). The reviewer's name in the record is written by the same agent that authored the change, so requiring it to differ from `by` adds a step without adding proof. Reopen if a reviewer identity the author cannot write becomes available.
+
+**What was asked.** Ship `.claude/agents/pr-reviewer.md` to projects, make `record-pr-review.sh --reviewer`
+mandatory, and have `scripts/check-pr-review.sh` refuse when `reviewer` is empty or equals `by`.
+
+## BL-342: a severable module that indexes the framework's own documentation for agents working in a project
+
+**Logged:** 2026-10-08 (issue #489, filed 2026-09-30)
+**Category:** Feature
+**Severity:** Low
+**Status:** Won't Fix (2026-10-08, Karl decision). The proposal needs a Python component, against CONTRIBUTING's no-dependencies rule. Reopen on a dependency-free shape.
+
+**What was asked.** A module under `docs/module-contract.md`, run from the framework clone and never shipped, that
+chunks the tracked Markdown of the Solo and Guardrails clones by heading so an agent inside a project can find
+contributor documents (`module-contract.md`, `scout.md`, the backlog) that deliberately stay in the clone.
+
+## BL-343: `tests/test-bl276-stdin-hang.sh` leaves its mutant copies behind when the checkout path contains a space
+
+**Logged:** 2026-10-08 (found building `## BL-322:` S5)
+**Category:** Bug (test hygiene)
+**Severity:** Low — untracked `tests/.bl276-mutant-*.sh` files accumulate in a checkout whose path has a space
+**Status:** Open
+
+**What.** The suite records each mutant's path in a space-separated string (`MUTANTS="$MUTANTS $dst"`) and its
+cleanup runs `for m in $MUTANTS; do rm -f "$m"; done`. Word-splitting cuts a path such as
+`…/Claude Projects/…` in two, so `rm -f` removes nothing and the copies stay. Run from Karl's checkout it left
+`tests/.bl276-mutant-a5.<pid>.sh` and `tests/.bl276-mutant-a6.<pid>.sh` in two worktrees. Fix: keep the paths in
+a newline-separated list or an indexed array and quote the expansion.
+
+## BL-344: unit suites that run `upgrade-project.sh` with the real HOME update the contributor's own Guardrails clone
+
+**Logged:** 2026-10-08 (found by the `## BL-322:` S5 review, round 2)
+**Category:** Bug (test hermeticity)
+**Severity:** Medium — running the unit lane changes the contributor's `~/.claude-dev-framework`, and a later suite or session runs against whatever was pulled
+**Status:** Open
+
+**What.** `tests/test-bl312-tldr-mode.sh` case U1 runs `scripts/upgrade-project.sh`, whose Guardrails pull
+(`# BL-320-UP-PULL`) ran `pull --ff-only` on the real `$HOME/.claude-dev-framework`: during the review, Karl's
+clone moved from `4180f22` to `da3b478` (reflog `2026-10-08 13:41:18 pull --ff-only --quiet: Fast-forward`).
+About 25 unit-lane suites name `upgrade-project.sh` without overriding `HOME` or the Guardrails path (counted by
+the reviewer, not audited). BL-322 S5 isolated only `tests/test-bl141-commitmsg-repair.sh`,
+`tests/test-bl145-hook-symlink-hookspath.sh` and `tests/test-pr-review-gate.sh`.
+
+**Direction.** Audit by execution, not grep (the lesson of `## BL-181:`): run each suite with `HOME` pointing at a
+temp folder holding a stand-in clone, and record which ones reach the network or write under it; give each a temp
+HOME (or the pinned fixture from BL-322 S5); then a check that fails a suite which touches the real HOME.
