@@ -979,6 +979,15 @@ jobs:
             #    `rest`: on run 37676814405 the cap cancelled this leg at 717s,
             #    606s of tests (g4g6 85s) behind a 110s setup, 89s of it the zsh
             #    install step.
+            # ── Two from `adopt-b`, 2026-10-08 (`## BL-322:` S5 review round
+            #    3). On PR #506's run 37783982881 `adopt-b` took 523s and this
+            #    leg 481s (job start to end). That run's bl322-s2 took 102.4s
+            #    there; S5 takes it from 74s to 174s locally, so `adopt-b`
+            #    projects to ~660s with these two (92% of the cap) and ~595s
+            #    (83%) without, and this leg to ~547s (76%). Projections from
+            #    one run, not measurements: re-measure on this PR's run.
+            tests/test-bl322-s1-audit-loop.sh            #  33.8s on PR #506 (adopt-b) — from `adopt-b`
+            tests/test-f015-tamper-pin-allowlist.sh      #  32.4s on PR #506 (adopt-b) — from `adopt-b`
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
@@ -1113,7 +1122,8 @@ jobs:
           # here (282s-390s on these runs, 417s on main run 37653263402).
           #
           # WHAT MOVED. Here: bl322-s3 and wp4-driver from `adopt`, bl322-s2
-          # from `mcp`, bl322-s1 and f015 from `rest`. Elsewhere: wp11 back to
+          # from `mcp`, bl322-s1 and f015 from `rest` (both on to `lint-scan` in
+          # S5 review round 3). Elsewhere: wp11 back to
           # `adopt`, bl200-syntax-detector `lint-sweep` -> `mcp-mutants`,
           # delta-db-ledger-close `rest` -> `mcp`, and bl256 plus two lint
           # suites `rest` -> `slow-misc`. Each lands last in its leg.
@@ -1137,9 +1147,9 @@ jobs:
           pin_adopt_b=(
             tests/test-bl322-s3-ignore-preflight.sh           # 202.4s on PR #504; ~230s on main run 37714043379 (derived — cancelled at case 46 of 47) — from `adopt`
             tests/test-brownfield-wp4-driver.sh               # 128.2s at its slowest of three runs — from `adopt`
-            tests/test-bl322-s2-project-rules.sh              # 113.2s — from `mcp`; ~120s local after S5 review round 1 (74s before it: 48 more mutants, one more adoption); 150s after round 2 (D1, 12 more mutants)
-            tests/test-bl322-s1-audit-loop.sh                 #  38.5s — from `rest`
-            tests/test-f015-tamper-pin-allowlist.sh           #  34.7s — from `rest`
+            tests/test-bl322-s2-project-rules.sh              # 113.2s — from `mcp`; ~120s local after S5 review round 1 (74s before it: 48 more mutants, one more adoption); 150s after round 2 (D1, 12 more mutants); 174s after round 3 (D2, 9 more); 102.4s on PR #506
+            # bl322-s1-audit-loop and f015 WERE HERE until S5 review round 3 and
+            #    are in `pin_lint_scan` (its note says why).
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
