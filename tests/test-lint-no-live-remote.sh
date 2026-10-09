@@ -292,6 +292,20 @@ bash -e -n ./init.sh --non-interactive --project x
 "$BASH" -xn "$INIT" --non-interactive --project x
 bash -D ./init.sh --non-interactive --project x'
 
+# RV-5 respells every optional brace in the lint as `[{]?` / `[}]?` (a
+# backslash before an ordinary character is unspecified in a POSIX ERE).
+# N47 and N48 pin the two braces no earlier case reached: a braced init
+# variable, and a braced $MOCK_DIR as a file's only mock signal. The closing
+# brace of the init variable matters only where the variable is the command
+# word (shape B needs a quote or a space right after it), so N49 runs a
+# braced variable directly.
+assert_interp_pair N47 'bash "${INIT}"'
+assert_interp_pair N49 '"${INIT}"'
+assert_lint_row "N48: PATH=\"\${MOCK_DIR}:…\" alone marks the file mock-driven" 0 "$(printf 'PASS\tmock-cli-on-path')" \
+'#!/usr/bin/env bash
+INIT="$REPO_ROOT/init.sh"
+PATH="${MOCK_DIR}:$PATH" bash "$INIT" --non-interactive --project x --git-host github'
+
 # N14: end-to-end — the REAL repo tree must currently pass clean.
 real_rc=0
 bash "$LINT" >/dev/null 2>&1 || real_rc=$?
