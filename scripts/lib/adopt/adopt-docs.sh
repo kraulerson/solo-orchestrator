@@ -285,13 +285,14 @@ _adopt_claude_md_import_tokens() {
       }
       return k
     }
-    # emit(t, u) — record path t once, in file order (u: unsure), after cutting
-    # its `#…` and keeping it only when Claude Code would; a certain reading of
-    # a path an earlier line left unsure makes it certain.
+    # emit(t, u) — record path t once, in file order (u: 0 certain, 1 unsure, 2
+    # only the whole of a path cut at a closer), after cutting its `#…` and
+    # keeping it only when Claude Code would; a surer reading of a path an
+    # earlier line read less surely wins.
     function emit(t, u,    h) {
       h = index(t, "#"); if (h) t = substr(t, 1, h - 1)   # BL-322-CARRY-FRAGMENT
       if (!(t ~ /^~\// || (substr(t, 1, 1) == "/" && t != "/") || t ~ /^[A-Za-z0-9._-]/)) return   # BL-322-CARRY-PATHCHAR
-      if (!(t in seen)) { seen[t] = u; order[++no] = t } else if (!u) seen[t] = 0   # BL-322-CARRY-ONCE
+      if (!(t in seen)) { seen[t] = u; order[++no] = t } else if (u < seen[t]) seen[t] = u   # BL-322-CARRY-ONCE
     }
     # guess(t, d, L) — where in path t emphasis a run of L of d opened, or link
     # text (d is "]"), most likely ends when the line does not say for certain:
@@ -303,6 +304,19 @@ _adopt_claude_md_import_tokens() {
         if (substr(t, i, 1) != d) continue
         a = i; while (i < n && substr(t, i + 1, 1) == d) i++
         if (i - a + 1 >= L && (d != "_" || substr(t, i + 1, 1) !~ /[A-Za-z0-9]/)) return a   # BL-322-CARRY-GUESS
+      }
+      return 0
+    }
+    # linkguess(t) — where link text the @ opened most likely ends in path t
+    # when the line does not show the link real: at its first `]` that no `[`
+    # in the path opened, since a path may hold brackets (`app/[locale]/x.md`,
+    # review R-S5-10); 0 for none.
+    function linkguess(t,    i, n, c, dp) {
+      n = length(t); dp = 0
+      for (i = 1; i <= n; i++) {
+        c = substr(t, i, 1)
+        if (c == "[") dp++   # BL-322-CARRY-LINKGUESS
+        else if (c == "]") { if (!dp) return i; dp-- }   # BL-322-CARRY-LINKGUESS-DEPTH
       }
       return 0
     }
@@ -429,18 +443,19 @@ _adopt_claude_md_import_tokens() {
         # closer, and the import is unsure (R-S5-2). After a space, at a closer
         # of something opened earlier on the line.
         if (kind == 2) { m = emclose(line, at + 1, pc, L); if (!m) { u = 1; m = guess(tok, pc, L); m = m ? at + m : k } }   # BL-322-CARRY-CLOSES
-        else if (kind == 3) { m = linkclose(line, at + 1); if (!m) { u = 1; m = guess(tok, "]", 1); m = m ? at + m : k } }   # BL-322-CARRY-LINKCLOSES
+        else if (kind == 3) { m = linkclose(line, at + 1); if (!m) { u = 1; m = linkguess(tok); m = m ? at + m : k } }   # BL-322-CARRY-LINKCLOSES
         else { m = tokcut(line, at, tok, k); if (m < 0) { u = 1; m = -m } }
         whole = tok
         if (m < k) tok = substr(tok, 1, m - at - 1)
         emit(tok, u)
-        # A plain path cut at a closer is ALSO carried whole, as unsure: the
+        # A plain path cut at a closer is ALSO read whole, flagged `whole`: the
         # whole path is what was carried before S5, and a closer read wrongly
-        # must never lose a real import (review round 2, R-S5-7).
-        if (kind == 1 && m < k) emit(whole, 1)   # BL-322-CARRY-KEEPWHOLE
+        # must never lose a real import (review round 2, R-S5-7). The carry
+        # treats it as unsure, and drops it when it names no file (round 3).
+        if (kind == 1 && m < k) emit(whole, 2)   # BL-322-CARRY-KEEPWHOLE
       }
     }
-    END { for (i = 1; i <= no; i++) print order[i] (seen[order[i]] ? "\tunsure" : "") }   # BL-322-CARRY-UNSURE-OUT
+    END { for (i = 1; i <= no; i++) print order[i] (seen[order[i]] == 2 ? "\twhole" : seen[order[i]] ? "\tunsure" : "") }   # BL-322-CARRY-UNSURE-OUT
     ' "$1"
 }
 
@@ -517,6 +532,12 @@ _adopt_claude_md_carry() {                             # BL-322-CARRY
       elif _adopt_carry_hit "$arch" "$root" "$norm"; then reason=archived   # BL-322-CARRY-ARCHIVED
       elif _adopt_carry_hit "$written" "$root" "$norm"; then reason=written   # BL-322-CARRY-WRITTEN
       fi
+    fi
+    # Only the whole of a cut path (R-S5-7): unsure, and not named at all when it
+    # names no file, which is what it usually does (review round 3).
+    if [ "$flag" = whole ]; then
+      [ "$reason" = missing ] && continue   # BL-322-CARRY-WHOLE-MISSING
+      flag=unsure   # BL-322-CARRY-WHOLE-UNSURE
     fi
     if [ -n "$reason" ]; then rows="${rows}skip	$tok	$reason${flag:+	$flag}$nl"; continue; fi   # BL-322-CARRY-SKIP-UNSURE
     out="$(printf '%s' "$norm" | sed 's/ /\\ /g')"   # BL-322-CARRY-NORMWRITE
@@ -674,9 +695,9 @@ REFS
     for rel in $replaced; do adopt_say "     $rel"; done
     adopt_note "Your originals are in ${ADOPT_ARCHIVE_DIR:-the adoption archive}, each with a restore line in its"
     if [ "${ADOPT_CLAUDE_MD_REPLACED:-0}" = 1 ] && grep -qE '^(carry|unsure)' <<< "$carry"; then   # BL-322-CARRY-MERGED
-      adopt_note "MANIFEST.md. Apart from your CLAUDE.md's imports (below), nothing in them was merged into"
-      adopt_note "the new files — copy across anything you want to keep, or leave it for the assessment"
-      adopt_note "conversation to fold in."
+      adopt_note "MANIFEST.md. Apart from the @ lines carried over from your CLAUDE.md (below), nothing in"
+      adopt_note "them was merged into the new files — copy across anything you want to keep, or leave it"
+      adopt_note "for the assessment conversation to fold in."
     else
       adopt_note "MANIFEST.md. Nothing in them was merged into the new files — copy across anything you"
       adopt_note "want to keep, or leave it for the assessment conversation to fold in."
@@ -717,7 +738,7 @@ REFS
       adopt_note "These @ mentions in it were NOT carried, and its Markdown does not show for certain"
       adopt_note "that they are imports at all:"
       printf '%s\n' "$carry" | while IFS="$(printf '\t')" read -r why tok rel fl; do
-        [ "$why" = skip ] && [ "$fl" = unsure ] && adopt_say "     @$tok — $(_adopt_carry_reason "$rel")"
+        [ "$why" = skip ] && [ "$fl" = unsure ] && adopt_say "     @$tok — $(_adopt_carry_reason "$rel")"   # BL-322-CARRY-SKIP-UNSURE-SAY-ROW
       done
     fi
   fi
