@@ -233,12 +233,64 @@ INIT="$REPO_ROOT/init.sh"
 cp ./init.sh "$T/init.sh"'
 
 # N34: a syntax check through the variable stays ignored, as `bash -n` does
-# in N10 — a flag between the interpreter and the init token is not a run.
+# in N10 — `-n` reads init.sh without running it.
 assert_lint_row "N34: \"\$BASH\" -n of init.sh is not a run" 0 "" \
 '#!/usr/bin/env bash
 INIT="$REPO_ROOT/init.sh"
 "$BASH" -n "$INIT"
 "$SHELL" -n ./init.sh'
+
+# ── BL-346 review round 1 ────────────────────────────────────────────────
+# RV-1: the left boundary of `# BL-346-INTERP-NAME` is a negated class, so
+# every character it admits is an atom a one-character edit can drop, and
+# N15–N31 all start at column 0 — they pin only `^`, space and `/`. Excluding
+# `(` from the class kept this suite at 52/0 and the live tree at rc 0 while
+# it hid the six `e*=$(bash "$REPO_DIR/init.sh"` runs in
+# tests/edge-cases-pre-init.sh. One pair per character a run is realistically
+# written right behind: `(` and `'` (live-tree rows sit behind both), a
+# backtick, a double quote and a tab.
+# assert_boundary_pair ID LABEL LEFT RIGHT — the run is `bash ./init.sh …`,
+# written as LEFT<run>RIGHT.
+assert_boundary_pair() {
+  local id="$1" label="$2" left="$3" right="$4"
+  local run='bash ./init.sh --non-interactive --project x --git-host github'
+  assert_lint_row "$id: $label + --no-remote-creation is seen and hermetic" 0 "$ROW_HERMETIC" \
+"#!/usr/bin/env bash
+${left}${run} --no-remote-creation --project-dir /tmp/p${right}"
+  assert_lint_row "$id: $label with the guard deleted is flagged" 1 "$ROW_LIVE" \
+"#!/usr/bin/env bash
+${left}${run} --project-dir /tmp/p${right}"
+}
+
+assert_boundary_pair N35 'OUT=$(bash ./init.sh …)' 'OUT=$(' ' 2>&1)'
+assert_boundary_pair N36 "sh -c 'bash ./init.sh …'" "sh -c '" "'"
+assert_boundary_pair N37 'OUT=`bash ./init.sh …`' 'OUT=`' '`'
+assert_boundary_pair N38 'sh -c "bash ./init.sh …"' 'sh -c "' '"'
+assert_boundary_pair N39 'a TAB-indented bash ./init.sh' "$(printf '\t')" ''
+
+# RV-3: option flags between the interpreter and init.sh. Before round 1 any
+# flag hid the run (`bash -e ./init.sh` got no row) so that `bash -n` stays a
+# syntax check. Now a flag cluster counts unless it carries `n` (no
+# execution) — and `-D`, which implies `-n`, is not admitted at all. `-o`/`-O`
+# and a cluster ending in them take the next word; `--` ends the options.
+assert_interp_pair N40 'bash -e ./init.sh'
+assert_interp_pair N41 'bash -eu "$INIT"'
+assert_interp_pair N42 '"$BASH" -e -o pipefail ./init.sh'
+assert_interp_pair N43 'bash -euo pipefail ./init.sh'
+assert_interp_pair N44 'bash -O inherit_errexit "$INIT"'
+assert_interp_pair N45 'bash -- ./init.sh'
+
+# N46: `-n` anywhere in a cluster, a later `-n`, and `-D` (which implies -n)
+# are syntax checks, not runs. No line carries a guard, so any one of them
+# read as a run turns this case red.
+assert_lint_row "N46: -n in any cluster or position, and -D, are not runs" 0 "" \
+'#!/usr/bin/env bash
+INIT="$REPO_ROOT/init.sh"
+bash -en ./init.sh --non-interactive --project x
+bash -ne "$INIT" --non-interactive --project x
+bash -e -n ./init.sh --non-interactive --project x
+"$BASH" -xn "$INIT" --non-interactive --project x
+bash -D ./init.sh --non-interactive --project x'
 
 # N14: end-to-end — the REAL repo tree must currently pass clean.
 real_rc=0
