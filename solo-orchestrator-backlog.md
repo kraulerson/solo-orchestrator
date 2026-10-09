@@ -23488,7 +23488,7 @@ decision.
 Development Guardrails' in a separate CDF session)
 **Category:** Bug (correctness) + Docs
 **Severity:** Medium — every stage passed; one defect writes a wrong audit record after every approved commit
-**Status:** Closed — shipped 2026-10-09 in five groups: S1 (PR #502, merge `92b485d`); S2 (PR #503, merge `c324a0d`);
+**Status:** Closed — shipped in five groups, the last merged 2026-10-09 03:44 UTC (2026-10-08 evening, Karl's time): S1 (PR #502, merge `92b485d`); S2 (PR #503, merge `c324a0d`);
 S3 (PR #504, merge `69b06a5`); S4 (PR #506, merge `c125f0f`); S5 (PR #507, merge `8dd7fe1`). The residuals below stay
 recorded; two have their own entries: the Claude-commit ledger that is never written (`## BL-324:`) and the unit suites
 that run `upgrade-project.sh` with the real HOME (`## BL-344:`)
@@ -23957,7 +23957,7 @@ empty HOME they skip (122/0/2 and 2/0/4, against 124/0/0 and 6/0/0 on PR #504's 
 clone, or either suite moving off `rest`, costs those cases while the lane stays green. The `pin_adopt_b`
 note in `.github/workflows/tests.yml` records the leg half of this. **Fixed by S5** (below).
 
-**S5, as built (branch `fix/bl322-s5-hardening`).**
+**S5, as built (PR #507, merge `8dd7fe1`).**
 - **The import reading, R-S2-12 and review round 1's R-S5-2** (`scripts/lib/adopt/adopt-docs.sh`). Carry on
   doubt, named (the supervisor's call within Karl's S2 ruling, after round 1 measured the strict rule built
   first: 0 false carries but 24 of 66 realistic imports missed, against 9 at base, and a run that then said
@@ -24196,7 +24196,7 @@ real envelope. Still to decide when this is built: whether `.claude/claude-commi
 ## BL-325: the pending-approval hold stops `git commit` and `gh pr create` only, so other commands still create commits while a decision is pending
 
 **Logged:** 2026-10-08 (issue #470, filed 2026-09-30; decided by Karl 2026-10-08)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Medium
 **Status:** Open
 
@@ -24206,13 +24206,18 @@ exists only when `_is_git_commit` or `_is_gh_pr_create` matches. `git merge`, a 
 contributor's reproduction shows each. No git hook Solo emits reads the question file.
 
 **Decision (Karl, 2026-10-08).** Widen `pa_check` now to every command that creates a commit: `merge`, `pull`
-(unless `--ff-only`), `cherry-pick`, `revert`, `rebase`, `am`, and `commit` behind `-C`/`-c`. The git-hook route,
-which would catch every route including ones a text match cannot see, stays with `## BL-321:` (deferred).
+(unless `--ff-only`), `cherry-pick`, `revert`, `rebase`, `am`, and `commit` behind `-C`/`-c`.
+
+**Not a git-hook fix.** No single git hook sees every one of these (measured on git 2.54.0 by the review of this
+entry): `cherry-pick`, `revert` and `rebase` fire neither `pre-commit` nor `commit-msg` (only `prepare-commit-msg`),
+`am` fires only `applypatch-msg` and `pre-applypatch`, and `commit-tree` plus `update-ref` fires none. `## BL-321:`
+(deferred) is a `pre-commit` tree comparison that does not read `.claude/pending-approval.json`, so as scoped it
+covers none of these commands.
 
 ## BL-326: the pull-request check does not recognise `gh pr new` or a pull request opened through the REST API
 
 **Logged:** 2026-10-08 (issues #472 and #485, filed 2026-09-30)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Medium
 **Status:** Open
 
@@ -24221,14 +24226,14 @@ which would catch every route including ones a text match cannot see, stays with
 make gh send a POST) also opens a pull request. Neither is classified, so the Build Loop step count, the UAT check
 and the pending-approval hold (`pa_check` uses the same classifier) all let them through.
 
-**Direction.** Accept `(create|new)` and a POST to the pulls endpoint through `gh api`. Residual by design: a
-project script that opens the pull request (`bash scripts/<name>.sh`) is invisible to a check that sees only the
-outer command.
+**Direction.** Accept `(create|new)` and a POST to the pulls endpoint through `gh api`. Not covered by this direction,
+and not decided: a project script that opens the pull request (`bash scripts/<name>.sh`), which a check that sees
+only the outer command cannot see (#485 discusses options).
 
 ## BL-327: the pull-request check allows a pull request for a Build Loop with 0 of 5 steps recorded
 
 **Logged:** 2026-10-08 (issue #473, filed 2026-09-30)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Medium
 **Status:** Open
 
@@ -24241,7 +24246,7 @@ the feature-present test already exempts the no-loop state.
 ## BL-328: a UAT session whose steps are recorded without `--start-uat` is invisible to the pull-request and commit checks
 
 **Logged:** 2026-10-08 (issue #474, filed 2026-09-30)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Medium
 **Status:** Open
 
@@ -24256,7 +24261,7 @@ treat recorded steps without `gate_passed` as a session in progress.
 ## BL-329: the Build Loop check matches the `feat` type case-sensitively, so `FEAT:` and `Feat:` commits skip it
 
 **Logged:** 2026-10-08 (issue #476, filed 2026-09-30)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Medium
 **Status:** Open
 
@@ -24279,10 +24284,13 @@ path, so `--verify-init && <next step>` proceeds either way. `--start-phase1`, `
 output unchanged. `## BL-155:`'s check in `--check-commit-ready` catches the state later, at the first source
 commit.
 
+**Also in #466, not decided.** Marking every `phase2_init` step by hand sets `verified`, because `complete_step` has
+no evidence arm for those steps.
+
 ## BL-331: four evidence steps complete on a file name alone — `handoff_tested`, `integration_testing`, `accessibility_audit`, `performance_audit`
 
 **Logged:** 2026-10-08 (issues #467 and #471, filed 2026-09-30)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Medium
 **Status:** Open
 
@@ -24290,17 +24298,20 @@ commit.
 matching `docs/test-results/*handoff*`, including an empty file from `touch`.
 `phase3_validation:integration_testing` accepts `ls tests/`, which every project reaching Phase 3 has;
 `accessibility_audit` and `performance_audit` accept any `*accessibility*`, `*performance*` or `*lighthouse*` file,
-so one empty `*lighthouse*` file completes both, and a record of a failed audit completes them too. The
-Phase 3 → Phase 4 gate does not re-check these three. Their neighbours `rollback_tested` (`## BL-105:`) and
-`production_build` (`## BL-117:`) already require a non-empty record with a date and an outcome.
+so one empty `*lighthouse*` file completes both. The Phase 3 → Phase 4 gate does not re-check these three. Their
+neighbours `rollback_tested` (`## BL-105:`) and `production_build` (`## BL-117:`) already require a non-empty record
+with a date and an outcome (a recorded failure counts as an outcome there).
 
 **Direction.** The same bar as BL-105 and BL-117 for all four, and a result file rather than the `tests/` folder
-for `integration_testing`.
+for `integration_testing`. Whether a recorded failure should still complete an audit step is not decided.
+
+**Also in #471's comment, not decided.** The Phase 3 → Phase 4 gate's `docs/test-results/` arm passes on a
+zero-byte file.
 
 ## BL-332: `--start-feature`'s health-check counter fails open on a value that is not a plain integer
 
 **Logged:** 2026-10-08 (issue #468, filed 2026-09-30)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Low — the framework's own writers store integers; reaching it needs a hand edit or a damaged file
 **Status:** Open
 
@@ -24338,7 +24349,10 @@ accepts a push only when `main` or `master` exists on the remote. `scripts/pre-c
 `.integration_branch` from `.claude/manifest.json` for `## BL-072:`'s branch exemption. `## BL-286:` covers the
 TDD half of the same assumption.
 
-**Decision (Karl, 2026-10-08).** Read `.integration_branch // "main"` in all three places, so today's default holds.
+**Decision (Karl, 2026-10-08).** Read `.integration_branch // "main"` in all three places, keeping today's behaviour
+when the key is absent. At the push check that means keeping its `master` fallback (today it loops over `main` and
+`master`): nothing writes `.integration_branch`, and init.sh falls back to pushing `master`, so `// "main"` alone
+there would drop a case that passes today.
 
 ## BL-335: `mcp_requirements.additional_required` is erased at every fresh session, though the MCP notice tells the Orchestrator to set it there
 
@@ -24360,7 +24374,7 @@ a clone's first session) applies to satisfaction, not to the list of requirement
 ## BL-336: the bypass detector does not scan text the agent writes with Edit or MultiEdit
 
 **Logged:** 2026-10-08 (issue #479, filed 2026-09-30; decided by Karl 2026-10-08)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Medium
 **Status:** Open — to land with or after `## BL-277:` (PR #454)
 
@@ -24371,7 +24385,9 @@ sentinel when written with Write and is silent when written with Edit, which rou
 that files the agent writes are still scanned.
 
 **Decision (Karl, 2026-10-08).** Scan `tool_input.new_string` for Edit and each `tool_input.edits[].new_string` for
-MultiEdit, as authored text. Not `originalFile`, which would re-scan text the agent did not write.
+MultiEdit, as authored text. Not `originalFile`, which would re-scan text the agent did not write. PR #454 narrows
+the hook's registration to `Bash|Write`; if it lands as is, the registration must also gain `Edit|MultiEdit`, or this
+decision does nothing.
 
 ## BL-337: adoption never stamps the Currency System's block in `.claude/manifest.json`
 
@@ -24406,7 +24422,8 @@ by the script, read through one clock function with a test override (as `soif_fr
 half** (the time on the Guardrails' per-prompt line and in their `session-start.sh`) belongs to the Development
 Guardrails and was handed to that project on 2026-10-08 as their issue #30
 (https://github.com/kraulerson/claude-dev-framework/issues/30); it shipped in Guardrails 4.4.5 (their PR #32,
-merge `da3b478`), which starts every per-prompt reminder and the session-start output with a `Now:` line.
+merge `da3b478`), which starts every per-prompt reminder with a `Now:` line and prints the same line in its
+session-start output, after the directive.
 Solo's docs can say Guardrails 4.4.5 and later show the date.
 
 ## BL-339: a single-maintainer organisation cannot pass the org-mode protection check, which requires one approving review
@@ -24424,13 +24441,15 @@ set the count to 0. The backstop already accepts recorded platform limits (`gith
 
 **Decision (Karl, 2026-10-08).** Accept a count of 0 only while a recorded BL-274 single-authority attestation
 stands, as a new `branch_protection.reason` tied to it so the two cannot disagree; without the attestation the
-check fails as today, and the other protection checks are unchanged. Not in scope: reading repository rulesets
-(the issue notes a repository protected by rulesets alone reads as unprotected; untested).
+check fails as today, and the other protection checks are unchanged.
+
+**Not decided.** Reading repository rulesets: the issue notes, untested, that `host_verify_protection` reads classic
+branch protection only, so a repository protected by rulesets alone would read as unprotected.
 
 ## BL-340: with GitHub Issues named as the bug tracker, the Phase 2 → Phase 3 bug gate passes on an empty BUGS.md while GitHub is not counted
 
 **Logged:** 2026-10-08 (issue #488, filed 2026-09-30; decided by Karl 2026-10-08)
-**Category:** Bug (enforcement gap)
+**Category:** Bug (enforcement)
 **Severity:** Medium
 **Status:** Open
 
@@ -24453,16 +24472,22 @@ absent, the bug count is not measured, and not measured is not zero (BL-280's ow
 **What was asked.** Ship `.claude/agents/pr-reviewer.md` to projects, make `record-pr-review.sh --reviewer`
 mandatory, and have `scripts/check-pr-review.sh` refuse when `reviewer` is empty or equals `by`.
 
+**Not decided.** The first part of the ask, shipping `.claude/agents/pr-reviewer.md`: Karl's decision covered the
+reviewer-identity check. Today `scripts/check-pr-review.sh` tells the user to "dispatch the pr-reviewer" agent, and
+init.sh does not ship it, so a generated project is pointed at an agent it does not have.
+
 ## BL-342: a severable module that indexes the framework's own documentation for agents working in a project
 
 **Logged:** 2026-10-08 (issue #489, filed 2026-09-30)
 **Category:** Feature
 **Severity:** Low
-**Status:** Won't Fix (2026-10-08, Karl decision). The proposal needs a Python component, against CONTRIBUTING's no-dependencies rule. Reopen on a dependency-free shape.
+**Status:** Won't Fix (2026-10-08, Karl decision). Agents can already search the clones, and the contributor's project has added a rule telling agents to read the clones first (the issue notes a rule is easy to miss); Karl judged that enough against the upkeep a module adds.
 
 **What was asked.** A module under `docs/module-contract.md`, run from the framework clone and never shipped, that
 chunks the tracked Markdown of the Solo and Guardrails clones by heading so an agent inside a project can find
-contributor documents (`module-contract.md`, `scout.md`, the backlog) that deliberately stay in the clone.
+contributor documents (`module-contract.md`, `scout.md`, the backlog) that deliberately stay in the clone. The index
+itself is bash 3.2 and `jq` only; an optional sink that writes it into a vector store needs Python (FastEmbed), and
+the issue offered to ship the index without it.
 
 ## BL-343: `tests/test-bl276-stdin-hang.sh` leaves its mutant copies behind when the checkout path contains a space
 
@@ -24474,7 +24499,8 @@ contributor documents (`module-contract.md`, `scout.md`, the backlog) that delib
 **What.** The suite records each mutant's path in a space-separated string (`MUTANTS="$MUTANTS $dst"`) and its
 cleanup runs `for m in $MUTANTS; do rm -f "$m"; done`. Word-splitting cuts a path such as
 `…/Claude Projects/…` in two, so `rm -f` removes nothing and the copies stay. Run from Karl's checkout it left
-`tests/.bl276-mutant-a5.<pid>.sh` and `tests/.bl276-mutant-a6.<pid>.sh` in two worktrees. Fix: keep the paths in
+`tests/.bl276-mutant-a5.<pid>.sh` and `tests/.bl276-mutant-a6.<pid>.sh` files in three worktrees (10 files, counted
+2026-10-09). Fix: keep the paths in
 a newline-separated list or an indexed array and quote the expansion.
 
 ## BL-344: unit suites that run `upgrade-project.sh` with the real HOME update the contributor's own Guardrails clone
@@ -24487,8 +24513,8 @@ a newline-separated list or an indexed array and quote the expansion.
 **What.** `tests/test-bl312-tldr-mode.sh` case U1 runs `scripts/upgrade-project.sh`, whose Guardrails pull
 (`# BL-320-UP-PULL`) ran `pull --ff-only` on the real `$HOME/.claude-dev-framework`: during the review, Karl's
 clone moved from `4180f22` to `da3b478` (reflog `2026-10-08 13:41:18 pull --ff-only --quiet: Fast-forward`).
-About 25 unit-lane suites name `upgrade-project.sh` without overriding `HOME` or the Guardrails path (counted by
-the reviewer, not audited). BL-322 S5 isolated only `tests/test-bl141-commitmsg-repair.sh`,
+Of the 249 suites in the unit list, 33 name `upgrade-project.sh` on a non-comment line and 24 of those set neither
+`HOME` nor `CDF_HOME` (a grep, 2026-10-08; naming a script is not proof a suite runs it). BL-322 S5 isolated only `tests/test-bl141-commitmsg-repair.sh`,
 `tests/test-bl145-hook-symlink-hookspath.sh` and `tests/test-pr-review-gate.sh`.
 
 **Direction.** Audit by execution, not grep (the lesson of `## BL-181:`): run each suite with `HOME` pointing at a
