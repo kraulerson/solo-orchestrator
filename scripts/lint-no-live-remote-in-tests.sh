@@ -111,9 +111,14 @@ collect_init_vars() {
 # in genuine command position, not merely appear as substring text inside
 # a reporter string (echo/section/pass/fail_ "...init.sh --non-interactive...")
 # or a static grep/awk/`bash -n` of the init.sh SOURCE. Two shapes:
-#   A) `bash <init-token>`      — bash directly governs an init path/var
-#                                 (flags between → e.g. `bash -n "$INIT"`
-#                                 syntax check → NOT an exec).
+#   A) `<interpreter> <init-token>` — an interpreter word directly governs
+#      an init path/var (flags between → e.g. `bash -n "$INIT"` syntax
+#      check → NOT an exec). The interpreter word is either a shell NAME,
+#      `bash` or `sh` (`/bin/bash`, `/usr/bin/env bash`, `command bash` and
+#      `exec bash` reach it through the left boundary), or the shell-path
+#      VARIABLE `$BASH` / `$SHELL`, bare, braced or quoted. Before BL-346
+#      only the literal name `bash` counted, so a suite running
+#      `"$BASH" ./init.sh` with no --no-remote-creation passed this lint.
 #   B) `<init-var>` as a command word — at line start or after
 #      ( ; & | && / a `cd .. &&` / `env ... ` prefix, then the init var
 #      followed by whitespace (its first flag).
@@ -121,8 +126,17 @@ collect_init_vars() {
 line_is_init_exec() {
   local buf="$1" var_alt="$2"
   local token="(\\\$\{?(${var_alt})\}?|[^\"'\''[:space:];&|]*/init\.sh)"
-  # A: bash directly followed by an init token (no intervening flags).
-  if printf '%s' "$buf" | grep -Eq "(^|[^A-Za-z0-9_])bash[[:space:]]+\"?${token}"; then
+  # BL-346-INTERP-NAME: a shell name. The left boundary excludes `.` so the
+  # `sh` ending a FILENAME (`cp ./init.sh "$T/init.sh"`) is never read as
+  # the interpreter `sh`.
+  local interp_name='(^|[^A-Za-z0-9_.])(bash|sh)'
+  # BL-346-INTERP-VAR: the shell-path variable — `"$BASH"`, `"${BASH}"`,
+  # `$BASH`, `$SHELL`. The `$` anchors it on the left; `$BASH_SOURCE` fails
+  # at the `_`.
+  local interp_var='\$\{?(BASH|SHELL)\}?"?'
+  # A: an interpreter word directly followed by an init token (no
+  # intervening flags).
+  if printf '%s' "$buf" | grep -Eq "(${interp_name}|${interp_var})[[:space:]]+\"?${token}"; then
     return 0
   fi
   # B: init var/path used as a command word.
