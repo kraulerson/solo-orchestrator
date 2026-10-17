@@ -9765,7 +9765,10 @@ should have prevented
 **Severity:** Real, not cosmetic. The failure direction is safe (nothing leaks,
 git names the culprit) but the adoptee is left half-written with no way back
 except by hand.
-**Status:** Open
+**Status:** Closed — both halves shipped: the staging preflight (PR #368, merge `896d07f`, 2026-09-01)
+and the before-any-write preflight (PR #410, merge `ed85024`, 2026-09-14). The residuals below stay
+recorded and are not closed by this; residual (0), a `.claude` symlinked outside the repository, has no
+entry of its own and is also carried on `## BL-318:` as the `# BL-242-PARENT-LINK` gap.
 
 **BOTH HALVES NOW BUILT (2026-09-12, branch `fix/bl225-prewrite-preflight`) — the
 before-any-write half is below, after the staging half it completes.**
@@ -9916,7 +9919,7 @@ nor sha256sum is available" when the real cause is a MISSING INPUT (the kept sca
 report). Both tools exist; the message misattributes itself, and it is the
 message a rehearsal failure surfaces first.
 
-**The staging half, shipped 2026-08-31:** What shipped: a preflight in
+**The staging half, shipped 2026-09-01 (PR #368):** What shipped: a preflight in
 `adopt_stage_and_commit` (`# BL-225-STAGE-PREFLIGHT`) that asks
 `git add --dry-run` before it stages and stops WHOLE, so the index is never
 half-written; an honest refusal (`# BL-225-REFUSE-HONEST`) that derives the
@@ -12819,6 +12822,12 @@ piped value can be LARGE, which is where the race lives.
 **`tests/test-bl168-tm-table-sigpipe.sh` already exists**, so this repo has met
 SIGPIPE before on a different surface. Whatever lint comes out of this should
 account for that entry rather than duplicate it.
+
+**Progress (2026-10-16).** `tests/test-bl318-g4g6.sh` converted (PR #510, merge `cb4ec41`), after it
+flaked on the new `approval` unit-shard leg. The PR changed 21 lines and replaced 22 pipes with
+here-strings: 21 that fed a `grep -q` (16 from `printf`, 2 from `section`, and one each from `tr`,
+`grep -A3` and `grep -F`) plus the `printf | grep -F` nested inside one of them. One `printf … | grep`
+remains in the suite, inside a `$(…)` that feeds `cut`. The repo-wide sweep is still not done.
 
 ### The trap this entry set for itself, recorded because it cost a CI cycle
 
@@ -18045,7 +18054,8 @@ a hoist is not taken).
 
 ## BL-277: the bypass detector's PostToolUse arm scans text whose authorship it has not established, records it as `actor: "claude"`, and raises a BLOCKING sentinel on it — so reading the framework's own rules reports the agent for proposing a bypass
 
-**Status:** Open — **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
+**Status:** Open — #454 merged (`08e940f`); stays Open for residual 5: adoption keeps the detector off until it
+registers it (Karl, 2026-10-17: turn it on; follow-up PR). **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
 contributor who filed this (also issue #385, which proposed scanning `tool_input`) is invited to build it;
 adversarial review before merge, as every PR. Built in PR #454, to that decision and to the ruling
 below, including both of its requests; see "Build note" at the end of this entry for what changed, the
@@ -18667,7 +18677,8 @@ did not earn).
 
 ## BL-282: the wizard offers no route to correct a recorded answer once its section is complete — `--resume` skips the section, and `reconfigure-project.sh --field` covers seven fields of the 122 the wizard records
 
-**Status:** Open — reproduction and fix in the pull request that files this entry. **DECIDED 2026-09-17 (Karl), on issue #418: option 2 below — a generic setter on the
+**Status:** Closed — shipped 2026-10-16 (PR #453, merge `7de2a91`, with `## BL-301:`):
+`intake-wizard.sh --set-answer`, below. **DECIDED 2026-09-17 (Karl), on issue #418: option 2 below — a generic setter on the
 wizard — widened to accept any key already present in the progress file's `answers` (adoption-recorded
 keys included, the amendment noting so) while keeping the refusal for keys that exist nowhere; and, on the
 adoption side, the driver records A7 rows under the wizard's own keys wherever one exists (ADOPT-002-ARCH
@@ -18864,8 +18875,8 @@ each lands on its own branch.
 
 ## BL-301: adoption records intake rows under keys the wizard never asks, so `--set-answer` refuses the very rows adoption wrote — ten of Scout's fifteen prefill fields, including a `test_command` carrying a transcription slip
 
-**Status:** Open — reproduction and fix in the pull request that files this entry: the wizard half of
-the maintainer's decision on #418.
+**Status:** Closed — shipped 2026-10-16 (PR #453, merge `7de2a91`, with `## BL-282:`): the wizard half of
+the maintainer's decision on #418 — `--set-answer` accepts adoption-recorded keys.
 The adoption-driver half is ADOPT-002-ARCH v2.2's, and nothing here builds, stubs or tests it.
 
 **The decision, quoted from #418 (maintainer, 2026-09-17):** *"Decided: option 3. For projects
@@ -21798,9 +21809,10 @@ judgement explicitly undecided).
 
 ## BL-274: an organizational deployment requires a second technologist, so a company with ONE technical authority could not satisfy the tier — decided: it may, on a recorded attestation that says the pre-condition is still unmet
 
-**Status:** Open — decided on issue #404 (2026-09-17). The mechanism below implements the decision.
-The open half is the taxonomy text: `docs/governance-framework.md` §X and §XIV item 5 still say
-"mandatory", and whether they should name this route is the maintainer's call.
+**Status:** Closed — shipped 2026-10-16 (PR #452, merge `b9ce2bf`): the mechanism below, as decided on
+issue #404 (2026-09-17). The taxonomy text, left open by the merge, was ruled by Karl on 2026-10-17:
+`docs/governance-framework.md` §X and §XIV item 5 now say the backup-maintainer requirement holds unless a
+single-authority attestation is recorded, and that the gate prints the pre-condition REMAINS UNMET.
 
 **The decision, verbatim (issue #404, 2026-09-17):** *"the taxonomy is not intended as an absolute. A
 single-technical-authority company may run at the `organizational` tier with the recorded attestation
@@ -22690,7 +22702,8 @@ for the 4.0 trap: **assign at the declaration**, applied to code you are already
 
 ## BL-308: every project born from init.sh fails its first pull request at the generated CI's gitleaks step — a vendored `scripts/check-gate.sh` declaration reads as a generic API key
 
-**Status:** Open — reproduction and fix in the pull request that files this entry.
+**Status:** Closed — shipped 2026-10-16 (PR #478, merge `789d8cb`): the vendored `scripts/check-gate.sh`
+declaration renamed (`wf_bad_key` → `wf_unrecognised`), pinned by the two suites named below.
 
 **Found:** 2026-09-22, on the first pull request of an organizational project generated from `main`
 at `f8841de`: the `Security - Secret detection (gitleaks)` step of the
@@ -22803,6 +22816,9 @@ in a saved report and is the wider net, so the fingerprint is preferred.)
   generated project starts with a fresh one.
 - Projects generated before this fix keep the finding in their init commit; the migration above is
   the route.
+- **R-478-1** (merge review). E1 in `tests/test-bl308-gitleaks-vendored-clean.sh` attributes ANY
+  child-run failure to an exported gitleaks config: a planted defect in `check-phase-gate.sh` reports
+  G1 and a misattributed E1. Fix later: E1 asserts only C1/C2/C4/C5, or says "the child run failed:".
 
 **Related:** `## BL-151:` (why the generated CI runs the gitleaks CLI over full history),
 `## BL-288:` (the gitleaks-absent posture the suites adopt), `## BL-147:` (the CI template
@@ -22947,8 +22963,12 @@ adoption replaces them (`## BL-242:`, "Karl's ruling on hook managers").
 
 ## BL-311: brownfield dogfood run 1 (k-pdf, 2026-09-27) — nine things a regular user should never hit
 
-**Status:** Open — Karl approved fixing every row (2026-09-28), then a FULL CLEAN RERUN. Each row closes
-by its own PR; the entry closes when the rerun passes.
+**Status:** Closed — 2026-10-07, on the clean rerun. Karl approved fixing every row (2026-09-28), then a
+FULL CLEAN RERUN; the entry closes when the rerun passes. All nine rows merged (PRs #477 `891d10d`,
+#490 `3e737f6`, #491 `a8f64f4`, #492 `34dae11`, #493 `646bb0b`; Progress below). Dogfood run 2
+(2026-10-03) found rows 1–5 and 7–9 behaving as built and row 6 inconclusive (the auto-mode refusal did
+not occur), but its Stage 4 failed; its findings became `## BL-318:`. Run 3 (2026-10-07) passed and closed
+`## BL-318:`; its findings, `## BL-322:`, are Closed (last merge 2026-10-09).
 
 **Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). Group B (rows 2 and 8)
 merged as PR #490 (merge commit `3e737f6`, 2026-09-30). Group C (rows 4 and 5) merged as PR #491
@@ -23191,8 +23211,10 @@ mode: …". Residuals, not fixed:
 
 ## BL-312: an opt-in "TL;DR mode" for the person the agent works for — greenfield and brownfield
 
-**Status:** Open — **DECIDED 2026-09-28 (Karl).** Build after `## BL-311:`'s nine fixes and BEFORE the
-clean dogfood rerun, so the technician persona tests it.
+**Status:** Closed — shipped 2026-10-02 (PR #495, merge `a07d707`). **DECIDED 2026-09-28 (Karl).** Build
+after `## BL-311:`'s nine fixes and BEFORE the clean dogfood rerun, so the technician persona tests it.
+Dogfood run 2 (`## BL-318:`) saw the nudge never fire, likely confounded by the test account's own TL;DR
+preference. Run 3 (2026-10-07) had `tldr_mode` on, and its transcript shows no nudge either.
 
 **What it is.** The reply format Karl works with, offered to every project's user as a choice, because
 it is most useful to a non-developer: every reply the agent gives ends with exactly one plain-English
@@ -23318,7 +23340,8 @@ re-prompting forever on a reply it cannot parse); and how it coexists with the G
 
 ## BL-313: the generated GitHub CI is red on every pull request before Phase 2 — `actions/setup-node` with `cache: 'npm'` fails "Dependencies lock file is not found" on a tree that has no `package.json` yet, and every language template has the same shape
 
-**Status:** Open — reproduction and fix in the pull request that files this entry.
+**Status:** Closed — shipped 2026-10-16 (PR #480, merge `b494dbc`): every GitHub CI language template
+guards its setup on its manifest (`# BL-313-MANIFEST-GUARD`); the other hosts are the residual below.
 
 **Found:** 2026-09-22, on the first pull requests of an organisational project born from `init.sh` at
 `f8841de` — the intake, the manifesto, the pre-Phase-0 precondition rows. Every one carried a red
@@ -24197,7 +24220,7 @@ entry whose matcher a release changed, the deny rules (4.4.0's four new ones, an
 **Logged:** 2026-10-06 (Karl's go, before the third dogfood run)
 **Category:** Bug (correctness) + Feature
 **Severity:** High — with Guardrails 4.4.0 on CDF `main`, a project whose Solo scripts predate this entry cannot get a commit approved by the user's reply
-**Status:** Open — built on branch `feat/bl320-approval-schema2`, awaiting review and a PR
+**Status:** Closed — shipped 2026-10-06 (PR #501, merge `5f13470`); dogfood run 3 ran on that merge
 
 **What changed upstream.** Development Guardrails (CDF) 4.4.0 (`aba947b`, CDF PR #26) approves an agent's
 commit only when the USER answers a question recorded in `.claude/pending-approval.json` with an option id,
@@ -25307,7 +25330,7 @@ a clone's first session) applies to satisfaction, not to the list of requirement
 **Logged:** 2026-10-08 (issue #479, filed 2026-09-30; decided by Karl 2026-10-08)
 **Category:** Bug (enforcement)
 **Severity:** Medium
-**Status:** Open — to land with or after `## BL-277:` (PR #454)
+**Status:** Closed — shipped 2026-10-17 with `## BL-277:` (PR #454, merge `08e940f`)
 
 **What.** `scripts/hooks/bypass-detector.sh` reads the text to scan from
 `.tool_response.stdout // .stderr // .output // .content`. A Write result carries `.content`; an Edit result
@@ -25374,7 +25397,7 @@ Solo's docs can say Guardrails 4.4.5 and later show the date.
 **Logged:** 2026-10-08 (issue #487, filed 2026-09-30, with a narrowed proposal in its comments; decided by Karl 2026-10-08)
 **Category:** Gap (enforcement)
 **Severity:** Medium
-**Status:** Open — after `## BL-274:` (PR #452) merges
+**Status:** Open — buildable: `## BL-274:` merged 2026-10-16 (PR #452, merge `b9ce2bf`)
 
 **What.** `host_verify_protection` in `scripts/host-drivers/github.sh` fails org mode when
 `required_approving_review_count` is 0, and both the Phase 1 → Phase 2 backstop and `--verify-init` call it. GitHub
@@ -25385,6 +25408,14 @@ set the count to 0. The backstop already accepts recorded platform limits (`gith
 **Decision (Karl, 2026-10-08).** Accept a count of 0 only while a recorded BL-274 single-authority attestation
 stands, as a new `branch_protection.reason` tied to it so the two cannot disagree; without the attestation the
 check fails as today, and the other protection checks are unchanged.
+
+**From #452's final review, for whoever builds this.** Nothing "stands" in #452's mechanism: the
+single-authority attestation is written only inside the self-approval arm (`# BL-274-ATTEST-WRITE`).
+The recorder reads that gate's `reason` and `head` back only to skip an identical rewrite (its idempotence
+check); nothing reads the record to decide a gate, and nothing expires it. The protection backstop in `scripts/check-phase-gate.sh` runs before
+`validate_approval_fields "Phase 1.*Phase 2"`, and `--verify-init` lives in `scripts/process-checklist.sh`.
+So this must key on the `SOLO_SINGLE_AUTHORITY_ATTESTED` env pair on that same run (one predicate shared
+by both callers), or add a record both can read.
 
 **Not decided.** Reading repository rulesets: the issue notes, untested, that `host_verify_protection` reads classic
 branch protection only, so a repository protected by rulesets alone would read as unprotected.
@@ -25482,7 +25513,7 @@ message to name a review the project can actually run.
 **Logged:** 2026-10-09 (found reviewing contributor PR #478)
 **Category:** Lint precision / silent-success defect class (the `## BL-076:` hermeticity check)
 **Severity:** High — `no-live-remote-in-tests-lint` is a required check (confirmed in branch protection, 2026-10-09) and the check that stops a suite creating a real repo (the 2026-07-06 leak); a run it cannot see is not checked at all. No suite on main uses a missed spelling (the `--list` comparison below), so nothing on main was exposed.
-**Status:** Open — fixed on branch `fix/bl346-live-remote-lint-bash-var`, not merged
+**Status:** Closed — shipped 2026-10-09 (PR #509, merge `0225a0f`)
 
 **What.** `line_is_init_exec` in `scripts/lint-no-live-remote-in-tests.sh` counted an init token as executed in
 two shapes only: in command position (line start, after `( ; & |`, or behind an `env …` prefix), or right after the
@@ -25639,7 +25670,8 @@ seven open PRs either). R-346-6 is on main.
 
 ## BL-315: two bypass patterns match text that names a flag, an identifier or a step (#465)
 
-**Status:** Open — reproduction and fix in the pull request that files this entry.
+**Status:** Closed — shipped 2026-10-16 (PR #482, merge `1163a9c`): both patterns narrowed to proposals in
+`scripts/lib/bypass-patterns.sh` (`# BL-315-TERMINAL-WORDS`).
 
 **What happens.** `terminal_workaround` was `(run|do|execute) [^.]*(terminal|shell)`: any sentence with
 the word "run" and, later, the letters "terminal" or "shell" matched, including a test helper called
@@ -25752,10 +25784,17 @@ audit log.
   "check off"), and a `jq` one-liner writing "complete": 10 of the review's 20 proposals. No transcript
   line in the corpus has any of these shapes, on main or here. The passive with a marking verb
   ("tests_verified_failing can be marked complete") is caught by the third alternative.
+- **R-482-4** (merge review). Three mutants of `fake_loop`'s verb-after alternative survive, the suite
+  staying 31/0 under each: drop the `-ed` ending (loses "tests_verified_failing can be marked complete");
+  keep only "mark" (loses set, record, flag and tick); require a word between the step and the verb
+  (loses "tests_verified_failing marked complete"; "…can be marked complete" still matches). Fix later:
+  T30 rows 'tests_verified_failing can be marked complete', 'tests_verified_failing marked complete', and
+  '…: set|record|flag|tick it complete'.
 
 ## BL-314: concurrent writers of the tool-usage ledger share one temp name, land a 0-byte ledger, and the MCP session gate then refuses every Write and Edit
 
-**Status:** Open — reproduction and fix in the pull request that files this entry.
+**Status:** Closed — shipped 2026-10-17 (PR #481, merge `766cc4d`): all three writers go through one
+locked, unique-temp writer, `scripts/lib/ledger-write.sh`.
 `tests/test-bl314-tool-usage-concurrent.sh` and T5d in `tests/test-session-test-gate-check-merge.sh`
 pin it; the cases are named below.
 
@@ -25947,3 +25986,109 @@ after proving its location: one end-of-line site of the marker, and a diff of ex
 **Related:** `## BL-233:` (the outcome ledger this writes, and the no-requirements seed rule),
 `## BL-236:` (the ledger's untracked status).
 
+## BL-347: `tests/test-bl311-d-relayed-escape.sh` R6 checks nothing — its pipeline takes the `while` loop's status
+
+**Logged:** 2026-10-17 (found by PR #452's final review)
+**Category:** Silent-success (test)
+**Severity:** Low — R6 guards a design note (the two relay exclusions have no reason variable), not a product path
+**Status:** Open
+
+**What.** Under the suite's own `set -uo pipefail`, R6 asks
+`if _readers … | while IFS= read -r f; do grep -lE "${base}(_ATTESTED)?_REASON" "$f" 2>/dev/null; done | grep -q .; then`.
+With pipefail the pipeline's status is the last non-zero one, and the `while` loop returns the status of its
+last `grep -lE` — 1 whenever the last reader file does not match. So the `if` is false even when an earlier file
+matches: R6 can go red only when the very last reader file names a reason variable, and passes over one anywhere
+else.
+
+**Direction.** Capture, then test: `hits=$(… | while …; done)`, then `[ -n "$hits" ]`; and a mutant that plants a
+`*_REASON` reader to show R6 can go red.
+
+## BL-348: `--verify-init`'s `project_scaffolded` looks for a lockfile at the repository root only, and does not know `uv.lock`
+
+**Logged:** 2026-10-17 (reported by the pantheon-harness session, 2026-10-16)
+**Category:** Bug (enforcement — a false failure)
+**Severity:** Medium — a correctly scaffolded project cannot auto-verify the step
+**Status:** Open
+
+**What.** `verify_init` in `scripts/process-checklist.sh` checks
+`for lf in "${lockfiles[@]}"; do if [ -f "$lf" ]` from the repository root, so a project whose service lives in a
+subdirectory (pantheon-harness: `services/control-plane/package-lock.json`) prints `project_scaffolded — no
+lockfile found`. The list (`package-lock.json yarn.lock pnpm-lock.yaml Pipfile.lock poetry.lock Cargo.lock go.sum
+pubspec.lock Package.resolved gradle.lockfile packages.lock.json`) has no `uv.lock`, so a uv-only Python project
+fails too. Karl ruled in the pantheon-harness session that a service-directory lockfile counts.
+
+**Direction.** Search one or two levels below the root (skipping `node_modules`, `.git` and vendored trees), or
+honour a configured project root; add `uv.lock`. A suite with a nested-lockfile fixture and a uv-only fixture.
+
+## BL-349: an older project's `branch_protection_configured` fails "host dispatcher or manifest missing" — not a defect: one `--sync-framework` ships `scripts/lib/host.sh`
+
+**Logged:** 2026-10-17 (reported by the pantheon-harness session, 2026-10-16)
+**Category:** Question (answered by measurement)
+**Severity:** Low
+**Status:** Closed — answered 2026-10-17 by measurement on `main` at `766cc4d`; no change needed
+
+**What was reported.** `verify_init` in `scripts/process-checklist.sh` needs `scripts/lib/host.sh` and
+`.claude/manifest.json`, or it prints `branch_protection_configured — host dispatcher or manifest missing`.
+pantheon-harness (at its own commit `52d6003`, 2026-08-19 — not a Solo or Guardrails commit; frameworkVersion
+4.2.5 is the Guardrails version) has no `host.sh`, and
+`scripts/upgrade-project.sh` names `host.sh` nowhere.
+
+**Measured.** `host.sh` was created in `0cb6035` (2026-04-22), but init.sh began copying it into projects only in
+`44b3d13` (2026-06-26) — so projects generated before that lack it. `upgrade-project.sh` does not need to name it:
+`soif_parse_shipped_scripts` derives the shipped set from init.sh's `cp` lines and lists `scripts/lib/host.sh`,
+`scripts/lib/host-errors.sh` and the three `scripts/host-drivers/*.sh` (77 entries). `--sync-framework` copies
+that set, missing files included (`_bl099_sync_scripts`, called at `# BL-099-SYNC`), and adoption installs the same
+set (`adopt_install_framework`). On a scratch project with none of the five files, `--sync-framework --dry-run`
+printed `[would sync] scripts/lib/host.sh (missing)` and the four siblings; the real run printed
+`[OK]   synced scripts/lib/host.sh` (rc 0) and the file was byte-identical to the framework's.
+
+**Answer.** A project generated before `44b3d13` needs one `bash scripts/upgrade-project.sh --sync-framework`.
+pantheon-harness is one: it was initialized 2026-06-13 (`dca4a0d`, "chore: initialize Solo Orchestrator
+project"), before `44b3d13`.
+
+## BL-350: unit-shard leg balance — `adopt` and `slow-misc` sit near the 720s cap after the eleventh leg
+
+**Logged:** 2026-10-17
+**Category:** CI headroom
+**Severity:** Low — green today; the next slow suite on either leg reds it
+**Status:** Open
+
+**What.** On `main` run 39003021516 (push of `08e940f`, after the eleventh leg, PR #510), `unit-shard (adopt)`
+took 640s and `unit-shard (slow-misc)` 620s of the 720s cap (`timeout-minutes: 12`); `approval` took 265s.
+Direction: move a measured long pole off each (the `pin_adopt` / `pin_adopt_b` notes in `tests.yml`), or add a leg.
+
+## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
+
+**Logged:** 2026-10-17 (carried from two Closed entries that listed it: `## BL-225:` residual (0) and `## BL-318:`'s
+residuals, as the `# BL-242-PARENT-LINK` gap)
+**Category:** Bug (correctness — writes outside the project)
+**Severity:** Medium — needs an unusual layout, but the writes land outside the project while the refusal says nothing
+was written
+**Status:** Open
+
+**What.** With an untracked `.claude` that is a symlink to an absolute path outside the repository, adoption writes
+through the link: `## BL-225:` measured seven files written there while the refusal correctly reported the repository
+untouched; `## BL-318:`'s review measured the pre-write rehearsal writing 9 entries outside on its round-1 tip and 8 on
+`a07d707`, then printing "Nothing was committed and nothing was written." `## BL-310:` row 4 tracks the wider
+symlink-follow class, partly guarded since.
+
+**Direction.** Refuse before the first write (rehearsal included) when `.claude` or any planned parent resolves outside
+the repository, and say so; a suite with an outside-pointing `.claude` link asserting nothing lands outside.
+
+## BL-352: the generated GitLab and Bitbucket CI fail before Phase 2 the way GitHub's did (`## BL-313:`'s other hosts)
+
+**Logged:** 2026-10-17 (the residual `## BL-313:` recorded when it closed with PR #480)
+**Category:** Bug (generated CI)
+**Severity:** Medium — every pull request before Phase 2 carries a red check the operator can do nothing about
+**Status:** Open
+
+**What.** `## BL-313:` guarded only `templates/pipelines/ci/github/*.yml`. The GitLab and Bitbucket templates still run
+each language's install or build unguarded: `npm ci` (typescript), `dotnet restore` (csharp), `go vet ./...` (go),
+`cargo fmt`/`clippy`/`test` (rust), `swift build`/`swift test` (swift), `mvn -B test` (java), `gradle test`
+(kotlin), `dart pub get` (dart). On a tree with no manifest yet they fail. The
+python templates swallow a missing `requirements.txt` with `pip install -r requirements.txt 2>/dev/null || true`, so
+that step passes silently; what their bare `pytest` does on a tree with no tests was not measured.
+
+**Direction.** As `## BL-313:` recorded: on GitLab, job-level `rules: - exists:` (which drops the job and prints no
+notice, so pair it with a visible notice); on Bitbucket, a shell test at the top of each `script`. Each needs its own
+mirror-mutant suite (`## BL-254:`'s shape).
