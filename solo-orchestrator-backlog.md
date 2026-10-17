@@ -9919,7 +9919,7 @@ nor sha256sum is available" when the real cause is a MISSING INPUT (the kept sca
 report). Both tools exist; the message misattributes itself, and it is the
 message a rehearsal failure surfaces first.
 
-**The staging half, shipped 2026-08-31:** What shipped: a preflight in
+**The staging half, shipped 2026-09-01 (PR #368):** What shipped: a preflight in
 `adopt_stage_and_commit` (`# BL-225-STAGE-PREFLIGHT`) that asks
 `git add --dry-run` before it stages and stops WHOLE, so the index is never
 half-written; an honest refusal (`# BL-225-REFUSE-HONEST`) that derives the
@@ -12823,9 +12823,11 @@ piped value can be LARGE, which is where the race lives.
 SIGPIPE before on a different surface. Whatever lint comes out of this should
 account for that entry rather than duplicate it.
 
-**Progress (2026-10-16).** `tests/test-bl318-g4g6.sh` converted: 21 `printf … | grep` pipes to
-here-strings (PR #510, merge `cb4ec41`), after it flaked on the new `approval` unit-shard leg. The
-repo-wide sweep is still not done.
+**Progress (2026-10-16).** `tests/test-bl318-g4g6.sh` converted (PR #510, merge `cb4ec41`), after it
+flaked on the new `approval` unit-shard leg. The PR changed 21 lines and replaced 22 pipes with
+here-strings: 21 that fed a `grep -q` (16 from `printf`, 2 from `section`, and one each from `tr`,
+`grep -A3` and `grep -F`) plus the `printf | grep -F` nested inside one of them. One `printf … | grep`
+remains in the suite, inside a `$(…)` that feeds `cut`. The repo-wide sweep is still not done.
 
 ### The trap this entry set for itself, recorded because it cost a CI cycle
 
@@ -18052,7 +18054,8 @@ a hoist is not taken).
 
 ## BL-277: the bypass detector's PostToolUse arm scans text whose authorship it has not established, records it as `actor: "claude"`, and raises a BLOCKING sentinel on it — so reading the framework's own rules reports the agent for proposing a bypass
 
-**Status:** Closed — shipped 2026-10-17 (PR #454, merge `08e940f`, with `## BL-336:`). **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
+**Status:** Open — #454 merged (`08e940f`); stays Open for residual 5: adoption keeps the detector off until it
+registers it (Karl, 2026-10-17: turn it on; follow-up PR). **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
 contributor who filed this (also issue #385, which proposed scanning `tool_input`) is invited to build it;
 adversarial review before merge, as every PR. Built in PR #454, to that decision and to the ruling
 below, including both of its requests; see "Build note" at the end of this entry for what changed, the
@@ -22962,8 +22965,8 @@ adoption replaces them (`## BL-242:`, "Karl's ruling on hook managers").
 **Status:** Closed — 2026-10-07, on the clean rerun. Karl approved fixing every row (2026-09-28), then a
 FULL CLEAN RERUN; the entry closes when the rerun passes. All nine rows merged (PRs #477 `891d10d`,
 #490 `3e737f6`, #491 `a8f64f4`, #492 `34dae11`, #493 `646bb0b`; Progress below). Dogfood run 2
-(2026-10-03, `## BL-318:`) found rows 1–5 and 7–9 behaving as built and row 6 inconclusive (the auto-mode
-refusal did not occur); its own findings went to `## BL-318:`. Run 3 (2026-10-07) passed and closed
+(2026-10-03) found rows 1–5 and 7–9 behaving as built and row 6 inconclusive (the auto-mode refusal did
+not occur), but its Stage 4 failed; its findings became `## BL-318:`. Run 3 (2026-10-07) passed and closed
 `## BL-318:`; its findings, `## BL-322:`, are Closed (last merge 2026-10-09).
 
 **Progress.** Group A (rows 1 and 9) merged as PR #477 (`891d10d`, 2026-09-30). Group B (rows 2 and 8)
@@ -23210,7 +23213,7 @@ mode: …". Residuals, not fixed:
 **Status:** Closed — shipped 2026-10-02 (PR #495, merge `a07d707`). **DECIDED 2026-09-28 (Karl).** Build
 after `## BL-311:`'s nine fixes and BEFORE the clean dogfood rerun, so the technician persona tests it.
 Dogfood run 2 (`## BL-318:`) saw the nudge never fire, likely confounded by the test account's own TL;DR
-preference; no run has measured it since.
+preference. Run 3 (2026-10-07) had `tldr_mode` on, and its transcript shows no nudge either.
 
 **What it is.** The reply format Karl works with, offered to every project's user as a choice, because
 it is most useful to a non-developer: every reply the agent gives ends with exactly one plain-English
@@ -25406,8 +25409,9 @@ stands, as a new `branch_protection.reason` tied to it so the two cannot disagre
 check fails as today, and the other protection checks are unchanged.
 
 **From #452's final review, for whoever builds this.** Nothing "stands" in #452's mechanism: the
-single-authority attestation is written only inside the self-approval arm (`# BL-274-ATTEST-WRITE`),
-never read back and never expired. The protection backstop in `scripts/check-phase-gate.sh` runs before
+single-authority attestation is written only inside the self-approval arm (`# BL-274-ATTEST-WRITE`).
+The recorder reads that gate's `reason` and `head` back only to skip an identical rewrite (its idempotence
+check); nothing reads the record to decide a gate, and nothing expires it. The protection backstop in `scripts/check-phase-gate.sh` runs before
 `validate_approval_fields "Phase 1.*Phase 2"`, and `--verify-init` lives in `scripts/process-checklist.sh`.
 So this must key on the `SOLO_SINGLE_AUTHORITY_ATTESTED` env pair on that same run (one predicate shared
 by both callers), or add a record both can read.
@@ -25779,10 +25783,12 @@ audit log.
   "check off"), and a `jq` one-liner writing "complete": 10 of the review's 20 proposals. No transcript
   line in the corpus has any of these shapes, on main or here. The passive with a marking verb
   ("tests_verified_failing can be marked complete") is caught by the third alternative.
-- **R-482-4** (merge review). Three mutants of `fake_loop`'s verb-after alternative survive: drop the
-  `-ed` ending; keep only "mark"; require a word between the step and the verb (losing "…can be marked
-  complete"). Fix later: T30 rows 'tests_verified_failing can be marked complete', 'tests_verified_failing
-  marked complete', and '…: set|record|flag|tick it complete'.
+- **R-482-4** (merge review). Three mutants of `fake_loop`'s verb-after alternative survive, the suite
+  staying 31/0 under each: drop the `-ed` ending (loses "tests_verified_failing can be marked complete");
+  keep only "mark" (loses set, record, flag and tick); require a word between the step and the verb
+  (loses "tests_verified_failing marked complete"; "…can be marked complete" still matches). Fix later:
+  T30 rows 'tests_verified_failing can be marked complete', 'tests_verified_failing marked complete', and
+  '…: set|record|flag|tick it complete'.
 
 ## BL-314: concurrent writers of the tool-usage ledger share one temp name, land a 0-byte ledger, and the MCP session gate then refuses every Write and Edit
 
@@ -25987,7 +25993,7 @@ after proving its location: one end-of-line site of the marker, and a diff of ex
 **Status:** Open
 
 **What.** Under the suite's own `set -uo pipefail`, R6 asks
-`if _readers … | while IFS= read -r f; do grep -lE "${base}(_ATTESTED)?_REASON" "$f"; done | grep -q .; then`.
+`if _readers … | while IFS= read -r f; do grep -lE "${base}(_ATTESTED)?_REASON" "$f" 2>/dev/null; done | grep -q .; then`.
 With pipefail the pipeline's status is the last non-zero one, and the `while` loop returns the status of its
 last `grep -lE` — 1 whenever the last reader file does not match. So the `if` is false even when an earlier file
 matches: R6 can go red only when the very last reader file names a reason variable, and passes over one anywhere
@@ -26022,8 +26028,8 @@ honour a configured project root; add `uv.lock`. A suite with a nested-lockfile 
 
 **What was reported.** `verify_init` in `scripts/process-checklist.sh` needs `scripts/lib/host.sh` and
 `.claude/manifest.json`, or it prints `branch_protection_configured — host dispatcher or manifest missing`.
-pantheon-harness's vendored framework copy (reported as `52d6003`, frameworkVersion 4.2.5 — that SHA resolves in
-neither this repository nor the Guardrails clone, and 4.2.5 is a Guardrails version) has no `host.sh`, and
+pantheon-harness (at its own commit `52d6003`, 2026-08-19 — not a Solo or Guardrails commit; frameworkVersion
+4.2.5 is the Guardrails version) has no `host.sh`, and
 `scripts/upgrade-project.sh` names `host.sh` nowhere.
 
 **Measured.** `host.sh` was created in `0cb6035` (2026-04-22), but init.sh began copying it into projects only in
@@ -26036,6 +26042,8 @@ printed `[would sync] scripts/lib/host.sh (missing)` and the four siblings; the 
 `[OK]   synced scripts/lib/host.sh` (rc 0) and the file was byte-identical to the framework's.
 
 **Answer.** A project generated before `44b3d13` needs one `bash scripts/upgrade-project.sh --sync-framework`.
+pantheon-harness is one: it was initialized 2026-06-13 (`dca4a0d`, "chore: initialize Solo Orchestrator
+project"), before `44b3d13`.
 
 ## BL-350: unit-shard leg balance — `adopt` and `slow-misc` sit near the 720s cap after the eleventh leg
 
@@ -26047,3 +26055,38 @@ printed `[would sync] scripts/lib/host.sh (missing)` and the four siblings; the 
 **What.** On `main` run 39003021516 (push of `08e940f`, after the eleventh leg, PR #510), `unit-shard (adopt)`
 took 640s and `unit-shard (slow-misc)` 620s of the 720s cap (`timeout-minutes: 12`); `approval` took 265s.
 Direction: move a measured long pole off each (the `pin_adopt` / `pin_adopt_b` notes in `tests.yml`), or add a leg.
+
+## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
+
+**Logged:** 2026-10-17 (carried from two Closed entries that listed it: `## BL-225:` residual (0) and `## BL-318:`'s
+residuals, as the `# BL-242-PARENT-LINK` gap)
+**Category:** Bug (correctness — writes outside the project)
+**Severity:** Medium — needs an unusual layout, but the writes land outside the project while the refusal says nothing
+was written
+**Status:** Open
+
+**What.** With an untracked `.claude` that is a symlink to an absolute path outside the repository, adoption writes
+through the link: `## BL-225:` measured seven files written there while the refusal correctly reported the repository
+untouched; `## BL-318:`'s review measured the pre-write rehearsal writing 9 entries outside on its round-1 tip and 8 on
+`a07d707`, then printing "Nothing was committed and nothing was written." `## BL-310:` row 4 tracks the wider
+symlink-follow class, partly guarded since.
+
+**Direction.** Refuse before the first write (rehearsal included) when `.claude` or any planned parent resolves outside
+the repository, and say so; a suite with an outside-pointing `.claude` link asserting nothing lands outside.
+
+## BL-352: the generated GitLab and Bitbucket CI fail before Phase 2 the way GitHub's did (`## BL-313:`'s other hosts)
+
+**Logged:** 2026-10-17 (the residual `## BL-313:` recorded when it closed with PR #480)
+**Category:** Bug (generated CI)
+**Severity:** Medium — every pull request before Phase 2 carries a red check the operator can do nothing about
+**Status:** Open
+
+**What.** `## BL-313:` guarded only `templates/pipelines/ci/github/*.yml`. The GitLab and Bitbucket templates still run
+each language's install or build unguarded: `npm ci` (typescript), `dotnet restore` (csharp), `go vet ./...` (go),
+`cargo fmt`/`clippy`/`test` (rust), `swift build`/`swift test` (swift). On a tree with no manifest yet they fail. The
+python templates swallow a missing `requirements.txt` with `pip install -r requirements.txt 2>/dev/null || true`, so
+that step passes silently; what their bare `pytest` does on a tree with no tests was not measured.
+
+**Direction.** As `## BL-313:` recorded: on GitLab, job-level `rules: - exists:` (which drops the job and prints no
+notice, so pair it with a visible notice); on Bitbucket, a shell test at the top of each `script`. Each needs its own
+mirror-mutant suite (`## BL-254:`'s shape).
