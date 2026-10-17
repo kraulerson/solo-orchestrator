@@ -21810,8 +21810,9 @@ judgement explicitly undecided).
 ## BL-274: an organizational deployment requires a second technologist, so a company with ONE technical authority could not satisfy the tier — decided: it may, on a recorded attestation that says the pre-condition is still unmet
 
 **Status:** Closed — shipped 2026-10-16 (PR #452, merge `b9ce2bf`): the mechanism below, as decided on
-issue #404 (2026-09-17). Not changed by the merge, and still the maintainer's call: the taxonomy text: `docs/governance-framework.md` §X and §XIV item 5 still say
-"mandatory", and whether they should name this route is the maintainer's call.
+issue #404 (2026-09-17). The taxonomy text, left open by the merge, was ruled by Karl on 2026-10-17:
+`docs/governance-framework.md` §X and §XIV item 5 now say the backup-maintainer requirement holds unless a
+single-authority attestation is recorded, and that the gate prints the pre-condition REMAINS UNMET.
 
 **The decision, verbatim (issue #404, 2026-09-17):** *"the taxonomy is not intended as an absolute. A
 single-technical-authority company may run at the `organizational` tier with the recorded attestation

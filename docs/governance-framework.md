@@ -642,15 +642,17 @@ If a Claude (or alternative) update significantly degrades code quality for a sp
 
 The bus factor for a solo-maintained application is 1. Documentation does not change this — it reduces recovery time when the Orchestrator is unavailable, but does not answer pages, restore services, or triage defects.
 
-### Backup Maintainer (Mandatory)
+### Backup Maintainer (Required Unless a Single-Authority Attestation Is Recorded)
 
-Every project must have a designated backup maintainer — a second technologist who:
+Every project must have a designated backup maintainer, unless a single-authority attestation is recorded (below). The backup maintainer is a second technologist who:
 - Has full repository and hosting access
 - Performs a 1-hour monthly sync review with the Orchestrator
 - Can execute the incident response playbook independently
 - Has been tested via the handoff test (see Section XIII)
 
 This person does not need to actively develop, but they must be able to triage, rollback, and escalate.
+
+**Single-authority attestation (organizational deployments).** A company whose only technical authority is the Orchestrator cannot name a second technologist, and its gate approvals fail the self-approval check at Phase 0→1 and Phase 1→2 (the Approver cell names the person who committed that row). For that company the requirement holds unless the attestation is recorded: run `scripts/check-phase-gate.sh` with `SOLO_SINGLE_AUTHORITY_ATTESTED=1` and `SOLO_SINGLE_AUTHORITY_ATTESTED_REASON="<why this organisation has a single technical authority>"`. The gate then records the exception per gate in `.claude/process-state.json::attestations.single_authority` (reason, date, actor, and the commit it is pinned to) and lets that check pass. It refuses the attestation, and still blocks, when the reason is blank or the record cannot be written. Every run that uses it prints that the independence control was NOT applied and that §XIV item 5 is a BLOCKING pre-condition that REMAINS UNMET: the attestation records an accepted exception; it does not supply a backup maintainer, and the compensating controls and the Insider Threat Acknowledgment below still apply. The variables must be set on every gate run, CI included. See the Builder's Guide, "Single-Authority Attestation" (framework backlog `## BL-274:`, PR #452).
 
 ### Handoff Test (Mandatory Per Project)
 
@@ -928,7 +930,7 @@ For an organization evaluating this model, expect **4-12 weeks to resolve organi
 2. **AI deployment path approved:** IT Security written approval per Section VII.
 3. **Liability entity designated:** Which entity bears liability defined per Section VIII.9.
 4. **Project sponsor assigned:** Named business executive (not the Orchestrator) who approves Phase 0 and Phase 3 gates. *(Intake Section 8.2)*
-5. **Backup maintainer designated:** Second technologist with repository and hosting access per Section X. *(Intake Section 8.1)*
+5. **Backup maintainer designated:** Second technologist with repository and hosting access per Section X. *(Intake Section 8.1)* Required unless a single-authority attestation is recorded (Section X, organizational deployments): with one, the gate accepts and records the exception and prints that this pre-condition REMAINS UNMET.
 6. **ITSM registration:** Project registered in the enterprise portfolio tracker. Change ticket filed. *(Intake Section 8.1)*
 
 **5 additional pilot preparation requirements:**
