@@ -15,9 +15,13 @@
 # `deny`, and its hooks are added only where absent (the roster's own
 # idempotent idiom). The original is in the adoption archive regardless.
 #
-# THE ONE DIFFERENCE FROM GREENFIELD, ON PURPOSE: the bypass detector's
-# PostToolUse arm is not registered on an adopted project while `## BL-277:`
-# is open (`# BL-242-SETTINGS-BL277`); its Stop arm is. The run says so.
+# THE BYPASS DETECTOR IS ON, AS IN A NEW PROJECT (`## BL-277:` residual 5,
+# Karl's ruling of 2026-10-17; `# BL-242-SETTINGS-BL277`). Both arms are
+# registered: bypass-shaped text the agent writes — a reply (Stop), a file it
+# writes or edits (PostToolUse on Write, Edit, MultiEdit) — is recorded and put
+# to the user as a question; a tool's output (PostToolUse on Bash) is recorded
+# as `tool_output` and asks nothing. A false alarm closes only by the user's own
+# pick of A3. Until that ruling the PostToolUse arm was left off here.
 
 # _adopt_session_language REPORT — Scout's dominant language, lowercased.
 _adopt_session_language() {
@@ -84,17 +88,23 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
   fi
   if [ -z "${ADOPT_SESSION_SKIPPED:-}" ] && [ -f "$root/$rel" ] && [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel"; then
     adopt_touched_disk   # BL-225-TOUCHED-DISK
-    soif_register_hook_roster "$root/$rel" adoption   # BL-242-SESSION-ROSTER
+    soif_register_hook_roster "$root/$rel"   # BL-242-SESSION-ROSTER
     jq -e 'type == "object"' "$root/$rel" >/dev/null 2>&1 \
       || { adopt_refuse "registering the session hooks left $rel unreadable"; return 1; }
     adopt_record_write "$rel"
     # THE RECEIPT, not the call: the roster's jq edits fail quietly by design
-    # (`&& mv`), so "registered" is said only when a hook is actually there.
-    if jq -e '[.hooks.SessionStart[]?.hooks[]?.command] | any(test("session-version-check.sh"))' "$root/$rel" >/dev/null 2>&1; then   # BL-242-SESSION-ROSTER-RECEIPT
-      adopt_note "Registered the framework's session hooks. The bypass detector's per-tool arm is"
-      adopt_note "not registered on adopted projects until BL-277 closes; its end-of-session arm is."
+    # (`&& mv`), so "registered" is said only when a hook is actually there —
+    # the first session hook, and the detector's PostToolUse arm, which the
+    # note below says is on.
+    if jq -e '([.hooks.SessionStart[]?.hooks[]?.command] | any(test("session-version-check.sh"))) and ([.hooks.PostToolUse[]?.hooks[]?.command] | any(test("bypass-detector.sh")))' "$root/$rel" >/dev/null 2>&1; then   # BL-242-SESSION-ROSTER-RECEIPT
+      # BL-277-ADOPTED-ON
+      adopt_note "Registered the framework's session hooks. The bypass detector runs on both of its"
+      adopt_note "arms, as in a new project: bypass-shaped text the agent writes (its replies, files"
+      adopt_note "it writes or edits) is recorded and put to you as a question; text a tool prints"
+      adopt_note "is recorded only. A false alarm closes only by your own pick of A3 (the framework's"
+      adopt_note "docs/adoption.md, \"The Claude Code session layer\", says how)."
     else
-      adopt_note "The framework's session hooks could NOT be registered in $rel — its hooks section"
+      adopt_note "The framework's session hooks were NOT all registered in $rel — its hooks section"
       adopt_note "did not take them. The permissions are in place; add the hooks from a scaffolded project."
     fi
   fi

@@ -9,11 +9,12 @@
 # MOVED, NOT REWRITTEN: every rule, every hook command and every idempotent jq
 # idiom below is init.sh's own, lifted verbatim. The edits: the file path
 # became a parameter; the language became an argument; the permissions writer
-# was split in two and prints to stdout (init.sh redirects it); and the one
-# adoption-only guard (`# BL-242-SETTINGS-BL277`). Review measured the result
-# byte-identical to main's inline code across 12 languages and 8 roster
-# starting states, idempotent re-runs included. BL-277 has since moved the
-# detector's PostToolUse arm into its own group.
+# was split in two and prints to stdout (init.sh redirects it); and one
+# adoption-only guard on the bypass detector's PostToolUse arm. Review measured
+# the result byte-identical to main's inline code across 12 languages and 8
+# roster starting states, idempotent re-runs included. BL-277 has since moved
+# the detector's PostToolUse arm into its own group, and on 2026-10-17 the
+# adoption-only guard was lifted: both callers now get the same roster.
 #
 # bash-3.2 safe. Needs jq for the roster (the caller checks, as init.sh did).
 
@@ -171,12 +172,12 @@ $lang_rules
 PERMEOF
 }
 
-# soif_register_hook_roster FILE [MODE] — register the framework's session
-# hooks in FILE, idempotently (a hook already present is not added twice).
-# MODE "adoption" leaves the bypass detector's PostToolUse arm off
-# (`## BL-277:`). Sets SOIF_ROSTER_ADDED=true when anything was added.
+# soif_register_hook_roster FILE — register the framework's session hooks in
+# FILE, idempotently (a hook already present is not added twice). init.sh and
+# adoption register the same roster (`## BL-277:` residual 5). Sets
+# SOIF_ROSTER_ADDED=true when anything was added.
 soif_register_hook_roster() {
-  local _f="$1" _mode="${2:-init}"
+  local _f="$1"
   SOIF_ROSTER_ADDED=false
         local hooks_added=false
         # Add version check hook
@@ -318,19 +319,21 @@ soif_register_hook_roster() {
 
         # BL-029: bypass-detector PostToolUse + Stop. Always-on, regardless
         # of enforcement_level — Claude-side audit channel is non-configurable.
-        # THE PostToolUse ARM IS GREENFIELD-ONLY FOR NOW (`## BL-277:`): on an
-        # adopted project it stays OFF until that entry closes, and the
-        # adoption transcript says so. ONE guarded line, as §10-WP9c specifies.
-        if [ "$_mode" != "adoption" ]; then   # BL-242-SETTINGS-BL277
-          # BL-277-MATCHER — its own PostToolUse group, scoped to the tools whose
-          # text it scans. In group [0] it inherited no matcher and ran after
-          # every tool. Write, Edit and MultiEdit carry text the model authored:
-          # still scanned (the maintainer's ruling on PR #454; `## BL-336:`).
-          if ! jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
-            jq '.hooks.PostToolUse += [{"matcher": "Bash|Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' "$_f" > "$_f.tmp" \
-              && mv "$_f.tmp" "$_f"
-            hooks_added=true
-          fi
+        # BL-242-SETTINGS-BL277 — ON IN ADOPTED PROJECTS TOO, since 2026-10-17
+        # (Karl's ruling; `## BL-277:` residual 5). The PostToolUse arm was
+        # greenfield-only until PR #454 made the detector judge only text the
+        # agent wrote: a match in a Write, Edit or MultiEdit (or in a reply, on
+        # the Stop arm) raises the question; a tool's output is recorded as
+        # `tool_output` and raises nothing. A false alarm closes only by the
+        # user's pick of A3 (`bypass_audit_close_from_approvals`).
+        # BL-277-MATCHER — its own PostToolUse group, scoped to the tools whose
+        # text it scans. In group [0] it inherited no matcher and ran after
+        # every tool. Write, Edit and MultiEdit carry text the model authored:
+        # still scanned (the maintainer's ruling on PR #454; `## BL-336:`).
+        if ! jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
+          jq '.hooks.PostToolUse += [{"matcher": "Bash|Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' "$_f" > "$_f.tmp" \
+            && mv "$_f.tmp" "$_f"
+          hooks_added=true
         fi
         if ! jq -e '.hooks.Stop[0].hooks[]? | select(.command | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
           jq 'if (.hooks.Stop // []) | length == 0
