@@ -14,7 +14,9 @@
 # the result byte-identical to main's inline code across 12 languages and 8
 # roster starting states, idempotent re-runs included. BL-277 has since moved
 # the detector's PostToolUse arm into its own group, and on 2026-10-17 the
-# adoption-only guard was lifted: both callers now get the same roster.
+# adoption-only guard was lifted: both callers now get the same roster. Its
+# probes have since stopped choking on a handler with no `command` (the
+# comment above soif_register_hook_roster says how).
 #
 # bash-3.2 safe. Needs jq for the roster (the caller checks, as init.sh did).
 
@@ -176,13 +178,17 @@ PERMEOF
 # FILE, idempotently (a hook already present is not added twice). init.sh and
 # adoption register the same roster (`## BL-277:` residual 5). Sets
 # SOIF_ROSTER_ADDED=true when anything was added.
+# BL-277-ROSTER-COMMANDLESS — every probe reads `(.command // "")`. A handler
+# of another type (prompt, agent, http) has no `command`, `null | contains()`
+# is a jq error, and `! jq -e` took the error for "absent": each run added
+# every hook in that handler's group again.
 soif_register_hook_roster() {
   local _f="$1"
   SOIF_ROSTER_ADDED=false
         local hooks_added=false
         # Add version check hook
         if jq -e '.hooks.SessionStart' "$_f" >/dev/null 2>&1; then
-          if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-version-check.sh"))' "$_f" >/dev/null 2>&1; then
+          if ! jq -e '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-version-check.sh"))' "$_f" >/dev/null 2>&1; then
             jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-version-check.sh"}]' "$_f" > "$_f.tmp" \
               && mv "$_f.tmp" "$_f"
             hooks_added=true
@@ -193,7 +199,7 @@ soif_register_hook_roster() {
           hooks_added=true
         fi
         # Add test gate check hook
-        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-test-gate-check.sh"))' "$_f" >/dev/null 2>&1; then
+        if ! jq -e '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-test-gate-check.sh"))' "$_f" >/dev/null 2>&1; then
           jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-test-gate-check.sh"}]' "$_f" > "$_f.tmp" \
             && mv "$_f.tmp" "$_f"
           hooks_added=true
@@ -201,7 +207,7 @@ soif_register_hook_roster() {
         # BL-109 S2: freshness check hook (Currency System, Layer 1 — detection).
         # Silent-when-current, zero-network, fail-open (exit 0 always), writes only
         # .claude/cache/. Injected exactly like session-version-check.sh above.
-        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-freshness-check.sh"))' "$_f" >/dev/null 2>&1; then
+        if ! jq -e '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-freshness-check.sh"))' "$_f" >/dev/null 2>&1; then
           jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-freshness-check.sh"}]' "$_f" > "$_f.tmp" \
             && mv "$_f.tmp" "$_f"
           hooks_added=true
@@ -211,7 +217,7 @@ soif_register_hook_roster() {
         # reach). Silent when healthy; the agent relays. Injected exactly like
         # the three hooks above; fenced so the registration is excisable for
         # mutation proofs without touching its siblings.
-        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-intake-check.sh"))' "$_f" >/dev/null 2>&1; then
+        if ! jq -e '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-intake-check.sh"))' "$_f" >/dev/null 2>&1; then
           jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-intake-check.sh"}]' "$_f" > "$_f.tmp" \
             && mv "$_f.tmp" "$_f"
           hooks_added=true
@@ -223,7 +229,7 @@ soif_register_hook_roster() {
         # zero-network, fail-open (exit 0 under every failure mode). Injected
         # exactly like the four hooks above; fenced so the registration is
         # excisable for a mutation proof without touching its siblings.
-        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-cadence-check.sh"))' "$_f" >/dev/null 2>&1; then
+        if ! jq -e '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-cadence-check.sh"))' "$_f" >/dev/null 2>&1; then
           jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-cadence-check.sh"}]' "$_f" > "$_f.tmp" \
             && mv "$_f.tmp" "$_f"
           hooks_added=true
@@ -231,7 +237,7 @@ soif_register_hook_roster() {
         # CADENCE-NAG-HOOK-END
         # Add Qdrant reminder to Stop hook
         if jq -e '.hooks.Stop' "$_f" >/dev/null 2>&1; then
-          if ! jq -e '.hooks.Stop[0].hooks[] | select(.command | contains("session-end-qdrant-reminder.sh"))' "$_f" >/dev/null 2>&1; then
+          if ! jq -e '.hooks.Stop[0].hooks[] | select((.command // "") | contains("session-end-qdrant-reminder.sh"))' "$_f" >/dev/null 2>&1; then
             jq '.hooks.Stop[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-end-qdrant-reminder.sh"}]' "$_f" > "$_f.tmp" \
               && mv "$_f.tmp" "$_f"
             hooks_added=true
@@ -244,7 +250,7 @@ soif_register_hook_roster() {
 
         # Add pre-commit gate to PreToolUse hook (must target Bash matcher group)
         if jq -e '.hooks.PreToolUse' "$_f" >/dev/null 2>&1; then
-          if ! jq -e '.hooks.PreToolUse[]? | .hooks[]? | select(.command | contains("pre-commit-gate.sh"))' "$_f" >/dev/null 2>&1; then
+          if ! jq -e '.hooks.PreToolUse[]? | .hooks[]? | select((.command // "") | contains("pre-commit-gate.sh"))' "$_f" >/dev/null 2>&1; then
             # Find the Bash matcher group index, or create a new one
             BASH_INDEX=$(jq '[.hooks.PreToolUse[] | .matcher // "none"] | to_entries[] | select(.value == "Bash") | .key' "$_f" 2>/dev/null | head -1 || echo "")
             if [ -n "$BASH_INDEX" ]; then
@@ -267,7 +273,7 @@ soif_register_hook_roster() {
         # This blocks file modifications until required MCP tools (qdrant-find, context7)
         # have been called — closing the session-start enforcement gap.
         for GATE_TOOL in Write Edit; do
-          if ! jq -e ".hooks.PreToolUse[]? | select(.matcher == \"$GATE_TOOL\") | .hooks[]? | select(.command | contains(\"session-mcp-gate.sh\"))" "$_f" >/dev/null 2>&1; then
+          if ! jq -e ".hooks.PreToolUse[]? | select(.matcher == \"$GATE_TOOL\") | .hooks[]? | select((.command // \"\") | contains(\"session-mcp-gate.sh\"))" "$_f" >/dev/null 2>&1; then
             # Check if a matcher group for this tool already exists
             GATE_INDEX=$(jq "[.hooks.PreToolUse[] | .matcher // \"none\"] | to_entries[] | select(.value == \"$GATE_TOOL\") | .key" "$_f" 2>/dev/null | head -1 || echo "")
             if [ -n "$GATE_INDEX" ]; then
@@ -292,7 +298,7 @@ soif_register_hook_roster() {
         # argument so the tracker can score the outcome without depending on a
         # payload field, and can refuse to guess when the two disagree.
         if jq -e '.hooks.PostToolUse' "$_f" >/dev/null 2>&1; then
-          if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("track-tool-usage.sh"))' "$_f" >/dev/null 2>&1; then
+          if ! jq -e '.hooks.PostToolUse[0].hooks[] | select((.command // "") | contains("track-tool-usage.sh"))' "$_f" >/dev/null 2>&1; then
             jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]' "$_f" > "$_f.tmp" \
               && mv "$_f.tmp" "$_f"
             hooks_added=true
@@ -306,7 +312,7 @@ soif_register_hook_roster() {
         # Add the SAME tracker to PostToolUseFailure — the event a failing MCP
         # call actually fires.
         if jq -e '.hooks.PostToolUseFailure' "$_f" >/dev/null 2>&1; then
-          if ! jq -e '.hooks.PostToolUseFailure[0].hooks[] | select(.command | contains("track-tool-usage.sh"))' "$_f" >/dev/null 2>&1; then
+          if ! jq -e '.hooks.PostToolUseFailure[0].hooks[] | select((.command // "") | contains("track-tool-usage.sh"))' "$_f" >/dev/null 2>&1; then
             jq '.hooks.PostToolUseFailure[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUseFailure"}]' "$_f" > "$_f.tmp" \
               && mv "$_f.tmp" "$_f"
             hooks_added=true
@@ -324,18 +330,18 @@ soif_register_hook_roster() {
         # greenfield-only until PR #454 made the detector judge only text the
         # agent wrote: a match in a Write, Edit or MultiEdit (or in a reply, on
         # the Stop arm) raises the question; a tool's output is recorded as
-        # `tool_output` and raises nothing. A false alarm closes only by the
-        # user's pick of A3 (`bypass_audit_close_from_approvals`).
+        # `tool_output` and raises nothing. A false alarm: the user's pick of A3
+        # with the Guardrails 4.4.0+; without them, --resolve or --clear.
         # BL-277-MATCHER — its own PostToolUse group, scoped to the tools whose
         # text it scans. In group [0] it inherited no matcher and ran after
         # every tool. Write, Edit and MultiEdit carry text the model authored:
         # still scanned (the maintainer's ruling on PR #454; `## BL-336:`).
-        if ! jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
+        if ! jq -e '.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
           jq '.hooks.PostToolUse += [{"matcher": "Bash|Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' "$_f" > "$_f.tmp" \
             && mv "$_f.tmp" "$_f"
           hooks_added=true
         fi
-        if ! jq -e '.hooks.Stop[0].hooks[]? | select(.command | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
+        if ! jq -e '.hooks.Stop[0].hooks[]? | select((.command // "") | contains("bypass-detector.sh"))' "$_f" >/dev/null 2>&1; then
           jq 'if (.hooks.Stop // []) | length == 0
               then .hooks.Stop = [{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]
               else .hooks.Stop[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]
@@ -354,7 +360,7 @@ soif_register_hook_roster() {
         # BL-030: PostToolUse hook for the Claude-commit recorder
         # (always-on). Records SHA of every successful Claude-issued
         # git commit into .claude/claude-commits.jsonl.
-        if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("record-claude-commit.sh"))' "$_f" >/dev/null 2>&1; then
+        if ! jq -e '.hooks.PostToolUse[0].hooks[] | select((.command // "") | contains("record-claude-commit.sh"))' "$_f" >/dev/null 2>&1; then
           jq '.hooks.PostToolUse[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/record-claude-commit.sh"}]' "$_f" > "$_f.tmp" \
             && mv "$_f.tmp" "$_f"
           hooks_added=true
@@ -363,7 +369,7 @@ soif_register_hook_roster() {
         # BL-030: SessionStart hook for the out-of-band detector. Self-
         # no-ops when enforcement_level=no; runs on light + strict to
         # surface user-terminal commits in .claude/bypass-audit.json.
-        if ! jq -e '.hooks.SessionStart[0].hooks[]? | select(.command | contains("detect-out-of-band-commits.sh"))' "$_f" >/dev/null 2>&1; then
+        if ! jq -e '.hooks.SessionStart[0].hooks[]? | select((.command // "") | contains("detect-out-of-band-commits.sh"))' "$_f" >/dev/null 2>&1; then
           jq 'if (.hooks.SessionStart // []) | length == 0
               then .hooks.SessionStart = [{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/detect-out-of-band-commits.sh"}]}]
               else .hooks.SessionStart[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/detect-out-of-band-commits.sh"}]
@@ -373,4 +379,22 @@ soif_register_hook_roster() {
         fi
 
         SOIF_ROSTER_ADDED="$hooks_added"
+}
+
+# soif_backfill_hook_roster FILE — the roster, for a project adopted before
+# adoption registered the bypass detector's PostToolUse arm (`## BL-353:`; the
+# command docs/adoption.md gives). FILE is the project's .claude/settings.json.
+# BL-277-BACKFILL-REFUSE — refused, nothing written, while the project's
+# scripts/hooks/bypass-detector.sh is missing or predates PR #454 (no
+# authorship marker): that copy records a tool's output as the agent's own
+# proposal, so its per-tool arm raises a false alarm on the first rule read
+# through a shell command. The framework sync replaces it.
+soif_backfill_hook_roster() {
+  local _f="$1" _det=""
+  _det="$(dirname "$(dirname "$_f")")/scripts/hooks/bypass-detector.sh"
+  if ! grep -qF '# BL-277-AUTHORSHIP' "$_det" 2>/dev/null; then
+    echo "REFUSED: $_det is missing or older than the framework's, which judges who wrote the text; switching its per-tool hook on would report a rule read through a shell command as the agent's own proposal. Run the framework sync first, from this project's folder (bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework), then this again. Nothing was written." >&2
+    return 1
+  fi
+  soif_register_hook_roster "$_f"
 }

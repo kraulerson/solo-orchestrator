@@ -20,8 +20,10 @@
 # registered: bypass-shaped text the agent writes — a reply (Stop), a file it
 # writes or edits (PostToolUse on Write, Edit, MultiEdit) — is recorded and put
 # to the user as a question; a tool's output (PostToolUse on Bash) is recorded
-# as `tool_output` and asks nothing. A false alarm closes only by the user's own
-# pick of A3. Until that ruling the PostToolUse arm was left off here.
+# as `tool_output` and asks nothing. A false alarm closes by the user's own pick
+# of A3 where the Guardrails 4.4.0+ are installed; without them nothing records
+# a pick, and `pending-approval.sh --resolve` or `--clear` withdraws the
+# question. Until that ruling the PostToolUse arm was left off here.
 
 # _adopt_session_language REPORT — Scout's dominant language, lowercased.
 _adopt_session_language() {
@@ -95,14 +97,17 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
     # THE RECEIPT, not the call: the roster's jq edits fail quietly by design
     # (`&& mv`), so "registered" is said only when a hook is actually there —
     # the first session hook, and the detector's PostToolUse arm, which the
-    # note below says is on.
-    if jq -e '([.hooks.SessionStart[]?.hooks[]?.command] | any(test("session-version-check.sh"))) and ([.hooks.PostToolUse[]?.hooks[]?.command] | any(test("bypass-detector.sh")))' "$root/$rel" >/dev/null 2>&1; then   # BL-242-SESSION-ROSTER-RECEIPT
+    # note below says is on. `| strings` skips a handler with no `command`
+    # (prompt, agent, http), on which `test()` is a jq error.
+    if jq -e '([.hooks.SessionStart[]?.hooks[]?.command | strings] | any(test("session-version-check.sh"))) and ([.hooks.PostToolUse[]?.hooks[]?.command | strings] | any(test("bypass-detector.sh")))' "$root/$rel" >/dev/null 2>&1; then   # BL-242-SESSION-ROSTER-RECEIPT
       # BL-277-ADOPTED-ON
       adopt_note "Registered the framework's session hooks. The bypass detector runs on both of its"
       adopt_note "arms, as in a new project: bypass-shaped text the agent writes (its replies, files"
       adopt_note "it writes or edits) is recorded and put to you as a question; text a tool prints"
-      adopt_note "is recorded only. A false alarm closes only by your own pick of A3 (the framework's"
-      adopt_note "docs/adoption.md, \"The Claude Code session layer\", says how)."
+      adopt_note "is recorded only. To close a false alarm: with the Development Guardrails 4.4.0 or"
+      adopt_note "later, your own pick of A3; without them, scripts/pending-approval.sh --resolve (or"
+      adopt_note "--clear) withdraws the question. The framework's docs/adoption.md, \"The Claude Code"
+      adopt_note "session layer\", says how."
     else
       adopt_note "The framework's session hooks were NOT all registered in $rel — its hooks section"
       adopt_note "did not take them. The permissions are in place; add the hooks from a scaffolded project."
