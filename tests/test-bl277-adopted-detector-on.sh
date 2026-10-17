@@ -198,20 +198,33 @@ chk_sync() {
 
 # _dispatch PROJECT ENVELOPE — Claude Code's PostToolUse routing, for the
 # detector: every hook in a PostToolUse group whose matcher is absent, empty or
-# "*", or matches tool_name as a whole, and whose command runs the detector, is
-# run as registered (`bash -c` with CLAUDE_PROJECT_DIR set), the envelope on
-# stdin. Sets DISPATCHED to how many ran.
+# "*", or names tool_name (a matcher of letters, digits, `_` and `|` is a list
+# of exact names; any other is a regular expression over the whole name), and
+# whose command runs the detector, is run as registered (`bash -c` with
+# CLAUDE_PROJECT_DIR set), the envelope on stdin. Sets DISPATCHED to how many
+# ran.
+_matches() {   # _matches MATCHER TOOL
+  [ "$1" = "*" ] && return 0
+  case "$1" in
+    *[!A-Za-z0-9_\|]*) printf '%s' "$2" | grep -qE "^($1)\$"; return ;;
+  esac
+  case "|$1|" in
+    *"|$2|"*) return 0 ;;
+  esac
+  return 1
+}
 _dispatch() {
-  local p="$1" env="$2" tool m cmd
+  local p="$1" env="$2" tool="" m="" cmd="" routes=""
   DISPATCHED=0
   tool="$(printf '%s' "$env" | jq -r '.tool_name')"
+  routes="$(jq -r '.hooks.PostToolUse[]? | ((.matcher // "") | if . == "" then "*" else . end) as $m | .hooks[]? | "\($m)\t\(.command // "")"' "$p/.claude/settings.json" 2>/dev/null)"
   while IFS="$(printf '\t')" read -r m cmd; do
     case "$cmd" in *"$DET"*) ;; *) continue ;; esac
-    if [ "$m" != "*" ] && ! [[ "$tool" =~ ^($m)$ ]]; then continue; fi
+    _matches "$m" "$tool" || continue
     ( cd "$p" && printf '%s' "$env" | CLAUDE_PROJECT_DIR="$p" bash -c "$cmd" ) >/dev/null 2>&1
     DISPATCHED=$((DISPATCHED + 1))
   done <<EOF
-$(jq -r '.hooks.PostToolUse[]? | ((.matcher // "") | if . == "" then "*" else . end) as $m | .hooks[]? | "\($m)\t\(.command // "")"' "$p/.claude/settings.json" 2>/dev/null)
+$routes
 EOF
 }
 _rows() { jq -r --arg a "$2" '[.[] | select(.type == "claude_bypass_proposal" and .actor == $a)] | length' "$1/.claude/bypass-audit.json" 2>/dev/null || printf 'ERR'; }
