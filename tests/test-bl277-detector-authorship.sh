@@ -1279,8 +1279,8 @@ roster_mutant M7 "$REG" '.hooks.PostToolUse += [{"hooks": [{"type": "command", "
 # M8 — the idempotence probe regressed to group [0]: with the detector in its
 # own later group the second run never finds it and registers it twice.
 roster_mutant M8 \
-  ".hooks.PostToolUse[]? | .hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" \
-  ".hooks.PostToolUse[0].hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" 4 \
+  ".hooks.PostToolUse[]? | .hooks[]? | select((.command // \"\") | contains(\"bypass-detector.sh\"))" \
+  ".hooks.PostToolUse[0].hooks[]? | select((.command // \"\") | contains(\"bypass-detector.sh\"))" 4 \
   "the idempotence probe regressed to group [0]"
 # M10 — the matcher widened back over Read, Edit and Write.
 roster_mutant M10 "$REG" '.hooks.PostToolUse += [{"matcher": "Bash|Read|Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' 5 "the matcher widened to Bash|Read|Write|Edit|MultiEdit"
@@ -1476,8 +1476,8 @@ bd_mutant M48 "# BL-277-WRITE-TEXT" '.tool_input.content // .tool_response.conte
 MI="$(newtmp)/claude-settings.sh"
 if ! cp "$ROSTER" "$MI"; then fail_ "M9 setup" "could not copy the roster"
 elif why="$(mutate "$MI" "# BL-242-SETTINGS-BL277" \
-       'if ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then' \
-       'if [ "${2:-init}" != "adoption" ] && ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then' 12)"; then
+       'if ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then' \
+       'if [ "${2:-init}" != "adoption" ] && ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then' 12)"; then
   if chk_adoption_same "$MI" >/dev/null 2>&1; then fail_ "M9 (MUTATION)" "the restored guard survived R5"
   elif ! chk_roster_scoped "$MI" >/dev/null 2>&1; then fail_ "M9 (MUTATION)" "the restored guard broke R6 too, so the kill proves nothing about R5"
   else pass "M9 (MUTATION) — the adoption guard restored: R5 kills it, R6 survives"; fi

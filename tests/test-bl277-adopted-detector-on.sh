@@ -29,18 +29,46 @@
 #       PENDING, and raise the question; the same text as a Bash result writes
 #       a `tool_output` row and raises nothing; a Read result reaches no
 #       detector at all.
-#   N5  the adoption transcript says the detector is on, and no longer says it
-#       waits for BL-277.
+#   N5  the adoption transcript says the detector is on, no longer says it
+#       waits for BL-277, and says how a false alarm closes both with the
+#       Guardrails (A3) and without them (--resolve).
 #   N6  a settings.json whose PostToolUse the roster cannot extend (a string):
 #       the run does not say the hooks are registered.
-#   N7  a project adopted before this change (the detector's PostToolUse group
-#       absent): the one command docs/adoption.md gives adds it exactly as N1,
-#       and run again changes nothing. What --sync-framework does to such a
-#       project is MEASURED and printed (INFO), not asserted.
+#   N7  a project adopted before this change, as such a project stands: the
+#       detector's PostToolUse group absent AND scripts/hooks/bypass-detector.sh
+#       the copy from before PR #454 (read from this repository's history at
+#       cb4ec41), which records a tool's output as the agent's own proposal.
+#       (a) the roster command docs/adoption.md gives, run WITHOUT the sync:
+#       refused, naming --sync-framework, settings.json untouched, and a rule
+#       read through Bash raises nothing — run as the document first stood, it
+#       switched the old detector on and that read raised a `claude` row,
+#       PENDING, and the question. (b) as the document orders it — the sync it
+#       gives first, then the roster command: the detector as N1, a Bash read
+#       recorded as `tool_output` with no question, a Write proposal asked,
+#       and the roster command again changes nothing. What the sync alone does
+#       to the registration is MEASURED and printed (INFO), not asserted.
+#   N8  an adoptee whose settings.json holds hook handlers with no `command`
+#       (types prompt, agent, http) in every group the roster reads: the run
+#       says the hooks are registered, because they are.
+#   N9  the roster run three times over those handlers registers every hook of
+#       the framework exactly once, the detector once on each arm, and leaves
+#       the handlers in place.
+#   N10 without the Guardrails, the route the transcript names: on a raised
+#       question, `--decision decline` is refused naming "this project:
+#       unknown", while `--resolve` and `--clear` each withdraw the question.
+#       The false-positive close needs a terminal, so its refusal is not run
+#       here.
 #   M*  mutants, each in a COPY of the framework: location proved by distance
 #       from its marker, landing proved by its own text and `bash -n`; one that
 #       cannot be applied is a SETUP failure, never a kill. Each names the case
 #       that must kill it and a case that must survive it.
+#
+# EVERY FIXTURE LIVES UNDER A PATH WITH A SPACE (`WORK` below). The hook
+# command is registered quoted, `bash "$CLAUDE_PROJECT_DIR"/…`; unquoted, it
+# splits on the space, the shell finds no script (rc 127), and nothing is
+# recorded. N4 runs the registered command as registered, so under a spaced
+# path it kills that mutant itself (M6), which under a plain temp path it
+# passed.
 #
 # WHY NO PATTERN APPEARS LITERALLY IN THIS FILE: as in
 # tests/test-bl277-detector-authorship.sh, the proposal is assembled from split
@@ -65,8 +93,10 @@ echo "== BL-277 residual 5 — the bypass detector is on in adopted projects =="
 for t in git jq; do
   command -v "$t" >/dev/null 2>&1 || { skip "every case" "$t is not on PATH"; _done; }
 done
-WORK="$(mktemp -d)" || exit 1
-trap 'rm -rf "$WORK"' EXIT
+WORK_TOP="$(mktemp -d)" || exit 1
+trap 'rm -rf "$WORK_TOP"' EXIT
+WORK="$WORK_TOP/bl277 adopted"   # a space, on purpose: see the header
+mkdir -p "$WORK" || exit 1
 newtmp() { mktemp -d "$WORK/fixXXXXXX"; }
 
 DET="bypass-detector.sh"
@@ -268,6 +298,11 @@ chk_transcript() {
   _plain "$1" || { echo "adoption rc $PLAIN_RC"; return 1; }
   grep -qF "The bypass detector runs on both of its" "$PLAIN_OUT" || { echo "the transcript does not say the detector is on: $(grep -i 'bypass detector' "$PLAIN_OUT" | head -2 | tr '\n' ' ')"; return 1; }
   ! grep -qF "until BL-277 closes" "$PLAIN_OUT" || { echo "the transcript still says the detector waits for BL-277"; return 1; }
+  # Both routes, because only one is true in a given project: A3 needs the
+  # Guardrails 4.4.0+ (N10 runs the other one, in this very adoptee).
+  grep -qF "your own pick of A3" "$PLAIN_OUT" && grep -qF "scripts/pending-approval.sh --resolve" "$PLAIN_OUT" \
+    || { echo "the transcript does not name both ways a false alarm closes (A3 with the Guardrails, --resolve without)"; return 1; }
+  ! grep -qF "closes only by your own pick of A3" "$PLAIN_OUT" || { echo "the transcript says only A3 closes a false alarm, which is untrue without the Guardrails"; return 1; }
   return 0
 }
 
@@ -284,34 +319,143 @@ chk_unregistrable() {
   return 0
 }
 
-# The command docs/adoption.md gives for a project adopted before this change,
-# read from the document, never restated here.
-BACKFILL_CMD=""
-_backfill_cmd() {
-  local n
-  n="$(grep -cF "soif_register_hook_roster .claude/settings.json'" "$REPO_ROOT/docs/adoption.md")"
-  [ "$n" = 1 ] || return 1
-  BACKFILL_CMD="$(grep -F "soif_register_hook_roster .claude/settings.json'" "$REPO_ROOT/docs/adoption.md" | sed 's/^[[:space:]]*//')"
-  case "$BACKFILL_CMD" in "bash -c '. ~/solo-orchestrator/scripts/lib/claude-settings.sh && "*) return 0 ;; *) return 1 ;; esac
+# The two commands docs/adoption.md gives a project adopted before this change,
+# read from the document of the framework copy under test, never restated here:
+# the roster command (whatever function it names), and the sync, which the same
+# list item must give BEFORE it. Sets BACKFILL_CMD, and SYNC_CMD or SYNC_WHY;
+# prints the reason and returns 1 when there is no roster command. The sync is
+# checked by the caller, AFTER it has run the roster command alone, so the
+# false alarm that running it alone raises is what a document without the sync
+# fails on first.
+BACKFILL_CMD=""; SYNC_CMD=""; SYNC_WHY=""
+_backfill_cmds() {
+  local doc="$1/docs/adoption.md" rx_b="" rx_s="" n="" lb="" top="" ls=""
+  BACKFILL_CMD=""; SYNC_CMD=""; SYNC_WHY=""
+  rx_b="^[[:space:]]*bash -c '\\. ~/solo-orchestrator/scripts/lib/claude-settings\\.sh && soif_[a-z_]+ \\.claude/settings\\.json'\$"
+  rx_s='^[[:space:]]*bash ~/solo-orchestrator/scripts/upgrade-project\.sh --sync-framework$'
+  n="$(grep -cE "$rx_b" "$doc")"
+  [ "$n" = 1 ] || { echo "docs/adoption.md gives $n roster commands of the expected shape, want 1"; return 1; }
+  lb="$(grep -nE "$rx_b" "$doc" | cut -d: -f1)"
+  BACKFILL_CMD="$(sed -n "${lb}p" "$doc" | sed 's/^[[:space:]]*//')"
+  # The list item holding it opens at the nearest line above it starting "- ".
+  top="$(awk -v l="$lb" 'NR <= l && /^- /{t = NR} END{print t + 0}' "$doc")"
+  [ "$top" -gt 0 ] || { echo "the roster command (docs/adoption.md line $lb) is not inside a list item"; return 1; }
+  ls="$(grep -nE "$rx_s" "$doc" | cut -d: -f1 | awk -v t="$top" -v l="$lb" '$1 > t && $1 < l {s = $1} END{print s + 0}')"
+  if [ "$ls" -gt 0 ]; then
+    SYNC_CMD="$(sed -n "${ls}p" "$doc" | sed 's/^[[:space:]]*//')"
+  else
+    SYNC_WHY="the list item that gives the roster command (docs/adoption.md line $lb) does not give the sync before it"
+  fi
+  return 0
 }
+# Main just before PR #454 merged (08e940f): its detector records a tool's
+# output as the agent's own proposal. A project adopted then still has it.
+OLD_DETECTOR_REV=cb4ec41
 chk_backfill() {
-  local p h before after why
-  _backfill_cmd || { echo "docs/adoption.md does not give exactly one backfill command of the expected shape (found: '${BACKFILL_CMD:-none}')"; return 1; }
-  _plain "$REPO_ROOT" || { echo "adoption rc $PLAIN_RC"; return 1; }
+  local fw="$1" p h rc why
+  _backfill_cmds "$fw" || return 1
+  _plain "$fw" || { echo "adoption rc $PLAIN_RC"; return 1; }
   p="$(_copy_plain)" || { echo "could not copy the adopted project"; return 1; }
   jq --arg d "$DET" '.hooks.PostToolUse |= map(select(any(.hooks[]?; (.command // "") | contains($d)) | not))' "$p/.claude/settings.json" > "$p.old.json" \
     && mv "$p.old.json" "$p/.claude/settings.json" || { echo "could not make the pre-change fixture"; return 1; }
   [ "$(_det_count "$p/.claude/settings.json" PostToolUse)" = 0 ] || { echo "the pre-change fixture still holds the detector"; return 1; }
-  before="$(_det_count "$p/.claude/settings.json" PostToolUse)"
-  _sync "$p"; after="$(_det_count "$p/.claude/settings.json" PostToolUse)"
-  echo "  [INFO] measured: --sync-framework on a project adopted without the PostToolUse detector (rc $SYNC_RC): PostToolUse detector entries $before -> $after" >&2
-  h="$(newtmp)"; ln -s "$REPO_ROOT" "$h/solo-orchestrator" || { echo "could not link the framework into a temp HOME"; return 1; }
-  ( cd "$p" && HOME="$h" bash -c "$BACKFILL_CMD" ) >/dev/null 2>&1 || { echo "the documented command failed"; return 1; }
-  why="$(_det_like_new "$p/.claude/settings.json" "$REPO_ROOT")"
-  [ -z "$why" ] || { echo "after the documented command: $why"; return 1; }
+  git -C "$REPO_ROOT" show "$OLD_DETECTOR_REV:scripts/hooks/bypass-detector.sh" > "$p/scripts/hooks/bypass-detector.sh" 2>/dev/null \
+    && grep -q 'claude_bypass_proposal' "$p/scripts/hooks/bypass-detector.sh" \
+    || { echo "could not read the detector from before PR #454 ($OLD_DETECTOR_REV) out of this repository's history; N7 needs the full history (CI checks out with fetch-depth 0)"; return 1; }
+  ! grep -qF '# BL-277-AUTHORSHIP' "$p/scripts/hooks/bypass-detector.sh" || { echo "the fixture's detector already judges authorship, so it is not the old one"; return 1; }
+  cp "$p/.claude/settings.json" "$p.before.json"
+  h="$(newtmp)"; ln -s "$fw" "$h/solo-orchestrator" || { echo "could not link the framework into a temp HOME"; return 1; }
+  # (a) The roster command alone, as a reader who skips the sync runs it.
+  ( cd "$p" && HOME="$h" bash -c "$BACKFILL_CMD" ) > "$p.alone.out" 2>&1; rc=$?
+  _dispatch "$p" "$(_env Bash)"
+  [ "$(_rows "$p" claude)" = 0 ] && [ "$(_pending "$p")" = 0 ] && [ ! -e "$p/.claude/pending-approval.json" ] \
+    || { echo "the roster command, run without the sync (rc $rc), switched on the detector from before PR #454: a rule read through Bash wrote claude rows $(_rows "$p" claude), PENDING $(_pending "$p"), and $( [ -e "$p/.claude/pending-approval.json" ] && echo raised || echo did not raise ) the question"; return 1; }
+  [ "$rc" -ne 0 ] && grep -qF -- '--sync-framework' "$p.alone.out" \
+    || { echo "the roster command without the sync was not refused naming --sync-framework (rc $rc): $(head -c 300 "$p.alone.out" | tr '\n' ' ')"; return 1; }
+  cmp -s "$p.before.json" "$p/.claude/settings.json" || { echo "the refused roster command changed settings.json"; return 1; }
+  # (b) As the document orders it: the sync, then the roster command.
+  [ -n "$SYNC_CMD" ] || { echo "$SYNC_WHY"; return 1; }
+  ( cd "$p" && env HOME="$h" CDF_HOME="$h/no-cdf" SOIF_NONINTERACTIVE=1 bash -c "$SYNC_CMD" ) </dev/null > "$p.sync.out" 2>&1; rc=$?
+  [ "$rc" -eq 0 ] || { echo "the documented sync exited $rc: $(grep -E 'FAIL' "$p.sync.out" | head -1)"; return 1; }
+  grep -qF '# BL-277-AUTHORSHIP' "$p/scripts/hooks/bypass-detector.sh" || { echo "the documented sync did not replace the detector from before PR #454"; return 1; }
+  echo "  [INFO] measured: the documented sync on a project adopted before this change (rc $rc): PostToolUse detector entries 0 -> $(_det_count "$p/.claude/settings.json" PostToolUse), settings.json $(cmp -s "$p.before.json" "$p/.claude/settings.json" && echo byte-identical || echo changed)" >&2
+  ( cd "$p" && HOME="$h" bash -c "$BACKFILL_CMD" ) > "$p.after.out" 2>&1 || { echo "the roster command failed after the sync: $(head -c 300 "$p.after.out" | tr '\n' ' ')"; return 1; }
+  why="$(_det_like_new "$p/.claude/settings.json" "$fw")"
+  [ -z "$why" ] || { echo "after the sync and the roster command: $why"; return 1; }
+  _dispatch "$p" "$(_env Bash)"
+  [ "$DISPATCHED" = 1 ] && [ "$(_rows "$p" tool_output)" = 1 ] && [ "$(_rows "$p" claude)" = 0 ] && [ ! -e "$p/.claude/pending-approval.json" ] \
+    || { echo "after both steps, a rule read through Bash: $DISPATCHED detector hooks ran, tool_output rows $(_rows "$p" tool_output), claude rows $(_rows "$p" claude), question $( [ -e "$p/.claude/pending-approval.json" ] && echo raised || echo none); want 1, 1, 0, none"; return 1; }
+  _dispatch "$p" "$(_env Write)"
+  [ "$(_rows "$p" claude)" = 1 ] && [ "$(_pending "$p")" = 1 ] && [ -e "$p/.claude/pending-approval.json" ] \
+    || { echo "after both steps, a Write proposal: claude rows $(_rows "$p" claude), PENDING $(_pending "$p"), want 1 and 1 and the question"; return 1; }
   cp "$p/.claude/settings.json" "$p.once.json"
-  ( cd "$p" && HOME="$h" bash -c "$BACKFILL_CMD" ) >/dev/null 2>&1 || { echo "the documented command failed the second time"; return 1; }
-  cmp -s "$p.once.json" "$p/.claude/settings.json" || { echo "the documented command run again changed settings.json"; return 1; }
+  ( cd "$p" && HOME="$h" bash -c "$BACKFILL_CMD" ) >/dev/null 2>&1 || { echo "the roster command failed the second time"; return 1; }
+  cmp -s "$p.once.json" "$p/.claude/settings.json" || { echo "the roster command run again changed settings.json"; return 1; }
+  return 0
+}
+
+# Hook handlers with no `command` — types prompt, agent and http — one in every
+# group the roster reads. Whether Claude Code runs each type on each event is
+# not what N8 and N9 test: the roster and its receipt must read whatever the
+# user wrote without misreporting it. Seven handlers.
+COMMANDLESS='{"hooks":{"SessionStart":[{"hooks":[{"type":"http","url":"http://127.0.0.1:9/start"}]}],"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"prompt","prompt":"Is this command safe?"}]},{"matcher":"Write","hooks":[{"type":"agent","prompt":"Review the write."}]},{"matcher":"Edit","hooks":[{"type":"prompt","prompt":"Review the edit."}]}],"PostToolUse":[{"hooks":[{"type":"prompt","prompt":"Check the edit for style."}]}],"PostToolUseFailure":[{"hooks":[{"type":"http","url":"http://127.0.0.1:9/fail"}]}],"Stop":[{"hooks":[{"type":"prompt","prompt":"Did you finish?"}]}]}}'
+_commandless() { jq '[.hooks[]?[]?.hooks[]? | select(has("command") | not)] | length' "$1" 2>/dev/null || printf 'ERR'; }
+# _cmds FILE — every command handler as "event<TAB>command", sorted: the
+# registration as a multiset.
+_cmds() { jq -r '.hooks | to_entries[] | .key as $e | .value[]? | .hooks[]? | select((.command | type) == "string") | "\($e)\t\(.command)"' "$1" 2>/dev/null | LC_ALL=C sort; }
+
+chk_commandless_adopt() {
+  local p why
+  p="$(newtmp)/nocmd"; _base "$p"
+  printf '%s\n' "$COMMANDLESS" > "$p/.claude/settings.json"
+  _commit "$p" package.json src/index.ts .claude/settings.json
+  _adopt "$1" "$p" "$p.out"
+  [ "$RUN_RC" -eq 0 ] || { echo "adoption rc $RUN_RC: $(grep -E 'BLOCKED|REFUSED' "$p.out" | head -1)"; return 1; }
+  why="$(_det_like_new "$p/.claude/settings.json" "$1")"
+  [ -z "$why" ] || { echo "$why"; return 1; }
+  [ "$(_commandless "$p/.claude/settings.json")" = 7 ] || { echo "their handlers with no command: $(_commandless "$p/.claude/settings.json") after adoption, want 7"; return 1; }
+  grep -qF "Registered the framework's session hooks" "$p.out" && ! grep -qF "were NOT all registered" "$p.out" \
+    || { echo "the run misreports the hooks it registered: $(grep -iE 'session hooks' "$p.out" | head -2 | tr '\n' ' ')"; return 1; }
+  return 0
+}
+
+chk_roster_thrice() {
+  local r d n
+  r="$(newtmp)"; mkdir -p "$r/.claude" && printf '{}\n' > "$r/.claude/settings.json" || { echo "could not make the reference"; return 1; }
+  ( cd "$r" && . "$1/scripts/lib/claude-settings.sh" && soif_register_hook_roster .claude/settings.json ) >/dev/null 2>&1 \
+    || { echo "the roster could not register into an empty settings.json"; return 1; }
+  _cmds "$r/.claude/settings.json" > "$r.want"
+  [ "$(grep -c . "$r.want")" -ge 12 ] || { echo "the roster's own set has $(grep -c . "$r.want") entries, so the derivation is broken"; return 1; }
+  d="$(newtmp)"; mkdir -p "$d/.claude" && printf '%s\n' "$COMMANDLESS" > "$d/.claude/settings.json" || { echo "could not make the fixture"; return 1; }
+  for n in 1 2 3; do
+    ( cd "$d" && . "$1/scripts/lib/claude-settings.sh" && soif_register_hook_roster .claude/settings.json ) >/dev/null 2>&1 \
+      || { echo "roster run $n failed"; return 1; }
+  done
+  [ "$(_det_count "$d/.claude/settings.json" PostToolUse)" = 1 ] && [ "$(_det_count "$d/.claude/settings.json" Stop)" = 1 ] \
+    || { echo "after three runs: PostToolUse detectors $(_det_count "$d/.claude/settings.json" PostToolUse), Stop detectors $(_det_count "$d/.claude/settings.json" Stop), want 1 and 1"; return 1; }
+  _cmds "$d/.claude/settings.json" > "$d.got"
+  cmp -s "$r.want" "$d.got" || { echo "after three runs the framework's hooks are not each there once: $(diff "$r.want" "$d.got" | grep '^[<>]' | head -3 | tr '\n' '|')"; return 1; }
+  [ "$(_commandless "$d/.claude/settings.json")" = 7 ] || { echo "their handlers with no command: $(_commandless "$d/.claude/settings.json") after three runs, want 7"; return 1; }
+  return 0
+}
+
+chk_close_routes() {
+  local route p out rc
+  _plain "$1" || { echo "adoption rc $PLAIN_RC"; return 1; }
+  for route in decline resolve clear; do
+    p="$(_copy_plain)" || { echo "could not copy the adopted project"; return 1; }
+    _dispatch "$p" "$(_env Write)"
+    [ -e "$p/.claude/pending-approval.json" ] && [ "$(_pending "$p")" = 1 ] || { echo "$route: the Write proposal raised no question to close"; return 1; }
+    if [ "$route" = decline ]; then
+      out="$(cd "$p" && bash scripts/pending-approval.sh --resolve --decision decline 2>&1 </dev/null)"; rc=$?
+      [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "this project: unknown" && [ -e "$p/.claude/pending-approval.json" ] \
+        || { echo "without the Guardrails, --decision decline was not refused as 'this project: unknown' with the question left in place (rc $rc): $(printf '%s' "$out" | head -c 200)"; return 1; }
+    else
+      ( cd "$p" && bash scripts/pending-approval.sh --"$route" ) </dev/null >/dev/null 2>&1; rc=$?
+      [ "$rc" -eq 0 ] && [ ! -e "$p/.claude/pending-approval.json" ] || { echo "without the Guardrails, --$route did not withdraw the question (rc $rc)"; return 1; }
+      [ "$(_pending "$p")" = 1 ] || { echo "--$route: PENDING rows $(_pending "$p"), want 1 (the question goes, the row stays open)"; return 1; }
+    fi
+  done
   return 0
 }
 
@@ -334,8 +478,14 @@ if why="$(chk_transcript "$REPO_ROOT")"; then pass "N5 the adoption transcript s
 else fail_ "N5" "$why"; fi
 if why="$(chk_unregistrable "$REPO_ROOT")"; then pass "N6 a PostToolUse the roster cannot extend: the run does not say the hooks are registered"
 else fail_ "N6" "$why"; fi
-if why="$(chk_backfill "$REPO_ROOT")"; then pass "N7 a project adopted before this change: the command docs/adoption.md gives adds the detector as N1, and again changes nothing"
+if why="$(chk_backfill "$REPO_ROOT")"; then pass "N7 a project adopted before this change, with the detector from before PR #454: the roster command alone is refused and raises nothing; the sync docs/adoption.md gives first, then the command, add the detector as N1, judging authorship, and again changes nothing"
 else fail_ "N7" "$why"; fi
+if why="$(chk_commandless_adopt "$REPO_ROOT")"; then pass "N8 hook handlers with no command in every group: the adoption registers the hooks and says so"
+else fail_ "N8" "$why"; fi
+if why="$(chk_roster_thrice "$REPO_ROOT")"; then pass "N9 the roster run three times over handlers with no command: every framework hook once, the detector once on each arm, their handlers kept"
+else fail_ "N9" "$why"; fi
+if why="$(chk_close_routes "$REPO_ROOT")"; then pass "N10 without the Guardrails: --decision decline is refused (this project: unknown); --resolve and --clear each withdraw the question"
+else fail_ "N10" "$why"; fi
 
 # ── mutants ─────────────────────────────────────────────────────────────────
 echo "=== M — mutants ==="
@@ -386,17 +536,17 @@ chk_greenfield() {
 }
 
 CS="scripts/lib/claude-settings.sh"; AS="scripts/lib/adopt/adopt-session.sh"
-PROBE='if ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then'
+PROBE='if ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then'
 # M1 — the adoption guard back: the roster skips the detector's PostToolUse arm
 # when an adoption runs it (keyed on the driver's own variable, since adoption
 # no longer passes a mode).
 judge M1 "the PostToolUse arm skipped in an adoption" "$CS" "# BL-242-SETTINGS-BL277" "$PROBE" \
-  'if [ -z "${ADOPT_FRAMEWORK_ROOT:-}" ] && ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then' \
+  'if [ -z "${ADOPT_FRAMEWORK_ROOT:-}" ] && ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then' \
   12 chk_fresh chk_greenfield
 # M2 — the receipt no longer asks for the detector: "registered" is said with
 # the detector absent.
 judge M2 "the receipt without its detector half" "$AS" "# BL-242-SESSION-ROSTER-RECEIPT" \
-  ' and ([.hooks.PostToolUse[]?.hooks[]?.command] | any(test("bypass-detector.sh")))' ' and true' 0 chk_unregistrable chk_transcript
+  ' and ([.hooks.PostToolUse[]?.hooks[]?.command | strings] | any(test("bypass-detector.sh")))' ' and true' 0 chk_unregistrable chk_transcript
 # M3 — the transcript says the old thing.
 judge M3 "the transcript's old sentence" "$AS" "# BL-277-ADOPTED-ON" \
   "Registered the framework's session hooks. The bypass detector runs on both of its" \
@@ -407,7 +557,72 @@ judge M4 "the matcher narrowed to Bash" "$CS" "# BL-277-MATCHER" '"matcher": "Ba
 # M5 — the idempotence probe regressed to group [0]: the adopted detector sits
 # in a later group, so a second roster run adds it again.
 judge M5 "the idempotence probe regressed to group [0]" "$CS" "# BL-242-SETTINGS-BL277" \
-  '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' \
-  '.hooks.PostToolUse[0].hooks[]? | select(.command | contains("bypass-detector.sh"))' 12 chk_rerun chk_fresh
+  '.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))' \
+  '.hooks.PostToolUse[0].hooks[]? | select((.command // "") | contains("bypass-detector.sh"))' 12 chk_rerun chk_fresh
+# M6 — the registered command unquoted: under a path with a space (every
+# fixture here) the shell splits it, finds no script and records nothing. N1
+# compares like with like and survives; only N4, which runs the command as
+# registered, can see it.
+judge M6 "the registered command unquoted" "$CS" "# BL-277-MATCHER" \
+  '"matcher": "Bash|Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]' \
+  '"matcher": "Bash|Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "bash $CLAUDE_PROJECT_DIR/scripts/hooks/bypass-detector.sh"}]' \
+  8 chk_e2e chk_fresh
+# M7, M8 — one half of the receipt reading a handler with no command as a
+# string: jq stops on `null | test()`, and the run says the hooks were NOT all
+# registered, which they were. N8 kills each; N5, an adoption with no such
+# handler, survives.
+judge M7 "the receipt's SessionStart half without strings" "$AS" "# BL-242-SESSION-ROSTER-RECEIPT" \
+  '[.hooks.SessionStart[]?.hooks[]?.command | strings]' '[.hooks.SessionStart[]?.hooks[]?.command]' 0 chk_commandless_adopt chk_transcript
+judge M8 "the receipt's PostToolUse half without strings" "$AS" "# BL-242-SESSION-ROSTER-RECEIPT" \
+  '[.hooks.PostToolUse[]?.hooks[]?.command | strings]' '[.hooks.PostToolUse[]?.hooks[]?.command]' 0 chk_commandless_adopt chk_transcript
+# M9.1 … M9.14 — each of the roster's probes, one at a time, reading a handler
+# with no command as a string: jq stops on `null | contains()`, `! jq -e`
+# takes the error for "absent", and every run adds that hook again. N9 kills
+# each; a new project's roster, with no such handler, survives. The probe text
+# is the source's own; `_unguard` turns its `(.command // "")` back into
+# `.command` (in either quoting).
+_unguard() {
+  S="$1" awk 'BEGIN {
+    s = ENVIRON["S"]; g1 = "(.command // \"\")"; g2 = "(.command // \\\"\\\")"
+    i = index(s, g1); g = g1
+    if (!i) { i = index(s, g2); g = g2 }
+    if (i) s = substr(s, 1, i - 1) ".command" substr(s, i + length(g))
+    print s
+  }'
+}
+ROSTER_PROBES=(
+  '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-version-check.sh"))'
+  '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-test-gate-check.sh"))'
+  '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-freshness-check.sh"))'
+  '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-intake-check.sh"))'
+  '.hooks.SessionStart[0].hooks[] | select((.command // "") | contains("session-cadence-check.sh"))'
+  '.hooks.Stop[0].hooks[] | select((.command // "") | contains("session-end-qdrant-reminder.sh"))'
+  '.hooks.PreToolUse[]? | .hooks[]? | select((.command // "") | contains("pre-commit-gate.sh"))'
+  'select((.command // \"\") | contains(\"session-mcp-gate.sh\"))'
+  '.hooks.PostToolUse[0].hooks[] | select((.command // "") | contains("track-tool-usage.sh"))'
+  '.hooks.PostToolUseFailure[0].hooks[] | select((.command // "") | contains("track-tool-usage.sh"))'
+  '.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'
+  '.hooks.Stop[0].hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'
+  '.hooks.PostToolUse[0].hooks[] | select((.command // "") | contains("record-claude-commit.sh"))'
+  '.hooks.SessionStart[0].hooks[]? | select((.command // "") | contains("detect-out-of-band-commits.sh"))'
+)
+i=0
+for op in "${ROSTER_PROBES[@]}"; do
+  i=$((i + 1))
+  judge "M9.$i" "the probe '$op' unguarded" "$CS" "# BL-277-ROSTER-COMMANDLESS" \
+    "$op" "$(_unguard "$op")" 200 chk_roster_thrice chk_greenfield
+done
+[ "$i" -eq 14 ] || fail_ "M9 setup" "$i roster probes listed, want 14"
+# The vacuity floor for the list above: the roster holds exactly as many
+# probes on a command as are listed, so a probe added later without a mutant
+# here fails this line.
+n_probes="$(awk '/^soif_register_hook_roster\(\)/{f=1} f{print} f&&/^}/{exit}' "$REPO_ROOT/$CS" | grep -c 'select(.*command')"
+[ "$n_probes" -eq "$i" ] && pass "M9 floor — the roster holds $n_probes probes on a command, and each has its mutant above" \
+  || fail_ "M9 floor" "the roster holds $n_probes probes on a command; ${i} are listed"
+# M10 — the backfill's refusal gone: the roster command switches on a detector
+# from before PR #454, and a rule read through Bash raises the question. N7
+# kills it; N1 survives.
+judge M10 "the backfill's refusal of a detector from before PR #454" "$CS" "# BL-277-BACKFILL-REFUSE" \
+  "if ! grep -qF '# BL-277-AUTHORSHIP' \"\$_det\" 2>/dev/null; then" 'if false; then' 8 chk_backfill chk_fresh
 
 _done
