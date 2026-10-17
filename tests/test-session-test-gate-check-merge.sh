@@ -224,20 +224,23 @@ teardown
 
 echo "T5c: MUTANT — put the two keys back into the startup heredoc, gate flips to allow"
 setup_inherited
-MUT="$TMP/hook-mutant.sh"
+# The mutant sits in a mirror of scripts/ with the ledger lib beside it, since
+# the hook sources lib/ledger-write.sh from its own directory.
+mkdir -p "$TMP/m/scripts/lib" && cp "$REPO_ROOT/scripts/lib/ledger-write.sh" "$TMP/m/scripts/lib/"
+MUT="$TMP/m/scripts/session-test-gate-check.sh"
 # Structural discriminator for an ABSENCE: an omission cannot be greped for as
 # proof, so the two keys are spliced back INTO the startup heredoc (the SECOND
 # of the two in the file — the first is the jq-failure fallback) and the gate's
 # decision is read again. Anchored on the heredoc-open count, not on a line
 # number and not on the em-dash comment.
-awk '/cat > "\$TOOL_USAGE" << TUEOF/ { n++ }
+awk '/_lw_put << TUEOF/ { n++ }
      n==2 && /"mcp_gate_satisfied": false,/ && !done {
        print "  \"qdrant_find_succeeded\": true,";
        print "  \"context7_query_docs_succeeded\": true,";
        done=1
      }
      { print }' "$HOOK" > "$MUT"
-mut_sites=$(grep -c 'cat > "\$TOOL_USAGE" << TUEOF' "$HOOK" 2>/dev/null || echo 0)
+mut_sites=$(grep -c '_lw_put << TUEOF' "$HOOK" 2>/dev/null || echo 0)
 case "$mut_sites" in ''|*[!0-9]*) mut_sites=0 ;; esac
 mut_added=$(diff "$HOOK" "$MUT" 2>/dev/null | grep -c '^[<>]')
 case "$mut_added" in ''|*[!0-9]*) mut_added=0 ;; esac
@@ -252,6 +255,80 @@ if [ "$mut_sites" = "2" ] && [ "$mut_added" = "2" ] && [ "$mut_parses" = "1" ] \
   pass "T5c: with the two outcome keys written as true by the startup heredoc, the SAME first-Write that T5b blocked is ALLOWED — the omission is the whole fail-safe, and it is one 'complete the object' edit from gone"
 else
   fail_ "T5c" "heredocs=$mut_sites (want 2) lines_added=$mut_added (want 2) parses=$mut_parses (want 1) qdrant_succeeded=$m_q (want true) gate_denied=$mut_denied (want no)"
+fi
+teardown
+
+# run_hook_out <hookpath> <source> — run_hook_at, echoing the hook's stdout
+# (SessionStart stdout is what the session is told).
+run_hook_out() {
+  ( cd "$PROJ" && printf '{"hook_event_name":"SessionStart","source":"%s"}' "$2" \
+      | env -i HOME="$TMP/home" PATH="$PATH" bash "$1" 2>/dev/null ) || true
+}
+# _says_nolib TEXT — yes when TEXT names the missing lib and the command that
+# restores it. Here-strings, not a pipe into grep -q (#422).
+_says_nolib() {
+  if grep -qF 'lib/ledger-write.sh' <<<"$1" && grep -qF 'verify-install.sh --auto-fix' <<<"$1"; then
+    echo yes
+  else
+    echo no
+  fi
+}
+
+echo "T5d: source=startup with lib/ledger-write.sh MISSING still erases an inherited MCP success, and says why"
+# BL-314: the hook writes the ledger through that lib. Without it no fresh
+# ledger can be written, and an inherited one must not survive the startup
+# either, or its `true` flags let the first Write through. The session is told
+# the lib is missing and how to restore it: without that, every later Write is
+# refused with no hint why.
+setup_inherited
+mkdir -p "$TMP/nolib/scripts"
+cp "$HOOK" "$TMP/nolib/scripts/session-test-gate-check.sh"
+nl_out=$(run_hook_out "$TMP/nolib/scripts/session-test-gate-check.sh" "startup")
+nl_q=$(jq -r '.qdrant_find_succeeded // false' "$PROJ/.claude/tool-usage.json" 2>/dev/null)
+nl_gate=$(run_mcp_gate)
+nl_denied=no; grep -q '"permissionDecision": "deny"' <<<"$nl_gate" && nl_denied=yes
+nl_loud=$(_says_nolib "$nl_out")
+if [ "$nl_q" != "true" ] && [ "$nl_denied" = "yes" ] && [ "$nl_loud" = "yes" ]; then
+  pass "T5d: with the ledger lib absent, the startup leaves no inherited qdrant_find_succeeded=true behind, session-mcp-gate.sh DENIES the first Write, and the startup names the missing lib and verify-install.sh --auto-fix"
+else
+  fail_ "T5d" "qdrant_succeeded=$nl_q (want not true) gate_denied=$nl_denied (want yes) names_missing_lib=$nl_loud (want yes)"
+fi
+teardown
+
+echo "T5e: source=resume with lib/ledger-write.sh MISSING leaves the ledger alone and says why; with the lib, no such line"
+# BL-314: a resume merges into the ledger, and without the lib that write
+# cannot land. It must not pass in silence. The control run, lib present,
+# proves the line is about the lib and not printed on every resume.
+setup_inherited
+mkdir -p "$TMP/nolib/scripts"
+cp "$HOOK" "$TMP/nolib/scripts/session-test-gate-check.sh"
+cp "$PROJ/.claude/tool-usage.json" "$TMP/before.json"
+ne_out=$(run_hook_out "$TMP/nolib/scripts/session-test-gate-check.sh" "resume")
+ne_same=no; cmp -s "$TMP/before.json" "$PROJ/.claude/tool-usage.json" && ne_same=yes
+ne_loud=$(_says_nolib "$ne_out")
+ne_ctl=$(_says_nolib "$(run_hook_out "$HOOK" "resume")")
+if [ "$ne_same" = "yes" ] && [ "$ne_loud" = "yes" ] && [ "$ne_ctl" = "no" ]; then
+  pass "T5e: a lib-less resume leaves the ledger byte-identical and names the missing lib and verify-install.sh --auto-fix; with the lib the same resume prints no such line"
+else
+  fail_ "T5e" "ledger_unchanged=$ne_same (want yes) names_missing_lib=$ne_loud (want yes) control_names_it=$ne_ctl (want no)"
+fi
+teardown
+
+echo "T5f: MUTANT — the missing-lib line silenced (# BL-314-NOLIB-NOTE), and T5d's check sees it"
+setup_inherited
+mkdir -p "$TMP/m/scripts"
+MUT="$TMP/m/scripts/session-test-gate-check.sh"
+nf_sites=$(grep -c '# BL-314-NOLIB-NOTE$' "$HOOK" 2>/dev/null)
+case "$nf_sites" in ''|*[!0-9]*) nf_sites=0 ;; esac
+awk '/# BL-314-NOLIB-NOTE$/ { print "  :   # BL-314-NOLIB-NOTE"; next } { print }' "$HOOK" > "$MUT"
+nf_changed=$(diff "$HOOK" "$MUT" 2>/dev/null | grep -c '^[<>]')
+case "$nf_changed" in ''|*[!0-9]*) nf_changed=0 ;; esac
+nf_parses=0; bash -n "$MUT" 2>/dev/null && nf_parses=1
+nf_loud=$(_says_nolib "$(run_hook_out "$MUT" "startup")")
+if [ "$nf_sites" = "1" ] && [ "$nf_changed" = "2" ] && [ "$nf_parses" = "1" ] && [ "$nf_loud" = "no" ]; then
+  pass "T5f: with the line silenced, a lib-less startup no longer names the missing lib (the T5d check kills it)"
+else
+  fail_ "T5f" "sites=$nf_sites (want 1) changed=$nf_changed (want 2) parses=$nf_parses (want 1) names_missing_lib=$nf_loud (want no)"
 fi
 teardown
 

@@ -441,6 +441,9 @@ check_scripts() {
     # and pre-commit-gate.sh's warning no-ops — and without this row
     # verify-install reported a healthy install with the enforcement lib gone.
     "scripts/lib/accumulation.sh"
+    # BL-314: sourced by track-tool-usage.sh and session-mcp-gate.sh. Without
+    # it the tracker writes nothing, and the gate refuses every Write and Edit.
+    "scripts/lib/ledger-write.sh"
   )
   local lib_name
   for lib in "${libs[@]}"; do
@@ -1526,6 +1529,7 @@ fix_lib_copy_gate-principles()   { if has_source && [ -f "$SOURCE_DIR/scripts/li
 fix_lib_copy_tdd-classify()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/tdd-classify.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/tdd-classify.sh"      scripts/lib/; else return 1; fi; }
 fix_lib_copy_phase2-state()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/phase2-state.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/phase2-state.sh"      scripts/lib/; else return 1; fi; }
 fix_lib_copy_accumulation()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/accumulation.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/accumulation.sh"      scripts/lib/; else return 1; fi; }
+fix_lib_copy_ledger-write()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/ledger-write.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/ledger-write.sh"      scripts/lib/; else return 1; fi; }
 fix_lib_copy_hook-templates()    { if has_source && [ -f "$SOURCE_DIR/scripts/lib/hook-templates.sh" ];    then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/hook-templates.sh"    scripts/lib/; else return 1; fi; }
 fix_lib_copy_cdf-refresh()       { if has_source && [ -f "$SOURCE_DIR/scripts/lib/cdf-refresh.sh" ];       then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/cdf-refresh.sh"       scripts/lib/; else return 1; fi; }
 # Hooks live in a subdirectory; chmod + copy paths reflect that. The

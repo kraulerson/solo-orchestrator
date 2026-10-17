@@ -62,10 +62,10 @@
 #       passes their check: a row (review round 1, R-322-2; real hooks)
 #   D11 a matched:false commit used the approval; the same tree committed again
 #       after a reset: a row for the second
-#   I1  init.sh's .gitignore template ignores both runtime files (init.sh is
+#   I1  init.sh's .gitignore template ignores the runtime files (init.sh is
 #       READ as source here, never run)
 #   A1  a real adoption writes .claude/.gitignore, commits it, leaves the
-#       project's .gitignore as it was; both runtime files are ignored and stay
+#       project's .gitignore as it was; the runtime files are ignored and stay
 #       out of git status; and on that adoptee its own copy of the detector
 #       writes no row for an approved commit, leaves the audit file unchanged,
 #       and still records a terminal commit. The fixture commits use
@@ -287,7 +287,9 @@ case_D11() {   # a matched:false commit used the approval; the approved tree com
 }
 
 # ── I: init.sh's .gitignore ──────────────────────────────────────────────────
-RUNTIME_FILES=".claude/last-checked-commit.txt .claude/tool-usage.json"
+# The third path is a temp scripts/lib/ledger-write.sh leaves when SIGKILL takes a
+# writer mid-write (`## BL-314:`): a full copy of the ledger until the next sweep.
+RUNTIME_FILES=".claude/last-checked-commit.txt .claude/tool-usage.json .claude/tool-usage.json.lw.AbC123"
 ignored_all() {   # DIR — git ignores every runtime file's path (check-ignore needs no file there)
   local d="$1" f bad=""
   for f in $RUNTIME_FILES; do
@@ -352,6 +354,7 @@ case_A1() {   # adoption writes and commits .claude/.gitignore; on the adoptee, 
   bash "$p/scripts/detect-out-of-band-commits.sh" "$p" </dev/null >/dev/null 2>&1
   [ -s "$p/.claude/last-checked-commit.txt" ] || { CASE_DETAIL="the adoptee's detector set no baseline"; return 1; }
   printf '{"calls":[]}\n' > "$p/.claude/tool-usage.json"   # what the MCP tracker leaves after a call
+  cp "$p/.claude/tool-usage.json" "$p/.claude/tool-usage.json.lw.AbC123"   # and what a SIGKILLed write leaves
   approved_commit "$p" src/fix.txt "fix: the approved change" || { CASE_DETAIL="approved commit"; return 1; }
   snap="$(newtmp)/audit.json"; cp "$p/.claude/bypass-audit.json" "$snap"
   bash "$p/scripts/detect-out-of-band-commits.sh" "$p" </dev/null >/dev/null 2>&1
@@ -399,9 +402,9 @@ check "D9: a commit field that is not one SHA exempts nothing" case_D9
 check "D10: approved, then held (a pick that approves nothing): the commit is out of band" case_D10
 check "D11: an approval used by a matched:false commit exempts no second commit of its tree" case_D11
 echo "=== I — init.sh's .gitignore ==="
-check "I1: init.sh copies the template, and it ignores both runtime files" case_I1
+check "I1: init.sh copies the template, and it ignores the runtime files" case_I1
 echo "=== A — adoption ==="
-check "A1: adoption writes and commits .claude/.gitignore; theirs unchanged; both ignored; the adoptee's detector skips an approved commit" case_A1
+check "A1: adoption writes and commits .claude/.gitignore; theirs unchanged; the runtime files ignored; the adoptee's detector skips an approved commit" case_A1
 check "A2: an adoptee's own .claude/.gitignore is left exactly as it was, and the run names both lines to add" case_A2
 
 # ── M: mutants ───────────────────────────────────────────────────────────────
@@ -463,6 +466,7 @@ SES=scripts/lib/adopt/adopt-session.sh
 mutant M7 "$SES" '# BL-322-ADOPT-IGNORE-WRITE' '    :' case_A1 "adoption writes no ignore rule"
 mutant M8 "$SES" '# BL-322-ADOPT-IGNORE-KEEP' '  if false; then' case_A2 "adoption writes over the adoptee's own .claude/.gitignore"
 mutant_drop M14 "$SES" '    adopt_note "two lines to it: /last-checked-commit.txt and /tool-usage.json"' case_A2 "the kept-theirs note stops naming the two lines"
+mutant_drop M15 "$SES" '    "/tool-usage.json.lw.*" \' case_A1 "adoption stops ignoring the ledger writer's temps (BL-314)"
 TPL=templates/generated/gitignore-base.tmpl
 mutant_drop M9 "$TPL" '.claude/tool-usage.json' case_I1 "init.sh's template stops ignoring the MCP tool ledger"
 mutant_drop M10 "$TPL" '.claude/last-checked-commit.txt' case_I1 "init.sh's template stops ignoring the detector's baseline"

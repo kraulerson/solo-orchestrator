@@ -658,6 +658,7 @@ jobs:
             tests/test-bl311-adopt-mcp.sh
             tests/test-bl311-adopt-mcp-mutants.sh
             tests/test-bl311-mcp-add-order.sh
+            tests/test-bl314-tool-usage-concurrent.sh
             tests/test-bl313-ci-before-manifest.sh
             tests/test-bl316-installers.sh
             tests/test-bl312-tldr-mode.sh
@@ -1246,6 +1247,13 @@ jobs:
             tests/test-bl274-single-authority-attestation.sh  # 126.4s on main run 38953171960 (rest) — from `rest`
             tests/test-bl318-g4g6.sh                          #  81.3s — from `rest`
             tests/test-bl320-approval-schema2.sh              #  38.2s — from `rest`
+            # PR #481 (BL-314) proposed a twelfth leg, `ledger`, for this one
+            # suite; it lands here instead. It ran 221s on this Mac (bash
+            # 3.2.57, 56/0) on the merge of main cb4ec41 into that branch, and
+            # 223s (59/0) with the lib-less cases added after it. On CI it took
+            # 214s (its ::group:: span on run 36747960146, #481's own `ledger`
+            # leg at 401abe1, bash 5.2.21, 56/0), on top of the ~246s above.
+            tests/test-bl314-tool-usage-concurrent.sh         # 223s local — from #481's own leg
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the

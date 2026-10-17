@@ -85,8 +85,26 @@ if command -v jq &>/dev/null; then
 fi
 
 # ── Initialize / merge Tool Usage Tracking ───────────────────────
+# BL-314: every write of the ledger goes through the same locked, unique-temp
+# writer as track-tool-usage.sh and session-mcp-gate.sh. A `cat >` truncates
+# the ledger in place, so a concurrent reader saw it empty, and the unlocked
+# merge could land over a tracker's row. Without the lib (or jq) no ledger can
+# be written, so a startup removes the one that is there: an inherited ledger's
+# `true` flags would otherwise let the first Write through (BL-236). The gate
+# then reports the ledger absent and points at verify-install.
 TOOL_USAGE=".claude/tool-usage.json"
-if command -v jq &>/dev/null; then
+LW_READY=0
+# Loaded through a trial in a subshell, as track-tool-usage.sh does, keyed on
+# the functions it defines. An old or mismatched lib that loads but lacks
+# _lw_put would otherwise pass, and the startup write below would fail as if
+# the disk were full. On bash 3.2, under this hook's `set -e`, a lib with a
+# syntax error or no read permission also ends the shell at the `.` even
+# inside an `if` (bash 4.0 and later carry on), before the reset and the note.
+if ( . "$SCRIPT_DIR/lib/ledger-write.sh" && command -v _lw_update && command -v _lw_put && command -v _lw_traps ) >/dev/null 2>&1; then   # BL-314-SESSION-LIB-TRIAL
+  # shellcheck source=scripts/lib/ledger-write.sh
+  . "$SCRIPT_DIR/lib/ledger-write.sh" && _lw_traps && LW_READY=1
+fi
+if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
   SESSION_ID=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   mkdir -p .claude
 
@@ -96,8 +114,7 @@ if command -v jq &>/dev/null; then
     # so the boundary is visible to a successor, and re-derive the
     # MCP requirements in case the user added or removed servers
     # between sessions.
-    tmp=$(mktemp "${TOOL_USAGE}.XXXXXX")
-    if jq \
+    if ! _lw_update \
         --arg sid "$SESSION_ID" \
         --argjson qreq "$QDRANT_CONFIGURED" \
         --argjson creq "$CONTEXT7_CONFIGURED" \
@@ -106,14 +123,10 @@ if command -v jq &>/dev/null; then
          | .session_id = $sid
          | .mcp_requirements.qdrant_required = $qreq
          | .mcp_requirements.context7_required = $creq
-         | .mcp_requirements.additional_required = ($orig.mcp_requirements.additional_required // [])' \
-        "$TOOL_USAGE" > "$tmp" 2>/dev/null; then
-      mv "$tmp" "$TOOL_USAGE"
-    else
+         | .mcp_requirements.additional_required = ($orig.mcp_requirements.additional_required // [])'; then
       # If jq fails (malformed prior file, etc.), fall through to a
       # fresh write so the gate is not left wedged.
-      rm -f "$tmp"
-      cat > "$TOOL_USAGE" << TUEOF
+      _lw_put << TUEOF
 {
   "session_id": "$SESSION_ID",
   "calls": [],
@@ -143,7 +156,8 @@ TUEOF
     # be true — and you have re-opened it. T5b pins the erasure AND the gate's
     # refusal; T5c is the mutant that puts the keys back and shows the gate flip
     # to allow. Do not "complete" this object.
-    cat > "$TOOL_USAGE" << TUEOF
+    LW_RESET_FAILED=0
+    _lw_put << TUEOF || LW_RESET_FAILED=1   # BL-314-SESSION-PUT
 {
   "session_id": "$SESSION_ID",
   "calls": [],
@@ -159,7 +173,28 @@ TUEOF
   }
 }
 TUEOF
+    # A startup whose fresh ledger cannot land (.claude unwritable, the disk
+    # full) must not leave the last session's outcome flags in place: they would
+    # let the first Write through with no MCP call this session (BL-236). So the
+    # ledger is emptied in place, which needs no write to the directory, and the
+    # gate fails closed on it; the hook says so and ends non-zero.
+    if [ "$LW_RESET_FAILED" = "1" ]; then
+      if { : > "$TOOL_USAGE"; } 2>/dev/null; then   # BL-314-RESET-FAIL-CLOSED
+        echo "session-test-gate-check.sh: could not write a fresh $TOOL_USAGE (is .claude writable? is the disk full?), so it was emptied: no MCP result carries over from the last session, and the MCP check refuses Write and Edit until the ledger can be written." >&2
+      else
+        echo "session-test-gate-check.sh: could not write a fresh $TOOL_USAGE, nor empty it, so it may still hold the last session's MCP results. Fix the permissions on .claude and start a new session." >&2
+      fi
+      exit 1
+    fi
   fi
+elif [ "$SESSION_SOURCE" = "startup" ]; then
+  rm -f .claude/tool-usage.json   # BL-314-NOLIB-RESET
+fi
+# Without the lib, this session's MCP calls cannot be recorded either, and the
+# write above was skipped: say so, on every source, rather than pass in silence.
+if [ "$LW_READY" != "1" ]; then
+  echo ""
+  echo "MCP LEDGER WRITER MISSING: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded, so no MCP call this session can be recorded in $TOOL_USAGE, and the MCP check will refuse every Write and Edit. Restore it: bash scripts/verify-install.sh --auto-fix"   # BL-314-NOLIB-NOTE
 fi
 
 # ── Report Unknown MCP Servers ────────────────────────────────────

@@ -64,6 +64,9 @@ test-logs/
 # tracked-ledger defect for generated projects committed its own ledger here on
 # the first `git add -A`. The scaffold's rule does not cover the framework repo.
 .claude/tool-usage.json
+# BL-314: the ledger writer's temps (scripts/lib/ledger-write.sh). A SIGKILL
+# can leave one, a full copy of the ledger, until the next write sweeps it.
+.claude/tool-usage.json.lw.*
 
 # `unit-shard` installs jsdom with `npm install --no-save` for the BL-263/BL-264
 # behavioural cases (see .github/workflows/tests.yml). `--no-save` keeps

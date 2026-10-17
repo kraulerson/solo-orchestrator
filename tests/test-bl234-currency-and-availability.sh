@@ -1380,6 +1380,7 @@ fi
 M5="$(newtmp)"
 mkdir -p "$M5/m"
 cp -p "$TRACKER" "$M5/m/tracker.sh"
+mkdir -p "$M5/m/lib" && cp -p "$REPO_ROOT/scripts/lib/ledger-write.sh" "$M5/m/lib/"
 run_tracker_at() {
   local sut="$1" d="$2" payload="$3"
   mkdir -p "$d/.claude"

@@ -165,12 +165,15 @@ ADOPT_SESSION_IGNORE_REL=".claude/.gitignore"
 
 # _adopt_session_ignore_rules — the body of .claude/.gitignore (`## BL-322:`).
 # A leading `/` anchors a rule to .claude/, the folder this file is in. The same
-# two paths are in templates/generated/gitignore-base.tmpl (init.sh) and in
-# upgrade-project.sh's `# BL-174-GITIGNORE-BACKFILL`.
+# paths are in templates/generated/gitignore-base.tmpl (init.sh); the first two
+# are also in upgrade-project.sh's `# BL-174-GITIGNORE-BACKFILL`. The third is
+# the temps of scripts/lib/ledger-write.sh (`## BL-314:`), which a SIGKILLed
+# write leaves until the next write sweeps it.
 _adopt_session_ignore_rules() {
   printf '%s\n' \
     "# Solo Orchestrator's runtime files. The framework's session hooks rewrite them" \
     "# in every session; they are not project content. Written by adoption." \
     "/last-checked-commit.txt" \
+    "/tool-usage.json.lw.*" \
     "/tool-usage.json"
 }

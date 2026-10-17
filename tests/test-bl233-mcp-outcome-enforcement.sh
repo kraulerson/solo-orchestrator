@@ -1025,6 +1025,7 @@ mk_mirror() {
   mkdir -p "$m" || return 1
   cp -p "$GATE" "$m/gate.sh" || return 1
   cp -p "$TRACKER" "$m/tracker.sh" || return 1
+  mkdir -p "$m/lib" && cp -p "$REPO_ROOT/scripts/lib/ledger-write.sh" "$m/lib/" || return 1
   return 0
 }
 

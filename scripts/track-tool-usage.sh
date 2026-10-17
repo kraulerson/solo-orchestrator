@@ -57,6 +57,38 @@ set +e
 
 TOOL_USAGE=".claude/tool-usage.json"
 
+# BL-314: every ledger write goes through the locked, unique-temp writer that
+# session-mcp-gate.sh shares. Without it (hooks newer than the lib, the lib
+# deleted, or a lib that cannot be loaded) this hook cannot write the ledger at
+# all, and that must not pass in silence: the call goes unrecorded and the MCP
+# check then refuses every Write and Edit with no hint why. So each write entry
+# point stands in as one loud failure: a stderr line and exit 1, a non-blocking
+# hook error Claude Code shows the user (the tool call has already run). A call
+# that writes nothing (not MCP, not a commit) still exits 0 in silence, since
+# this fires after every tool call. verify-install reports the lib missing.
+#
+# The lib is loaded through a trial in a subshell, keyed on what it defines,
+# not on `[ -f ]`: a 0-byte lib defines nothing, an old or mismatched one may
+# lack a function, and on bash 3.2 one with a syntax error or no read
+# permission ends a `set -e` shell at the `.` even inside an `if` (rc 2 and
+# rc 1; bash 4.0 and later carry on). A subshell's exit cannot end this one.
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
+if ( . "$SCRIPT_DIR/lib/ledger-write.sh" && command -v _lw_update && command -v _lw_put && command -v _lw_traps ) >/dev/null 2>&1; then   # BL-314-LIB-TRIAL
+  # shellcheck source=scripts/lib/ledger-write.sh
+  . "$SCRIPT_DIR/lib/ledger-write.sh"
+  _lw_traps
+else
+  _lw_absent() {
+    echo "track-tool-usage.sh: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded, so this call was NOT recorded in $TOOL_USAGE, and the MCP check will keep refusing Write and Edit. Restore it: bash scripts/verify-install.sh --auto-fix" >&2
+    exit 1   # BL-314-NOLIB-LOUD
+  }
+  _lw_lock() { _lw_absent; }
+  _lw_land() { _lw_absent; }
+  _lw_write() { _lw_absent; }
+  _lw_update() { _lw_absent; }
+  _lw_unlock() { :; }
+fi
+
 # ── argv: --event <name> ────────────────────────────────────────────────────
 # Unknown arguments are ignored rather than fatal — an argv this hook does not
 # understand must not turn every tool call into a hook error.
@@ -122,9 +154,11 @@ case "$TOOL_NAME" in
     BASH_CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
     if echo "$BASH_CMD" | grep -qE '^\s*git\s+commit' 2>/dev/null; then
       if [ -f "$TOOL_USAGE" ] && command -v jq &>/dev/null; then
+        # The read and the write under one hold; the EXIT trap releases it.
+        _lw_lock
         CURRENT=$(jq -r '.commits_since_last_context7 // 0' "$TOOL_USAGE" 2>/dev/null)
         case "$CURRENT" in ''|*[!0-9]*) CURRENT=0 ;; esac
-        jq ".commits_since_last_context7 = $((CURRENT + 1))" "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+        _lw_write ".commits_since_last_context7 = $((CURRENT + 1))"
       fi
     fi
     exit 0
@@ -141,11 +175,25 @@ esac
 # derive from the configured MCP servers; an ABSENT object makes
 # session-mcp-gate.sh fail CLOSED (its default is `true`, not `false`), which is
 # the correct reading of "this file cannot tell me".
+#
+# BL-314: seeded under the lock, re-checked inside it, and landed by mv, so two
+# first writers cannot both seed and a reader never sees a half-written seed.
+# A ledger that exists but is EMPTY or UNPARSEABLE is reseeded the same way:
+# every write on it would otherwise fail, and the gate would refuse every
+# Write and Edit for the rest of the session. The seed carries no requirements,
+# so the gate stays closed until the outcomes are recorded again.
+_ledger_unusable() {
+  [ ! -f "$TOOL_USAGE" ] && return 0
+  command -v jq &>/dev/null || return 1
+  jq -e 'type == "object"' "$TOOL_USAGE" >/dev/null 2>&1 && return 1
+  return 0
+}
 CREATED_LEDGER=0
-if [ ! -f "$TOOL_USAGE" ]; then
-  CREATED_LEDGER=1
+if _ledger_unusable; then
   mkdir -p .claude
-  cat > "$TOOL_USAGE" << 'EOF'
+  _lw_lock   # BL-314-SEED-LOCK
+  if _ledger_unusable; then
+    _lw_land cat << 'EOF' && CREATED_LEDGER=1
 {
   "session_id": null,
   "calls": [],
@@ -163,6 +211,8 @@ if [ ! -f "$TOOL_USAGE" ]; then
   "mcp_gate_satisfied": false
 }
 EOF
+  fi
+  _lw_unlock
 fi
 
 command -v jq &>/dev/null || exit 0
@@ -172,7 +222,7 @@ command -v jq &>/dev/null || exit 0
 # derived requirements this hook has no business deleting). If the heredoc ever
 # drifts back to shipping a permissive object, this strips it. Mutating this
 # line into a re-seed is BL-231's "tracker re-seed" row, verbatim.
-[ "$CREATED_LEDGER" = "1" ] && jq 'del(.mcp_requirements)' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null  # BL-233-NO-REQ-RESEED
+[ "$CREATED_LEDGER" = "1" ] && _lw_update 'del(.mcp_requirements)'  # BL-233-NO-REQ-RESEED
 
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -248,14 +298,12 @@ esac  # BL-233-C7-QUERYDOCS
 # absent — before BL-233 this hook was registered on PostToolUse only, so a
 # failed call produced no row at all and the framework could not tell a broken
 # server from an idle one.
-jq --arg tool "$TOOL_NAME" --arg ts "$TIMESTAMP" --arg ev "$EVENT" --arg oc "$OUTCOME" --argjson empty "$IS_EMPTY" \
-  '.calls += [{"tool": $tool, "timestamp": $ts, "event": $ev, "outcome": $oc, "empty_result": ($empty == 1)}]' \
-  "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+_lw_update --arg tool "$TOOL_NAME" --arg ts "$TIMESTAMP" --arg ev "$EVENT" --arg oc "$OUTCOME" --argjson empty "$IS_EMPTY" \
+  '.calls += [{"tool": $tool, "timestamp": $ts, "event": $ev, "outcome": $oc, "empty_result": ($empty == 1)}]'
 
 if [ "$OUTCOME" = "failure" ] && [ -n "$TOOL_ERROR" ]; then
-  jq --arg err "$TOOL_ERROR" --arg tool "$TOOL_NAME" \
-    '.last_mcp_error = $err | .last_mcp_error_tool = $tool' \
-    "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+  _lw_update --arg err "$TOOL_ERROR" --arg tool "$TOOL_NAME" \
+    '.last_mcp_error = $err | .last_mcp_error_tool = $tool'
 fi
 
 # ── BL-233 WP-B: the DURABLE accumulation record ────────────────────────────
@@ -320,48 +368,42 @@ if echo "$TOOL_NAME" | grep -q "context7" 2>/dev/null; then
   # context7_called stays name-derived on purpose: it is the OBSERVABILITY
   # field ("a Context7 tool was invoked"), kept for the reminder/validate
   # surfaces. It is no longer what the gate reads.
-  jq '.context7_called = true' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+  _lw_update '.context7_called = true'
 
   if [ "$C7KIND" = "query" ] && [ "$OUTCOME" = "success" ]; then
     # A real documentation read. This is the only thing that satisfies the
     # Context7 requirement, and the only thing that may reset the commit-time
     # staleness counter — an ID lookup used to silence that nudge too.
-    jq '.context7_query_docs_succeeded = true | .commits_since_last_context7 = 0' \
-      "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+    _lw_update '.context7_query_docs_succeeded = true | .commits_since_last_context7 = 0'
   elif [ "$C7KIND" = "resolve" ]; then
-    jq '.context7_resolve_only_count = ((.context7_resolve_only_count // 0) + 1)' \
-      "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+    _lw_update '.context7_resolve_only_count = ((.context7_resolve_only_count // 0) + 1)'
   fi
 fi
 
 # ── Qdrant ──────────────────────────────────────────────────────────────────
 if echo "$TOOL_NAME" | grep -q "qdrant" 2>/dev/null; then
   if echo "$TOOL_NAME" | grep -q "find" 2>/dev/null; then
-    jq '.qdrant_find_called = true' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+    _lw_update '.qdrant_find_called = true'
     if [ "$OUTCOME" = "success" ]; then  # BL-233-QDRANT-SUCCESS
-      jq --argjson empty "$IS_EMPTY" \
+      _lw_update --argjson empty "$IS_EMPTY" \
         '.qdrant_find_succeeded = true
          | .qdrant_find_empty = ($empty == 1)
-         | .qdrant_find_empty_count = ((.qdrant_find_empty_count // 0) + $empty)' \
-        "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+         | .qdrant_find_empty_count = ((.qdrant_find_empty_count // 0) + $empty)'
     elif [ "$OUTCOME" = "interrupted" ]; then
-      jq '.qdrant_find_interrupted = ((.qdrant_find_interrupted // 0) + 1)' \
-        "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+      _lw_update '.qdrant_find_interrupted = ((.qdrant_find_interrupted // 0) + 1)'
     else
       # Only a real failed round trip counts toward the evidence the gate uses
       # to call the server unreachable.
-      jq '.qdrant_find_failed = ((.qdrant_find_failed // 0) + 1)' \
-        "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+      _lw_update '.qdrant_find_failed = ((.qdrant_find_failed // 0) + 1)'
     fi
   elif echo "$TOOL_NAME" | grep -q "store" 2>/dev/null; then
-    jq '.qdrant_store_called = true' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+    _lw_update '.qdrant_store_called = true'
     if [ "$OUTCOME" = "success" ]; then   # BL-233-WPB-ACCUM-WRITE
-      jq '.qdrant_store_succeeded = true' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+      _lw_update '.qdrant_store_succeeded = true'
       # The session-scoped flag above and the durable record below answer two
       # different questions. Only the durable one crosses a phase boundary.
       if ! _tt_record_accumulation "$TIMESTAMP"; then
-        jq '.qdrant_store_record_failed = ((.qdrant_store_record_failed // 0) + 1)' \
-          "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+        _lw_update '.qdrant_store_record_failed = ((.qdrant_store_record_failed // 0) + 1)'
       fi
     fi
   fi

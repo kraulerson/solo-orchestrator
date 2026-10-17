@@ -915,7 +915,14 @@ chk_fp_real_guardrails() {
   [ "$(printf '%s' "$out" | jq -r '.decision // empty' 2>/dev/null)" = block ] || { echo "reply 1 was not rendered: $out"; return 1; }
   printf '%s' "$out" | jq -r '.reason' | grep -qF -e "A3 — $FP_TEXT" || { echo "the render does not show A3's text: $out"; return 1; }
   printf '%s' "$out" | jq -r '.reason' | grep -qF -e "$REASON_FP" || { echo "the render does not show the reason: $out"; return 1; }
-  # The second reply is the pick.
+  # The second reply is the pick. The close binds a pick only when its picked_at
+  # is LATER than the row's timestamp (`# BL-320-AUDIT-AFTER`), and both are whole
+  # seconds in the same format. A user answers seconds after the row is raised; a
+  # fast runner can raise it and record this pick in the same second, which reads
+  # as a pick made before the row, and the row stays PENDING (PR #481's CI, run
+  # 39040137718). So wait, at most 15s, until that stamp has moved on.
+  e_t0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; e_n=0
+  while [ "$(date -u +%Y-%m-%dT%H:%M:%SZ)" = "$e_t0" ] && [ "$e_n" -lt 75 ]; do sleep 0.2; e_n=$((e_n + 1)); done   # BL-277-E1-LATER-SECOND
   out="$(e_ups "A3" p2 | e_hook record-approval.sh 2>&1)"
   [ ! -e "$(sentinel "$E_D")" ] || { echo "the pick did not remove the question: $out"; return 1; }
   jq -e 'select(.event == "approval") | .pick == "A3" and .source == "pick"' "$E_D/.claude/approvals.jsonl" >/dev/null 2>&1 \
