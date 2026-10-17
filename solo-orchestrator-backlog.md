@@ -26084,7 +26084,8 @@ the repository, and say so; a suite with an outside-pointing `.claude` link asse
 
 **What.** `## BL-313:` guarded only `templates/pipelines/ci/github/*.yml`. The GitLab and Bitbucket templates still run
 each language's install or build unguarded: `npm ci` (typescript), `dotnet restore` (csharp), `go vet ./...` (go),
-`cargo fmt`/`clippy`/`test` (rust), `swift build`/`swift test` (swift). On a tree with no manifest yet they fail. The
+`cargo fmt`/`clippy`/`test` (rust), `swift build`/`swift test` (swift), `mvn -B test` (java), `gradle test`
+(kotlin), `dart pub get` (dart). On a tree with no manifest yet they fail. The
 python templates swallow a missing `requirements.txt` with `pip install -r requirements.txt 2>/dev/null || true`, so
 that step passes silently; what their bare `pytest` does on a tree with no tests was not measured.
 
