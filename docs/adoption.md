@@ -2593,15 +2593,68 @@ adopted one now gets the same one, from the same code
 - **`.claude/settings.json`** — the framework's permissions for the project's
   language, and its session hooks: the version, test-gate, freshness, intake and
   cadence checks at session start, the commit gate and the MCP gate before a
-  tool runs, tool tracking after it, the Qdrant reminder and the bypass
-  detector at session end. **If you already have a `settings.json` it is
+  tool runs, tool tracking and the bypass detector after it, the Qdrant
+  reminder and the bypass detector at session end. **If you already have a `settings.json` it is
   composed, not replaced**: every key, rule and hook of yours stays, the
   framework's rules are added to `allow` and `deny`, and its hooks are added
   where absent. Your original is in the archive, recorded as `composed`. A
   symlinked `settings.json` is left alone and the run says so.
-- **One difference from a new project, on purpose:** the bypass detector's
-  per-tool hook is not registered on an adopted project while `## BL-277:` is
-  open; its end-of-session hook is.
+- **The bypass detector is on, as in a new project** (`## BL-277:`; before
+  this change an adopted project got only its end-of-session hook). It reads
+  what the agent itself wrote — each reply, and each file it writes or edits.
+  A match is recorded in `.claude/bypass-audit.json` with `actor: "claude"` and
+  put to you as a question in `.claude/pending-approval.json`, and the agent's
+  commits are blocked until you answer it. Text a tool printed — a file read
+  through a shell command, a program's output — is recorded with
+  `actor: "tool_output"` and asks you nothing: quoting a rule is not proposing
+  to break it. **How a false alarm closes depends on the Development
+  Guardrails.** With 4.4.0 or later it closes only by your own pick: run this
+  yourself, from the project's folder, outside Claude Code:
+
+  ```
+  bash scripts/pending-approval.sh --resolve --decision false-positive --reason "<why it was not a proposal>"
+  ```
+
+  It is refused without a terminal and asks you to confirm; then it puts the
+  question to you again with a third option, `A3`, and nothing closes until
+  you reply `A3` and confirm that reply (`false_positive` in
+  `docs/audit-log-lifecycle.md`). With an older Guardrails it is refused and
+  names the older route, `--decision decline`. **Without the Guardrails**
+  nothing records a pick: that command and `--decision decline` are both
+  refused (`this project: unknown`), and you withdraw the question with
+  `bash scripts/pending-approval.sh --resolve` — the command a blocked commit
+  names — or `--clear`. The row in `.claude/bypass-audit.json` stays
+  `PENDING`.
+- **A project adopted before this change has only the end-of-session hook, and
+  `upgrade-project.sh --sync-framework` does not add the other one**
+  (`## BL-353:`): the only hook entries the sync adds to
+  `.claude/settings.json` are the Development Guardrails' own (measured on such
+  a project, without a Guardrails clone: the file came out byte-identical).
+  Add it in two steps, from the project's folder, outside Claude Code — with
+  the Guardrails installed, their config guard refuses the agent's edits to
+  that file. Use the path to your own clone of the framework, if it is
+  elsewhere.
+
+  **First the sync.** A project adopted before PR #454 has a copy of
+  `scripts/hooks/bypass-detector.sh` that records a file read through a shell
+  command as the agent's own proposal; switch its per-tool hook on and the
+  first rule the agent reads that way raises a false alarm. The sync replaces it, and
+  the framework's other scripts and documents with it, so look first with
+  `--dry-run`:
+
+  ```
+  bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework
+  ```
+
+  **Then the hook**, with the framework's own roster. It adds only what is
+  missing, and run again it changes nothing; while the detector is still the
+  older copy it refuses, names the sync, and writes nothing:
+
+  ```
+  bash -c '. ~/solo-orchestrator/scripts/lib/claude-settings.sh && soif_backfill_hook_roster .claude/settings.json'
+  ```
+
+  Then commit `.claude/settings.json` with the files the sync refreshed.
 - **`.claude/.gitignore`**, so git ignores the two files those hooks rewrite in
   every session: `.claude/last-checked-commit.txt` (where the out-of-band
   commit check left off) and `.claude/tool-usage.json` (the MCP tool record).

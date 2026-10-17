@@ -1175,6 +1175,11 @@ run_child_suite "tests/test-bl280-bug-gate-unmeasured-source.sh" \
 run_child_suite "tests/test-bl277-detector-authorship.sh" \
   "BL-277: the bypass detector raises the sentinel on authored text only" \
   "BL-277 detector-authorship tests FAILED (run tests/test-bl277-detector-authorship.sh for details)"
+# BL-277 residual 5: adoption registers the bypass detector exactly as a new
+# project gets it — both arms, composed into the project's own settings.json.
+run_child_suite "tests/test-bl277-adopted-detector-on.sh" \
+  "BL-277 residual 5: the bypass detector is on in adopted projects" \
+  "BL-277 adopted-detector tests FAILED (run tests/test-bl277-adopted-detector-on.sh for details)"
 
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS

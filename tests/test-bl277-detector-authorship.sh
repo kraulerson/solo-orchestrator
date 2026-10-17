@@ -56,9 +56,11 @@
 #       the agent's writes to .claude/approvals.jsonl, record-approval.sh shows
 #       the user A3 and the reason, and the pick closes the rows.
 #   X*  malformed hook input.
-#   R5  the hook roster (scripts/lib/claude-settings.sh) in adoption mode
-#       still registers no PostToolUse detector: the maintainer's
-#       `# BL-242-SETTINGS-BL277` guard, unchanged.
+#   R5  the hook roster (scripts/lib/claude-settings.sh) called as init.sh
+#       calls it and with adoption's old mode argument: both register the
+#       PostToolUse detector and its Stop arm once — on in adopted projects
+#       since residual 5 (`# BL-242-SETTINGS-BL277`; the adoption case itself
+#       is tests/test-bl277-adopted-detector-on.sh).
 #   R6  the roster run twice in greenfield mode: one detector, under matcher
 #       Bash|Write|Edit|MultiEdit and nowhere else.
 #   M*  marker presence and mutants. Each mutant proves its location by distance
@@ -933,9 +935,10 @@ chk_fp_real_guardrails() {
   return 0
 }
 
-# R5 — the roster sourced and run on one fixture in each mode. Greenfield must
-# register the PostToolUse detector (else adoption's absence proves nothing);
-# adoption must not, and must still register the Stop arm.
+# R5 — the roster sourced and run on one fixture in each caller's spelling:
+# init.sh's, and adoption's old second argument "adoption", which the roster no
+# longer reads (residual 5: the detector is on in adopted projects). Both must
+# register the PostToolUse detector once and the Stop arm once.
 roster_counts() {
   local roster="$1" mode="$2" d
   d="$(newtmp)"
@@ -945,11 +948,11 @@ roster_counts() {
     "$(jq -r '[.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))] | length' "$d/.claude/settings.json" 2>/dev/null || printf 'ERR')" \
     "$(jq -r '[.hooks.Stop[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))] | length' "$d/.claude/settings.json" 2>/dev/null || printf 'ERR')"
 }
-chk_adoption_no_post() {
+chk_adoption_same() {
   local roster="$1" init adopt
   init="$(roster_counts "$roster" init)"; adopt="$(roster_counts "$roster" adoption)"
   [ "$init" = "1 1" ] || { echo "greenfield registered PostToolUse/Stop detectors '$init', want '1 1'"; return 1; }
-  [ "$adopt" = "0 1" ] || { echo "adoption registered PostToolUse/Stop detectors '$adopt', want '0 1'"; return 1; }
+  [ "$adopt" = "1 1" ] || { echo "adoption's spelling registered PostToolUse/Stop detectors '$adopt', want '1 1' (on in adopted projects)"; return 1; }
   return 0
 }
 
@@ -1140,7 +1143,7 @@ if [ -z "$x_fail" ]; then pass "X1 (control) — non-JSON, an unknown event, a s
 else fail_ "X1" "$x_fail"; fi
 
 echo "=== R — the hook roster, sourced ==="
-if why="$(chk_adoption_no_post "$ROSTER")"; then pass "R5 (control) — adoption mode still registers no PostToolUse detector, greenfield does, both keep Stop"
+if why="$(chk_adoption_same "$ROSTER")"; then pass "R5 (control) — both callers' spellings register the PostToolUse detector once and keep Stop: on in adopted projects"
 else fail_ "R5" "$why"; fi
 if why="$(chk_roster_scoped "$ROSTER")"; then pass "R6 — the roster run twice: one detector, under matcher Bash|Write|Edit|MultiEdit and nowhere else; Stop once; tracker and recorder unscoped"
 else fail_ "R6" "$why"; fi
@@ -1267,7 +1270,7 @@ roster_mutant() {
   if ! cp "$ROSTER" "$mi"; then fail_ "$id setup" "could not copy the roster"; return; fi
   if ! why="$(mutate "$mi" "# BL-277-MATCHER" "$op" "$rep" "$maxd")"; then fail_ "$id setup" "$why"; return; fi
   if chk_roster_scoped "$mi" >/dev/null 2>&1; then fail_ "$id (MUTATION)" "$msg survived R6"
-  elif ! chk_adoption_no_post "$mi" >/dev/null 2>&1; then fail_ "$id (MUTATION)" "the mutant broke R5 too, so the kill proves nothing about R6"
+  elif ! chk_adoption_same "$mi" >/dev/null 2>&1; then fail_ "$id (MUTATION)" "the mutant broke R5 too, so the kill proves nothing about R6"
   else pass "$id (MUTATION) — $msg: R6 kills it, R5 survives"; fi
 }
 REG='.hooks.PostToolUse += [{"matcher": "Bash|Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]'
@@ -1276,8 +1279,8 @@ roster_mutant M7 "$REG" '.hooks.PostToolUse += [{"hooks": [{"type": "command", "
 # M8 — the idempotence probe regressed to group [0]: with the detector in its
 # own later group the second run never finds it and registers it twice.
 roster_mutant M8 \
-  ".hooks.PostToolUse[]? | .hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" \
-  ".hooks.PostToolUse[0].hooks[]? | select(.command | contains(\"bypass-detector.sh\"))" 4 \
+  ".hooks.PostToolUse[]? | .hooks[]? | select((.command // \"\") | contains(\"bypass-detector.sh\"))" \
+  ".hooks.PostToolUse[0].hooks[]? | select((.command // \"\") | contains(\"bypass-detector.sh\"))" 4 \
   "the idempotence probe regressed to group [0]"
 # M10 — the matcher widened back over Read, Edit and Write.
 roster_mutant M10 "$REG" '.hooks.PostToolUse += [{"matcher": "Bash|Read|Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]' 5 "the matcher widened to Bash|Read|Write|Edit|MultiEdit"
@@ -1468,14 +1471,16 @@ fp_mutant M47 pa "# BL-277-FP-RECONCILE" 'if ! bypass_audit_close_from_approvals
 # M48 — the Write arm reads only the result. Killed by W2; W1 survives.
 bd_mutant M48 "# BL-277-WRITE-TEXT" '.tool_input.content // .tool_response.content // ""' '.tool_response.content // .tool_response.no_such_key // ""' 3 chk_write_input_only chk_write_authored "the Write arm reading only tool_response.content"
 
-# M9 — the maintainer's adoption guard lifted, so adoption registers the
-# PostToolUse arm. Killed by R5.
+# M9 — the adoption guard restored (residual 5 lifted it): the roster skips the
+# PostToolUse arm when its caller says "adoption". Killed by R5; R6 survives.
 MI="$(newtmp)/claude-settings.sh"
 if ! cp "$ROSTER" "$MI"; then fail_ "M9 setup" "could not copy the roster"
-elif why="$(mutate "$MI" "THE PostToolUse ARM IS GREENFIELD-ONLY FOR NOW" \
-       'if [ "$_mode" != "adoption" ]; then' 'if true; then' 4)"; then
-  if chk_adoption_no_post "$MI" >/dev/null 2>&1; then fail_ "M9 (MUTATION)" "the lifted guard survived R5"
-  else pass "M9 (MUTATION) — the adoption guard lifted: R5 kills it"; fi
+elif why="$(mutate "$MI" "# BL-242-SETTINGS-BL277" \
+       'if ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then' \
+       'if [ "${2:-init}" != "adoption" ] && ! jq -e '"'"'.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | contains("bypass-detector.sh"))'"'"' "$_f" >/dev/null 2>&1; then' 12)"; then
+  if chk_adoption_same "$MI" >/dev/null 2>&1; then fail_ "M9 (MUTATION)" "the restored guard survived R5"
+  elif ! chk_roster_scoped "$MI" >/dev/null 2>&1; then fail_ "M9 (MUTATION)" "the restored guard broke R6 too, so the kill proves nothing about R5"
+  else pass "M9 (MUTATION) — the adoption guard restored: R5 kills it, R6 survives"; fi
 else fail_ "M9 setup" "$why"; fi
 
 echo ""
