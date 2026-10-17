@@ -8,8 +8,8 @@
 #   L1  a plain adoption gets .claude/settings.json with init.sh's permissions
 #       for its language, and the four vendored skills byte-identical
 #   L2  PARITY BY DERIVATION: the adoptee's hook roster is the one init.sh's
-#       function registers, as a set of (event, script) pairs, EXCEPT exactly
-#       the bypass detector's PostToolUse arm (`## BL-277:`)
+#       function registers, as a set of (event, script) pairs — the bypass
+#       detector's PostToolUse arm included, since `## BL-277:` residual 5
 #   L3  an adoptee's own settings.json is COMPOSED: its rule and its hook
 #       survive, the framework's are added, the archive says `composed`
 #   L4  an adoptee's own copy of a framework skill is archived and replaced;
@@ -80,17 +80,17 @@ l1() {
 }
 
 l2() {
-  local label="L2 the roster is init.sh's, minus exactly the bypass detector's PostToolUse arm" d
+  local label="L2 the roster is init.sh's, the bypass detector's PostToolUse arm included" d
   mkdir -p "$WORK/init-roster/.claude"
   ( cd "$WORK/init-roster" && . "$LIB" && soif_claude_settings_json typescript > .claude/settings.json && soif_register_hook_roster .claude/settings.json )
   _pairs "$WORK/init-roster/.claude/settings.json" > "$WORK/init.pairs"
   _pairs "$P/.claude/settings.json" > "$WORK/adopt.pairs"
   [ "$(grep -c . "$WORK/init.pairs")" -ge 12 ] || { fail_ "$label" "the greenfield roster has $(grep -c . "$WORK/init.pairs") pairs — the derivation is broken"; return; }
   d="$(comm -3 "$WORK/init.pairs" "$WORK/adopt.pairs")"
-  if [ "$(printf '%s\n' "$d" | sed 's/^[[:space:]]*//' | grep -c .)" -eq 1 ] && printf '%s\n' "$d" | grep -q '^PostToolUse hooks/bypass-detector.sh$'; then
+  if [ -z "$d" ] && grep -q '^PostToolUse hooks/bypass-detector.sh$' "$WORK/adopt.pairs"; then
     pass "$label"
   else
-    fail_ "$label" "difference is not exactly that one pair: $(printf '%s' "$d" | tr '\n' '|')"
+    fail_ "$label" "the sets differ (or the PostToolUse detector is absent): $(printf '%s' "$d" | tr '\n' '|')"
   fi
 }
 
