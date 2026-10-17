@@ -15397,7 +15397,8 @@ do; a hand-edited manifest with a duplicate key or two JSON documents can satisf
   (`# BL-242-SESSION-COMPOSE` — theirs kept, the framework's `allow`/`deny` unioned in, hooks added
   where absent; archive disposition `composed`, `# BL-242-ARCHIVE-DISPO-SESSION`); the roster
   registered in `adoption` mode, which leaves the bypass detector's PostToolUse arm OFF while
-  `## BL-277:` is open (`# BL-242-SETTINGS-BL277`); the four vendored skills, framework-wins; the
+  `## BL-277:` is open (`# BL-242-SETTINGS-BL277`) — lifted on branch fix/bl277-adopted-detector-on, not
+  merged (`## BL-277:` residual 5: the roster takes no mode, both arms registered); the four vendored skills, framework-wins; the
   Qdrant MCP declaration under init.sh's predicate (`SOIF_ADOPT_QDRANT` test seam) — found while
   measuring: `settings.local.json` is in Claude Code's global git excludes, so recording it for
   staging made the preflight refuse the whole adoption; it is written machine-local, as init.sh does,
@@ -15416,7 +15417,7 @@ that the hooks were registered. A shape the framework cannot compose into is now
 
 **Pinned by** `tests/test-brownfield-wp9c-session-layer.sh` (L1–L8), nine mutants killed; L2 is the
 parity-by-derivation pin — the adoptee's (event, script) set equals init.sh's function's, minus
-exactly the one BL-277 pair. Re-aimed: bl296 R2/R3 and bl233 H3 read the lib; the stage-order
+exactly the one BL-277 pair (equal, no exception, since `## BL-277:` residual 5). Re-aimed: bl296 R2/R3 and bl233 H3 read the lib; the stage-order
 literals in wp4/wp7/wp12b.
 
 **Residuals:** the `docs/reference/*` list is still spelled in adopt-docs.sh rather than derived from
@@ -18045,7 +18046,10 @@ a hoist is not taken).
 
 ## BL-277: the bypass detector's PostToolUse arm scans text whose authorship it has not established, records it as `actor: "claude"`, and raises a BLOCKING sentinel on it — so reading the framework's own rules reports the agent for proposing a bypass
 
-**Status:** Open — **DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
+**Status:** Open — residual 5 fixed on branch fix/bl277-adopted-detector-on, not merged. (PR #454 merged
+as `08e940f`; on 2026-10-17 Karl ruled the detector on for adopted projects, which is residual 5; the
+close is the supervisor's, after that branch merges.)
+**DECIDED 2026-09-17 (Karl): option 3 below, the entry's own recommendation.** The
 contributor who filed this (also issue #385, which proposed scanning `tool_input`) is invited to build it;
 adversarial review before merge, as every PR. Built in PR #454, to that decision and to the ruling
 below, including both of its requests; see "Build note" at the end of this entry for what changed, the
@@ -18329,10 +18333,12 @@ true — reading the ledger back mints no `claude` row — and the growth is lis
   moved). The second run is what reaches the probe; a second `init.sh` never can, because it refuses an
   existing directory. `tests/test-bl029-integration.sh` T1 (full lane) looks the registration up by
   matcher in a project `init.sh` produces.
-  R5 (control) sources the roster and runs it on one fixture in each mode: greenfield registers the
-  PostToolUse detector once, adoption registers none, both keep the Stop arm. It passes at base and
-  after the change, because it pins the maintainer's guard, not this entry's; M9 lifts that guard and
-  R5 kills it. On adopted projects the PostToolUse arm stays off until the guard is lifted.
+  R5 (control) sources the roster and runs it on one fixture in each mode. As #454 merged it pinned
+  the maintainer's guard — greenfield registers the PostToolUse detector once, adoption none, both
+  keep the Stop arm — and M9 lifted that guard. **Since residual 5 (branch
+  fix/bl277-adopted-detector-on, not merged) the guard is gone:** R5 asserts both callers' spellings
+  register the PostToolUse detector once and the Stop arm once, and M9 restores the guard and R5
+  kills it.
 - `docs/audit-log-lifecycle.md`: `tool_output` added to the `actor` enum, `false_positive` to
   `user_response`, the `claude_bypass_proposal` section rewritten per actor, two cold-pickup queries
   added. The section had said an authored row starts at `final_outcome: "n/a"`; the detector's row
@@ -18380,7 +18386,7 @@ passes. A mutant that fails any of that is reported as a SETUP failure, never as
 | M10 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 5 | the matcher widened to `Bash\|Read\|Write\|Edit\|MultiEdit` | R6 | R5 |
 | M40 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 5 | the matcher narrowed to `Bash\|Write` (`## BL-336:`) | R6 | R5 |
 | M12 | roster (copied, sourced), `# BL-277-MATCHER` | ≤ 5 | `"matcher": "Bash\|Write"` → `"matcher": "Bash"` (the ruling's case) | R6 | R5 |
-| M9 | roster (copied, sourced), `THE PostToolUse ARM IS GREENFIELD-ONLY FOR NOW` | ≤ 4 | the adoption guard → `if true; then` | R5 | — |
+| M9 | roster (copied, sourced), `# BL-242-SETTINGS-BL277` | ≤ 12 | the adoption guard restored (residual 5): `if [ "${2:-init}" != "adoption" ] && ! jq -e …` | R5 | R6 |
 | M11 | detector, `# BL-277-AUTHORSHIP` | ≤ 10 | the Write arm dropped: `if [ "$EVENT" = "Stop" ]; then` | W1 | S1, A1 |
 | M13 | detector, `# BL-277-SENTINEL-AUTHORED` | ≤ 8 | a false-positive close command appended to the question | S3 | S2 |
 | M14 | lib, `# BL-277-FP-RECORD` | ≤ 3 | the condition removed, the reason written onto every closed row (the maintainer's mutant) | D3 | D1 |
@@ -18471,12 +18477,30 @@ the Status paragraph above; each point of the review, with the change and the ca
    D9 pins the scope under all three decisions: on a ledger holding PENDING proposals, a
    `tool_output` row (`n/a`) and an open escalation, only the proposals change (M21 and M22 widen the
    selection to `n/a` rows and to escalations, and D9 kills both).
-5. **The adoption guard's comment goes stale when this entry closes.** The maintainer's comment at
-   `# BL-242-SETTINGS-BL277` in `scripts/lib/claude-settings.sh` keeps the detector's PostToolUse arm
-   off on adopted projects "until that entry closes". Merging this meets that condition, and nothing
-   flags the comment. Lifting the guard is the maintainer's one-line choice, not made here. R5 pins
-   the current behaviour (adoption registers no PostToolUse detector), so lifting the guard means
-   flipping R5 with it.
+5. **Fixed on branch fix/bl277-adopted-detector-on, not merged — the detector is ON in adopted projects
+   (Karl's ruling, 2026-10-17: turn it on).** As #454 merged, the maintainer's guard at
+   `# BL-242-SETTINGS-BL277` in `scripts/lib/claude-settings.sh` kept the detector's PostToolUse arm off
+   on adopted projects "until that entry closes", and nothing flagged the comment. The branch lifts it:
+   `soif_register_hook_roster` takes no mode, so adoption registers exactly what `init.sh` registers
+   (the same group, matcher `Bash|Write|Edit|MultiEdit`, the any-group idempotence probe), composed into
+   a project's own `settings.json` as every other hook is; `adopt-session.sh` calls it as `init.sh`
+   does, says "registered" only when the detector's PostToolUse arm is there too
+   (`# BL-242-SESSION-ROSTER-RECEIPT`), and its transcript says the detector is on and that a false
+   alarm closes only by the user's pick of A3 (`# BL-277-ADOPTED-ON`). `.claude/.gitignore` (`## BL-322:`
+   S1) is unchanged: the arm writes the same two files the Stop arm already wrote, the tracked ledger and
+   the question. Pinned by `tests/test-bl277-adopted-detector-on.sh` — N1 (a fresh adoption holds the
+   group exactly as the roster writes it in `init.sh`'s mode, derived, once; Stop once; committed), N2
+   (a project's own hooks stay in their groups, theirs first; the detector added once), N3 (a second
+   adoption is refused and changes nothing; the roster again adds nothing), N3s (the framework sync
+   leaves one registration), N4 (end to end, the adopted `settings.json` dispatched by matcher: a Write
+   and an Edit proposal each raise a `claude` row and the question, Bash output records `tool_output`
+   and raises nothing, Read reaches no detector), N5 (the transcript), N6 (no "registered" with the
+   detector absent), N7 (the backfill command below, read from `docs/adoption.md`) — and mutants M1 (the
+   guard back, keyed on adoption: N1 kills, a new project's roster survives), M2 (the receipt's detector
+   half dropped: N6 kills, N5 survives), M3 (the old transcript sentence: N5 kills, N1 survives), M4 (the
+   matcher narrowed to `Bash`: N4 kills, N1 survives, since N1 compares like with like), M5 (the probe
+   regressed to group `[0]`: N3 kills, N1 survives). In this suite R5 is flipped and M9 retargeted
+   (above), and `tests/test-brownfield-wp9c-session-layer.sh` L2 now asserts exact parity.
 6. **An authored proposal echoed through Bash is now `tool_output`, with no sentinel.** `echo "…"` of
    bypass-shaped text the model composed comes back as `stdout`, so it is recorded under `tool_output`
    and blocks nothing. That is what option 3 decides: the detector cannot tell an echo from a `cat`. The
@@ -18531,6 +18555,17 @@ the Status paragraph above; each point of the review, with the change and the ca
     pre-commit gate itself blocks on the question file, which the agent's own `--clear` already removes.
 13. **Not scanned: NotebookEdit, and files a Bash command writes.** Neither is in the matcher, and a
     file Bash writes reaches the detector only as that command's output (`tool_output`, residual 6).
+14. **A project adopted before residual 5 keeps only the Stop arm, and the framework sync does not add
+    the other.** Measured on branch fix/bl277-adopted-detector-on: `upgrade-project.sh --sync-framework`
+    on an adopted project without the PostToolUse detector exits 0 and leaves `.claude/settings.json`
+    byte-identical (no Guardrails clone; N7 prints the count, 0 -> 0). The only hook entries the sync
+    adds are the Guardrails' own (`soif_cdf_register_hooks`, `# BL-320-UP-REGISTER`); Solo's roster is
+    registered only by `init.sh` and adoption. `verify-install.sh` reports it on such a project:
+    `[WARN] PostToolUse hook: bypass-detector.sh not registered (manual)`. The one command, in
+    `docs/adoption.md` and run by N7 (adds only what is missing; run again, changes nothing):
+    `bash -c '. ~/solo-orchestrator/scripts/lib/claude-settings.sh && soif_register_hook_roster .claude/settings.json'`.
+    Making the sync register missing Solo hooks is a `settings.json` write during an upgrade, which
+    `## BL-149:` warns against doing silently; not built.
 
 **A pre-existing failure, easy to misread as this change's.** Where no global git identity exists (a
 bare `ubuntu:24.04` container, or a temporary `HOME`), `tests/test-bl029-integration.sh` exits 128 with
