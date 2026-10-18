@@ -26058,7 +26058,7 @@ else.
 **Logged:** 2026-10-17 (reported by the pantheon-harness session, 2026-10-16)
 **Category:** Bug (enforcement — a false failure)
 **Severity:** Medium — a correctly scaffolded project cannot auto-verify the step
-**Status:** Open — fixed on branch fix/bl348-lockfile-depth, not merged
+**Status:** Closed — shipped 2026-10-18 (fix `b2b9eba8`, suite `5a567655`)
 
 **What.** `verify_init` in `scripts/process-checklist.sh` checks
 `for lf in "${lockfiles[@]}"; do if [ -f "$lf" ]` from the repository root, so a project whose service lives in a
@@ -26070,13 +26070,13 @@ fails too. Karl ruled in the pantheon-harness session that a service-directory l
 **Direction.** Search one or two levels below the root (skipping `node_modules`, `.git` and vendored trees), or
 honour a configured project root; add `uv.lock`. A suite with a nested-lockfile fixture and a uv-only fixture.
 
-**Fix (branch `fix/bl348-lockfile-depth`, not merged).** `uv.lock` joins the list. The root loop runs first and is
+**Fix.** `uv.lock` joins the list. The root loop runs first and is
 unchanged; when it finds nothing, a find walk looks one and two directory levels below the root
 (`# BL-348-LOCKFILE-FIND`), pruning `node_modules`, `.git`, `vendor`, `.venv`, `venv`, `target`, `build`, `dist`,
 `Pods`, `.dart_tool` and `.gradle`. Three levels below the root does not count. A symlinked lockfile found by the walk
 counts only when `_lockfile_inside_root` resolves it inside the repository, and find does not descend a symlinked
-directory. The OK line names the path found; the FAIL line says where it looked. An unreadable directory no longer
-ends the run under `set -e`: find's exit is recorded and reported when nothing was found. Suite:
+directory. The OK line names the path found; the FAIL line says where it looked. find's non-zero exit (an unreadable
+directory) is captured, never fatal, and reported with a WARN when nothing was found. Suite:
 `tests/test-bl348-lockfile-depth.sh`.
 
 **Left alone, each a decision for Karl.** (1) Scout's `project_scaffolded` probe (`scout_reality_probes` in
@@ -26087,8 +26087,18 @@ make the report disagree with itself, and the ruling was made for `--verify-init
 `--verify-init` passes, and its `fail` line says "in the project root". (2) `_is_dep_manifest`, which exempts a
 dependency-bump commit from the Build Loop check, answers a different question and still lacks `uv.lock`. (3) The root
 check still follows a root symlink wherever it points, as before BL-348; only the walk ignores one that resolves outside
-the repository. (4) `docs/platform-modules/desktop.md`'s Gradle note names `gradle/verification-metadata.xml` as an
-alternative; it is not in the list and does not satisfy the step.
+the repository. (4) `docs/platform-modules/desktop.md`'s Gradle note named `gradle/verification-metadata.xml` as an
+alternative; it is not in the list, and the note now says so.
+
+**Residuals from the review, not fixed.** (5) The walk counts any lockfile two levels down that is not under a pruned
+directory: a git submodule (`third_party/lib/Cargo.lock`), a nested worktree (`.worktrees/feat/package-lock.json`), a
+test fixture (`tests/fixtures/poetry.lock`), an example (`examples/demo/package-lock.json`), `bower_components/`
+(reviewer measured all five `[OK]`). The cost is near nil, because `--complete-step phase2_init:project_scaffolded`
+marks the step by hand in an empty directory; excluding nested repositories needs a check of how real adoptees use
+submodules first. (6) The root check uses `[ -f ]` and stays unpinned against `-e` (a root directory named
+`package-lock.json` would then count). (7) A directory name with a newline can resurrect a pruned
+`node_modules/package-lock.json` in find's output; one with `\c` truncates the OK line; find's `Permission denied` lines
+print above an `[OK]`.
 
 ## BL-349: an older project's `branch_protection_configured` fails "host dispatcher or manifest missing" — not a defect: one `--sync-framework` ships `scripts/lib/host.sh`
 

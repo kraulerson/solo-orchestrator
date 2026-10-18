@@ -538,7 +538,7 @@ After the Builder's Guide Project Initialization steps:
 - [ ] Application icon configured for all platforms
 - [ ] Window management working (resize, minimize, maximize, close)
 
-**Dependency lockfile note (Java/Gradle projects):** The `process-checklist.sh --verify-init` script checks for lockfiles to ensure reproducible builds, at the project root or one or two directory levels below it (so `app/gradle.lockfile` counts; `build` and `.gradle` are among the directories it skips). Java/Gradle projects use `gradle.lockfile` (generated via `./gradlew dependencies --write-locks`) or `gradle/verification-metadata.xml` (generated via `./gradlew --write-verification-metadata sha256`). Enable dependency locking in `build.gradle.kts`:
+**Dependency lockfile note (Java/Gradle projects):** The `process-checklist.sh --verify-init` script checks for lockfiles to ensure reproducible builds, at the project root or one or two directory levels below it (so `app/gradle.lockfile` counts; `build` and `.gradle` are among the directories it skips). Java/Gradle projects satisfy it with `gradle.lockfile` (generated via `./gradlew dependencies --write-locks`). `gradle/verification-metadata.xml` (generated via `./gradlew --write-verification-metadata sha256`) adds checksum verification but does not satisfy the check on its own. Enable dependency locking in `build.gradle.kts`:
 
 ```kotlin
 dependencyLocking {
