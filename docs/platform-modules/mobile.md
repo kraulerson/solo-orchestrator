@@ -1686,7 +1686,7 @@ After the Builder's Guide Project Initialization steps:
 - [ ] Debug/development gates (`__DEV__`, `kDebugMode`, `#if DEBUG`, `BuildConfig.DEBUG`) verified — dev tools only appear in development builds
 - [ ] EAS Build profiles configured (development, preview, production) if using Expo
 
-**Dependency lockfile note (Kotlin/Gradle projects):** The `process-checklist.sh --verify-init` script checks for lockfiles to ensure reproducible builds. Kotlin/Gradle Android projects use `gradle.lockfile` (generated via `./gradlew dependencies --write-locks`). Enable dependency locking in `build.gradle.kts`:
+**Dependency lockfile note (Kotlin/Gradle projects):** The `process-checklist.sh --verify-init` script checks for lockfiles to ensure reproducible builds, at the project root or one or two directory levels below it (so `app/gradle.lockfile` counts; `build` and `.gradle` are among the directories it skips). Kotlin/Gradle Android projects use `gradle.lockfile` (generated via `./gradlew dependencies --write-locks`). Enable dependency locking in `build.gradle.kts`:
 
 ```kotlin
 dependencyLocking {

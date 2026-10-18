@@ -393,7 +393,7 @@ WEB-SPECIFIC REQUIREMENTS:
 - [ ] CORS configuration
 - [ ] Structured logging with correlation IDs
 
-**Python lockfile note:** The `process-checklist.sh --verify-init` script checks for lockfiles to ensure reproducible builds. For Python projects, only `Pipfile.lock` (Pipenv) and `poetry.lock` (Poetry) are detected as valid lockfiles. A plain `requirements.txt` is NOT recognized as a lockfile because it does not guarantee pinned transitive dependencies. If using pip directly, adopt one of these approaches:
+**Python lockfile note:** The `process-checklist.sh --verify-init` script checks for lockfiles to ensure reproducible builds, at the project root or one or two directory levels below it, so a service directory's lockfile counts (`services/api/uv.lock`). It skips dependency, build and VCS directories (`node_modules`, `.git`, `vendor`, `.venv`, `venv`, `target`, `build`, `dist`, `Pods`, `.dart_tool`, `.gradle`), and a symlinked lockfile below the root counts only when it resolves inside the repository. For Python projects, only `Pipfile.lock` (Pipenv), `poetry.lock` (Poetry) and `uv.lock` (uv) are detected as valid lockfiles. A plain `requirements.txt` is NOT recognized as a lockfile because it does not guarantee pinned transitive dependencies. If using pip directly, adopt one of these approaches:
 
 - **Recommended:** Use Poetry (`poetry init`, `poetry lock`) or Pipenv (`pipenv install`) to get a proper lockfile.
 - **Alternative:** Use `pip-compile` from `pip-tools` to generate a fully-pinned `requirements.txt` from `requirements.in`, then rename or symlink to a recognized lockfile format.

@@ -26058,7 +26058,7 @@ else.
 **Logged:** 2026-10-17 (reported by the pantheon-harness session, 2026-10-16)
 **Category:** Bug (enforcement — a false failure)
 **Severity:** Medium — a correctly scaffolded project cannot auto-verify the step
-**Status:** Open
+**Status:** Open — fixed on branch fix/bl348-lockfile-depth, not merged
 
 **What.** `verify_init` in `scripts/process-checklist.sh` checks
 `for lf in "${lockfiles[@]}"; do if [ -f "$lf" ]` from the repository root, so a project whose service lives in a
@@ -26069,6 +26069,26 @@ fails too. Karl ruled in the pantheon-harness session that a service-directory l
 
 **Direction.** Search one or two levels below the root (skipping `node_modules`, `.git` and vendored trees), or
 honour a configured project root; add `uv.lock`. A suite with a nested-lockfile fixture and a uv-only fixture.
+
+**Fix (branch `fix/bl348-lockfile-depth`, not merged).** `uv.lock` joins the list. The root loop runs first and is
+unchanged; when it finds nothing, a find walk looks one and two directory levels below the root
+(`# BL-348-LOCKFILE-FIND`), pruning `node_modules`, `.git`, `vendor`, `.venv`, `venv`, `target`, `build`, `dist`,
+`Pods`, `.dart_tool` and `.gradle`. Three levels below the root does not count. A symlinked lockfile found by the walk
+counts only when `_lockfile_inside_root` resolves it inside the repository, and find does not descend a symlinked
+directory. The OK line names the path found; the FAIL line says where it looked. An unreadable directory no longer
+ends the run under `set -e`: find's exit is recorded and reported when nothing was found. Suite:
+`tests/test-bl348-lockfile-depth.sh`.
+
+**Left alone, each a decision for Karl.** (1) Scout's `project_scaffolded` probe (`scout_reality_probes` in
+`scripts/lib/scout/scout-reality.sh`) is a read-only copy of this check with a wider list (`bun.lock`, `bun.lockb`,
+`deno.lock`, `pdm.lock`, `mix.lock`, `composer.lock` too) and still looks at the root only. It was not synced because
+every other Scout detection (package managers, test command, build files) is root-scoped, so deepening one probe would
+make the report disagree with itself, and the ruling was made for `--verify-init`. Scout can now say `fail` for a tree
+`--verify-init` passes, and its `fail` line says "in the project root". (2) `_is_dep_manifest`, which exempts a
+dependency-bump commit from the Build Loop check, answers a different question and still lacks `uv.lock`. (3) The root
+check still follows a root symlink wherever it points, as before BL-348; only the walk ignores one that resolves outside
+the repository. (4) `docs/platform-modules/desktop.md`'s Gradle note names `gradle/verification-metadata.xml` as an
+alternative; it is not in the list and does not satisfy the step.
 
 ## BL-349: an older project's `branch_protection_configured` fails "host dispatcher or manifest missing" — not a defect: one `--sync-framework` ships `scripts/lib/host.sh`
 
