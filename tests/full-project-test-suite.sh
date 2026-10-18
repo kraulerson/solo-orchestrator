@@ -1074,6 +1074,12 @@ run_child_suite "tests/test-bl322-s5-hardening.sh" \
 run_child_suite "tests/test-bl348-lockfile-depth.sh" \
   "BL-348: project_scaffolded counts a lockfile at the root or two levels below, uv.lock included, never one in a pruned or outside tree" \
   "BL-348 lockfile-depth tests FAILED (run tests/test-bl348-lockfile-depth.sh for details)"
+# BL-310 row 4 / BL-351: adoption followed a symlink out of the project and
+# overwrote its target, the pre-write rehearsal included; every writer now
+# refuses a path that leads outside the project through a symlink.
+run_child_suite "tests/test-bl310-adopt-symlink-write.sh" \
+  "BL-310 row 4: adoption writes nothing outside the project through a symlink, rehearsal included; links that resolve inside behave as before" \
+  "BL-310 adopt-symlink-write tests FAILED (run tests/test-bl310-adopt-symlink-write.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \
