@@ -1069,6 +1069,11 @@ run_child_suite "tests/test-bl322-zsh-legs.sh" \
 run_child_suite "tests/test-bl322-s5-hardening.sh" \
   "BL-322 S5: no network or HOME writes from the verify-install suites; one pinned Guardrails fixture, failing under CI when absent" \
   "BL-322 S5 hardening tests FAILED (run tests/test-bl322-s5-hardening.sh for details)"
+# BL-348: --verify-init's project_scaffolded looked for a lockfile at the root
+# only and did not know uv.lock; a service directory's lockfile now counts.
+run_child_suite "tests/test-bl348-lockfile-depth.sh" \
+  "BL-348: project_scaffolded counts a lockfile at the root or two levels below, uv.lock included, never one in a pruned or outside tree" \
+  "BL-348 lockfile-depth tests FAILED (run tests/test-bl348-lockfile-depth.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \
