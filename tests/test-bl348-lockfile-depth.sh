@@ -174,6 +174,13 @@ case_S8() {   # the root reached through a symlinked path: an inside link still 
   a="$(newtmp)/alias"; ln -s "$p" "$a"
   _expect_ok "$1" "$a" services/api/Pipfile.lock
 }
+case_S9() {   # a two-hop chain: an inside link to a root link that resolves outside the repository
+  local p o; p="$(_proj)"; o="$(newtmp)"; _put "$o" package-lock.json
+  ln -s "$o/package-lock.json" "$p/l1"
+  mkdir -p "$p/services/api" && ln -s ../../l1 "$p/services/api/package-lock.json"
+  [ -f "$p/services/api/package-lock.json" ] || { CASE_DETAIL="fixture: the chain does not resolve"; return 1; }
+  _expect_fail "$1" "$p"
+}
 
 # ── X — the rest ───────────────────────────────────────────────────────────
 case_X1() { local p; p="$(_proj)"; mkdir -p "$p/services/package-lock.json"; _expect_fail "$1" "$p"; }
@@ -242,6 +249,7 @@ check "S5 a dangling symlink does not count" case_S5 "$REPO_ROOT"
 check "S6 a relative symlink climbing out of the repository does not count" case_S6 "$REPO_ROOT"
 check "S7 a symlink into a sibling whose name extends the root's (proj-evil) does not count" case_S7 "$REPO_ROOT"
 check "S8 with the root reached through a symlinked path, an inside link still counts" case_S8 "$REPO_ROOT"
+check "S9 a two-hop chain (inside link -> root link -> outside file) does not count" case_S9 "$REPO_ROOT"
 echo
 echo "=== X — no lockfile, odd names, order, unreadable directories ==="
 check "X1 a directory named package-lock.json does not count" case_X1 "$REPO_ROOT"
@@ -344,6 +352,7 @@ mutant MI5 '# BL-348-INSIDE-HOP' '    case "$t" in /*) p="$t" ;; *) p="$t" ;; es
 mutant MI6 '# BL-348-INSIDE-HOP' '    case "$t" in /*) p="$(dirname "$p")/$t" ;; *) p="$(dirname "$p")/$t" ;; esac' case_S4 "an absolute link is resolved as if relative"
 mutant MI7 '# BL-348-INSIDE-CONTAINED' '  case "$t/" in *) return 0 ;; esac' case_S1 "every resolved path is inside"
 mutant MI8 '# BL-348-INSIDE-CONTAINED' '  case "$t/" in "$root"*) return 0 ;; esac' case_S7 "a sibling whose name extends the root's is inside"
+mutant MI9 '# BL-348-INSIDE-LINK' '  for _h in 1; do [ -L "$p" ] || break' case_S9 "only the first hop is followed: a chain whose second hop leaves the repository counts"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
