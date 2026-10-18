@@ -1486,6 +1486,51 @@ tree after : c57773947041bac7f2b0d16fbd012b4318c232fe  -
 IDENTICAL — a halted run wrote nothing
 ```
 
+### Nothing is written through a symlink that leads outside the project
+
+Adoption refuses to write a file when that file, or any folder above it inside
+your project, is a symlink that resolves outside the project, or one it cannot
+follow to the end (a loop, or a dangling link part-way along it). It names the path,
+the link and where the link goes, and writes nothing through it
+(`## BL-310:` row 4, `## BL-351:`). The check runs at every writer, so the
+pre-write rehearsal meets it first: a refused run has written only the
+rehearsal's own scratch copy, and "nothing was written to this project" is true.
+Your `.claude` linked to a folder elsewhere, refused (paths shortened):
+
+```text
+[REFUSED] the pre-write rehearsal did not complete (rc=1) — nothing was written to your project
+          Adoption did not begin. Nothing was committed and nothing was written to this project.
+     The rehearsal stopped because:
+     [REFUSED] .claude/test-debt.json would be written through a symlink that leads outside this
+     project: .claude -> /home/me/shared-claude, which resolves to /home/me/shared-claude. Nothing
+     is written outside the project, so nothing was written through it. Make .claude a real file
+     or folder inside the project, or remove it, and run this again.
+```
+
+Before this check, a file you had linked to a file elsewhere was overwritten.
+Measured on 5d3864e3: of twenty files adoption plans to write, each linked to an
+outside file, eight were (`APPROVAL_LOG.md`, `PROJECT_INTAKE.md`, five under
+`.claude/`, `scripts/check-phase-gate.sh`) — three of them by the rehearsal of a
+run that then refused and said nothing was written — and with `.claude` linked
+to an outside folder the rehearsal wrote 13 files into it under the same message.
+
+What did not change:
+
+- **A symlink that resolves inside the project** works as before. A linked file
+  (`APPROVAL_LOG.md -> governance/approval.md`) is written through and the run
+  completes. A path below a linked folder still stops at the ignore check,
+  because git will not stage a path beyond a symlink.
+- **Files the run leaves alone** — documents, skills, `settings.json`,
+  `.claude/.gitignore`, a `.semgrep` ruleset you already have — are still left
+  alone when they are symlinks, and named in the run. The check covers the
+  writers that do not skip a link.
+- **The audit row** in `.claude/bypass-audit.json`, when that file is linked
+  outside, is not written, and the run carries on saying the row could not be
+  recorded, as it does for a ledger it cannot read. A secrets acceptance and a
+  `--re-add`, which need the row, stop instead.
+- **The git hooks** go where git says the hooks directory is; step 0 already
+  refuses a hooks directory that is a symlink.
+
 ### Staging is explicit, never `git add -A`
 
 ```text
