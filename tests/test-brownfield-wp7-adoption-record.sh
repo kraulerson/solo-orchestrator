@@ -375,6 +375,9 @@ a7() {
       ADOPT_WORK="$WORK"; ADOPT_DEPLOYMENT="personal"; ADOPT_POC_MODE=""
       ADOPT_ARCHIVE_DIR=""; ADOPT_DISPOSITIONS_FILE=""
       ADOPT_REHEARSAL_SECONDS="1"; ADOPT_REHEARSAL_MB="2"
+      # adopt-core.sh first, for the write guard the record calls (`# BL-310-WRITE-GUARD`);
+      # the stubs below then replace what this case keeps quiet.
+      . "$LIB/adopt-core.sh"
       adopt_report_read() { jq -r "$2" "$1" 2>/dev/null; }
       adopt_int() { case "$1" in ''|null|*[!0-9]*) printf '0' ;; *) printf '%s' "$1" ;; esac; }
       _adopt_hooks_dir() { printf '%s\n' "$1/.git/hooks"; }

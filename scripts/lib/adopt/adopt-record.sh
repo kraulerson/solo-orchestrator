@@ -776,6 +776,7 @@ adopt_write_adoption_record() {                       # BL-242-RECORD-WRITE
     printf '   %s\n' "Nothing was appended to APPROVAL_LOG.md." >&2
     return 1
   }
+  adopt_guard_write "$root" "APPROVAL_LOG.md" || return 1   # BL-310-GUARD-RECORD
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   cat "$tmp" >> "$log" || { adopt_refuse "could not append the Adoption Record to APPROVAL_LOG.md"; return 1; }
   # PLACEMENT, DERIVED RATHER THAN ASSUMED. Appending puts the heading last

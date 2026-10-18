@@ -252,6 +252,7 @@ adopt_install_framework() {
         return 1
       fi
     fi
+    adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-INSTALL
     adopt_touched_disk   # BL-225-TOUCHED-DISK
     mkdir -p "$(dirname "$dst")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$rel")"; return 1; }
     # `cp -p`, and NOT `cp` followed by `chmod +x`. The framework's own modes
@@ -1079,6 +1080,7 @@ adopt_write_approval_log() {
   # The gate reads the WORKING TREE, so a withheld log still does its job; what
   # is lost is only its presence in history, which is what the operator asked
   # for.
+  adopt_guard_write "$root" "APPROVAL_LOG.md" || return 1   # BL-310-GUARD-APPROVAL-LOG
   printf '%s\n' "$rendered" > "$root/APPROVAL_LOG.md" || {
     adopt_refuse "could not write APPROVAL_LOG.md"
     return 1
@@ -1396,6 +1398,7 @@ adopt_write_manifest() {
   # certify for. Three empty arrays whose owner no longer exists would read as
   # "measured, nothing found" with nobody left to correct the impression, so
   # §8.3 removed them from the record rather than leaving them empty in it.
+  adopt_guard_write "$root" ".claude/manifest.json" || return 1   # BL-310-GUARD-STAMP
   ( cd "$root" && soif_adoption_stamp ".claude/manifest.json" "$sha" ) \
     || { adopt_refuse "the adoption stamp was refused"; return 1; }   # BF-ADOPT-STAMP-CALL
   adopt_record_write ".claude/manifest.json"
@@ -1549,6 +1552,7 @@ _adopt_install_semgrep_config() {                      # BL-242-SEMGREP-CONFIG
     adopt_note "static-analysis pass reads that path, so your rules are what it will use."
     return 0
   fi
+  adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-SEMGREP
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$root/.semgrep" 2>/dev/null || { adopt_refuse "could not create .semgrep/"; return 1; }
   adopt_touched_disk   # BL-225-TOUCHED-DISK
@@ -1839,6 +1843,7 @@ adopt_write_write_set() {
   # The marker precedes the FIRST write, `mkdir -p` included: `adopt_refuse`
   # reads it to decide whether this project was touched, and a directory
   # created before the marker is a touch it would not know about.
+  adopt_guard_write "$root" "$ADOPT_WRITE_SET_REL" || return 1   # BL-310-GUARD-WRITE-SET
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$(dirname "$dest")" 2>/dev/null || {
     adopt_block "could not create $(dirname "$ADOPT_WRITE_SET_REL") for the write set"; return 1; }
@@ -1997,6 +2002,25 @@ _ADOPT_STATE_SCOUT_IGNORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scout" 2>/dev
 # shellcheck disable=SC1090
 [ -f "$_ADOPT_STATE_SCOUT_IGNORE" ] && . "$_ADOPT_STATE_SCOUT_IGNORE"   # BL-322-S3-SHARED
 
+# _adopt_rehearsal_relink COPY ROOT — re-point every symlink in COPY whose text
+# is an absolute path into ROOT (either spelling, as given or physical) at the
+# same place in COPY. `# BL-310-REHEARSAL-RELINK` says why. Every path is
+# COPY's own, so nothing outside the rehearsal is touched.
+_adopt_rehearsal_relink() {
+  local copy="$1" root="$2" phys="" l="" t="" rest=""
+  phys="$( cd -P "$root" 2>/dev/null && pwd -P )" || phys="$root"
+  ( cd "$copy" && find . -type l -print ) | while IFS= read -r l; do
+    l="${l#./}"
+    t="$(readlink "$copy/$l" 2>/dev/null)" || continue
+    case "$t" in
+      "$root"|"$root"/*) rest="${t#"$root"}" ;;   # BL-310-RELINK-LOGICAL
+      "$phys"|"$phys"/*) rest="${t#"$phys"}" ;;   # BL-310-RELINK-PHYSICAL
+      *) continue ;;
+    esac
+    rm -f "$copy/$l" && ln -s "$copy$rest" "$copy/$l" || exit 1
+  done
+}
+
 # adopt_prewrite_preflight ROOT REPORT — refuse BEFORE the first write if any
 # path the adoption is about to write is refused by the adoptee's ignore rules.
 #
@@ -2081,6 +2105,14 @@ adopt_prewrite_preflight() {
     adopt_refuse "could not prepare the rehearsal's shared object store"; return 1; }
   printf '%s\n' "$root/.git/objects" > "$copy/.git/objects/info/alternates" || {
     adopt_refuse "could not point the rehearsal at this project's object store"; return 1; }
+  # `## BL-310:` row 4 — AN ABSOLUTE LINK INTO THE PROJECT IS RE-POINTED INTO
+  # THE COPY. `tar` keeps a link's text, so `.claude -> <project>/config/claude`
+  # still names the REAL project from inside the copy, and the rehearsal wrote
+  # through it: measured on 5d3864e3, 12 files in the project's config/claude
+  # under a refusal that said nothing was written. Re-pointed, the rehearsal
+  # writes where the real run would, inside its copy. Every other link stays as
+  # it is, and `adopt_guard_write` refuses a write that would leave the copy.
+  _adopt_rehearsal_relink "$copy" "$root" || { adopt_refuse "could not re-point the rehearsal copy's links into the project"; return 1; }   # BL-310-REHEARSAL-RELINK
   # NOT "the rehearsal ran" — it has not. This times and names the COPY, which
   # is the cost the bound exists for; saying otherwise would be a receipt for
   # work not yet done, one level down from the receipt this package is about.
@@ -2117,7 +2149,12 @@ adopt_prewrite_preflight() {
   # stopped correctly and safely, and told the operator nothing they could act
   # on. The seam still wins when set, so the suite can point it elsewhere.
   _reh_err="${SOIF_REHEARSAL_ERR:-$ADOPT_WORK/rehearsal-err}"
+  # The guard asks the REAL project as well as the copy (`# BL-310-GUARD-REAL`):
+  # a relative link resolves somewhere else from inside the copy, and the
+  # refusal must say where it goes from the operator's project.
+  ADOPT_GUARD_REAL_ROOT="$root"   # BL-310-REHEARSAL-REAL-ROOT
   _adopt_write_phase "$copy" "$work" "$report" >/dev/null 2>"$_reh_err" || rc=$?
+  ADOPT_GUARD_REAL_ROOT=""
   ADOPT_REHEARSING=0
   if [ "$_touched_before" -eq 0 ] && [ -n "${ADOPT_WORK:-}" ]; then
     rm -f "$ADOPT_WORK/touched" 2>/dev/null || true   # BL-225-REHEARSAL-NO-TRACE

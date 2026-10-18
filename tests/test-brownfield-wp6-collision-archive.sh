@@ -1557,6 +1557,7 @@ _e6_ledger() {
   mkdir -p "$out/.claude"
   printf '[]\n' > "$out/.claude/bypass-audit.json"
   ( . "$REPO_ROOT/scripts/lib/bypass-audit.sh" >/dev/null 2>&1
+    . "$libdir/adopt-core.sh" >/dev/null 2>&1   # the write guard the audit row calls (`# BL-310-WRITE-GUARD`)
     . "$libdir/adopt-archive.sh" >/dev/null 2>&1
     adopt_audit_event "$out" "collision_re_add" '{"path":".git/hooks/pre-commit"}' ) >/dev/null 2>&1
 }

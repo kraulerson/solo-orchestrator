@@ -164,6 +164,12 @@ BEFORE
       kind="restore"
     fi
   fi
+  # `## BL-310:` row 4 — the installer is a subprocess, so its writes cannot
+  # pass the guard one at a time: the places it writes into are asked first
+  # (read from its scripts/init.sh: these folders, the manifest, the settings).
+  for rel in .claude/manifest.json "$st" .claude/framework/hooks .claude/framework/rules .claude/framework/gates .claude/project/hooks .claude/project/rules .claude-backup; do
+    adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-GUARDRAILS
+  done
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   ( cd "$root" && bash "$dir/scripts/init.sh" --profile "$profile" --prepopulate "$disc" --skip-plugin-check </dev/null ) \
     > "$ADOPT_WORK/guardrails.log" 2>&1

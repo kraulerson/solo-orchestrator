@@ -605,6 +605,7 @@ adopt_audit_event() {
   # A caller that treats "recorded" as a precondition cannot do so against a
   # function that never says no, and the re-add path below is exactly such a
   # caller — so this rc is load-bearing, not tidiness.
+  adopt_guard_write "$root" ".claude/bypass-audit.json" cause || return 1   # BL-310-GUARD-AUDIT
   bypass_audit_append "$root" "$row" >/dev/null 2>&1 || return 1
   return 0
 }
@@ -715,6 +716,9 @@ adopt_archive_write() {
 
   arc_rel="$(adopt_archive_dir_new "$root")"
   arc_abs="$root/$arc_rel"
+  # One guard for the whole archive: the folder is new, so nothing below it can
+  # be a link once .claude, .claude/adoption-archive and it are not.
+  adopt_guard_write "$root" "$arc_rel/MANIFEST.json" || return 1   # BL-310-GUARD-ARCHIVE
   # BL-225-TOUCHED-DISK, raised BEFORE the mkdir rather than after it: a
   # `mkdir -p` that creates the parents and then fails has still changed the
   # tree, and the copy loop below runs ~110 lines before adopt_record_write, so
@@ -1314,6 +1318,7 @@ adopt_archive_readd() {
   # ABOVE the record and now runs there — which makes the residual documented
   # above the WHOLE residual rather than most of it. R5 forces that failure
   # with a regular file where a directory has to go and asserts zero rows.
+  adopt_guard_write "$root" "$want" || return 1   # BL-310-GUARD-READD
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$(dirname "$root/$want")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$want") — nothing has been changed and nothing recorded"; return 1; }
   #
