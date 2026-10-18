@@ -1568,6 +1568,23 @@ start_phase4() {
   print_info "Next step: scripts/process-checklist.sh --complete-step phase4_release:production_build"
 }
 
+# _lockfile_inside_root PATH — true when PATH names a regular file, through any
+# symlinks, whose physical directory is the cwd's physical directory or below
+# it. `## BL-348:`'s walk counts a symlinked lockfile only when this holds, so a
+# link to a lockfile in another checkout cannot satisfy project_scaffolded.
+_lockfile_inside_root() {
+  local p="$1" t="" root=""
+  [ -f "$p" ] || return 1   # BL-348-INSIDE-FILE
+  root=$(pwd -P)   # BL-348-INSIDE-ROOTDIR
+  while [ -L "$p" ]; do   # BL-348-INSIDE-LINK
+    t=$(readlink "$p") || return 1
+    case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac   # BL-348-INSIDE-HOP
+  done
+  t=$(cd "$(dirname "$p")" && pwd -P) || return 1
+  case "$t/" in "$root"/*) return 0 ;; esac   # BL-348-INSIDE-CONTAINED
+  return 1
+}
+
 verify_init() {
   ensure_state_file
   local auto_marked=0
@@ -1646,22 +1663,55 @@ verify_init() {
     print_fail "ci_pipeline_configured — no CI config found (.github/workflows/ci.yml | .gitlab-ci.yml | bitbucket-pipelines.yml)"
   fi
 
-  # project_scaffolded: any common lockfile exists
-  local lockfiles=(package-lock.json yarn.lock pnpm-lock.yaml Pipfile.lock poetry.lock Cargo.lock go.sum pubspec.lock Package.resolved gradle.lockfile packages.lock.json)
-  local found_lockfile=false
+  # project_scaffolded: a common lockfile exists at the root, or one or two
+  # directory levels below it, so a service directory counts
+  # (services/control-plane/package-lock.json) — `## BL-348:`.
+  #
+  # The root loop runs first and is the pre-BL-348 check: a root lockfile wins,
+  # and `[ -f ]` still follows a root symlink wherever it points. Only when it
+  # finds nothing does find walk below the root: -maxdepth 3 is a file two
+  # levels down. Dependency, build and VCS trees are pruned so a lockfile inside
+  # an installed dependency never counts. Do not swap -maxdepth for -mindepth 2
+  # to skip the root: find applies no test above -mindepth, so node_modules
+  # would stop being pruned. Without -L, find does not descend a symlinked
+  # directory, and a symlinked lockfile counts only when _lockfile_inside_root
+  # resolves it inside the repository. find's exit status is recorded, not
+  # fatal: one unreadable directory (a container's data volume) must not end
+  # the run under set -e. The sort makes the named path independent of the
+  # order the filesystem lists entries in.
+  #
+  # SIBLING, NOT SYNCED: Scout's read-only copy of this check (the
+  # project_scaffolded probe in scout_reality_probes, scripts/lib/scout/
+  # scout-reality.sh) has a wider list and still looks at the root only;
+  # `## BL-348:` records why it was left alone.
+  local lockfiles=(package-lock.json yarn.lock pnpm-lock.yaml Pipfile.lock poetry.lock uv.lock Cargo.lock go.sum pubspec.lock Package.resolved gradle.lockfile packages.lock.json)   # BL-348-LOCKFILE-NAMES
+  local lf_prune=(node_modules .git vendor .venv venv target build dist Pods .dart_tool .gradle)   # BL-348-LOCKFILE-SKIPDIRS
+  local lf_path="" lf_n="" lf_cand="" lf_cands="" lf_walk_rc=0
   for lf in "${lockfiles[@]}"; do
-    if [ -f "$lf" ]; then
-      found_lockfile=true
-      if ! step_is_completed "phase2_init" "project_scaffolded"; then
-        jq '.phase2_init.steps_completed += ["project_scaffolded"]' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
-        auto_marked=$((auto_marked + 1))
-      fi
-      print_ok "project_scaffolded — lockfile found: $lf"
-      break
-    fi
+    if [ -f "$lf" ]; then lf_path="$lf"; break; fi   # BL-348-LOCKFILE-ROOT
   done
-  if [ "$found_lockfile" = false ]; then
-    print_fail "project_scaffolded — no lockfile found (${lockfiles[*]})"
+  if [ -z "$lf_path" ]; then   # BL-348-LOCKFILE-WALK
+    local lf_pexpr=(-name "${lf_prune[0]}") lf_nexpr=(-name "${lockfiles[0]}")
+    for lf_n in "${lf_prune[@]:1}"; do lf_pexpr+=(-o -name "$lf_n"); done   # BL-348-LOCKFILE-SKIP-EXPR
+    for lf_n in "${lockfiles[@]:1}"; do lf_nexpr+=(-o -name "$lf_n"); done   # BL-348-LOCKFILE-NAME-EXPR
+    lf_cands=$(find . -maxdepth 3 -type d \( "${lf_pexpr[@]}" \) -prune -o \( "${lf_nexpr[@]}" \) -print | LC_ALL=C sort) || lf_walk_rc=$?   # BL-348-LOCKFILE-FIND
+    while IFS= read -r lf_cand; do
+      if _lockfile_inside_root "$lf_cand"; then lf_path="${lf_cand#./}"; break; fi   # BL-348-LOCKFILE-PICK
+    done <<EOF
+$lf_cands
+EOF
+  fi
+  if [ -n "$lf_path" ]; then
+    if ! step_is_completed "phase2_init" "project_scaffolded"; then
+      jq '.phase2_init.steps_completed += ["project_scaffolded"]' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
+      auto_marked=$((auto_marked + 1))
+    fi
+    print_ok "project_scaffolded — lockfile found: $lf_path"   # BL-348-LOCKFILE-OK
+  else
+    if [ "$lf_walk_rc" -ne 0 ]; then   # BL-348-LOCKFILE-WARN
+      print_warn "project_scaffolded — find could not read every directory below the root (exit $lf_walk_rc, its errors are above), so a lockfile in one of them was not seen"
+    fi
+    print_fail "project_scaffolded — no lockfile found in the root or one or two directory levels below it (looked for: ${lockfiles[*]}; skipped: ${lf_prune[*]})"   # BL-348-LOCKFILE-FAIL
   fi
 
   # pre_commit_hooks_installed: .git/hooks/pre-commit exists and executable
