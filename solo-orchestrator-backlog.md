@@ -26238,7 +26238,7 @@ then become one, and the refusal stays as the guard on a roster run by hand.
 
 **What.** Two checks exempt framework state by extension and both knew `.json`, not `.jsonl`:
 `check_commit_ready`'s docs-only exemption in `scripts/process-checklist.sh` (`\.(md|json|yml|yaml|toml|tmpl)$`), and
-`_ACCUM_EXEMPT_RE` in `scripts/lib/accumulation.sh` (`(^|/)\.claude/[^/]*\.json$`). The Development Guardrails 4.4.6+
+`_ACCUM_EXEMPT_RE` in `scripts/lib/accumulation.sh` (`(^|/)\.claude/[^/]*\.json$`). The Development Guardrails (4.4.0+)
 `record-approval.sh` writes `.claude/approvals.jsonl`, which adopted projects track (Karl's ruling in pantheon-harness).
 Measured on main `5d3864e3`, staging `.claude/process-state.json` plus `.claude/approvals.jsonl`: rc 0 with init verified
 and no subject or a `chore:` subject; rc 1 `Phase 2 initialization not verified` with init unverified (any subject); rc 1
@@ -26252,4 +26252,5 @@ default (not-feat), so its copy presumed every subject-less commit a feat and bl
 **Fix.** `jsonl` joins the docs-only exemption (`# BL-354-DOCS-JSONL`), consistent with `.json`, which is exempt anywhere;
 accumulation's state-file arm matches `.claude/*.jsonl` as well as `.json` and keeps its `.claude/` scope (a project's own
 `data/events.jsonl` is still source work there). A `.jsonl` staged beside a source file still blocks. Suite:
-`tests/test-bl354-state-jsonl-exempt.sh` (11 cases, 4 mutants).
+`tests/test-bl354-state-jsonl-exempt.sh` (13 cases, 5 mutants; J4 stages a non-source, non-exempt file so it reaches
+the exemption loop).
