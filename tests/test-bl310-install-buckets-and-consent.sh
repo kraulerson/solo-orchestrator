@@ -166,7 +166,7 @@ R4_CHECK='
                  | select(recipe($t) or (.instructions != ($t.install.manual // "See documentation"))) | $n],
     rerouted: [$out.manual_install[] | .name as $n | tool($n) | select(. != null and .auto_installable == true) | .name] }'
 case_R4() {
-  local mx d plat prof out res bad="" nrows=0 nrerouted=0 gl_linux_none=0
+  local mx d plat prof out res n=0 bad="" nrows=0 nrerouted=0 gl_linux_none=0
   mx="$(newtmp)"; d="$(newtmp)"; absent_matrix "$1" "$mx" sweep || { CASE_DETAIL="matrix"; return 1; }
   for plat in web desktop mobile; do
     for prof in $PROFILES; do
@@ -181,8 +181,8 @@ case_R4() {
       res="$(jq -cn --slurpfile c "$mx/common.json" --slurpfile p "$mx/$plat.json" \
                --argjson out "$out" --argjson K "$(prof_keys "$prof")" "$R4_CHECK")" \
         || { CASE_DETAIL="check failed for $plat/$prof"; return 1; }
-      nrows=$((nrows + $(printf '%s' "$out" | jq '(.auto_install + .manual_install) | length')))
-      nrerouted=$((nrerouted + $(printf '%s' "$res" | jq '.rerouted | length')))
+      n="$(printf '%s' "$out" | jq '(.auto_install + .manual_install) | length')"; nrows=$((nrows + n))
+      n="$(printf '%s' "$res" | jq '.rerouted | length')"; nrerouted=$((nrerouted + n))
       if [ "$(printf '%s' "$res" | jq '(.unknown + .bad_auto + .bad_manual) | length')" != "0" ]; then
         bad="$bad [$plat/$prof $(printf '%s' "$res" | jq -c '{unknown, bad_auto, bad_manual}')]"
       fi
