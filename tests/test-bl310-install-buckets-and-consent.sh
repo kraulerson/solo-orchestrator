@@ -26,7 +26,12 @@
 #      value is only ever instructions.
 #   I  init.sh's resolve_and_install_tools never evals the gitleaks URL.
 #   K  the consent text init and adoption show before the Linux recipe names
-#      sudo and /usr/local/bin, and brew's does not.
+#      sudo and /usr/local/bin, and brew's does not; every other recipe that
+#      runs sudo (Docker's `sudo apt install …`) says so in init's plan too.
+#   C  check-versions.sh, the one other reader of `.install.manual`: on a host
+#      without brew it offered that value as the update command and its
+#      interactive "update all" ran it with `eval`. Driven over a pty
+#      (script(1)), with curl stubbed and no brew on PATH.
 #   M  every BL-310 marker is mutation-proven against a mirror; the tree under
 #      test is never edited, and each mutant asserts it LANDED by literal text.
 #
@@ -56,6 +61,7 @@ GL_URL='https://github.com/gitleaks/gitleaks/releases'
 GL_LINUX='bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"'
 GL_BREW='brew install gitleaks'
 SUDO_NOTE='this will run sudo to install gitleaks into /usr/local/bin'
+SUDO_WORD='this will run sudo'
 
 # ── An isolated PATH for the resolver and init's install function: each tool
 # they call, linked in by itself, and nothing else — no package manager.
@@ -86,17 +92,19 @@ prof_keys() {
 }
 
 # ── The matrix under test, with every check_command replaced by `false`.
-# absent_matrix <root> <dest> <gitleaks-only|sweep>
+# absent_matrix <root> <dest> <gitleaks-only|gitleaks-docker|sweep>
 #   sweep also widens `languages` and `platforms` to "all", so one resolver run
 #   per platform file sees every tool in it instead of one language's share.
 #   Install objects, dev_os, tracks and phases are untouched.
 absent_matrix() {
-  local root="$1" dest="$2" mode="$3" f
+  local root="$1" dest="$2" mode="$3" f want=1
   mkdir -p "$dest" || return 1
-  if [ "$mode" = "gitleaks-only" ]; then
-    jq '{tools: [.tools[] | select(.name == "gitleaks") | .check_command = "false"]}' \
+  if [ "$mode" = "gitleaks-only" ] || [ "$mode" = "gitleaks-docker" ]; then
+    [ "$mode" = "gitleaks-docker" ] && want=2
+    jq --arg m "$mode" '{tools: [.tools[] | select(.name == "gitleaks" or ($m == "gitleaks-docker" and .name == "Docker"))
+                                | .check_command = "false"]}' \
       "$root/templates/tool-matrix/common.json" > "$dest/common.json" || return 1
-    [ "$(jq '.tools | length' "$dest/common.json")" = "1" ] || return 1
+    [ "$(jq '.tools | length' "$dest/common.json")" = "$want" ] || return 1
     return 0
   fi
   for f in "$root"/templates/tool-matrix/*.json; do
@@ -200,11 +208,11 @@ case_R4() {
 # run against a fixture framework holding <root>'s REAL resolver and the
 # gitleaks-only absent matrix.
 # ════════════════════════════════════════════════════════════════════════════
-# init_fw <root> <dir>
+# init_fw <root> <dir> [matrix-mode]
 init_fw() {
   mkdir -p "$2/scripts/lib" "$2/templates" || return 1
   cp "$1/scripts/resolve-tools.sh" "$2/scripts/" && cp "$1/scripts/lib/helpers-core.sh" "$2/scripts/lib/" || return 1
-  absent_matrix "$1" "$2/templates/tool-matrix" gitleaks-only
+  absent_matrix "$1" "$2/templates/tool-matrix" "${3:-gitleaks-only}"
 }
 
 # run_init <root> <fw> <profile> <OS_TYPE> <AUTO_INSTALL_TOOLS> — prints init's output
@@ -251,6 +259,14 @@ case_K6() {   # init's plan on macOS with brew: no sudo sentence (brew does not 
     && ! printf '%s' "$out" | command grep -qF 'sudo'
 }
 
+case_K8() {   # init's plan on Linux: Docker's `sudo apt install …` says sudo too, beside gitleaks' own sentence
+  local fw out; fw="$(newtmp)/fw"; init_fw "$1" "$fw" gitleaks-docker || { CASE_DETAIL="fixture"; return 1; }
+  out="$(run_init "$1" "$fw" linux-apt-npm Linux N)"
+  CASE_DETAIL="out=$(printf '%s' "$out" | tr '\n' '~' | cut -c1-600)"
+  printf '%s\n' "$out" | command grep -qxF "│    Docker (containerization) — $SUDO_WORD" \
+    && printf '%s\n' "$out" | command grep -qxF "│    gitleaks (Secret Detection) — $SUDO_NOTE"
+}
+
 # ════════════════════════════════════════════════════════════════════════════
 # K — the elevation sentence itself, and adoption's consent
 # ════════════════════════════════════════════════════════════════════════════
@@ -280,6 +296,33 @@ case_K2() {   # the sentence says what the installer does: sudo, and its own INS
   CASE_DETAIL="installer INSTALL_DIR=[$dir] sudo-install-lines=$(command grep -c '^sudo install .*"\$INSTALL_DIR/gitleaks"' "$f")"
   [ -n "$dir" ] && [ "$SUDO_NOTE" = "this will run sudo to install gitleaks into $dir" ] \
     && [ "$(command grep -c '^sudo install .*"\$INSTALL_DIR/gitleaks"' "$f")" = "1" ]
+}
+
+# K7 — every install value in the real matrix (an array joined with " && ", as
+# the resolver joins it; `manual` left out, it is not an install key) through
+# the helper in ONE shell. The oracle is jq's, not the helper's pattern: a value
+# runs sudo when `sudo` stands as a word followed by whitespace. "pseudo-sudo"
+# shapes are not sudo, so a helper that matched the bare substring would lie.
+case_K7() {
+  local vals out bad n_sudo n_plain
+  vals="$(newtmp)/vals"
+  jq -rs '[.[].tools[] | (.install // {}) | to_entries[] | select(.key != "manual") | .value
+           | if type == "array" then join(" && ") else . end] | unique | .[]' \
+    "$1"/templates/tool-matrix/*.json > "$vals" || { CASE_DETAIL="jq"; return 1; }
+  printf '%s\n' 'pseudo-sudo-tool --install' 'npm install -g pseudo' >> "$vals"
+  out="$(_HC="$1/scripts/lib/helpers-core.sh" _V="$vals" bash -c '
+    source "$_HC" >/dev/null 2>&1
+    command -v soif_install_elevation_note >/dev/null 2>&1 || { echo NO-FUNCTION; exit 0; }
+    while IFS= read -r v; do printf "%s\t%s\n" "$v" "$(soif_install_elevation_note "$v")"; done < "$_V"' 2>&1)"
+  bad="$(printf '%s\n' "$out" | jq -rR --arg g "$SUDO_NOTE" --arg s "$SUDO_WORD" '
+    split("\t") as [$v, $n]
+    | (if ($v | test("install-gitleaks\\.sh")) then $g
+       elif ($v | test("(^|[^A-Za-z0-9_./-])sudo\\s")) then $s else "" end) as $want
+    | select(($n // "") != $want) | "[\($v)] -> [\($n // "")] want [\($want)]"')"
+  n_sudo="$(printf '%s\n' "$out" | command grep -c "	$SUDO_WORD\$")"
+  n_plain="$(printf '%s\n' "$out" | command grep -c '	$')"
+  CASE_DETAIL="values=$(printf '%s\n' "$out" | command grep -c .) sudo=$n_sudo plain=$n_plain mismatches: $(printf '%s' "${bad:-none}" | tr '\n' ' ' | cut -c1-500)"
+  [ -z "$bad" ] && [ "$n_sudo" -gt 0 ] && [ "$n_plain" -gt 0 ]
 }
 
 # Adoption fixtures (as tests/test-bl316-installers.sh builds them).
@@ -346,6 +389,108 @@ case_K4() {   # adoption on macOS with brew: the command is offered with no sudo
     && ! printf '%s\n' "$AD_OUT" | command grep -qF 'sudo'
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+# C — check-versions.sh on a host without brew. Its interactive branch needs a
+# terminal (`[ -t 0 ]`), so the run goes through script(1); the BSD and
+# util-linux spellings differ, and the probe picks one (as
+# tests/test-bl320-approval-schema2.sh does). curl is a stub that answers every
+# URL with a release tagged v99.0.0, so the network check passes and the latest
+# version is known without a network.
+# ════════════════════════════════════════════════════════════════════════════
+CV_ISO="$TOPTMP/cv-iso"; CV_STUBS="$TOPTMP/cv-stubs"; mkdir -p "$CV_ISO" "$CV_STUBS"
+for t in bash jq tr sed tail seq rm mktemp grep cut sort head dirname awk date sleep cat env git uname wc ls touch mkdir basename; do
+  p="$(command -v "$t" 2>/dev/null)" && ln -s "$p" "$CV_ISO/$t"
+done
+printf '#!/bin/sh\necho "{\\"tag_name\\":\\"v99.0.0\\"}"\nexit 0\n' > "$CV_STUBS/curl"; chmod +x "$CV_STUBS/curl"
+
+# cv_fixture <root> <dir> <gl-below|gl-behind|canary> — a project dir holding
+# <root>'s check-versions.sh and helpers-core.sh and a one-tool matrix. The
+# gitleaks rows are the REAL entry with only its probes replaced; the canary
+# row's only install value is a `manual` that leaves a file if anything runs it.
+cv_fixture() {
+  local root="$1" d="$2" kind="$3"
+  mkdir -p "$d/proj/templates/tool-matrix" "$d/proj/scripts/lib" "$d/home" || return 1
+  cp "$root/scripts/check-versions.sh" "$d/proj/scripts/" && cp "$root/scripts/lib/helpers-core.sh" "$d/proj/scripts/lib/" || return 1
+  case "$kind" in
+    gl-below|gl-behind)
+      jq --arg v "$([ "$kind" = gl-below ] && echo 8.0.0 || echo 8.30.1)" \
+        '{tools: [.tools[] | select(.name == "gitleaks") | .check_command = "true" | .version_command = ("echo " + $v)]}' \
+        "$root/templates/tool-matrix/common.json" > "$d/proj/templates/tool-matrix/common.json" || return 1 ;;
+    canary)
+      jq -n --arg c "touch '$d/CANARY'" '{tools: [{name: "BL310Canary", category: "tooling", required: true,
+        min_version: "99.0.0", description: "bl310 fixture", check_command: "true", version_command: "echo 0.0.1",
+        tracks: ["light","standard","full"], languages: ["all"], platforms: ["all"], dev_os: ["darwin","linux"],
+        install: {manual: $c}}]}' > "$d/proj/templates/tool-matrix/common.json" || return 1 ;;
+  esac
+  printf '#!/bin/bash\ncd "%s/proj" || exit 1\nexec env -i HOME="%s/home" PATH="%s:%s" TERM=dumb bash scripts/check-versions.sh\n' \
+    "$d" "$d" "$CV_STUBS" "$CV_ISO" > "$d/run.sh"
+}
+
+# cv_run <dir> <answers|-> — "-" runs with no terminal; otherwise over a pty,
+# feeding <answers>. Sets CV_OUT (carriage returns removed).
+cv_run() {
+  local d="$1"
+  if [ "$2" = "-" ]; then
+    CV_OUT="$(bash "$d/run.sh" </dev/null 2>&1)"
+    return 0
+  fi
+  printf '%b' "$2" > "$d/answers"
+  if script -q /dev/null true </dev/null >/dev/null 2>&1; then
+    CV_OUT="$( { cat "$d/answers"; sleep 2; } | script -q /dev/null bash "$d/run.sh" 2>&1 | tr -d '\r')"
+  else
+    CV_OUT="$( { cat "$d/answers"; sleep 2; } | script -q -c "bash '$d/run.sh'" /dev/null 2>&1 | tr -d '\r')"
+  fi
+}
+have_pty() { command -v script >/dev/null 2>&1; }
+
+case_C1() {   # "update all" on a brew-less host: gitleaks' URL is shown as a reference and never run
+  local d; d="$(newtmp)"; have_pty || { CASE_DETAIL="no script(1) on PATH — cannot drive the interactive branch"; return 1; }
+  cv_fixture "$1" "$d" gl-below || { CASE_DETAIL="fixture"; return 1; }
+  cv_run "$d" 'a\n'
+  CASE_DETAIL="out=$(printf '%s' "$CV_OUT" | tr '\n' '~' | cut -c1-700)"
+  printf '%s' "$CV_OUT" | command grep -qF 'Choice [a/b/c]' \
+    && printf '%s' "$CV_OUT" | command grep -qF "gitleaks: no auto-update command available — see $GL_URL" \
+    && ! printf '%s' "$CV_OUT" | command grep -qF 'Updating gitleaks' \
+    && ! printf '%s' "$CV_OUT" | command grep -qF 'Could not update gitleaks'
+}
+
+case_C2() {   # "update all": a `manual` value that IS runnable is still never run
+  local d; d="$(newtmp)"; have_pty || { CASE_DETAIL="no script(1) on PATH"; return 1; }
+  cv_fixture "$1" "$d" canary || { CASE_DETAIL="fixture"; return 1; }
+  cv_run "$d" 'a\n'
+  CASE_DETAIL="canary=$([ -e "$d/CANARY" ] && echo CREATED || echo absent) out=$(printf '%s' "$CV_OUT" | tr '\n' '~' | cut -c1-500)"
+  printf '%s' "$CV_OUT" | command grep -qF 'Choice [a/b/c]' && [ ! -e "$d/CANARY" ] \
+    && printf '%s' "$CV_OUT" | command grep -qF "BL310Canary: no auto-update command available — touch '$d/CANARY'"
+}
+
+case_C3() {   # "select" (b, then 1): the same — the reference is shown, nothing runs
+  local d; d="$(newtmp)"; have_pty || { CASE_DETAIL="no script(1) on PATH"; return 1; }
+  cv_fixture "$1" "$d" gl-below || { CASE_DETAIL="fixture"; return 1; }
+  cv_run "$d" 'b\n1\n'
+  CASE_DETAIL="out=$(printf '%s' "$CV_OUT" | tr '\n' '~' | cut -c1-700)"
+  printf '%s' "$CV_OUT" | command grep -qF "gitleaks: no auto-update command available — see $GL_URL" \
+    && ! printf '%s' "$CV_OUT" | command grep -qF 'Updating gitleaks'
+}
+
+case_C4() {   # no terminal, below minimum: "Update commands (run manually)" still names the reference
+  local d; d="$(newtmp)"
+  cv_fixture "$1" "$d" gl-below || { CASE_DETAIL="fixture"; return 1; }
+  cv_run "$d" -
+  CASE_DETAIL="out=$(printf '%s' "$CV_OUT" | tr '\n' '~' | cut -c1-600)"
+  printf '%s' "$CV_OUT" | command grep -qF 'Update commands (run manually):' \
+    && printf '%s\n' "$CV_OUT" | command grep -qxF "  gitleaks: see $GL_URL"
+}
+
+case_C5() {   # "skip" (c), behind the latest release: the manual list names the reference
+  local d; d="$(newtmp)"; have_pty || { CASE_DETAIL="no script(1) on PATH"; return 1; }
+  cv_fixture "$1" "$d" gl-behind || { CASE_DETAIL="fixture"; return 1; }
+  cv_run "$d" 'c\n'
+  CASE_DETAIL="out=$(printf '%s' "$CV_OUT" | tr '\n' '~' | cut -c1-700)"
+  printf '%s' "$CV_OUT" | command grep -qF '99.0.0 available' \
+    && printf '%s' "$CV_OUT" | command grep -qF 'Manual update commands:' \
+    && printf '%s\n' "$CV_OUT" | command grep -qxF "  gitleaks: see $GL_URL"
+}
+
 check() {   # check <label> <case-fn> — run against the tree under test
   if "$2" "$REPO_ROOT"; then pass "$1"; else fail_ "$1" "$CASE_DETAIL"; fi
 }
@@ -366,6 +511,15 @@ check "K3 — adoption, Linux: command, then the sudo sentence, then the questio
 check "K4 — adoption, macOS + brew: the command is offered with no sudo sentence" case_K4
 check "K5 — init's plan, Linux: gitleaks carries the sudo sentence; declined, nothing ran" case_K5
 check "K6 — init's plan, macOS + brew: gitleaks carries no sudo sentence" case_K6
+check "K7 — every matrix install value: sudo named exactly where sudo runs (and not for 'pseudo-sudo')" case_K7
+check "K8 — init's plan, Linux: Docker's sudo recipe says 'this will run sudo' beside gitleaks' sentence" case_K8
+
+echo "=== C — check-versions.sh never runs a manual value (row 1's rule, its other reader) ==="
+check "C1 — update all, no brew: gitleaks' URL is shown as a reference, never run" case_C1
+check "C2 — update all, no brew: a runnable manual value is never run either (canary)" case_C2
+check "C3 — select 1, no brew: the reference is shown, nothing runs" case_C3
+check "C4 — no terminal, below minimum: 'Update commands (run manually)' still names the URL" case_C4
+check "C5 — skip, behind the latest release: 'Manual update commands' still names the URL" case_C5
 
 # ════════════════════════════════════════════════════════════════════════════
 # M — MUTANTS. Each rewrites ONE marked line in a mirror, asserts the edit
@@ -418,6 +572,29 @@ mutant MA1 scripts/lib/adopt/adopt-tools.sh '# BL-310-ADOPT-ELEVATION' ':' case_
   "adoption's consent drops the sudo sentence"
 mutant MI1 init.sh '# BL-310-INIT-ELEVATION' '      echo -e "${BOLD}│${NC}$line"' case_K5 \
   "init's plan drops the sudo sentence"
+mutant MK3 scripts/lib/helpers-core.sh '# BL-310-ELEVATION-SUDO' '    __bl310_mutant_never_matches__) ;;' case_K8 \
+  "a recipe that runs sudo is no longer named as one"
+mutant MK4 scripts/lib/helpers-core.sh '# BL-310-ELEVATION-SUDO' "    *sudo*) printf '%s\\n' \"$SUDO_WORD\" ;;" case_K7 \
+  "any value containing the letters 'sudo' is named as running sudo"
+
+CV=scripts/check-versions.sh
+mutant MC1 "$CV" '# BL-310-CV-NO-MANUAL' \
+  "  [ -n \"\$c\" ] || c=\$(printf '%s' \"\$1\" | jq -r \"(.install.npm // .install.linux_pip // .install.manual // empty) | \$_cv_jq_install_cmd\")" \
+  case_C2 "the manual value is an update command again, so 'update all' evals it"
+mutant MC2 "$CV" '# BL-310-CV-REF-A' '          print_warn "$tool_name: no auto-update command available"' case_C1 \
+  "'update all' drops the reference"
+mutant MC3 "$CV" '# BL-310-CV-REF-B' '            :' case_C3 \
+  "'select' says nothing for a row with no command"
+mutant MC4 "$CV" '# BL-310-CV-SHOW' '  _cv_render_update_cmd "${UPDATE_CMDS[$1]:-}"' case_C4 \
+  "the printers lose the reference"
+mutant MC5 "$CV" '# BL-310-CV-SHOW-N' '    echo "  ${UPDATE_NAMES[$idx]}: $(_cv_render_update_cmd "${UPDATE_CMDS[$idx]}")"' case_C4 \
+  "the no-terminal printer renders the command only"
+mutant MC6 "$CV" '# BL-310-CV-SHOW-C' '          echo "  ${UPDATE_NAMES[$idx]}: $(_cv_render_update_cmd "${UPDATE_CMDS[$idx]}")"' case_C5 \
+  "the 'skip' printer renders the command only"
+mutant MC7 "$CV" '# BL-310-CV-REF-MIN' ':' case_C4 \
+  "a below-minimum row records no reference"
+mutant MC8 "$CV" '# BL-310-CV-REF-LATEST' ':' case_C5 \
+  "a behind-latest row records no reference"
 
 # MD1 rewrites a line with no marker — the installer's INSTALL_DIR — so the
 # sentence and the installer can no longer drift apart silently.
