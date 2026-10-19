@@ -23031,7 +23031,9 @@ shared outside was written through (37 to 8523 bytes, mode 644 to 755, "Commit-m
 (`# BL-310-PLACEMENT-GITLINK`); a link through a second alias of the project, a root typed in the wrong case or
 a relative link that climbs out and back in made the rehearsal refuse; the audit row's cause said "run this
 again" in a run that completes; the notes blamed the ledger's JSON for a symlink; act4's merge into the manifest
-was unguarded (`# BL-310-GUARD-ASSESS`); and the re-point read every link (6s for 5000 relative links, 0s now).
+was unguarded (`# BL-310-GUARD-ASSESS`); and the re-point read every link (6s for 5000 plain relative links, 0s now). Residual: links whose target holds
+`../` still pass `find -lname '*..*'` and each costs a resolve plus a re-point — the npm/pnpm `node_modules` shape;
+measured 6s on `28e928b9` and 11s at `ed1e49a5` for 2000 `../` links plus 2000 plain links.
 `tests/test-bl029-integration.sh` (full lane) needed adopt-core.sh sourced for the guard (`0afca684`).
 Residuals, recorded not fixed:
 1. **A hardlink is not a symlink.** A planned file hardlinked to a file outside the project still has that
