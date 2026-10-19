@@ -252,6 +252,7 @@ adopt_install_framework() {
         return 1
       fi
     fi
+    adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-INSTALL
     adopt_touched_disk   # BL-225-TOUCHED-DISK
     mkdir -p "$(dirname "$dst")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$rel")"; return 1; }
     # `cp -p`, and NOT `cp` followed by `chmod +x`. The framework's own modes
@@ -459,6 +460,21 @@ _adopt_preflight_placement() {
     adopt_note "  you asked to adopt: ${phys_root:-$root}"
     adopt_note "  the repository's top level is: ${phys_top:-(git cannot report one here)}"
     adopt_note "  Run adoption from the top level, or pass --root there."
+    return 1
+  fi
+
+  # `## BL-310:` row 4 (review R-2) — A LINKED `.git` IS REFUSED HERE, before
+  # any question. The pre-write rehearsal copies the project with `tar`, which
+  # keeps the link, so the copy's `.git` IS the repository the link points at,
+  # and the rehearsal's `objects/info/alternates` write landed in it: measured
+  # on a `clone --shared` whose `.git` was moved out and linked, its alternates
+  # were rewritten, `git` then said "fatal: bad object HEAD", and the run blamed
+  # the operator's own hooks or git identity. `-d` is true through the link, so
+  # the arm below never saw it; the hooks would also have gone outside.
+  if [ -L "$root/.git" ]; then                                     # BL-310-PLACEMENT-GITLINK
+    adopt_refuse "this project's .git is a SYMLINK -> $(readlink "$root/.git" 2>/dev/null) — the pre-write rehearsal copies the project and would write into the repository that link points at"
+    adopt_note "  Nothing was written. Make .git a real directory inside the project (move the"
+    adopt_note "  repository back and remove the link), then run adoption again."
     return 1
   fi
 
@@ -1079,6 +1095,7 @@ adopt_write_approval_log() {
   # The gate reads the WORKING TREE, so a withheld log still does its job; what
   # is lost is only its presence in history, which is what the operator asked
   # for.
+  adopt_guard_write "$root" "APPROVAL_LOG.md" || return 1   # BL-310-GUARD-APPROVAL-LOG
   printf '%s\n' "$rendered" > "$root/APPROVAL_LOG.md" || {
     adopt_refuse "could not write APPROVAL_LOG.md"
     return 1
@@ -1396,6 +1413,7 @@ adopt_write_manifest() {
   # certify for. Three empty arrays whose owner no longer exists would read as
   # "measured, nothing found" with nobody left to correct the impression, so
   # §8.3 removed them from the record rather than leaving them empty in it.
+  adopt_guard_write "$root" ".claude/manifest.json" || return 1   # BL-310-GUARD-STAMP
   ( cd "$root" && soif_adoption_stamp ".claude/manifest.json" "$sha" ) \
     || { adopt_refuse "the adoption stamp was refused"; return 1; }   # BF-ADOPT-STAMP-CALL
   adopt_record_write ".claude/manifest.json"
@@ -1549,6 +1567,7 @@ _adopt_install_semgrep_config() {                      # BL-242-SEMGREP-CONFIG
     adopt_note "static-analysis pass reads that path, so your rules are what it will use."
     return 0
   fi
+  adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-SEMGREP
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$root/.semgrep" 2>/dev/null || { adopt_refuse "could not create .semgrep/"; return 1; }
   adopt_touched_disk   # BL-225-TOUCHED-DISK
@@ -1660,30 +1679,46 @@ adopt_install_hooks() {
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$hooks" 2>/dev/null || { adopt_block "could not create $hooks"; return 1; }
 
-  if [ ! -f "$hooks/commit-msg" ]; then
-    adopt_touched_disk   # BL-225-TOUCHED-DISK
-    # SOIF_ADOPT_FAIL_HOOK_WRITE — a fault seam, the `SOIF_ADOPT_HALT_AFTER`
-    # precedent. Item (3)'s derived sentence is only provable against a run
-    # where the hook write fails and everything before it succeeded, and step
-    # 0's shape and write rules now refuse every natural way to reach that.
-    if [ -n "${SOIF_ADOPT_FAIL_HOOK_WRITE:-}" ]; then               # BL-242-HOOKS-FAULT-SEAM
-      adopt_block "could not create the commit-msg hook"
-      return 1
-    fi
-    printf '%s\n' '#!/usr/bin/env bash' > "$hooks/commit-msg" || { adopt_block "could not create the commit-msg hook"; return 1; }
-  fi
-  if grep -qF "$SOIF_TDD_OPEN" "$hooks/commit-msg" 2>/dev/null; then
-    adopt_note "The commit-msg gate was already present — left as it was."
+  # `## BL-310:` row 4 (review R-1) — A LINKED commit-msg IS LEFT ALONE, as the
+  # pre-commit arm below leaves a linked pre-commit. Appending the gate and the
+  # `chmod +x` both follow the link: measured on a `.git/hooks/commit-msg`
+  # linked to a hook shared outside the repository, that file went from 37 to
+  # 8523 bytes and from mode 644 to 755, and the run said the gate was
+  # installed. Any link, inside or out: step 0 already refuses a linked hooks
+  # directory and a linked `.git`, so this is the one link left on the path.
+  if [ -L "$hooks/commit-msg" ]; then   # BL-310-HOOK-COMMITMSG-LINK
+    adopt_say "   NOT INSTALLED — the commit-msg gate"
+    adopt_note "  $hooks/commit-msg is a SYMLINK. Adding the gate would go THROUGH it and change"
+    adopt_note "  whatever it points at — possibly a hook other repositories share. Left exactly"
+    adopt_note "  as it is. To install the gate, make it a real file (keep its contents if you"
+    adopt_note "  need them), then run, from the project root:"
+    adopt_note "    bash -c '. scripts/lib/hook-templates.sh && soif_emit_tdd_commitmsg_block >> .git/hooks/commit-msg' && chmod +x .git/hooks/commit-msg"
   else
-    adopt_touched_disk   # BL-225-TOUCHED-DISK
-    soif_emit_tdd_commitmsg_block >> "$hooks/commit-msg" || { adopt_block "could not extend the commit-msg hook"; return 1; }
-    adopt_note "Commit-msg gate installed (it composes with whatever was already in that hook)."
+    if [ ! -f "$hooks/commit-msg" ]; then
+      adopt_touched_disk   # BL-225-TOUCHED-DISK
+      # SOIF_ADOPT_FAIL_HOOK_WRITE — a fault seam, the `SOIF_ADOPT_HALT_AFTER`
+      # precedent. Item (3)'s derived sentence is only provable against a run
+      # where the hook write fails and everything before it succeeded, and step
+      # 0's shape and write rules now refuse every natural way to reach that.
+      if [ -n "${SOIF_ADOPT_FAIL_HOOK_WRITE:-}" ]; then               # BL-242-HOOKS-FAULT-SEAM
+        adopt_block "could not create the commit-msg hook"
+        return 1
+      fi
+      printf '%s\n' '#!/usr/bin/env bash' > "$hooks/commit-msg" || { adopt_block "could not create the commit-msg hook"; return 1; }
+    fi
+    if grep -qF "$SOIF_TDD_OPEN" "$hooks/commit-msg" 2>/dev/null; then
+      adopt_note "The commit-msg gate was already present — left as it was."
+    else
+      adopt_touched_disk   # BL-225-TOUCHED-DISK
+      soif_emit_tdd_commitmsg_block >> "$hooks/commit-msg" || { adopt_block "could not extend the commit-msg hook"; return 1; }
+      adopt_note "Commit-msg gate installed (it composes with whatever was already in that hook)."
+    fi
+    # NOT SWALLOWED. A commit-msg that is not executable is a hook git will not
+    # run; the live derivation below catches it, but a silent chmod failure is
+    # the same missing receipt one step earlier, so say it.
+    chmod +x "$hooks/commit-msg" 2>/dev/null \
+      || adopt_note "could not make the commit-msg hook executable — the gate will not run until it is."
   fi
-  # NOT SWALLOWED. A commit-msg that is not executable is a hook git will not
-  # run; the live derivation below catches it, but a silent chmod failure is
-  # the same missing receipt one step earlier, so say it.
-  chmod +x "$hooks/commit-msg" 2>/dev/null \
-    || adopt_note "could not make the commit-msg hook executable — the gate will not run until it is."
 
   # ── THE FALLBACK PRE-COMMIT HOOK (§10-WP7) ───────────────────────────────
   # Written through the SHARED emitter, never a heredoc here: `init.sh` and
@@ -1839,6 +1874,7 @@ adopt_write_write_set() {
   # The marker precedes the FIRST write, `mkdir -p` included: `adopt_refuse`
   # reads it to decide whether this project was touched, and a directory
   # created before the marker is a touch it would not know about.
+  adopt_guard_write "$root" "$ADOPT_WRITE_SET_REL" || return 1   # BL-310-GUARD-WRITE-SET
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$(dirname "$dest")" 2>/dev/null || {
     adopt_block "could not create $(dirname "$ADOPT_WRITE_SET_REL") for the write set"; return 1; }
@@ -1997,6 +2033,27 @@ _ADOPT_STATE_SCOUT_IGNORE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../scout" 2>/dev
 # shellcheck disable=SC1090
 [ -f "$_ADOPT_STATE_SCOUT_IGNORE" ] && . "$_ADOPT_STATE_SCOUT_IGNORE"   # BL-322-S3-SHARED
 
+# _adopt_rehearsal_relink COPY ROOT — re-point each symlink in COPY that, in the
+# real project, lands inside ROOT at the same place in COPY.
+# `# BL-310-REHEARSAL-RELINK` says why. The landing place is RESOLVED in the
+# real tree and compared by identity (`_adopt_under`), so every spelling of the
+# project counts — as typed, physical, through another alias, in the wrong case
+# — where matching the link's text against two spellings left the others
+# pointing at the real project and the rehearsal refused (review, R-5). Only an
+# absolute link, or one whose text climbs with `..`, can land somewhere else
+# from inside the copy, so only those are read (`find -lname`): a tree of 5000
+# plain relative links took 8s when every link was read (review, R-7). Every
+# path written is COPY's own; nothing outside the rehearsal is touched.
+_adopt_rehearsal_relink() {
+  local copy="$1" root="$2" l="" res="" rest=""
+  ( cd "$copy" && find . -type l \( -lname '/*' -o -lname '*..*' \) -print ) | while IFS= read -r l; do   # BL-310-RELINK-FIND
+    l="${l#./}"
+    res="$(_adopt_resolve "$root/$l")" || continue
+    rest="$(_adopt_under "$root" "$res")" || continue   # BL-310-RELINK-UNDER
+    rm -f "$copy/$l" && ln -s "$copy$rest" "$copy/$l" || exit 1
+  done
+}
+
 # adopt_prewrite_preflight ROOT REPORT — refuse BEFORE the first write if any
 # path the adoption is about to write is refused by the adoptee's ignore rules.
 #
@@ -2081,6 +2138,14 @@ adopt_prewrite_preflight() {
     adopt_refuse "could not prepare the rehearsal's shared object store"; return 1; }
   printf '%s\n' "$root/.git/objects" > "$copy/.git/objects/info/alternates" || {
     adopt_refuse "could not point the rehearsal at this project's object store"; return 1; }
+  # `## BL-310:` row 4 — A LINK INTO THE PROJECT IS RE-POINTED INTO THE COPY.
+  # `tar` keeps a link's text, so `.claude -> <project>/config/claude` still
+  # names the REAL project from inside the copy, and the rehearsal wrote through
+  # it: measured on 5d3864e3, 12 files in the project's config/claude under a
+  # refusal that said nothing was written. Re-pointed, the rehearsal writes
+  # where the real run would, inside its copy. A link that leads outside stays
+  # as it is, and `adopt_guard_write` refuses a write that would follow it.
+  _adopt_rehearsal_relink "$copy" "$root" || { adopt_refuse "could not re-point the rehearsal copy's links into the project"; return 1; }   # BL-310-REHEARSAL-RELINK
   # NOT "the rehearsal ran" — it has not. This times and names the COPY, which
   # is the cost the bound exists for; saying otherwise would be a receipt for
   # work not yet done, one level down from the receipt this package is about.
@@ -2117,7 +2182,12 @@ adopt_prewrite_preflight() {
   # stopped correctly and safely, and told the operator nothing they could act
   # on. The seam still wins when set, so the suite can point it elsewhere.
   _reh_err="${SOIF_REHEARSAL_ERR:-$ADOPT_WORK/rehearsal-err}"
+  # The guard asks the REAL project as well as the copy (`# BL-310-GUARD-REAL`):
+  # a relative link resolves somewhere else from inside the copy, and the
+  # refusal must say where it goes from the operator's project.
+  ADOPT_GUARD_REAL_ROOT="$root"   # BL-310-REHEARSAL-REAL-ROOT
   _adopt_write_phase "$copy" "$work" "$report" >/dev/null 2>"$_reh_err" || rc=$?
+  ADOPT_GUARD_REAL_ROOT=""
   ADOPT_REHEARSING=0
   if [ "$_touched_before" -eq 0 ] && [ -n "${ADOPT_WORK:-}" ]; then
     rm -f "$ADOPT_WORK/touched" 2>/dev/null || true   # BL-225-REHEARSAL-NO-TRACE

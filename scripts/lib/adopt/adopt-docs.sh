@@ -601,6 +601,7 @@ _adopt_doc_put() {                                     # BL-242-DOCS-PUT
   if [ -L "$dst" ] || adopt_path_under_link "$root" "$rel"; then printf 'kept-symlink'; return 0; fi   # BL-242-PARENT-LINK
   [ -e "$dst" ] && had=1
   if [ "$had" -eq 1 ] && [ ! -w "$dst" ]; then printf 'kept-readonly'; return 0; fi
+  adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-DOC-PUT
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$(dirname "$dst")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$rel")"; return 1; }
   tmp="$dst.soif-new.$$"

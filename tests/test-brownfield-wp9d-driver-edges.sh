@@ -213,14 +213,18 @@ refused_at_step0 "S3 hooks path is a regular file" "$S3" "not a directory|regula
 # ORDINARY — the directory is real and this repository owns it. If the guard
 # were written as `-L "$hooks/commit-msg"` this case would be wrongly refused,
 # which is the mistake `# BL-145-SYMLINK-GUARD-BEGIN`'s header records.
+# Since `## BL-310:` row 4 (review R-1) the gate is not written THROUGH that
+# link (`# BL-310-HOOK-COMMITMSG-LINK`): the shared file is left as it was, the
+# run says NOT INSTALLED and exits 1 because the gate is not live. What this
+# case pins is unchanged — step 0 does not refuse, and the adoption commits.
 S4="$(newtmp)"; mk_adoptee "$S4"; S4SRC="$(newtmp)/shared-hook"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$S4SRC"; chmod +x "$S4SRC"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$S4SRC"; chmod +x "$S4SRC"; S4SUM="$(cksum < "$S4SRC")"
 mkdir -p "$S4/.git/hooks" && ln -s "$S4SRC" "$S4/.git/hooks/commit-msg"
 run_adopt "$S4"
-if [ "$RUN_RC" -eq 0 ] && committed "$S4"; then
-  pass "S4: a symlinked LEAF hook does not trip the guard — the DIRECTORY is what the shape rule asks about"
+if asked_anything && committed "$S4" && [ "$(cksum < "$S4SRC")" = "$S4SUM" ]; then
+  pass "S4: a symlinked LEAF hook does not trip the guard — the DIRECTORY is what the shape rule asks about (the adoption commits; the shared hook is not written through)"
 else
-  fail_ "S4" "rc=$RUN_RC committed=$(committed "$S4" && echo 1 || echo 0) — a leaf-level -L test would refuse this ordinary repository"
+  fail_ "S4" "rc=$RUN_RC committed=$(committed "$S4" && echo 1 || echo 0) shared-hook-unchanged=$([ "$(cksum < "$S4SRC")" = "$S4SUM" ] && echo 1 || echo 0) — a leaf-level -L test at step 0 would refuse this ordinary repository"
 fi
 
 # S5. THE COMPOSITION. `core.hooksPath` pointed at an outside directory AND

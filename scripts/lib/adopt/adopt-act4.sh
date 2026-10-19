@@ -230,10 +230,11 @@ _adopt_act4_merge() {
     '{assessedAt: .assessedAt, verdict: .fitness.verdict, inProduction: .interview.inProduction,
       interviewRef: $rec, evidenceRef: ".claude/adoption/scout-report.json", verdictRef: $v,
       planRef: (.plan.path // null)}' "$rec")"
+  adopt_guard_write "$root" ".claude/manifest.json" || return 1   # BL-310-GUARD-ASSESS
   soif_adoption_assess "$root/.claude/manifest.json" "$block" || {
     adopt_refuse "the assessment could not be merged into .claude/manifest.json"; return 1; }
   adopt_audit_event "$root" "assessment" "$(printf '%s' "$block" | jq -c '{verdict, inProduction, assessedAt}')" \
-    || adopt_note "The assessment is recorded in .claude/manifest.json; its audit row could not be written — check: jq . .claude/bypass-audit.json"
+    || adopt_note "The assessment is recorded in .claude/manifest.json; its audit row could not be written — to fix it, $(_adopt_audit_fix)"
   adopt_head "The assessment is recorded"
   adopt_note "Verdict: $(jq -r '.fitness.verdict' "$rec"). The project stays at phase 0 either way."
   adopt_note "Commit what the assessment wrote, for example:"
