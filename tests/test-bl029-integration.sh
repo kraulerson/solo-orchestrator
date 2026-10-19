@@ -104,6 +104,7 @@ if [ "$esc_rows" = "1" ]; then pass "T4: escalation audit row"; else fail_ "T4" 
 # adoption_event from T6's whitelist and it goes RED for real. Neither is true
 # of a whitelist entry with no fixture behind it.
 ( . "$REPO_ROOT/scripts/lib/bypass-audit.sh" >/dev/null 2>&1
+  . "$REPO_ROOT/scripts/lib/adopt/adopt-core.sh" >/dev/null 2>&1   # the write guard the audit row calls (`# BL-310-WRITE-GUARD`)
   . "$REPO_ROOT/scripts/lib/adopt/adopt-archive.sh" >/dev/null 2>&1
   adopt_audit_event "$PROJ" "collision_re_add" '{"path":".git/hooks/pre-commit"}' ) >/dev/null 2>&1
 ae_rows=$(jq '[.[] | select(.type=="adoption_event")] | length' "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
