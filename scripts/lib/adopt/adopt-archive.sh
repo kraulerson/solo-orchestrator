@@ -562,6 +562,20 @@ adopt_archive_scan() {
   return 0
 }
 
+# ADOPT_AUDIT_LINKED — set by `adopt_audit_event` when the write guard refused
+# the row because .claude/bypass-audit.json leads out through a symlink, so the
+# notes that follow name that cause and not the ledger's JSON (review R-8).
+ADOPT_AUDIT_LINKED=""
+# _adopt_audit_fix — what to do about a row the ledger did not take: the
+# symlink when that was the cause, else the JSON check.
+_adopt_audit_fix() {
+  if [ -n "$ADOPT_AUDIT_LINKED" ]; then   # BL-310-AUDIT-WHY
+    printf '%s' "make .claude/bypass-audit.json a real file: it is a symlink that leads outside the project, and nothing is written through one"
+  else
+    printf '%s' "check that .claude/bypass-audit.json is valid JSON: jq . .claude/bypass-audit.json"
+  fi
+}
+
 # ── The audit row (§8.9) ────────────────────────────────────────────────────
 # adopt_audit_event ROOT EVENT DETAILS_JSON — one `adoption_event` row.
 #
@@ -589,6 +603,7 @@ adopt_archive_scan() {
 adopt_audit_event() {
   local root="$1" event="$2" details="${3:-\{\}}"
   local _ae_type _ts row
+  ADOPT_AUDIT_LINKED=""
   _ae_type="adoption_event"   # BF-ADOPT-AUDIT-ROW
   command -v jq >/dev/null 2>&1 || return 1
   _ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -605,7 +620,7 @@ adopt_audit_event() {
   # A caller that treats "recorded" as a precondition cannot do so against a
   # function that never says no, and the re-add path below is exactly such a
   # caller — so this rc is load-bearing, not tidiness.
-  adopt_guard_write "$root" ".claude/bypass-audit.json" cause || return 1   # BL-310-GUARD-AUDIT
+  adopt_guard_write "$root" ".claude/bypass-audit.json" cause || { ADOPT_AUDIT_LINKED=1; return 1; }   # BL-310-GUARD-AUDIT
   bypass_audit_append "$root" "$row" >/dev/null 2>&1 || return 1
   return 0
 }
@@ -1000,9 +1015,8 @@ STAGEABLE
     adopt_note "$arc_rel is written, disclosed above, and listed in its own MANIFEST — none of"
     adopt_note "that is in doubt. What is missing is the line in .claude/bypass-audit.json that"
     adopt_note "would let someone find it later without being told. The ledger would not accept"
-    adopt_note "the row; it is most likely not valid JSON. It has been LEFT OUT of the commit"
-    adopt_note "rather than committed in that state — check it by hand:"
-    adopt_note "  jq . .claude/bypass-audit.json"
+    adopt_note "the row, and has been LEFT OUT of the commit rather than committed in that state."
+    adopt_note "To fix it, $(_adopt_audit_fix)."
   fi
   return 0
 }
@@ -1337,7 +1351,7 @@ adopt_archive_readd() {
       echo "          which the framework lets you override it. The ledger would not accept the"
       echo "          row (it may be corrupt, or another process may be holding it), so $want"
       echo "          has been LEFT AS IT IS rather than changed with no record of who chose it."
-      echo "          Check .claude/bypass-audit.json is valid JSON, then run this again."
+      echo "          To fix it, $(_adopt_audit_fix); then run this again."
     } >&2
     return 1
   fi

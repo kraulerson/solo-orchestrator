@@ -486,7 +486,7 @@ adopt_write_dispositions() {
     if ! adopt_audit_event "$root" "secrets_disposition" "$row"; then   # BL-242-DISPOSITIONS-EVENT
       # The remedy is IN the message: this fires first inside the rehearsal,
       # whose stdout is discarded, so a follow-up note would never be seen.
-      adopt_block "an accepted risk could not be recorded in .claude/bypass-audit.json, and an acceptance that leaves no trace is not one adoption acts on — check the ledger is valid JSON with: jq . .claude/bypass-audit.json"
+      adopt_block "an accepted risk could not be recorded in .claude/bypass-audit.json, and an acceptance that leaves no trace is not one adoption acts on — to fix it, $(_adopt_audit_fix)"
       return 1
     fi
     n=$((n + 1))

@@ -816,8 +816,8 @@ adopt_write_adoption_record() {                       # BL-242-RECORD-WRITE
     adopt_say "   THE ADOPTION HAPPENED. ITS AUDIT ROW could not be recorded."
     adopt_note "The Adoption Record above and the stamp in .claude/manifest.json are the primary"
     adopt_note "records and are not in doubt. The line in .claude/bypass-audit.json that would let"
-    adopt_note "someone find this adoption from the audit trail is missing — check the ledger:"
-    adopt_note "  jq . .claude/bypass-audit.json"
+    adopt_note "someone find this adoption from the audit trail is missing. To fix it,"
+    adopt_note "$(_adopt_audit_fix)."
   fi
   return 0
 }

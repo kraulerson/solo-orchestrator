@@ -9,7 +9,8 @@
 # scripts/check-phase-gate.sh), three of them by the pre-write rehearsal of a run
 # that then refused and said "nothing was written to this project". With
 # `.claude` an untracked symlink to an outside folder (`## BL-351:`), the
-# rehearsal wrote 13 files there and the refusal said the same.
+# rehearsal wrote 13 files and a folder there (12 files on a host with no
+# Qdrant server registered, as here) and the refusal said the same.
 #
 # THE RULE UNDER TEST (`# BL-310-WRITE-GUARD` in scripts/lib/adopt/adopt-core.sh).
 # A write is refused when its target, or a folder above it up to the project
