@@ -309,7 +309,8 @@ case_K7() {
   jq -rs '[.[].tools[] | (.install // {}) | to_entries[] | select(.key != "manual") | .value
            | if type == "array" then join(" && ") else . end] | unique | .[]' \
     "$1"/templates/tool-matrix/*.json > "$vals" || { CASE_DETAIL="jq"; return 1; }
-  printf '%s\n' 'pseudo-sudo-tool --install' 'npm install -g pseudo' >> "$vals"
+  # A sudo that is not the first word must be named too (the arm's mid-string alternative).
+  printf '%s\n' 'pseudo-sudo-tool --install' 'npm install -g pseudo' 'curl -sSfL x | sudo tee y' >> "$vals"
   out="$(_HC="$1/scripts/lib/helpers-core.sh" _V="$vals" bash -c '
     source "$_HC" >/dev/null 2>&1
     command -v soif_install_elevation_note >/dev/null 2>&1 || { echo NO-FUNCTION; exit 0; }
@@ -576,6 +577,8 @@ mutant MK3 scripts/lib/helpers-core.sh '# BL-310-ELEVATION-SUDO' '    __bl310_mu
   "a recipe that runs sudo is no longer named as one"
 mutant MK4 scripts/lib/helpers-core.sh '# BL-310-ELEVATION-SUDO' "    *sudo*) printf '%s\\n' \"$SUDO_WORD\" ;;" case_K7 \
   "any value containing the letters 'sudo' is named as running sudo"
+mutant MK5 scripts/lib/helpers-core.sh '# BL-310-ELEVATION-SUDO' "    sudo[[:space:]]*) printf '%s\\n' \"$SUDO_WORD\" ;;" case_K7 \
+  "a sudo that is not the first word (curl … | sudo tee) is not named"
 
 CV=scripts/check-versions.sh
 mutant MC1 "$CV" '# BL-310-CV-NO-MANUAL' \
