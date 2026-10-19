@@ -23036,8 +23036,9 @@ may have closed one without saying so here.
   `dotnet tool install --global dotnet-project-licenses`, `pip install pip-licenses` and
   `gem install fastlane` belong to phase-3 tools. init, verify-install and adoption resolve with
   `--phase 2`, so they file all five under `deferred`, before this change and after it (measured).
-  `upgrade-project.sh`'s track-change step is the only reader that resolves at the project's own phase
-  (`--phase "$CURRENT_PHASE"`). At phase 3 or later it used to run them where the host had no recipe key
+  `upgrade-project.sh`'s track-change step is the only reader that runs them (it resolves with
+  `--phase "$CURRENT_PHASE"`; check-phase-gate.sh and intake-wizard.sh resolve at the project's phase too but
+  run none of the five). At phase 3 or later it used to run them where the host had no recipe key
   for them: on dnf-only or bare Linux and on macOS without brew for the first three, on macOS without
   brew for pip-licenses, and on every Linux host for fastlane. It now lists them under manual setup.
   Package-manager recipes are unchanged.
