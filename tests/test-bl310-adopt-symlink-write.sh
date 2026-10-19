@@ -21,12 +21,14 @@
 # only thing that was written.
 #
 # CASES
-#   U1-U14  the predicate and the guard, called directly: a file link out, a
+#   U1-U17  the predicate and the guard, called directly: a file link out, a
 #           folder link out, links that resolve inside, a chain, a dangling
 #           link, a loop, `..` below a missing folder, spaces, the writer
 #           refusing and writing nothing, the rehearsal asking the real project,
-#           the rehearsal's re-pointing of absolute links into the project, and
-#           a dangling link above the leaf
+#           the rehearsal's re-pointing of links into the project (every
+#           spelling), a dangling link above the leaf, a sibling folder whose
+#           name starts with the project's, a root reached through a symlinked
+#           folder, and a root typed in the wrong case
 #   A1      APPROVAL_LOG.md is a symlink to an outside file: refused, the file
 #           byte-identical, the project and HEAD unchanged
 #   A2      scripts/check-phase-gate.sh is a symlink to an outside file: refused
@@ -53,7 +55,14 @@
 #   A15     .claude/bypass-audit.json is a symlink to an outside ledger: the
 #           audit rows are not written through it, the link stays, and the run
 #           completes saying the row could not be recorded — with no
-#           "Nothing was committed" printed into a run that commits
+#           "Nothing was committed" printed into a run that commits, no "run
+#           this again", and an archive note that names the symlink
+#   A16     .git/hooks/commit-msg is a symlink to an outside shared hook: not
+#           written, its mode not changed, and the run says NOT INSTALLED
+#   A17     .git is a symlink to a repository outside (a `clone --shared`):
+#           refused at step 0, that repository's alternates untouched
+#   A18     the project reached through one alias and a file linked through a
+#           second alias of the same folder: completes, written through
 #   N1      every write site in scripts/lib/adopt/ has the guard in its function
 #           within 30 lines before it, or a named exemption
 #   M       mutants: each edits one marked line in a mirror and needs a named
@@ -84,7 +93,9 @@ phys() { ( cd -P "$1" 2>/dev/null && pwd -P ); }
 CASE_DETAIL=""
 check() {   # LABEL CASE — run CASE against the real framework
   CASE_DETAIL=""
-  if "$2" "$REPO_ROOT"; then pass "$1"; else fail_ "$1" "$(printf '%s' "${CASE_DETAIL:-failed}" | tr '\n' ' ')"; fi
+  if "$2" "$REPO_ROOT"; then
+    case "$CASE_DETAIL" in "SKIP: "*) skip "$1" "${CASE_DETAIL#SKIP: }" ;; *) pass "$1" ;; esac
+  else fail_ "$1" "$(printf '%s' "${CASE_DETAIL:-failed}" | tr '\n' ' ')"; fi
 }
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -223,29 +234,58 @@ case_U12() {   # in the rehearsal the real project is asked too, and its answer 
   # the copy alone escaping (an absolute link the relink did not re-point) is refused too, and says so
   rm "$d/w/copy/.claude"; ln -s "$d/out" "$d/w/copy/.claude"; rm "$d/real/.claude"
   _u "$1" "ADOPT_GUARD_REAL_ROOT='$d/real'; adopt_guard_write '$d/w/copy' .claude/x.json; echo \"rc=\$?\""
-  case "$U_OUT" in *"rc=1"*"") ;; *) CASE_DETAIL="the copy's escape was not refused: $U_OUT"; return 1 ;; esac
+  case "$U_OUT" in *"rc=1"*) ;; *) CASE_DETAIL="the copy's escape was not refused: $U_OUT"; return 1 ;; esac
   case "$U_OUT" in *"leads outside the pre-write rehearsal's copy of this project"*) ;;
     *) CASE_DETAIL="the copy-only refusal does not say it is the copy's: $U_OUT"; return 1 ;; esac
 }
-case_U13() {   # the rehearsal re-points absolute links into the project, both spellings, and nothing else
-  # The root is given through a symlinked folder, so its two spellings differ.
-  local d="" r="" rp="" c=""; d="$(newtmp)"; mkdir -p "$d/real/proj/gov" "$d/copy/gov" "$d/out"; ln -s "$d/real" "$d/alias"
+case_U13() {   # the rehearsal re-points every link into the project, whatever its spelling, and nothing else
+  # The real tree carries the links and is copied as the rehearsal copies it
+  # (tar keeps a link's text). The root is given through a symlinked folder, so
+  # it has three spellings: that one, the physical path, and a second alias.
+  local d="" r="" rp="" c="" l=""; d="$(newtmp)"
+  mkdir -p "$d/real/proj/gov" "$d/copy" "$d/out"; ln -s "$d/real" "$d/alias"; ln -s "$d/real" "$d/alias2"
   r="$d/alias/proj"; rp="$(phys "$r")"; c="$d/copy"
   [ "$r" != "$rp" ] || { CASE_DETAIL="fixture: the two spellings of the root are the same"; return 1; }
-  ln -s "$r/gov/a.md" "$c/logical"; ln -s "$rp/gov/a.md" "$c/physical"; ln -s "gov/a.md" "$c/relative"
-  ln -s "$d/out/x" "$c/outside"; ln -s "$r" "$c/gov/root"
+  printf 'x\n' > "$rp/gov/a.md"
+  ln -s "$r/gov/a.md" "$rp/logical"; ln -s "$rp/gov/a.md" "$rp/physical"; ln -s "$d/alias2/proj/gov/a.md" "$rp/alias2"
+  ln -s "../proj/gov/a.md" "$rp/updown"; ln -s "gov/a.md" "$rp/relative"; ln -s "$d/out/x" "$rp/outside"
+  ln -s "$rp" "$rp/gov/root"; ln -s "$rp/gov/missing.md" "$rp/dangling"
+  ( cd "$rp" && tar -cf - . ) | ( cd "$c" && tar -xf - ) || { CASE_DETAIL="fixture: copy"; return 1; }
   _u "$1" "_adopt_rehearsal_relink '$c' '$r'; echo \"rc=\$?\""
   case "$U_OUT" in *"rc=0"*) ;; *) CASE_DETAIL="relink failed: $U_OUT"; return 1 ;; esac
-  [ "$(readlink "$c/logical")" = "$c/gov/a.md" ] || { CASE_DETAIL="logical spelling: $(readlink "$c/logical")"; return 1; }
-  [ "$(readlink "$c/physical")" = "$c/gov/a.md" ] || { CASE_DETAIL="physical spelling: $(readlink "$c/physical")"; return 1; }
+  for l in logical physical alias2 updown; do
+    [ "$(readlink "$c/$l")" = "$c/gov/a.md" ] || { CASE_DETAIL="$l spelling: $(readlink "$c/$l")"; return 1; }
+  done
+  [ "$(readlink "$c/dangling")" = "$c/gov/missing.md" ] || { CASE_DETAIL="a dangling link into the project: $(readlink "$c/dangling")"; return 1; }
   [ "$(readlink "$c/gov/root")" = "$c" ] || { CASE_DETAIL="a link to the root itself: $(readlink "$c/gov/root")"; return 1; }
-  [ "$(readlink "$c/relative")" = "gov/a.md" ] || { CASE_DETAIL="a relative link was changed"; return 1; }
+  [ "$(readlink "$c/relative")" = "gov/a.md" ] || { CASE_DETAIL="a relative link that stays inside was changed"; return 1; }
   [ "$(readlink "$c/outside")" = "$d/out/x" ] || { CASE_DETAIL="an outside link was changed"; return 1; }
 }
 case_U14() {   # a dangling link ABOVE the leaf cannot be resolved: unknown, so refused
   local d=""; d="$(newtmp)"; mkdir -p "$d/p/sub"; ln -s "$d/nowhere" "$d/p/sub/dang"; ( cd "$d/p" && ln -s sub/dang/f L )
   _u "$1" "adopt_link_escape '$d/p' L && printf 'ESC|%s|%s' \"\$ADOPT_LINK_AT\" \"\$ADOPT_LINK_RES\""
   [ "$U_OUT" = "ESC|L|" ] || { CASE_DETAIL="got '$U_OUT'"; return 1; }
+}
+case_U15() {   # a sibling folder whose name starts with the project's is outside it
+  local d=""; d="$(newtmp)"; mkdir -p "$d/proj" "$d/proj-sibling"; printf 'x\n' > "$d/proj-sibling/t.md"; ln -s "$d/proj-sibling/t.md" "$d/proj/A.md"
+  _u "$1" "adopt_link_escape '$d/proj' A.md && printf 'ESC|%s' \"\$ADOPT_LINK_RES\""
+  [ "$U_OUT" = "ESC|$(phys "$d/proj-sibling")/t.md" ] || { CASE_DETAIL="got '$U_OUT'"; return 1; }
+}
+case_U16() {   # the root reached through a symlinked folder: links inside, in any spelling, are inside
+  local d=""; d="$(newtmp)"; mkdir -p "$d/real/proj/gov"; printf 'x\n' > "$d/real/proj/gov/a.md"
+  ln -s "$d/real" "$d/alias"; ln -s "$d/real" "$d/alias2"
+  ln -s "$d/real/proj/gov/a.md" "$d/real/proj/P.md"; ln -s "$d/alias2/proj/gov/a.md" "$d/real/proj/Q.md"
+  _u "$1" "for f in P.md Q.md; do adopt_link_escape '$d/alias/proj' \"\$f\" && printf 'ESC:%s ' \"\$f\" || printf 'IN:%s ' \"\$f\"; done"
+  [ "$U_OUT" = "IN:P.md IN:Q.md " ] || { CASE_DETAIL="got '$U_OUT'"; return 1; }
+}
+case_U17() {   # a root typed in the wrong case, on a case-insensitive volume: the re-point still finds the project
+  local d="" c=""; d="$(newtmp)"; mkdir -p "$d/Proj/gov" "$d/copy"
+  if [ ! -d "$d/PROJ" ]; then CASE_DETAIL="SKIP: this volume is case-sensitive"; return 0; fi
+  printf 'x\n' > "$d/Proj/gov/a.md"; ln -s "$d/proj/gov/a.md" "$d/Proj/APPROVAL_LOG.md"
+  c="$d/copy"; ( cd "$d/Proj" && tar -cf - . ) | ( cd "$c" && tar -xf - )
+  _u "$1" "_adopt_rehearsal_relink '$c' '$d/PROJ'; ADOPT_GUARD_REAL_ROOT='$d/PROJ'; adopt_guard_write '$c' APPROVAL_LOG.md && echo OK"
+  case "$U_OUT" in *OK*) ;; *) CASE_DETAIL="refused: $U_OUT"; return 1 ;; esac
+  [ "$(readlink "$c/APPROVAL_LOG.md")" = "$c/gov/a.md" ] || { CASE_DETAIL="not re-pointed: $(readlink "$c/APPROVAL_LOG.md")"; return 1; }
 }
 
 # ── A: real adoptions ───────────────────────────────────────────────────────
@@ -399,6 +439,7 @@ case_A15() {   # the audit ledger linked outside: a caller that carries on witho
   local fw="$1" d="" p="" o="" ob=""
   d="$(newtmp)"; p="$d/proj"; o="$d/outside"
   _adoptee "$p" || { CASE_DETAIL="fixture"; return 1; }
+  printf '# THEIR-CLAUDE\n' > "$p/CLAUDE.md"; ( cd "$p" && git add CLAUDE.md && git commit -q -m "docs: theirs" ) >/dev/null 2>&1
   mkdir -p "$o" "$p/.claude"; printf '[]\n' > "$o/ledger.json"; ln -s "$o/ledger.json" "$p/.claude/bypass-audit.json"
   ob="$(_listing "$o")"
   _adopt "$fw" "$p"
@@ -408,7 +449,51 @@ case_A15() {   # the audit ledger linked outside: a caller that carries on witho
   grep -qF 'ITS AUDIT ROW could not be recorded' "$ADOPT_OUT" || { CASE_DETAIL="the run does not say the row could not be recorded"; return 1; }
   grep -qF '.claude/bypass-audit.json would be written through a symlink' "$ADOPT_ERR" || { CASE_DETAIL="the cause is not printed"; return 1; }
   grep -qE 'BLOCKED|REFUSED|Nothing was committed' "$ADOPT_ERR" && { CASE_DETAIL="a run that commits printed: $(grep -m1 -E 'BLOCKED|REFUSED|Nothing was committed' "$ADOPT_ERR")"; return 1; }
+  grep -q 'run this again' "$ADOPT_ERR" && { CASE_DETAIL="the cause says 'run this again', which a completed run refuses: $(grep -m1 'run this again' "$ADOPT_ERR" | cut -c1-120)"; return 1; }
+  grep -qF 'THE ARCHIVE HAPPENED. THE AUDIT ROW FOR IT could not be recorded' "$ADOPT_OUT" || { CASE_DETAIL="no archive note (the fixture's CLAUDE.md should be archived)"; return 1; }
+  grep -q 'not valid JSON' "$ADOPT_OUT" && { CASE_DETAIL="a note blames the ledger's JSON for a symlink"; return 1; }
+  grep -qF 'is a symlink that leads outside the project' "$ADOPT_OUT" || { CASE_DETAIL="the notes do not name the symlink as the cause"; return 1; }
   return 0
+}
+case_A16() {   # .git/hooks/commit-msg linked to a hook outside, shared with other repositories
+  local fw="$1" d="" p="" o="" ob="" m0=""
+  d="$(newtmp)"; p="$d/proj"; o="$d/shared-hooks"
+  _adoptee "$p" || { CASE_DETAIL="fixture"; return 1; }
+  mkdir -p "$o" "$p/.git/hooks"; printf '#!/bin/sh\n# SHARED-COMMIT-MSG\nexit 0\n' > "$o/commit-msg"; chmod 644 "$o/commit-msg"
+  ln -s "$o/commit-msg" "$p/.git/hooks/commit-msg"
+  ob="$(_listing "$o")"; m0="$(ls -l "$o/commit-msg" | cut -c1-10)"
+  _adopt "$fw" "$p"
+  [ "$(_listing "$o")" = "$ob" ] || { CASE_DETAIL="the shared hook was written (now $(wc -c < "$o/commit-msg" | tr -d ' ') bytes)"; return 1; }
+  [ "$(ls -l "$o/commit-msg" | cut -c1-10)" = "$m0" ] || { CASE_DETAIL="the shared hook's mode changed: $m0 -> $(ls -l "$o/commit-msg" | cut -c1-10)"; return 1; }
+  [ -L "$p/.git/hooks/commit-msg" ] || { CASE_DETAIL="the link was replaced"; return 1; }
+  grep -q 'Commit-msg gate installed' "$ADOPT_OUT" && { CASE_DETAIL="the run says the gate was installed"; return 1; }
+  grep -qF 'NOT INSTALLED — the commit-msg gate' "$ADOPT_OUT" || { CASE_DETAIL="the run does not say NOT INSTALLED: $(grep -m1 -i 'commit-msg' "$ADOPT_OUT")"; return 1; }
+  [ "$ADOPT_RC" -ne 0 ] || { CASE_DETAIL="rc 0 with the gate not installed"; return 1; }
+}
+case_A17() {   # .git linked to a repository outside, cloned --shared: refused before any write
+  local fw="$1" d="" p="" up="" g="" alt="" tb=""
+  d="$(newtmp)"; up="$d/upstream"; p="$d/proj"; g="$d/outside/proj.git"
+  _adoptee "$up" || { CASE_DETAIL="fixture"; return 1; }
+  git clone -q --shared "$up" "$p" >/dev/null 2>&1 || { CASE_DETAIL="fixture: clone"; return 1; }
+  ( cd "$p" && git config user.email bl310@test.invalid && git config user.name "BL310 Test" ) >/dev/null 2>&1
+  mkdir -p "$d/outside" && mv "$p/.git" "$g" && ln -s "$g" "$p/.git" || { CASE_DETAIL="fixture: link"; return 1; }
+  alt="$(cat "$g/objects/info/alternates")"; tb="$(_tree "$p")"
+  _adopt "$fw" "$p"
+  [ "$ADOPT_RC" -ne 0 ] || { CASE_DETAIL="adoption completed"; return 1; }
+  [ "$(cat "$g/objects/info/alternates")" = "$alt" ] || { CASE_DETAIL="the outside repository's alternates were rewritten: $(cat "$g/objects/info/alternates")"; return 1; }
+  git -C "$p" rev-parse --verify -q HEAD >/dev/null || { CASE_DETAIL="the repository no longer resolves HEAD"; return 1; }
+  [ "$(_tree "$p")" = "$tb" ] || { CASE_DETAIL="the project tree changed"; return 1; }
+  grep -qF ".git is a SYMLINK" "$ADOPT_ERR" || { CASE_DETAIL="not refused for the link: $(grep -m1 -E 'REFUSED|BLOCKED' "$ADOPT_ERR")"; return 1; }
+}
+case_A18() {   # the project reached through one alias, APPROVAL_LOG.md linked through another
+  local fw="$1" d="" p=""
+  d="$(newtmp)"; _adoptee "$d/real/proj" || { CASE_DETAIL="fixture"; return 1; }
+  ln -s "$d/real" "$d/alias"; ln -s "$d/real" "$d/alias2"; p="$d/alias/proj"
+  mkdir -p "$p/gov"; printf 'INSIDE-ORIGINAL\n' > "$p/gov/approval.md"; ln -s "$d/alias2/proj/gov/approval.md" "$p/APPROVAL_LOG.md"
+  _adopt "$fw" "$p"
+  [ "$ADOPT_RC" -eq 0 ] || { CASE_DETAIL="adoption did not complete (rc $ADOPT_RC): $(grep -m1 -hE 'would be written|REFUSED|BLOCKED' "$ADOPT_OUT" "$ADOPT_ERR" | cut -c1-160)"; return 1; }
+  grep -q 'INSIDE-ORIGINAL' "$p/gov/approval.md" && { CASE_DETAIL="the link's target was not written through"; return 1; }
+  [ -L "$p/APPROVAL_LOG.md" ] || { CASE_DETAIL="the link was replaced"; return 1; }
 }
 
 # ── N: every write site carries the guard ───────────────────────────────────
@@ -423,9 +508,11 @@ case_A15() {   # the audit ledger linked outside: a caller that carries on witho
 #
 # EXEMPT, by function, each with its reason:
 #   adopt_touched_disk / adopt_touched_disk_unbounded — the marker's definition
-#   adopt_install_hooks — git's hooks directory, resolved by git; step 0
-#       (`# BL-242-PLACEMENT-HOOKS-SHAPE`) refuses a linked one, and it may sit
-#       outside the working tree by design (a `.git` link)
+#   adopt_install_hooks — git's hooks, under a rule STRICTER than the guard's:
+#       step 0 refuses a linked hooks directory (`# BL-242-PLACEMENT-HOOKS-SHAPE`)
+#       and a linked `.git` (`# BL-310-PLACEMENT-GITLINK`), and a hook FILE
+#       that is a symlink is not written at all, inside or out
+#       (`# BL-310-HOOK-COMMITMSG-LINK`, `# BL-242-PRECOMMIT-GUARD`); A16 pins it
 #   _td_write_body — its marked arm runs only standalone; inside adoption the
 #       arm above it takes adopt_write_file, which carries the guard
 #   adopt_resolve_tools — the install recipe the operator approved, run from
@@ -440,7 +527,7 @@ _write_sites() {   # FW — file:line:function for every write site
     awk -v F="${f##*/}" '
       /^[A-Za-z_][A-Za-z0-9_]*\(\) *\{/ { fn = $1; sub(/\(\).*/, "", fn) }
       /^[[:space:]]*#/ { next }
-      /(^|[^A-Za-z0-9_])(adopt_touched_disk|bypass_audit_append|soif_adoption_stamp|soif_register_hook_roster)([^A-Za-z0-9_(]|$)/ { print F ":" NR ":" fn }
+      /(^|[^A-Za-z0-9_])(adopt_touched_disk|bypass_audit_append|soif_adoption_stamp|soif_adoption_assess|soif_register_hook_roster)([^A-Za-z0-9_(]|$)/ { print F ":" NR ":" fn }
     ' "$f"
   done
 }
@@ -477,8 +564,11 @@ check "U9: \`..\` below a folder that does not exist yet counts as outside" case
 check "U10: spaces in the project, the link and the target" case_U10
 check "U11: the writer refuses, names the link and where it resolves, writes nothing; a plain path is written" case_U11
 check "U12: in the rehearsal the real project's answer is printed; a copy-only escape is refused and says so" case_U12
-check "U13: the rehearsal re-points absolute links into the project (both spellings) and nothing else" case_U13
+check "U13: the rehearsal re-points every link into the project, whatever its spelling, and nothing else" case_U13
 check "U14: a dangling link above the leaf cannot be resolved and counts as outside" case_U14
+check "U15: a sibling folder whose name starts with the project's is outside it" case_U15
+check "U16: the root reached through a symlinked folder: links inside, in any spelling, are inside" case_U16
+check "U17: a root typed in the wrong case (case-insensitive volume): the re-point still finds the project" case_U17
 echo "=== A — real adoptions ==="
 check "A1: APPROVAL_LOG.md linked to an outside file: refused, the file byte-identical, project and HEAD unchanged" case_A1
 check "A2: scripts/check-phase-gate.sh linked to an outside file: refused, unchanged" case_A2
@@ -494,7 +584,10 @@ check "A11: a normal adoption in a path with a space completes (no false refusal
 check "A12: --re-add onto a link to an outside file: refused, the file unchanged" case_A12
 check "A13: .claude/framework linked outside, the Guardrails installer present: refused before it runs" case_A13
 check "A14: .claude/adoption-archive linked outside: refused, nothing archived there" case_A14
-check "A15: the audit ledger linked outside: not written through, the run completes and says the row was not recorded, no false 'Nothing was committed'" case_A15
+check "A15: the audit ledger linked outside: not written through, the run completes and says the row was not recorded, no false 'Nothing was committed' or 'run this again', the archive note names the symlink" case_A15
+check "A16: .git/hooks/commit-msg linked to a shared hook outside: not written, mode kept, NOT INSTALLED" case_A16
+check "A17: .git linked to a repository outside (clone --shared): refused at step 0, its alternates untouched" case_A17
+check "A18: reached through one alias, a file linked through another: completes, written through" case_A18
 echo "=== N — every write site carries the guard ==="
 check "N1: each write site in scripts/lib/adopt/ has adopt_guard_write within 30 lines before it in its function" case_N1
 echo "         (N1 read $N1_SITES write site(s))"
@@ -536,8 +629,7 @@ CORE=scripts/lib/adopt/adopt-core.sh
 ST=scripts/lib/adopt/adopt-state.sh
 # the predicate and the guard
 mutant MP1 "$CORE" '# BL-310-ESCAPE-LINK' '    continue' "no component is ever examined as a link" case_U1
-mutant MP2 "$CORE" '# BL-310-ESCAPE-INSIDE' '    case "$ADOPT_LINK_RES" in "") ;; esac' "a link that resolves inside is refused" case_U3
-mutant MP3 "$CORE" '# BL-310-ESCAPE-TOP' '      top=""' "the project root is never known, so every link reads as outside" case_U4
+mutant MP2 "$CORE" '# BL-310-ESCAPE-INSIDE' '    :' "a link that resolves inside is refused" case_U3
 mutant MP4 "$CORE" '# BL-310-ESCAPE-RES' '    ADOPT_LINK_RES=""' "no link is ever resolved" case_U3
 mutant MP5 "$CORE" '# BL-310-ESCAPE-TO' '    ADOPT_LINK_TO=""' "the refusal stops saying what the link says" case_U11
 mutant MP6 "$CORE" '# BL-310-RESOLVE-HOPS' '    n=$((n + 1)); [ "$n" -le 0 ] || return 1' "the hop limit is zero: no file link resolves" case_U3
@@ -551,8 +643,15 @@ mutant MP13 "$CORE" '# BL-310-GUARD-SCOPE' '    :' "a copy-only escape is report
 mutant MP18 "$CORE" '# BL-310-GUARD-CAUSE' '  :' "the audit row's refusal says the run stopped, in a run that then commits" case_A15
 mutant MP14 "$ST" '# BL-310-REHEARSAL-REAL-ROOT' '  :' "the rehearsal does not tell the guard where the real project is" case_A5
 mutant MP15 "$ST" '# BL-310-REHEARSAL-RELINK' '  :' "the rehearsal does not re-point absolute links into the project" case_A7
-mutant MP16 "$ST" '# BL-310-RELINK-LOGICAL' '      "$root"|"$root"/*) continue ;;' "an absolute link spelled through the logical root is not re-pointed" case_U13
-mutant MP17 "$ST" '# BL-310-RELINK-PHYSICAL' '      "$phys"|"$phys"/*) continue ;;' "an absolute link spelled through the physical root is not re-pointed" case_U13
+mutant MP16 "$ST" '# BL-310-RELINK-FIND' '  ( cd "$copy" && find . -type l -lname '"'"'/*'"'"' -print ) | while IFS= read -r l; do' "a relative link that climbs out and back in is not re-pointed" case_U13
+mutant MP17 "$ST" '# BL-310-RELINK-UNDER' '    continue' "no link into the project is re-pointed" case_U13 case_A7
+mutant MP19 "$CORE" '# BL-310-UNDER-EF' '    if [ "$p" = "$root" ]; then printf '"'"'%s'"'"' "$rest"; return 0; fi' "the project is matched by spelling, not identity (review R-4b: pwd for pwd -P)" case_U16 case_A18
+mutant MP20 "$CORE" '# BL-310-UNDER-EF' '    case "$p" in "$root"*) printf '"'"'%s'"'"' "$rest"; return 0 ;; esac' "a sibling whose name starts with the project's counts as inside (review R-4a)" case_U15
+mutant MP21 "$CORE" '# BL-310-UNDER-ROOT' '    case "$p" in /|"") return 0 ;; esac' "every path counts as inside the project" case_U1
+mutant MP22 "$CORE" '# BL-310-GUARD-CAUSE-ADVICE' '  :' "the audit row's cause tells a completed run to run again" case_A15
+mutant MP23 scripts/lib/adopt/adopt-archive.sh '# BL-310-AUDIT-WHY' '  if false; then' "the notes blame the ledger's JSON when a symlink refused the row" case_A15
+mutant MP24 "$ST" '# BL-310-HOOK-COMMITMSG-LINK' '  if false; then' "the commit-msg gate is written through a linked hook" case_A16
+mutant MP25 "$ST" '# BL-310-PLACEMENT-GITLINK' '  if false; then' "a linked .git reaches the rehearsal, which writes into the repository it points at" case_A17
 # the call sites: N1 kills each; a real adoption kills the ones a layout can reach first
 mutant MC1 "$CORE" '# BL-310-GUARD-WRITE-FILE' '  :' "adopt_write_file writes through the link" case_N1 case_A4
 mutant MC2 "$CORE" '# BL-310-GUARD-JQ-EDIT' '  :' "adopt_jq_edit writes through the link" case_N1
@@ -569,6 +668,7 @@ mutant MC12 scripts/lib/adopt/adopt-session.sh '# BL-310-GUARD-ROSTER' '    :' "
 mutant MC13 scripts/lib/adopt/adopt-session.sh '# BL-310-GUARD-LOCAL-SETTINGS' '      :' "settings.local.json is written through the link" case_N1
 mutant MC14 scripts/lib/adopt/adopt-record.sh '# BL-310-GUARD-RECORD' '  :' "the Adoption Record is appended through the link" case_N1
 mutant MC15 scripts/lib/adopt/adopt-guardrails.sh '# BL-310-GUARD-GUARDRAILS' '    :' "the Guardrails installer runs through the link" case_N1 case_A13
+mutant MC16 scripts/lib/adopt/adopt-act4.sh '# BL-310-GUARD-ASSESS' '  :' "the assessment is merged into a linked manifest" case_N1
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
