@@ -1080,6 +1080,11 @@ run_child_suite "tests/test-bl348-lockfile-depth.sh" \
 run_child_suite "tests/test-bl310-adopt-symlink-write.sh" \
   "BL-310 row 4: adoption writes nothing outside the project through a symlink, rehearsal included; links that resolve inside behave as before" \
   "BL-310 adopt-symlink-write tests FAILED (run tests/test-bl310-adopt-symlink-write.sh for details)"
+# BL-354: a commit of framework state files only (.claude/*.json plus
+# .claude/approvals.jsonl) was classified as source by two checks.
+run_child_suite "tests/test-bl354-state-jsonl-exempt.sh" \
+  "BL-354: .jsonl state files are exempt like .json in check_commit_ready, and .claude/*.jsonl in accumulation" \
+  "BL-354 state-jsonl tests FAILED (run tests/test-bl354-state-jsonl-exempt.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

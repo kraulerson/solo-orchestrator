@@ -91,7 +91,7 @@ An optional scope in parentheses narrows the subject (e.g., `fix(init): handle m
 
 ### Docs-only bypass
 
-Commits whose staged files all match documentation extensions (`.md`, `.json`, `.yml`, `.yaml`, `.toml`, `.tmpl`) skip the Build Loop gate. The classifier lives in `scripts/process-checklist.sh` (function `check_commit_ready`, regex `\.(md|json|yml|yaml|toml|tmpl)$`); a matching commit does not need to be tied to an open Build Loop step. Mixed commits (any staged source file alongside docs) fall back to full Build Loop enforcement — split them if you want the docs portion to land without the gate.
+Commits whose staged files all match documentation extensions (`.md`, `.json`, `.jsonl`, `.yml`, `.yaml`, `.toml`, `.tmpl`) skip the Build Loop gate. The classifier lives in `scripts/process-checklist.sh` (function `check_commit_ready`, regex `\.(md|jsonl?|yml|yaml|toml|tmpl)$`); a matching commit does not need to be tied to an open Build Loop step. Mixed commits (any staged source file alongside docs) fall back to full Build Loop enforcement — split them if you want the docs portion to land without the gate.
 
 Dependency manifests (`Pipfile.lock`, `Gemfile.lock`, `go.sum`, etc.) are also exempt via the `_is_dep_manifest` helper in the same script.
 

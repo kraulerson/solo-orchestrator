@@ -852,7 +852,9 @@ _cpg_accum_source_work() {
     paths=$(git log --name-only --pretty=format: 2>/dev/null) || return 0
   fi
   # SOURCE IS DEFINED BY NEGATION, matching this repo's own docs-only classifier
-  # (process-checklist.sh's `\.(md|json|yml|yaml|toml|tmpl)$` plus _is_dep_manifest).
+  # in spirit; the predicate itself is _ACCUM_EXEMPT_RE in scripts/lib/accumulation.sh
+  # (`# BL-233-WPB-EXEMPT-SET`), which differs from process-checklist.sh's list:
+  # narrower for json/yml/toml and .jsonl, broader for prose and extension-less files.
   # The first cut used an extension ALLOW-LIST lifted from pre-commit-gate.sh's
   # HAS_SOURCE check — ~14 extensions — and a Ruby, PHP, shell, Vue, Elixir, SQL
   # or Scala project therefore sailed through this gate AND was told

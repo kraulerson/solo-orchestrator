@@ -29,7 +29,8 @@
 #   project metadata   package.json, pyproject.toml, tsconfig.json, …
 #   dotfile rc files   .eslintrc, .prettierrc.yaml, …
 #   .claude/*.json     framework state (phase-state, process-state, manifest);
-#                      these churn on every gate run and are not authored work
+#   .claude/*.jsonl    and ledgers (approvals.jsonl, `## BL-354:`); these
+#                      churn on every gate run and are not authored work
 #   extension-less     LICENSE, README, CODEOWNERS, .gitignore, …
 #
 # json/yml/yaml/toml are NOT blanket-exempt, and that is the one place this
@@ -39,7 +40,7 @@
 # bypass answers a different question (does this commit need a Build Loop entry)
 # than this gate does (did this phase produce knowledge worth storing).
 # Unrecognised structured data therefore fails CLOSED.
-_ACCUM_EXEMPT_RE='^$|\.(md|markdown|rst|adoc|txt|tmpl)$|(^|/)(Pipfile(\.lock)?|Gemfile(\.lock)?|Cargo\.lock|go\.(mod|sum)|poetry\.lock|yarn\.lock|pnpm-lock\.yaml|pubspec\.lock|uv\.lock|mix\.lock|flake\.lock|deno\.lock|bun\.lock(b)?|Podfile\.lock|Gopkg\.lock|Package\.resolved|gradle\.lockfile|package-lock\.json|npm-shrinkwrap\.json|packages\.lock\.json|composer\.lock|requirements([-_][^/]*)?\.txt)$|(^|/)(package\.json|composer\.json|tsconfig([.-][^/]*)?\.json|jsconfig\.json|pyproject\.toml|Cargo\.toml|renovate\.json)$|(^|/)\.[A-Za-z0-9_-]+rc(\.(json|ya?ml|toml))?$|(^|/)\.claude/[^/]*\.json$|(^|/)(\.gitignore|\.gitattributes|\.dockerignore|\.editorconfig|\.gitkeep|LICENSE|LICENCE|NOTICE|CODEOWNERS|README|CHANGELOG|AUTHORS|CONTRIBUTING)$'   # BL-233-WPB-EXEMPT-SET
+_ACCUM_EXEMPT_RE='^$|\.(md|markdown|rst|adoc|txt|tmpl)$|(^|/)(Pipfile(\.lock)?|Gemfile(\.lock)?|Cargo\.lock|go\.(mod|sum)|poetry\.lock|yarn\.lock|pnpm-lock\.yaml|pubspec\.lock|uv\.lock|mix\.lock|flake\.lock|deno\.lock|bun\.lock(b)?|Podfile\.lock|Gopkg\.lock|Package\.resolved|gradle\.lockfile|package-lock\.json|npm-shrinkwrap\.json|packages\.lock\.json|composer\.lock|requirements([-_][^/]*)?\.txt)$|(^|/)(package\.json|composer\.json|tsconfig([.-][^/]*)?\.json|jsconfig\.json|pyproject\.toml|Cargo\.toml|renovate\.json)$|(^|/)\.[A-Za-z0-9_-]+rc(\.(json|ya?ml|toml))?$|(^|/)\.claude/[^/]*\.jsonl?$|(^|/)(\.gitignore|\.gitattributes|\.dockerignore|\.editorconfig|\.gitkeep|LICENSE|LICENCE|NOTICE|CODEOWNERS|README|CHANGELOG|AUTHORS|CONTRIBUTING)$'   # BL-233-WPB-EXEMPT-SET
 
 # accum_paths_have_source <newline-separated-paths> — 0 if any path is source.
 # A HERE-STRING, never `printf | grep -q`: under `set -o pipefail` that pipeline
