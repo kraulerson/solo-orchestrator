@@ -106,7 +106,7 @@ in the checkout and hold the diff to it. Non-exhaustive, from CLAUDE.md:
   lockstep (e.g. `# BL-084-TIER-KEY` across `pre-commit-gate.sh`,
   `check-phase-gate.sh`, `init.sh`, `scripts/lib/enforcement-level.sh`). A change
   to one sibling without the others is a finding.
-- **Docs-only bypass** boundary: the classifier is `\.(md|json|yml|yaml|toml|tmpl)$`
+- **Docs-only bypass** boundary: the classifier is `\.(md|jsonl?|yml|yaml|toml|tmpl)$`
   plus dep manifests; a mixed source+docs commit does not get the bypass.
 
 ### 2. Currency (context7) — META-6

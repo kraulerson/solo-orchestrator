@@ -616,7 +616,7 @@ than no manifest).
   `set -e`; configure a git identity in fixtures; unset `GITHUB_BASE_REF` in
   fixture git ops; no multibyte chars adjacent to variable expansions under
   `set -u`.
-- **Docs-only commits** (all staged files match `\.(md|json|yml|yaml|toml|tmpl)$`)
+- **Docs-only commits** (all staged files match `\.(md|jsonl?|yml|yaml|toml|tmpl)$`)
   skip the Build Loop gate; mixed source+docs commits do not — split them
   (CONTRIBUTING.md § Docs-only bypass).
 - **Never `--no-verify`.**

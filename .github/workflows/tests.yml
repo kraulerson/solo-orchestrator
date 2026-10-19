@@ -676,6 +676,7 @@ jobs:
             tests/test-bl322-zsh-legs.sh
             tests/test-bl322-s5-hardening.sh
             tests/test-bl348-lockfile-depth.sh
+            tests/test-bl354-state-jsonl-exempt.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

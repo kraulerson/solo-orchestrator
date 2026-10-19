@@ -26228,3 +26228,29 @@ then become one, and the refusal stays as the guard on a roster run by hand.
    with a handler that has no `command` in the same event, the row's jq exits 5 and a registered hook reads as not
    registered (measured: the track-tool-usage row's expression, rc 5, with the tracker registered beside a
    `prompt` handler). The roster's fix, `(.command // "")` (`# BL-277-ROSTER-COMMANDLESS`), is the pattern.
+
+## BL-354: a commit of framework state files only is classified as source when it stages a `.jsonl` ledger
+
+**Logged:** 2026-10-18 (reported by the pantheon-harness session)
+**Category:** Bug (enforcement — a false block)
+**Severity:** Medium — the Guardrails' `.claude/approvals.jsonl` changes after every approved commit and is tracked
+**Status:** Closed — shipped 2026-10-18 (fix `d2b76d32`, suite `9e0e8104`)
+
+**What.** Two checks exempt framework state by extension and both knew `.json`, not `.jsonl`:
+`check_commit_ready`'s docs-only exemption in `scripts/process-checklist.sh` (`\.(md|json|yml|yaml|toml|tmpl)$`), and
+`_ACCUM_EXEMPT_RE` in `scripts/lib/accumulation.sh` (`(^|/)\.claude/[^/]*\.json$`). The Development Guardrails (4.4.0+)
+`record-approval.sh` writes `.claude/approvals.jsonl`, which adopted projects track (Karl's ruling in pantheon-harness).
+Measured on main `5d3864e3`, staging `.claude/process-state.json` plus `.claude/approvals.jsonl`: rc 0 with init verified
+and no subject or a `chore:` subject; rc 1 `Phase 2 initialization not verified` with init unverified (any subject); rc 1
+`'feat(...)' commit blocked — no Build Loop active` with a `feat:` subject. The same commit with the `.json` alone passes
+in every case. The accumulation check also counted such a commit as source work for the phase gate's memory-store rule.
+
+**What pantheon-harness saw is mostly older code.** Its `process-checklist.sh` predates `## BL-139:`'s subject-less
+default (not-feat), so its copy presumed every subject-less commit a feat and blocked a `chore:` state commit with the
+`'feat(...)'` message. One `upgrade-project.sh --sync-framework` brings it to the behaviour above.
+
+**Fix.** `jsonl` joins the docs-only exemption (`# BL-354-DOCS-JSONL`), consistent with `.json`, which is exempt anywhere;
+accumulation's state-file arm matches `.claude/*.jsonl` as well as `.json` and keeps its `.claude/` scope (a project's own
+`data/events.jsonl` is still source work there). A `.jsonl` staged beside a source file still blocks. Suite:
+`tests/test-bl354-state-jsonl-exempt.sh` (13 cases, 5 mutants; J4 stages a non-source, non-exempt file so it reaches
+the exemption loop).
