@@ -1492,9 +1492,13 @@ Adoption refuses to write a file when that file, or any folder above it inside
 your project, is a symlink that resolves outside the project, or one it cannot
 follow to the end (a loop, or a dangling link part-way along it). It names the path,
 the link and where the link goes, and writes nothing through it
-(`## BL-310:` row 4, `## BL-351:`). The check runs at every writer, so the
-pre-write rehearsal meets it first: a refused run has written only the
-rehearsal's own scratch copy, and "nothing was written to this project" is true.
+(`## BL-310:` row 4, `## BL-351:`). Every writer runs the check (git's hooks
+follow a stricter rule, below), and the pre-write rehearsal meets it first: a
+refused run has written only the rehearsal's own scratch copy, and "nothing was
+written to this project" is true. Where a link leads is decided by
+the folder it reaches, not by how its path is spelled: a link written through
+another alias of your project's folder, or in another letter case on a
+case-insensitive disk, still counts as inside.
 Your `.claude` linked to a folder elsewhere, refused (paths shortened):
 
 ```text
@@ -1512,7 +1516,8 @@ Measured on 5d3864e3: of twenty files adoption plans to write, each linked to an
 outside file, eight were (`APPROVAL_LOG.md`, `PROJECT_INTAKE.md`, five under
 `.claude/`, `scripts/check-phase-gate.sh`) — three of them by the rehearsal of a
 run that then refused and said nothing was written — and with `.claude` linked
-to an outside folder the rehearsal wrote 13 files into it under the same message.
+to an outside folder the rehearsal wrote 13 files and a folder into it under the
+same message (12 files on a computer with no Qdrant server registered).
 
 What did not change:
 
@@ -1526,10 +1531,15 @@ What did not change:
   writers that do not skip a link.
 - **The audit row** in `.claude/bypass-audit.json`, when that file is linked
   outside, is not written, and the run carries on saying the row could not be
-  recorded, as it does for a ledger it cannot read. A secrets acceptance and a
-  `--re-add`, which need the row, stop instead.
-- **The git hooks** go where git says the hooks directory is; step 0 already
-  refuses a hooks directory that is a symlink.
+  recorded and that the symlink is why. A secrets acceptance and a `--re-add`,
+  which need the row, stop instead.
+
+What is stricter for git's hooks: step 0 refuses a `.git`, or a hooks folder,
+that is a symlink, before any question (a linked `.git` would have taken the
+rehearsal's writes into the repository it points at). A hook file that is a
+symlink — `commit-msg` or `pre-commit`, pointing inside the project or out — is
+not written at all: the run says NOT INSTALLED and prints the command that
+installs the hook once the file is a real one.
 
 ### Staging is explicit, never `git add -A`
 
