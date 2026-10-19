@@ -941,6 +941,23 @@ prompt_install() {
   fi
 }
 
+# ── `## BL-310:` row 2 — THE sudo AN INSTALL COMMAND DOES NOT SHOW ─────────────
+# soif_install_elevation_note <install-command>
+#   Prints the clause a consent prompt owes the operator before running
+#   <install-command>, or nothing. The tool matrix's Linux gitleaks rows are
+#   `bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"`, and that script
+#   ends in `sudo install` into its INSTALL_DIR — none of which is in the string
+#   the operator is shown. A substring match on purpose: saying sudo for a
+#   lookalike costs nothing, and staying silent about it does.
+#   tests/test-bl310-install-buckets-and-consent.sh K2 fails if the installer's
+#   INSTALL_DIR stops being the directory named here.
+soif_install_elevation_note() {
+  case "${1:-}" in
+    *install-gitleaks.sh*) printf '%s\n' "this will run sudo to install gitleaks into /usr/local/bin" ;;   # BL-310-ELEVATION-NOTE
+  esac
+  return 0
+}
+
 # ── `## BL-255:` — OPERATOR TEXT USED AS A sed REPLACEMENT ────────────────────
 # soif_sed_repl_esc <text> [delim]
 #   Prints <text> escaped for use as the REPLACEMENT half of a sed `s` command

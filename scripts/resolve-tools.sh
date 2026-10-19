@@ -234,7 +234,13 @@ elif [ "$DEV_OS" = "linux" ]; then
   _keys="${_keys}linux_pip,linux_manual,"
 fi
 [ "$HAS_NPM" = true ] && _keys="${_keys}npm,"
-_keys="${_keys}manual"
+# `## BL-310:` row 1 — `manual` is NOT an install key. It was the last one, so a
+# matrix `manual` value (gitleaks': its releases URL; for others, a URL or
+# prose) counted as a found command and was filed under auto_install, which
+# init.sh, upgrade-project.sh, verify-install.sh and adoption execute. A tool
+# with no recipe for this host now reaches the fallback below, which files its
+# `manual` value under manual_install as instructions.
+_keys="${_keys%,}"   # BL-310-MANUAL-NOT-A-KEY
 INSTALL_KEYS=$(echo "$_keys" | jq -R 'split(",")')
 
 # --- Check each tool and categorize ---
