@@ -2044,7 +2044,9 @@ check_commit_ready() {
   if [ "$is_source" = false ]; then
     local all_exempt=true
     while IFS= read -r file; do
-      if echo "$file" | grep -qE '\.(md|json|yml|yaml|toml|tmpl)$'; then
+      # .jsonl beside .json: the Guardrails' approvals ledger and Solo's own
+      # .claude/*.jsonl ledgers are state, not source (`## BL-354:`).
+      if echo "$file" | grep -qE '\.(md|jsonl?|yml|yaml|toml|tmpl)$'; then   # BL-354-DOCS-JSONL
         continue
       fi
       if _is_dep_manifest "$file"; then
