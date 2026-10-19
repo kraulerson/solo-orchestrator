@@ -585,7 +585,7 @@ mutant MC2 "$CV" '# BL-310-CV-REF-A' '          print_warn "$tool_name: no auto-
   "'update all' drops the reference"
 mutant MC3 "$CV" '# BL-310-CV-REF-B' '            :' case_C3 \
   "'select' says nothing for a row with no command"
-mutant MC4 "$CV" '# BL-310-CV-SHOW' '  _cv_render_update_cmd "${UPDATE_CMDS[$1]:-}"' case_C4 \
+mutant MC4 "$CV" '# BL-310-CV-SHOW-REF' '  _cv_render_update_cmd "${UPDATE_CMDS[$1]:-}"' case_C4 \
   "the printers lose the reference"
 mutant MC5 "$CV" '# BL-310-CV-SHOW-N' '    echo "  ${UPDATE_NAMES[$idx]}: $(_cv_render_update_cmd "${UPDATE_CMDS[$idx]}")"' case_C4 \
   "the no-terminal printer renders the command only"

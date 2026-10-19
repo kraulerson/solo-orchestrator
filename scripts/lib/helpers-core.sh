@@ -951,9 +951,14 @@ prompt_install() {
 #   lookalike costs nothing, and staying silent about it does.
 #   tests/test-bl310-install-buckets-and-consent.sh K2 fails if the installer's
 #   INSTALL_DIR stops being the directory named here.
+#   Every other recipe that runs sudo (31 matrix values, Docker's
+#   `sudo apt install … && sudo usermod …` among them) gets the plain clause:
+#   init's plan prints no command, so a bare row beside the gitleaks one would
+#   read as "this one does not elevate". `sudo` must stand as a word.
 soif_install_elevation_note() {
   case "${1:-}" in
     *install-gitleaks.sh*) printf '%s\n' "this will run sudo to install gitleaks into /usr/local/bin" ;;   # BL-310-ELEVATION-NOTE
+    sudo[[:space:]]*|*[!A-Za-z0-9_./-]sudo[[:space:]]*) printf '%s\n' "this will run sudo" ;;   # BL-310-ELEVATION-SUDO
   esac
   return 0
 }

@@ -953,8 +953,9 @@ resolve_and_install_tools() {
   # Will auto-install now
   if [ "$auto_count" -gt 0 ]; then
     echo -e "${BOLD}│${NC}  ${CYAN}⬇ Will install now${NC}"
-    # `## BL-310:` row 2 — a row whose command runs sudo without showing it (the
-    # Linux gitleaks installer) says so here, before the question below.
+    # `## BL-310:` row 2 — a row whose command runs sudo says so here, before the
+    # question below; this plan prints no commands, and the Linux gitleaks
+    # installer's sudo is not in its command anyway.
     echo "$resolver_output" | jq -r '.auto_install[] | "    \(.name) (\(.category))\t\(.install_cmd // "")"' | while IFS=$'\t' read -r line _cmd; do
       _note="$(soif_install_elevation_note "$_cmd")"
       echo -e "${BOLD}│${NC}$line${_note:+ — $_note}"   # BL-310-INIT-ELEVATION

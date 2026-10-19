@@ -63,6 +63,26 @@ _cv_render_update_cmd() {
 }
 # WALK-ISSUE-003-UPDATE-CMD-END
 
+# ── `## BL-310:` row 1's rule, here: a matrix `manual` value is instructions,
+# never a command. It was the last candidate for the update command, so on a
+# host without brew a tool with no npm/pip recipe offered its `manual` value —
+# gitleaks', Git's and Go's are URLs — and "update all" / "select" ran it with
+# `eval`. _cv_update_cmd picks what may run; _cv_update_ref keeps the
+# reference in UPDATE_REFS (indexed like UPDATE_CMDS), and _cv_show prints it
+# where a row has no command.
+_cv_update_cmd() {
+  local c=""
+  if command -v brew &>/dev/null; then
+    c=$(printf '%s' "$1" | jq -r "(.install.darwin_brew // empty) | $_cv_jq_install_cmd")
+  fi
+  [ -n "$c" ] || c=$(printf '%s' "$1" | jq -r "(.install.npm // .install.linux_pip // empty) | $_cv_jq_install_cmd")   # BL-310-CV-NO-MANUAL
+  printf '%s' "$c"
+}
+_cv_update_ref() { printf '%s' "$1" | jq -r "(.install.manual // empty) | $_cv_jq_install_cmd"; }
+_cv_show() {   # _cv_show <idx> — what a printer shows for row <idx>: its command, else its reference
+  _cv_render_update_cmd "${UPDATE_CMDS[$1]:-${UPDATE_REFS[$1]:-}}"   # BL-310-CV-SHOW-REF
+}
+
 # --- Argument parsing ---
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -516,6 +536,7 @@ echo ""
 BELOW_MIN=()
 UPDATES=()
 UPDATE_CMDS=()
+UPDATE_REFS=()   # sparse, keyed by UPDATE_CMDS' index — `## BL-310:`, see _cv_update_ref
 # UPDATE_NAMES tracks the verbatim tool name (with whitespace preserved)
 # in parallel with UPDATES[]/UPDATE_CMDS[]. The pre-fix code reconstructed
 # the name by parsing the display-string entry from UPDATES via
@@ -706,27 +727,17 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       print_warn "$NAME: $INSTALLED$MIN_DISPLAY — BELOW MINIMUM$LATEST_DISPLAY"
       echo -e "         ${YELLOW}⚠ Continuing with outdated $NAME may cause issues.${NC}"
       BELOW_MIN+=("$NAME")
-      # Find update command
-      local_update_cmd=""
-      if command -v brew &>/dev/null; then
-        local_update_cmd=$(echo "$TOOL" | jq -r "(.install.darwin_brew // empty) | $_cv_jq_install_cmd")
-      fi
-      if [ -z "$local_update_cmd" ]; then
-        local_update_cmd=$(echo "$TOOL" | jq -r "(.install.npm // .install.linux_pip // .install.manual // empty) | $_cv_jq_install_cmd")
-      fi
+      # Find update command — never the `manual` value (`## BL-310:`), which is kept as a reference
+      local_update_cmd="$(_cv_update_cmd "$TOOL")"
+      UPDATE_REFS[${#UPDATE_CMDS[@]}]="$(_cv_update_ref "$TOOL")"   # BL-310-CV-REF-MIN
       UPDATES+=("$NAME $INSTALLED → ${LATEST:-latest} (BELOW MINIMUM)")
       UPDATE_CMDS+=("$local_update_cmd")
       UPDATE_NAMES+=("$NAME")
     elif [ -n "$LATEST" ] && ! version_gte "$INSTALLED" "$LATEST"; then
       print_ok "$NAME: $INSTALLED$MIN_DISPLAY$LATEST_DISPLAY"
-      # Find update command
-      local_update_cmd=""
-      if command -v brew &>/dev/null; then
-        local_update_cmd=$(echo "$TOOL" | jq -r "(.install.darwin_brew // empty) | $_cv_jq_install_cmd")
-      fi
-      if [ -z "$local_update_cmd" ]; then
-        local_update_cmd=$(echo "$TOOL" | jq -r "(.install.npm // .install.linux_pip // .install.manual // empty) | $_cv_jq_install_cmd")
-      fi
+      # Find update command — never the `manual` value (`## BL-310:`), which is kept as a reference
+      local_update_cmd="$(_cv_update_cmd "$TOOL")"
+      UPDATE_REFS[${#UPDATE_CMDS[@]}]="$(_cv_update_ref "$TOOL")"   # BL-310-CV-REF-LATEST
       UPDATES+=("$NAME $INSTALLED → $LATEST")
       UPDATE_CMDS+=("$local_update_cmd")
       UPDATE_NAMES+=("$NAME")
@@ -950,7 +961,7 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
             print_fail "Could not update $tool_name. Run manually: $cmd"
           fi
         else
-          print_warn "$tool_name: no auto-update command available"
+          print_warn "$tool_name: no auto-update command available — $(_cv_show "$idx")"   # BL-310-CV-REF-A
         fi
       done
       ;;
@@ -979,6 +990,8 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
             else
               print_fail "Could not update $tool_name. Run manually: $cmd"
             fi
+          else
+            print_warn "$tool_name: no auto-update command available — $(_cv_show "$idx")"   # BL-310-CV-REF-B
           fi
         fi
       done
@@ -996,7 +1009,7 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
           # WALK-ISSUE-003: render, never echo raw — a multi-stage install is
           # joined into one runnable line, and a URL / missing entry is labelled
           # instead of masquerading as a command.
-          echo "  ${UPDATE_NAMES[$idx]}: $(_cv_render_update_cmd "${UPDATE_CMDS[$idx]}")"
+          echo "  ${UPDATE_NAMES[$idx]}: $(_cv_show "$idx")"   # BL-310-CV-SHOW-C
         done
       fi
       ;;
@@ -1010,7 +1023,7 @@ elif [ ${#UPDATES[@]} -gt 0 ]; then
   for idx in "${!UPDATES[@]}"; do
     # WALK-ISSUE-003: same renderer as the interactive branch — the two
     # printers of this heading must not disagree about what is runnable.
-    echo "  ${UPDATE_NAMES[$idx]}: $(_cv_render_update_cmd "${UPDATE_CMDS[$idx]}")"
+    echo "  ${UPDATE_NAMES[$idx]}: $(_cv_show "$idx")"   # BL-310-CV-SHOW-N
   done
 fi
 
