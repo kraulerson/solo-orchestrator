@@ -1074,6 +1074,11 @@ run_child_suite "tests/test-bl322-s5-hardening.sh" \
 run_child_suite "tests/test-bl348-lockfile-depth.sh" \
   "BL-348: project_scaffolded counts a lockfile at the root or two levels below, uv.lock included, never one in a pruned or outside tree" \
   "BL-348 lockfile-depth tests FAILED (run tests/test-bl348-lockfile-depth.sh for details)"
+# BL-354: a commit of framework state files only (.claude/*.json plus
+# .claude/approvals.jsonl) was classified as source by two checks.
+run_child_suite "tests/test-bl354-state-jsonl-exempt.sh" \
+  "BL-354: .jsonl state files are exempt like .json in check_commit_ready, and .claude/*.jsonl in accumulation" \
+  "BL-354 state-jsonl tests FAILED (run tests/test-bl354-state-jsonl-exempt.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \
