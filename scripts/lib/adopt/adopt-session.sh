@@ -89,6 +89,7 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
     adopt_note "Composed the framework's permission rules into your $rel; nothing of yours was removed."
   fi
   if [ -z "${ADOPT_SESSION_SKIPPED:-}" ] && [ -f "$root/$rel" ] && [ ! -L "$root/$rel" ] && ! adopt_path_under_link "$root" "$rel"; then
+    adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-ROSTER
     adopt_touched_disk   # BL-225-TOUCHED-DISK
     soif_register_hook_roster "$root/$rel"   # BL-242-SESSION-ROSTER
     jq -e 'type == "object"' "$root/$rel" >/dev/null 2>&1 \
@@ -158,6 +159,7 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
       # NOT recorded for staging (recording it made the staging preflight
       # refuse the whole adoption over an ignored path). The requirement a
       # clone can see goes into the manifest below.
+      adopt_guard_write "$root" ".claude/settings.local.json" || return 1   # BL-310-GUARD-LOCAL-SETTINGS
       adopt_touched_disk   # BL-225-TOUCHED-DISK
       jq -n --arg c "${ADOPT_PROJECT_NAME:-project}" '{mcpServers: {qdrant: {command: "uvx",
           args: ["mcp-server-qdrant", "--qdrant-url", "http://localhost:6333", "--collection-name", $c]}}}' \

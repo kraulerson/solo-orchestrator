@@ -22996,7 +22996,7 @@ may have closed one without saying so here.
 | 1 | **Fixed, `e59272a` and `3149fd8`** (below). `resolve-tools.sh` files a documentation URL in the `auto_install` bucket, and `init.sh` executes that bucket (the shared resolver's defect) | "BL-242 residual — `resolve-tools.sh` files a documentation URL…" |
 | 2 | **Fixed, `1ae8332` (`## BL-316:`), `e59272a` and `3149fd8`** (below). the Linux gitleaks recipe adoption offers is an unpinned, unverified root install; CI pins the same artefact by version and checksum | "A SECOND RESIDUAL, FOUND AT THE SAME REVIEW…" |
 | 3 | `# BL-242-RESOLVER-NO-EXEC` tells the operator to "run adoption again", which `# BL-242-PREFLIGHT-ARM1` refuses | its own residual heading |
-| 4 | adoption follows a symlink out of the project and overwrites its target — partly guarded since (22 `-L` / `adopt_path_under_link` sites in `scripts/lib/adopt/` on 2026-09-27), but `adopt_write_file` itself is still `cat >` | "BL-242 residual — adoption follows a SYMLINK…" |
+| 4 | **Fixed** in `077b4f1b` and `433d7a1a` (2026-10-18; below). Was: adoption follows a symlink out of the project and overwrites its target — partly guarded since (22 `-L` / `adopt_path_under_link` sites in `scripts/lib/adopt/` on 2026-09-27), but `adopt_write_file` itself was still `cat >` | "BL-242 residual — adoption follows a SYMLINK…" |
 | 5 | init parity: thirteen `init.sh` effects adoption does not perform and nothing designs (the §8.7a table) | "THE INIT-PARITY RESIDUAL" |
 | 6 | a file of the operator's where a framework *script* goes is left alone, so that script is not installed (named by the run) | `docs/adoption.md`, "What is not built yet" |
 | 7 | the `# BL-242-SECRETS-RESCAN` guard is still correct but no longer observable in the persisted artefact | "Residual carried here from WP10b/2 (PR #437)" |
@@ -23075,6 +23075,42 @@ may have closed one without saying so here.
 
 Hook managers (item 11's pre-commit/lefthook line) are **not** a residual: Karl ruled 2026-09-25 that
 adoption replaces them (`## BL-242:`, "Karl's ruling on hook managers").
+
+**Row 4, fixed in `077b4f1b` and `433d7a1a` (2026-10-18).** Measured on main `5d3864e3` first: of twenty
+planned files each replaced by a symlink to a file outside the repository, eight outside files were overwritten
+(`APPROVAL_LOG.md`, `PROJECT_INTAKE.md`, five under `.claude/`, `scripts/check-phase-gate.sh`), three of them by
+the pre-write rehearsal of a run that then refused saying nothing was written; with `.claude` an absolute link to
+an outside folder the rehearsal wrote 13 files and a folder there (`## BL-351:`; 12 files on a host with no
+Qdrant server registered); with `.claude` an absolute link to a folder INSIDE the project it wrote 12 into that
+folder under the same sentence. `adopt_guard_write` (`# BL-310-WRITE-GUARD`) now refuses a write whose target, or
+a folder above it up to the project root, is a symlink resolving outside the project or not resolvable, naming
+the path, the link and where it resolves; "inside" is decided by identity (`-ef`), not by spelling. Every writer
+in `scripts/lib/adopt/` calls it except git's hooks, whose rule is stricter: step 0 refuses a linked `.git` or
+hooks folder, and a hook file that is a symlink, inside or out, is never written (NOT INSTALLED). The rehearsal
+meets the guard first, re-points each link that lands inside the project at its copy
+(`# BL-310-REHEARSAL-RELINK`) and asks the real project too. Links that resolve inside behave as before. After:
+0 of the twenty overwritten, 0 files outside on `## BL-351:`'s layout. `tests/test-bl310-adopt-symlink-write.sh`
+(36 cases, 40 mutants).
+
+Review of `28e928b9` blocked it, and `433d7a1a` fixed what it found: a `.git/hooks/commit-msg` linked to a hook
+shared outside was written through (37 to 8523 bytes, mode 644 to 755, "Commit-msg gate installed";
+`# BL-310-HOOK-COMMITMSG-LINK`); a linked `.git` let the rehearsal rewrite the target repository's alternates
+(`# BL-310-PLACEMENT-GITLINK`); a link through a second alias of the project, a root typed in the wrong case or
+a relative link that climbs out and back in made the rehearsal refuse; the audit row's cause said "run this
+again" in a run that completes; the notes blamed the ledger's JSON for a symlink; act4's merge into the manifest
+was unguarded (`# BL-310-GUARD-ASSESS`); and the re-point read every link (6s for 5000 plain relative links, 0s now). Residual: links whose target holds
+`../` still pass `find -lname '*..*'` and each costs a resolve plus a re-point — the npm/pnpm `node_modules` shape;
+measured 6s on `28e928b9` and 11s at `ed1e49a5` for 2000 `../` links plus 2000 plain links.
+`tests/test-bl029-integration.sh` (full lane) needed adopt-core.sh sourced for the guard (`0afca684`).
+Residuals, recorded not fixed:
+1. **A hardlink is not a symlink.** A planned file hardlinked to a file outside the project still has that
+   file overwritten (measured after `077b4f1b`: `APPROVAL_LOG.md` and `PROJECT_INTAKE.md`, rc 0). Only the
+   documents writer and the pre-commit hook replace by rename (`# BL-242-DOCS-PUT`); the commit-msg gate is
+   appended with `>>`, so a hardlinked commit-msg's other name changes too (not measured).
+2. **The Guardrails installer is a subprocess**: its folders, manifest and settings are checked before it
+   runs, not each file it copies, so a file link inside a pre-existing `.claude/framework/rules` or `gates`
+   (a `.claude/framework` with no `hooks/`) is written through.
+3. **Check, then write**: a link created between the check and the write by another process is not caught.
 
 ---
 
@@ -26211,7 +26247,13 @@ residuals, as the `# BL-242-PARENT-LINK` gap)
 **Category:** Bug (correctness — writes outside the project)
 **Severity:** Medium — needs an unusual layout, but the writes land outside the project while the refusal says nothing
 was written
-**Status:** Open
+**Status:** Closed — 2026-10-18, by `077b4f1b` (`## BL-310:` row 4's write guard). On this layout (an untracked
+`.claude` linked to an outside folder) a checksum listing of that folder is identical before and after the run,
+rehearsal included, and the refusal's "nothing was written to this project" is true: the project's
+`git status --ignored` and HEAD are unchanged. Measured with the same fixture: 13 files and a folder outside on
+`5d3864e3` (12 files on a host with no Qdrant server registered; with and without the Guardrails installer
+present), 0 after; a relative link also writes 0 and is now named
+with where it resolves from the project. Pinned by A4, A5 and A10 of `tests/test-bl310-adopt-symlink-write.sh`.
 
 **What.** With an untracked `.claude` that is a symlink to an absolute path outside the repository, adoption writes
 through the link: `## BL-225:` measured seven files written there while the refusal correctly reported the repository

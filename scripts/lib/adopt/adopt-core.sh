@@ -510,6 +510,131 @@ adopt_path_under_link() {
   return 1
 }
 
+# ── `## BL-310:` row 4 — NO WRITE LEAVES THE PROJECT THROUGH A SYMLINK ───────
+#
+# Measured on main 5d3864e3 before this guard: of twenty planned files each
+# replaced by a symlink to a file outside the repository, eight had that outside
+# file overwritten, three of them by the pre-write rehearsal of a run that then
+# refused and said nothing was written. With `.claude` a symlink to an outside
+# folder (`## BL-351:`) the rehearsal wrote 13 files and a folder there under
+# the same sentence (12 files on a host with no Qdrant server registered).
+# `adopt_path_under_link` guarded some callers; the writers did not.
+#
+# THE RULE. A write to ROOT/REL is refused when REL, or a folder above it up to
+# ROOT, is a symlink that resolves OUTSIDE ROOT, or cannot be resolved. A
+# symlink that resolves inside keeps what adoption did before: a file link is
+# written through and the run completes; a path below a folder link meets the
+# ignore check's refusal, because git will not look beyond a symlink (measured).
+# `adopt_path_under_link` is not reused for this: it answers "is any folder
+# above a link", inside or out, and never asks about REL itself.
+#
+# AT THE WRITER, so the rehearsal meets it first: the rehearsal is the write
+# phase run in a copy (`adopt_prewrite_preflight`), and a write it refuses has
+# written nothing but that copy. Every writer in scripts/lib/adopt/ calls
+# `adopt_guard_write` before it touches the tree, except git's hooks, which
+# follow a stricter rule of their own: no hook file that is a symlink is
+# written at all (`# BL-310-HOOK-COMMITMSG-LINK`, `# BL-242-PRECOMMIT-GUARD`).
+# tests/test-bl310-adopt-symlink-write.sh's N1 checks each write site, and
+# names the writers it exempts and why.
+
+# The real project, while the rehearsal runs in its copy (`# BL-310-GUARD-REAL`).
+ADOPT_GUARD_REAL_ROOT=""
+
+# _adopt_resolve PATH — the physical path PATH lands on once every symlink is
+# followed. No `readlink -f` (absent from macOS before 12.3) and no `realpath`:
+# the leaf is followed with `readlink`, at most 40 hops, and the deepest folder
+# that exists is made physical with `cd -P`, which resolves any link above it.
+# rc 1, nothing printed, when it cannot be resolved: a loop, a dangling link
+# above the leaf, or `.`/`..` below a folder that does not exist yet (`mkdir -p`
+# would create that folder and then climb out of it).
+_adopt_resolve() {                                     # BL-310-RESOLVE
+  local p="$1" t="" d="" rest="" n=0
+  while [ -L "$p" ]; do   # BL-310-RESOLVE-FOLLOW
+    n=$((n + 1)); [ "$n" -le 40 ] || return 1   # BL-310-RESOLVE-HOPS
+    t="$(readlink "$p" 2>/dev/null)" || return 1
+    case "$t" in /*) p="$t" ;; *) p="${p%/*}/$t" ;; esac
+  done
+  d="$p"
+  while [ ! -d "$d" ]; do
+    [ -L "$d" ] && return 1   # BL-310-RESOLVE-DANGLING
+    rest="/${d##*/}$rest"; d="${d%/*}"; [ -n "$d" ] || d="/"
+  done
+  case "$rest/" in */./*|*/../*) return 1 ;; esac   # BL-310-RESOLVE-DOTS
+  d="$( cd -P "$d" 2>/dev/null && pwd -P )" || return 1   # BL-310-RESOLVE-PHYS
+  printf '%s%s\n' "${d%/}" "$rest"
+}
+
+# _adopt_under ROOT PATH — true when PATH is ROOT or lies below it, compared by
+# IDENTITY (`-ef`: device and inode) and never by spelling; prints the part of
+# PATH below ROOT ("" for ROOT itself, "/a/b" below it). A spelling test was
+# what review refuted: a prefix match took `proj-sibling` for `proj`, and the
+# root typed through an alias, or in the wrong case on a case-insensitive
+# volume, did not match its own physical path. Each ancestor of PATH is asked;
+# one that does not exist yet simply never matches.
+_adopt_under() {                                       # BL-310-UNDER
+  local root="$1" p="$2" rest=""
+  while :; do
+    if [ "$p" -ef "$root" ]; then printf '%s' "$rest"; return 0; fi   # BL-310-UNDER-EF
+    case "$p" in /|"") return 1 ;; esac   # BL-310-UNDER-ROOT
+    rest="/${p##*/}$rest"; p="${p%/*}"; [ -n "$p" ] || p="/"
+  done
+}
+
+# adopt_link_escape ROOT REL — true when REL, or a folder above it, is a symlink
+# that resolves outside ROOT or cannot be resolved. Sets ADOPT_LINK_AT (that
+# symlink, relative to ROOT), ADOPT_LINK_TO (its text) and ADOPT_LINK_RES (where
+# it lands; empty when it cannot be resolved). A link that resolves inside is
+# passed over and the walk goes on: a chain is judged where it ends.
+adopt_link_escape() {                                  # BL-310-LINK-ESCAPE
+  local root="$1" rest="$2" pre=""
+  ADOPT_LINK_AT=""; ADOPT_LINK_TO=""; ADOPT_LINK_RES=""
+  while [ -n "$rest" ]; do
+    pre="${pre:+$pre/}${rest%%/*}"
+    case "$rest" in */*) rest="${rest#*/}" ;; *) rest="" ;; esac
+    [ -L "$root/$pre" ] || continue   # BL-310-ESCAPE-LINK
+    ADOPT_LINK_RES="$(_adopt_resolve "$root/$pre")" || ADOPT_LINK_RES=""   # BL-310-ESCAPE-RES
+    if [ -n "$ADOPT_LINK_RES" ] && _adopt_under "$root" "$ADOPT_LINK_RES" >/dev/null; then
+      continue   # BL-310-ESCAPE-INSIDE
+    fi
+    ADOPT_LINK_AT="$pre"
+    ADOPT_LINK_TO="$(readlink "$root/$pre" 2>/dev/null)"   # BL-310-ESCAPE-TO
+    return 0
+  done
+  ADOPT_LINK_RES=""
+  return 1
+}
+
+# adopt_guard_write ROOT REL — refuse, writing nothing, when ROOT/REL would be
+# written through a symlink that leads out of the project. During the rehearsal
+# ROOT is the copy and the same REL is asked of the real project too: the real
+# answer is the one the operator can act on, and the copy's is the one that
+# keeps the rehearsal inside its copy (a link the rehearsal could not re-point
+# because it cannot be resolved, `# BL-310-REHEARSAL-RELINK`).
+#
+# A THIRD ARGUMENT `cause` prints the reason and returns 1 without
+# `adopt_refuse`, for a caller that decides for itself whether the run goes on:
+# `adopt_audit_event`, whose archive, Adoption Record and assessment callers
+# carry on without the row, and say so. `adopt_refuse` there would print "Nothing
+# was committed" into a run that then commits (measured), and its advice is not
+# "run this again": a completed adoption refuses a second run.
+adopt_guard_write() {                                  # BL-310-WRITE-GUARD
+  local root="$1" rel="$2" mode="${3:-}" scope="this project" where="" msg="" fix=""
+  if [ -n "$ADOPT_GUARD_REAL_ROOT" ] && adopt_link_escape "$ADOPT_GUARD_REAL_ROOT" "$rel"; then   # BL-310-GUARD-REAL
+    :
+  elif adopt_link_escape "$root" "$rel"; then
+    [ -n "$ADOPT_GUARD_REAL_ROOT" ] && scope="the pre-write rehearsal's copy of this project"   # BL-310-GUARD-SCOPE
+  else
+    return 0
+  fi
+  if [ -n "$ADOPT_LINK_RES" ]; then where="resolves to $ADOPT_LINK_RES"; else where="cannot be resolved"; fi
+  fix="Make $ADOPT_LINK_AT a real file or folder inside the project, or remove it, and run this again."
+  [ "$mode" = cause ] && fix="Make $ADOPT_LINK_AT a real file inside the project for its rows to be kept."   # BL-310-GUARD-CAUSE-ADVICE
+  msg="$rel would be written through a symlink that leads outside $scope: $ADOPT_LINK_AT -> ${ADOPT_LINK_TO:-(unreadable)}, which $where. Nothing is written outside the project, so nothing was written through it. $fix"
+  if [ "$mode" = cause ]; then printf '   %s\n' "$msg" >&2; return 1; fi   # BL-310-GUARD-CAUSE
+  adopt_refuse "$msg"
+  return 1   # BL-310-GUARD-REFUSE
+}
+
 adopt_record_write() {
   [ -n "$ADOPT_WRITTEN_LEDGER" ] || return 0
   printf '%s\n' "$1" >> "$ADOPT_WRITTEN_LEDGER"
@@ -556,6 +681,7 @@ adopt_name_ignored_paths() {
 adopt_write_file() {
   local root="$1" rel="$2" dir
   dir="$(dirname "$root/$rel")"
+  adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-WRITE-FILE
   adopt_touched_disk   # BL-225-TOUCHED-DISK
   mkdir -p "$dir" 2>/dev/null || { adopt_refuse "could not create $dir"; return 1; }
   cat > "$root/$rel" || { adopt_refuse "could not write $rel"; return 1; }
@@ -568,6 +694,7 @@ adopt_write_file() {
 adopt_jq_edit() {
   local root="$1" rel="$2" filter="$3"; shift 3
   local f="$root/$rel"
+  adopt_guard_write "$root" "$rel" || return 1   # BL-310-GUARD-JQ-EDIT
   [ -f "$f" ] || { adopt_refuse "cannot edit $rel — it does not exist"; return 1; }
   command -v jq >/dev/null 2>&1 || { adopt_refuse "jq is required to adopt a project"; return 1; }
   adopt_touched_disk   # BL-225-TOUCHED-DISK
