@@ -9,8 +9,9 @@
 #     the Build Loop block fired on a state-only commit (J1-J3);
 #   - _ACCUM_EXEMPT_RE in scripts/lib/accumulation.sh (# BL-233-WPB-EXEMPT-SET),
 #     so the phase gate's memory-accumulation check counted it as source (A1).
-# Guards that must not move: a .jsonl beside a real source file still blocks
-# (J4), and accumulation keeps its .claude/ scope (A3).
+# Guards that must not move: a .jsonl beside a non-exempt file still blocks —
+# J4 (deploy.sh) is the case that reaches the exemption loop, J5 (src/a.ts) is
+# decided before it — and accumulation keeps its .claude/ scope (A3).
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -61,7 +62,12 @@ case_J3() {   # the other framework ledgers, init unverified
   _ready "$1" false "" .claude/tdd-warn-ledger.jsonl .claude/mcp-attestations.jsonl
   [ "$RC" -eq 0 ] || { DETAIL="rc=$RC $(echo "$OUT" | grep -E 'FAIL' | head -1)"; return 1; }
 }
-case_J4() {   # a .jsonl beside a source file still blocks
+case_J4() {   # a .jsonl beside a non-source, non-exempt file still blocks: this one reaches the exemption loop
+  _ready "$1" false "" .claude/approvals.jsonl deploy.sh
+  [ "$RC" -ne 0 ] && echo "$OUT" | grep -qF "Phase 2 initialization not verified" \
+    || { DETAIL="rc=$RC $(echo "$OUT" | head -1)"; return 1; }
+}
+case_J5() {   # a .jsonl beside a source file still blocks (decided before the exemption loop)
   _ready "$1" false "" .claude/approvals.jsonl src/a.ts
   [ "$RC" -ne 0 ] && echo "$OUT" | grep -qF "Phase 2 initialization not verified" \
     || { DETAIL="rc=$RC $(echo "$OUT" | head -1)"; return 1; }
@@ -87,7 +93,8 @@ echo "=== J — check_commit_ready ==="
 check "J1 init unverified: .claude/*.json + approvals.jsonl lands" case_J1
 check "J2 feat subject over state files only: no Build Loop needed" case_J2
 check "J3 tdd-warn-ledger.jsonl + mcp-attestations.jsonl land" case_J3
-check "J4 a .jsonl beside src/a.ts still blocks on init" case_J4
+check "J4 a .jsonl beside deploy.sh still blocks on init" case_J4
+check "J5 a .jsonl beside src/a.ts still blocks on init" case_J5
 echo "=== A — accumulation ==="
 check "A1 .claude/approvals.jsonl is not source work" case_A1
 check "A2 .claude/approvals.jsonl + src/a.py is source work" case_A2
@@ -120,6 +127,9 @@ mutant M1 scripts/process-checklist.sh '# BL-354-DOCS-JSONL' \
 mutant M2 scripts/process-checklist.sh '# BL-354-DOCS-JSONL' \
   "      if echo \"\$file\" | grep -qE '\\.(md|json|yml|yaml|toml|tmpl)\$'; then" \
   case_J2 "check_commit_ready without jsonl (feat subject)"
+mutant M5 scripts/process-checklist.sh '# BL-354-DOCS-JSONL' \
+  "      if echo \"\$file\" | grep -qE '.'; then" \
+  case_J4 "the docs-only exemption matches every file"
 _acc_line="$(grep -F '# BL-233-WPB-EXEMPT-SET' "$REPO_ROOT/scripts/lib/accumulation.sh")"
 _acc_nojsonl="$(printf '%s' "$_acc_line" | sed 's#\\\.claude/\[^/\]\*\\\.jsonl?\$#\\.claude/[^/]*\\.json$#')"
 _acc_anyjsonl="$(printf '%s' "$_acc_line" | sed 's#(^|/)\\\.claude/\[^/\]\*\\\.jsonl?\$#\\.jsonl$#')"
