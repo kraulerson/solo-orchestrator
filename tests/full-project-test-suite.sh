@@ -982,6 +982,12 @@ run_child_suite "tests/test-bl284-verify-install-context.sh" \
 run_child_suite "tests/test-bl316-installers.sh" \
   "BL-316: Superpowers installs with the BL-284 command everywhere; gitleaks on Linux is pinned and checksum-verified" \
   "BL-316 installer tests FAILED (run tests/test-bl316-installers.sh for details)"
+# BL-310 rows 1 and 2: the resolver filed a matrix `manual` value (gitleaks'
+# releases URL) in the bucket every reader executes, and the Linux gitleaks
+# recipe's consent never said it runs sudo.
+run_child_suite "tests/test-bl310-install-buckets-and-consent.sh" \
+  "BL-310: a manual value is an instruction, never a command; init and adoption name the sudo before asking" \
+  "BL-310 install bucket / consent tests FAILED (run tests/test-bl310-install-buckets-and-consent.sh for details)"
 # BL-312: opt-in TL;DR mode — the Stop hook, its wiring beside the bypass
 # detector, the CLAUDE.md section, adoption's last question, reconfigure's
 # --tldr-mode, an upgrade keeping the key. The -init file runs init.sh itself.
