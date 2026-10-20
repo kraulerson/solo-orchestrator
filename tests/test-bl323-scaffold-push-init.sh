@@ -74,8 +74,8 @@ gitcfg() {
   pushInsteadOf = $2
 EOF
 }
-# mockgh DIR — the e2e trio's gh: auth, repo create, protection PUT and GET.
-mockgh() {
+# write_mock_gh DIR — the e2e trio's gh: auth, repo create, protection PUT and GET.
+write_mock_gh() {
   mkdir -p "$1/bin"
   cat > "$1/bin/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -139,7 +139,7 @@ fi
 echo ""
 echo "=== I3: a first-class host's driver ==="
 D3="$(newtmp)"; URL3="https://github.com/bl323-test/scaffold.git"
-mkbare "$D3/bare.git" && gitcfg "$D3" "$URL3" && mockgh "$D3" || { echo "FATAL: I3 fixture" >&2; exit 1; }
+mkbare "$D3/bare.git" && gitcfg "$D3" "$URL3" && write_mock_gh "$D3" || { echo "FATAL: I3 fixture" >&2; exit 1; }
 run_init "$D3" github "$URL3"
 i3_sha="$(remote_sha "$D3/bare.git" main)"
 if [ "$INIT_RC" -eq 0 ] && [ "$(subject_of "$D3/proj" "$i3_sha")" = "$SCAFFOLD_SUBJECT" ] \
