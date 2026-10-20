@@ -13,8 +13,9 @@
 # WHAT IS PLANTED IS NOT THE GUARDRAILS. A git repository on main with one file,
 # BL344-PLANTED: no scripts/init.sh, no scripts/cdf-refresh.sh, no
 # FRAMEWORK_VERSION. Every reader that needs those (adoption, the refresh,
-# the version rows, `## BL-322:` S5's real-clone cases) sees no clone, as
-# before, so no suite can come to depend on it. The cost: a write that only
+# the version rows, `## BL-322:` S5's real-clone cases) sees no usable clone,
+# as before, so no suite can come to depend on it. (verify-install.sh looks
+# for .git alone, so it reports the clone as present.) The cost: a write that only
 # happens after those files are found (refresh-guardrails.sh's pull, inside the
 # Guardrails' own refresh) is not seen here; the BL-344 audit ran every unit
 # suite against a full clone for that.
@@ -26,9 +27,14 @@
 #       replaces a clone it did not plant) or when any step fails.
 #   hcg_check
 #       0 when nothing under CLONE was written since it was planted; else 1,
-#       HCG_WHY naming what was (and the HEAD's move, for a pull). `.git/index`
-#       and the `.git` directory's own time do not count: `git status` rewrites
-#       the index of a clone it has not seen, and that is a reader.
+#       HCG_WHY naming what was (and the HEAD's move, for a pull). Three
+#       comparisons with the plant: no path newer than the stamp, the same
+#       paths (a removal under .git changes only the .git directory's time),
+#       and the same index entries (`git ls-files -s`: `git rm --cached` and
+#       `update-index --chmod` write the index alone). `.git/index` and the
+#       `.git` directory's own times do not count: `git status` rewrites the
+#       index of a clone it has not seen, entries unchanged, and that is a
+#       reader. A missing stamp fails: nothing could be compared.
 #   hcg_replant
 #       after a 1 from hcg_check, removes what this shell planted and plants it
 #       again, so the next suite is judged alone. Refuses (1) in a shell that
@@ -43,6 +49,8 @@ HCG_WORK=""
 HCG_HEAD=""
 HCG_PLANTED=""
 HCG_WHY=""
+
+_hcg_paths() { find "$1" | LC_ALL=C sort; }   # BL-344-HCG-PATHLIST
 
 _hcg_git() {
   GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
@@ -65,6 +73,7 @@ hcg_plant() {
   printf 'one commit past the planted HEAD\n' > "$s/BL344-AHEAD" && _hcg_git -C "$s" add BL344-AHEAD \
     && _hcg_git -C "$s" commit -q -m 'bl344: one commit ahead' || { HCG_WHY="could not make the next commit"; return 1; }
   _hcg_git -C "$s" push -q "$w/up.git" main >/dev/null 2>&1 || { HCG_WHY="could not move the planted upstream on"; return 1; }   # BL-344-HCG-AHEAD
+  _hcg_paths "$c" > "$w/paths" && _hcg_git -C "$c" ls-files -s > "$w/index" || { HCG_WHY="cannot record what was planted"; return 1; }   # BL-344-HCG-BASELINE
   : > "$w/stamp" || { HCG_WHY="cannot write $w/stamp"; return 1; }   # BL-344-HCG-STAMP
   HCG_CLONE="$c"; HCG_WORK="$w"; HCG_HEAD="$(_hcg_git -C "$c" rev-parse HEAD)"; HCG_PLANTED=1
   return 0
@@ -76,9 +85,19 @@ hcg_check() {
   if [ ! -d "$HCG_CLONE/.git" ]; then   # BL-344-HCG-GONE
     HCG_WHY="$HCG_CLONE is gone (it was planted at $HCG_HEAD)"; return 1
   fi
+  if [ ! -f "$HCG_WORK/stamp" ]; then   # BL-344-HCG-STAMP-GONE
+    HCG_WHY="the stamp it was planted with ($HCG_WORK/stamp) is gone, so a write cannot be told from none"; return 1
+  fi
   newer="$(find "$HCG_CLONE" -newer "$HCG_WORK/stamp" 2>/dev/null | grep -vxF -e "$HCG_CLONE/.git/index" -e "$HCG_CLONE/.git")"   # BL-344-HCG-INDEX
-  [ -n "$newer" ] || return 0   # BL-344-HCG-NEWER
-  HCG_WHY="written since it was planted: $(printf '%s\n' "$newer" | cut -c$((${#HCG_CLONE} + 2))- | head -3 | tr '\n' ' ')"   # BL-344-HCG-WHY
+  if [ -n "$newer" ]; then   # BL-344-HCG-NEWER
+    HCG_WHY="written since it was planted: $(printf '%s\n' "$newer" | cut -c$((${#HCG_CLONE} + 2))- | head -3 | tr '\n' ' ')"   # BL-344-HCG-WHY
+  elif [ "$(_hcg_paths "$HCG_CLONE")" != "$(cat "$HCG_WORK/paths" 2>/dev/null)" ]; then   # BL-344-HCG-PATHS
+    HCG_WHY="a path under it was added or removed since it was planted"
+  elif [ "$(_hcg_git -C "$HCG_CLONE" ls-files -s 2>/dev/null)" != "$(cat "$HCG_WORK/index" 2>/dev/null)" ]; then   # BL-344-HCG-STAGED
+    HCG_WHY="its index entries (git ls-files -s) changed since it was planted"
+  else
+    return 0
+  fi
   head="$(git -C "$HCG_CLONE" rev-parse -q --verify HEAD 2>/dev/null)"
   [ "$head" = "$HCG_HEAD" ] || HCG_WHY="its HEAD moved from ${HCG_HEAD:0:7} to ${head:0:7}; $HCG_WHY"   # BL-344-HCG-WHY-HEAD
   return 1

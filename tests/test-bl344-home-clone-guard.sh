@@ -34,6 +34,12 @@
 #       exactly the last three, each once, and does not blame the clean suite
 #       after the puller
 #   G10 that loop exits before any suite runs when the clone cannot be planted
+#   G11 the stamp moved away fails it, by itself and before a pull (review
+#       R-344-2: `find -newer` on a missing stamp errored into silence)
+#   G12 `git rm --cached` fails it (a write to the index alone)
+#   G13 `git update-index --chmod=+x` fails it (the same)
+#   G14 .git/config deleted fails it; .git/HEAD deleted fails it (a removal
+#       under .git changes only the .git directory's own time)
 #   M   mutants of the helper and of the step, each killed by a named case
 #
 # Hermetic: temp dirs only; every fixture is a local repository, and every HOME
@@ -210,6 +216,42 @@ case_G10() {   # FW — no plant, no suites
     || { CASE_DETAIL="rc $(cat "$d/rc"): $(tr '\n' ' ' < "$d/out" | cut -c1-300)"; return 1; }
 }
 
+case_G11() {   # FW — the stamp moved away
+  local out=""
+  out="$(planted "$1" "$(newtmp)" '
+    mv "$HCG_WORK/stamp" "$HCG_WORK/stamp.moved"
+    hcg_check && { echo "a missing stamp passes"; exit 1; }
+    case "$HCG_WHY" in *stamp*) ;; *) echo "HCG_WHY does not name the stamp: $HCG_WHY"; exit 1 ;; esac
+    hcg_replant || { echo "replant: $HCG_WHY"; exit 1; }
+    mv "$HCG_WORK/stamp" "$HCG_WORK/stamp.moved" && rgit -C "$C" pull --ff-only --quiet || { echo "fixture: pull"; exit 1; }
+    hcg_check && { echo "a pull after the stamp moved passes"; exit 1; }; :' 2>&1)" \
+    || { CASE_DETAIL="$out"; return 1; }
+}
+case_G12() {   # FW — git rm --cached
+  local out=""
+  out="$(planted "$1" "$(newtmp)" '
+    rgit -C "$C" rm -q --cached BL344-PLANTED || { echo "fixture: rm --cached"; exit 1; }
+    hcg_check && { echo "git rm --cached passes"; exit 1; }; :' 2>&1)" \
+    || { CASE_DETAIL="$out"; return 1; }
+}
+case_G13() {   # FW — update-index --chmod
+  local out=""
+  out="$(planted "$1" "$(newtmp)" '
+    rgit -C "$C" update-index --chmod=+x BL344-PLANTED || { echo "fixture: chmod"; exit 1; }
+    hcg_check && { echo "update-index --chmod passes"; exit 1; }; :' 2>&1)" \
+    || { CASE_DETAIL="$out"; return 1; }
+}
+case_G14() {   # FW — a file under .git deleted
+  local out=""
+  out="$(planted "$1" "$(newtmp)" '
+    rm -f "$C/.git/config"
+    hcg_check && { echo "a deleted .git/config passes"; exit 1; }
+    hcg_replant || { echo "replant: $HCG_WHY"; exit 1; }
+    rm -f "$C/.git/HEAD"
+    hcg_check && { echo "a deleted .git/HEAD passes"; exit 1; }; :' 2>&1)" \
+    || { CASE_DETAIL="$out"; return 1; }
+}
+
 check() {   # LABEL CASE
   CASE_DETAIL=""
   if "$2" "$REPO_ROOT"; then pass "$1${CASE_DETAIL:+ ($CASE_DETAIL)}"; else fail_ "$1" "${CASE_DETAIL:-failed}"; fi
@@ -225,6 +267,10 @@ check "G7: the plant refuses an existing directory or symlink and leaves it alon
 check "G8: a replant restores it; with nothing planted it refuses and removes nothing" case_G8
 check "G9: the unit-shard loop fails the puller, the failing suite and the one that does both (once each), and not the clean suite after the puller" case_G9
 check "G10: the unit-shard loop runs no suite when the clone cannot be planted" case_G10
+check "G11: the stamp moved away fails it, alone and before a pull" case_G11
+check "G12: git rm --cached (the index alone) fails it" case_G12
+check "G13: git update-index --chmod (the index alone) fails it" case_G13
+check "G14: a deleted .git/config fails it, and a deleted .git/HEAD" case_G14
 
 # ── M: mutants ───────────────────────────────────────────────────────────────
 ends_in() {   # FILE MARKER — how many lines end in MARKER
@@ -253,20 +299,25 @@ echo "=== M — mutants ==="
 mutant M1 "$HELPER" '# BL-344-HCG-NOCLOBBER' '  if false; then' case_G7 "the plant goes over an existing path"
 mutant M2 "$HELPER" '# BL-344-HCG-AHEAD' '  :' case_G1 "origin is not ahead, so a pull would not move the clone"
 mutant M3 "$HELPER" '# BL-344-HCG-GONE' '  if false; then' case_G6 "a removed clone is not seen"
-mutant M4 "$HELPER" '# BL-344-HCG-NEWER' '  return 0' case_G4 "a write under the clone is not seen"
+mutant M4 "$HELPER" '# BL-344-HCG-NEWER' '  if false; then' case_G5 "a file written under the clone is not seen"
 mutant M5 "$HELPER" '# BL-344-HCG-INDEX' '  newer="$(find "$HCG_CLONE" -newer "$HCG_WORK/stamp" 2>/dev/null)"' case_G2 "an index refresh by a reader counts as a touch"
 mutant M6 "$HELPER" '# BL-344-HCG-REPLANT-OWN' '  :' case_G8 "a replant removes a clone this shell did not plant"
 mutant M7 "$HELPER" '# BL-344-HCG-WHY-HEAD' '  :' case_G3 "HCG_WHY does not say the HEAD moved"
-mutant M8 "$HELPER" '# BL-344-HCG-STAMP' '  :' case_G4 "no stamp, so nothing is ever newer"
+mutant M8 "$HELPER" '# BL-344-HCG-STAMP' '  :' case_G1 "no stamp is written, so nothing could ever be newer"
 mutant M9 "$HELPER" '# BL-344-HCG-WHY' '  HCG_WHY=""' case_G5 "HCG_WHY does not name what was written"
 mutant M10 "$HELPER" '# BL-344-HCG-REPLANT-RM' '  :' case_G8 "a replant does not clear the touched clone first"
-mutant M11 "$WF" '# BL-344-RUNNER-CHECK' '            if false; then' case_G9 "the step never checks the clone"
-mutant M12 "$WF" '# BL-344-RUNNER-REPLANT' '              :' case_G9 "the step does not plant again after a touch"
-mutant M13 "$WF" '# BL-344-RUNNER-SOURCE' '          :' case_G9 "the step does not load the check"
-mutant M14 "$WF" '# BL-344-RUNNER-SAY' '              :' case_G9 "the step does not say which suite touched the clone"
-mutant M15 "$WF" '# BL-344-RUNNER-FAILED' '              :' case_G9 "a suite that touched the clone is not counted as failed"
-mutant M16 "$WF" '# BL-344-RUNNER-FAILED' '              failed+=("${t}")' case_G9 "a suite that fails and touches the clone is counted twice"
-mutant M17 "$WF" '# BL-344-RUNNER-PLANT' '          hcg_plant "$HOME/.claude-dev-framework" "$RUNNER_TEMP/bl344-home-clone"' case_G10 "the step runs the suites when the plant failed"
+mutant M11 "$HELPER" '# BL-344-HCG-STAMP-GONE' '  if false; then' case_G11 "a missing stamp passes (find -newer fails into silence)"
+mutant M12 "$HELPER" '# BL-344-HCG-PATHS' '  elif false; then' case_G14 "a path removed under .git is not seen"
+mutant M13 "$HELPER" '# BL-344-HCG-STAGED' '  elif false; then' case_G12 "a write to the index alone is not seen"
+mutant M14 "$HELPER" '# BL-344-HCG-BASELINE' '  :' case_G1 "what was planted is not recorded"
+mutant M15 "$HELPER" '# BL-344-HCG-PATHLIST' '_hcg_paths() { :; }' case_G14 "the path listing lists nothing, so a removal compares equal"
+mutant M16 "$WF" '# BL-344-RUNNER-CHECK' '            if false; then' case_G9 "the step never checks the clone"
+mutant M17 "$WF" '# BL-344-RUNNER-REPLANT' '              :' case_G9 "the step does not plant again after a touch"
+mutant M18 "$WF" '# BL-344-RUNNER-SOURCE' '          :' case_G9 "the step does not load the check"
+mutant M19 "$WF" '# BL-344-RUNNER-SAY' '              :' case_G9 "the step does not say which suite touched the clone"
+mutant M20 "$WF" '# BL-344-RUNNER-FAILED' '              :' case_G9 "a suite that touched the clone is not counted as failed"
+mutant M21 "$WF" '# BL-344-RUNNER-FAILED' '              failed+=("${t}")' case_G9 "a suite that fails and touches the clone is counted twice"
+mutant M22 "$WF" '# BL-344-RUNNER-PLANT' '          hcg_plant "$HOME/.claude-dev-framework" "$RUNNER_TEMP/bl344-home-clone"' case_G10 "the step runs the suites when the plant failed"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed"
