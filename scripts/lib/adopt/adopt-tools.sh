@@ -69,7 +69,9 @@ _adopt_tools_devos() {
 # URL. `init.sh` has the same exposure through the same field; that is a defect
 # in the shared resolver with a wider blast radius than this package, filed on
 # `## BL-242:` rather than fixed from here, because §10 authorises WP10 to
-# INVOKE the resolver, not to change it.
+# INVOKE the resolver, not to change it. `## BL-310:` row 1 fixed it there
+# (`# BL-310-MANUAL-NOT-A-KEY`): the URL now arrives in manual_install, and the
+# test below stays as the backstop for any payload that is not the resolver's.
 #
 # A FIRST CUT RESOLVED THE FIRST WORD AS A COMMAND AND THAT WAS WRONG ON LINUX.
 # The matrix's linux_apt/dnf/pacman values are ARRAYS, which the resolver joins
@@ -162,7 +164,7 @@ _adopt_scanner_present() {
 adopt_resolve_tools() {
   local root="$1" report="$2"
   local resolver out lang devos name cmd
-  local _bl225_fp_before="" _bl225_fp_after=""
+  local _bl225_fp_before="" _bl225_fp_after="" _elev=""
 
   resolver="$(_adopt_resolver_path)"
   adopt_head "Making sure the tools this needs are here"
@@ -282,6 +284,10 @@ adopt_resolve_tools() {
   # `eval` a string they had not seen.
   adopt_note "This would run, exactly as written:"
   adopt_note "  $cmd"
+  # `## BL-310:` row 2 — and what that string hides. The Linux recipe is the
+  # framework's installer, which runs sudo; the line above does not say so.
+  _elev="$(soif_install_elevation_note "$cmd")"
+  [ -z "$_elev" ] || adopt_note "Administrator rights: $_elev."   # BL-310-ADOPT-ELEVATION
   # THE ANSWER WORDING AVOIDS THE LITERAL `install ` ON PURPOSE. `## BL-225:`'s
   # T9 is a DENYLIST over write verbs — `install ` among them — anchored to
   # exclude output functions by first token but not `adopt_ask_choice`'s
