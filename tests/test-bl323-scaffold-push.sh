@@ -33,7 +33,7 @@
 #   G  the printed remedies (check-phase-gate.sh's deferred arm, check-gate.sh's
 #      BL-157 message) name scripts/check-gate.sh --repair, and it works.
 #   Q4b a commit adding .claude/settings.json; Q2m Q2's route on a master
-#      project (the master attempt applies the same check).
+#      project (the master attempt applies the same check); Q6 POSIX mode.
 #   S  by structure (S3: init.sh's record call, its arm, and `ls -A`): init.sh's two sites and check-gate.sh's one call the
 #      helper, nothing pushes main/master around it, and nothing exports the
 #      pair.
@@ -317,6 +317,31 @@ else
   fail_ "Q2m" "branch=$q2m_branch rc=$q2m_rc bare master=$(remote_sha "$Q2mB" master) records=$(att_count "$Q2m") out: $(printf '%s' "$q2m_out" | grep -m4 -E 'INFO|BLOCKED|ATTESTED|Push' | tr '\n' '|')"
 fi
 
+# Q6 — POSIX mode. In bash's POSIX mode (set -o posix, or POSIXLY_CORRECT in the
+# environment) a prefix assignment on a FUNCTION call outlives the call, exported,
+# on bash 3.2, 4.0, 4.4 and 5.0 (5.1+ discards it). host_push_initial is a function,
+# so the main attempt's pair leaked into the master attempt: here main is the
+# scaffold but the remote rejects it, master carries app.js, and the master push
+# went out attested. Each attempt now runs in a subshell. On this Mac (3.2) the
+# case kills that mutant; on a 5.1+ runner the pair is discarded anyway, so there
+# the case guards the behaviour, not the mutant.
+Q6="$(newtmp)/proj"; Q6B="${Q6%/proj}/bare.git"
+mkproj "$Q6" main && mkbare "$Q6B" main && git -C "$Q6" remote add origin "$Q6B" || { echo "FATAL: Q6 fixture" >&2; exit 1; }
+printf '#!/bin/sh\nwhile read o n r; do [ "$r" = refs/heads/main ] && { echo "BL323-REMOTE-REJECTS-MAIN" >&2; exit 1; }; done\nexit 0\n' > "$Q6B/hooks/pre-receive"
+chmod +x "$Q6B/hooks/pre-receive"
+( cd "$Q6" && git checkout -q -b master && echo 'console.log("operator code")' > app.js && git add app.js \
+    && git commit -qm "feat: operator code" && git checkout -q main ) >/dev/null 2>&1 || { echo "FATAL: Q6 master" >&2; exit 1; }
+q6_master="$(git -C "$Q6" rev-parse master)"
+( cd "$Q6" && POSIXLY_CORRECT=1 bash -c '. "$1" && host_push_initial() { git push -u origin "$1"; } && _phase2_push_scaffold host_push_initial' _ "$PHASE2" ) </dev/null >"$Q6.out" 2>&1
+q6_rc=$?
+q6_master_recs="$(jq --arg m "$q6_master" '[(.pr_review_attestations // [])[] | select(.pushed == $m)] | length' "$Q6/.claude/process-state.json" 2>/dev/null || printf 'none')"
+if [ "$q6_rc" -ne 0 ] && [ "$(remote_sha "$Q6B" master)" = "none" ] && [ "$q6_master_recs" = "0" ] \
+   && _gq 'BL323-REMOTE-REJECTS-MAIN' "$Q6.out" && _gq 'no review has ever been recorded' "$Q6.out"; then
+  pass "Q6: in POSIX mode the main attempt's pair does not reach the master attempt — a non-scaffold master is REFUSED and gets no scaffold record"
+else
+  fail_ "Q6" "rc=$q6_rc bare master=$(remote_sha "$Q6B" master) (local $q6_master) records naming master=$q6_master_recs out: $(oneline "$Q6.out")"
+fi
+
 echo ""
 echo "=== R. check-gate.sh --repair, the remedy init prints ==="
 
@@ -430,10 +455,15 @@ s_fresh_sets="$(_code "$INIT_SH" | grep -c '^[[:space:]]*SCAFFOLD_DIR_FRESH=true
 s_fresh_test="$(_code "$INIT_SH" | awk '/^[[:space:]]*$/ {next} /^[[:space:]]*SCAFFOLD_DIR_FRESH=true[[:space:]]*$/ {print prev; exit} {prev=$0}' | sed 's/^[[:space:]]*//')"
 S3_WANT_ARM='if [ "$SCAFFOLD_DIR_FRESH" = true ]; then'
 S3_WANT_TEST='if [ ! -e "$PROJECT_DIR" ] || [ -z "$(ls -A "$PROJECT_DIR" 2>/dev/null)" ]; then'
-if [ "$s_rec_calls" = "1" ] && [ "$s_rec_arm" = "$S3_WANT_ARM" ] && [ "$s_fresh_sets" = "1" ] && [ "$s_fresh_test" = "$S3_WANT_TEST" ]; then
-  pass "S3: init.sh calls _phase2_record_scaffold exactly once, inside the SCAFFOLD_DIR_FRESH arm, and freshness is decided by 'ls -A' (dotfiles count)"
+# Every assignment of the flag, in order: false before the test, true inside its
+# arm, nothing else anywhere (a default of true, or a reset after the arm).
+s_fresh_seq="$(_code "$INIT_SH" | grep -o 'SCAFFOLD_DIR_FRESH=[^[:space:];]*' | tr '\n' ' ')"
+s_fresh_before="$(_code "$INIT_SH" | awk '/^[[:space:]]*$/ {next} index($0, "ls -A \"$PROJECT_DIR\"") {print prev; exit} {prev=$0}' | sed 's/^[[:space:]]*//')"
+if [ "$s_rec_calls" = "1" ] && [ "$s_rec_arm" = "$S3_WANT_ARM" ] && [ "$s_fresh_sets" = "1" ] && [ "$s_fresh_test" = "$S3_WANT_TEST" ] \
+   && [ "$s_fresh_seq" = "SCAFFOLD_DIR_FRESH=false SCAFFOLD_DIR_FRESH=true " ] && [ "$s_fresh_before" = "SCAFFOLD_DIR_FRESH=false" ]; then
+  pass "S3: init.sh calls _phase2_record_scaffold exactly once, inside the SCAFFOLD_DIR_FRESH arm; the flag is set false before an 'ls -A' test and true only inside it"
 else
-  fail_ "S3" "record calls=$s_rec_calls (want 1); line before it='$s_rec_arm'; fresh assignments=$s_fresh_sets (want 1); test before it='$s_fresh_test'"
+  fail_ "S3" "record calls=$s_rec_calls (want 1); line before it='$s_rec_arm'; fresh=true lines=$s_fresh_sets (want 1); test before it='$s_fresh_test'; assignments in order='$s_fresh_seq' (want false then true); line before the test='$s_fresh_before'"
 fi
 
 echo ""
