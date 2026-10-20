@@ -449,7 +449,9 @@ cmd_repair() {
   if _step_done "pushed_initial"; then
     print_info "Skipping push — already recorded"
   else
-    host_push_initial main 2>/dev/null || host_push_initial master || {
+    # BL-323: the pre-push review gate is installed by now, so this push takes
+    # its attested escape, the same as init.sh's (`# BL-323-SCAFFOLD-ATTEST`).
+    _phase2_push_scaffold host_push_initial || {
       print_fail "Push failed — see driver error above"
       return 1
     }

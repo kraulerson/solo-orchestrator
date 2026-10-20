@@ -96,13 +96,12 @@ STUB
 INIT_RC=0
 run_init() {
   local d="$1" host="$2" url="$3"; shift 3
-  local extra=""
-  [ "$host" = other ] && extra="--remote-url $url --branch-protection-attested"
-  # shellcheck disable=SC2086
+  local extra=()
+  if [ "$host" = other ]; then extra=(--remote-url "$url" --branch-protection-attested); fi
   ( cd "$d" && GIT_CONFIG_GLOBAL="$d/gitconfig" PATH="$d/bin:$PATH" GH_TOKEN="e2e-test-sentinel-never-valid" \
       MOCK_GH_REPO_URL="$url" bash "$INIT_SH" --non-interactive --project bl323 --platform web \
       --language typescript --project-dir "$d/proj" --track light --deployment personal \
-      --git-host "$host" --visibility private $extra "$@" ) </dev/null >"$d/init.log" 2>&1
+      --git-host "$host" --visibility private ${extra[@]+"${extra[@]}"} "$@" ) </dev/null >"$d/init.log" 2>&1
   INIT_RC=$?
 }
 remote_sha() { git -C "$1" rev-parse -q --verify "refs/heads/$2" 2>/dev/null || printf 'none'; }

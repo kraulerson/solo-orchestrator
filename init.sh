@@ -2422,7 +2422,11 @@ create_and_protect_remote() {
     # flips the Sponsored/Production hard-fail tests RED; reverting
     # _bl084_tier_bypassable to trust `track` flips the sponsored/production
     # `--track light` bypass tests RED.
-    if ! git push -u origin main 2>/dev/null && ! git push -u origin master 2>/dev/null; then
+    #
+    # BL-323: the push goes through _phase2_push_scaffold — the pre-push review
+    # gate is already installed, so the scaffold takes its attested escape, and
+    # neither attempt's error is discarded (`# BL-323-SCAFFOLD-ATTEST`).
+    if ! _phase2_push_scaffold git push -u origin; then
       if ! _bl084_tier_bypassable; then  # BL-084-TIER-GATE
         # NON-bypassable tier (POC-Sponsored / Production).
         print_fail "Push failed — a working remote is MANDATORY for POC-Sponsored / Production (organizational or sponsored_poc) projects. Local-only and deferred-push are NOT permitted for this tier."  # lint-fail-emit-exit-status: allow BL-084 sponsored/production hard-fail — the `return 1` below (after 2 remediation-hint lines) propagates to record_init_failure + non-zero exit
@@ -2497,8 +2501,9 @@ create_and_protect_remote() {
     _record_phase2_step "remote_repo_created"
 
     print_info "Pushing initial commit..."
-    # Try main first, fall back to master
-    host_push_initial main 2>/dev/null || host_push_initial master || { print_fail "Push failed — $remote_url exists but empty"; return 1; } # lint-diag-ok: BL-197 — first-attempt noise only; the DECISIVE second attempt (master) is unsilenced, so the failing path still reaches the operator with the host's own words
+    # main, then master; through the review gate's attested escape, with neither
+    # attempt silenced (`# BL-323-SCAFFOLD-ATTEST`, scripts/lib/phase2-state.sh).
+    _phase2_push_scaffold host_push_initial || { print_fail "Push failed — $remote_url exists but empty"; return 1; }
     _record_phase2_step "pushed_initial"
 
     print_info "Configuring branch protection ($mode mode)..."
