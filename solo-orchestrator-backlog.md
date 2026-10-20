@@ -25261,7 +25261,7 @@ M133, M135). Verified by the review on `791ed0d`, not re-run on these changes: m
 **Logged:** 2026-10-08 (issue #421, filed by an outside contributor 2026-09-17; route decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** High — every host's scaffold push fails, and the remedy init prints fails the same way
-**Status:** Closed — shipped 2026-10-20 (fixes `68c103f9` and `2dfc052c`; suites `ef38e50c` and `de4b86a8`)
+**Status:** Closed — shipped 2026-10-20 (fixes `68c103f9`, `2dfc052c` and `6bfedafe`; suites `ef38e50c` and `de4b86a8`)
 
 **What.** `install_precommit_hook` writes `.git/hooks/pre-push` (`# BL-243-HOOK-TEMPLATE`) before the remote
 step pushes the scaffold. A new project has no review record, so `scripts/check-pr-review.sh` refuses the push
@@ -25316,8 +25316,8 @@ depth, the writer's root check, the freshness check, the record call, the messag
 by a named case. A review of that tree found the check's width unpinned (a `.claude/*` file pattern, `ls` without
 `-A`, and an unconditional `master` attempt all survived, and init.sh's half was pinned only in the full lane); the
 suites now carry Q4b (a commit adding `.claude/settings.json`), Q2m (Q2 on a `master` project), I7b (a directory holding
-only `.github/workflows/`) and S3 (init.sh's record call, its arm and `ls -A`, by structure, in the unit lane): unit 20
-cases, init 10, and those five mutants each failed by a named case.
+only `.github/workflows/`) and S3 (init.sh's record call, its arm and `ls -A`, and the flag's assignments, by structure,
+in the unit lane): unit 21 cases with Q6 (residual 4), init 10, and those mutants each failed by a named case.
 
 **Residuals, not fixed.**
 1. The check writes the attestation before git sends anything (pre-push runs first), so a push the remote then
@@ -25331,11 +25331,14 @@ cases, init 10, and those five mutants each failed by a named case.
    `git replace --graft` making a commit with history look like a root, gets a branch carrying `app.js` attested
    (measured). That is deliberate forgery, the same effort as setting the attested pair by hand, and the record still
    keeps `pushed`, `by` and `at`: `# BL-112-SAST-NOTRUN`'s posture.
-4. In bash's POSIX mode (`set -o posix`, or `POSIXLY_CORRECT` in the environment) a prefix assignment on a function
-   call persists after it returns, and is exported, on bash 3.2, 4.0, 4.4 and 5.0; 5.1, 5.2 and 5.3 discard it
-   (measured, `bash:<v>` images and this Mac). So in that mode the pair outlives `host_push_initial` in init.sh's
-   first-class branch and in `--repair`. Neither makes another push in that process, so it is inert; running the
-   attempt in a subshell would remove it.
+4. Fixed, not residual: in bash's POSIX mode (`set -o posix`, or `POSIXLY_CORRECT` in the environment) bash 3.2, 4.0,
+   4.4 and 5.0 keep a prefix assignment on a function call after it returns, exported (5.1 to 5.3 discard it). It was
+   not inert: the pair on `host_push_initial` reached the `master` fallback, so with `main` the scaffold but rejected
+   by the remote, a `master` carrying `app.js` went out attested with a second scaffold record (measured on this
+   Mac's 3.2). Each attested attempt now runs in a subshell (`# BL-323-ATTEST-SUBSHELL`), measured clean on 3.2, 4.0,
+   4.4, 5.0 and 5.2 in POSIX mode. Q6 runs that shape under `POSIXLY_CORRECT=1` on the host's bash: on macOS it fails
+   when the subshell is removed; on a runner's bash 5.x the pair is discarded anyway, so there it guards the
+   behaviour, not the mutant.
 5. CLAUDE.md's ENVIRONMENT TRAPS said the `e2e-init*` trio was "already red on main for unrelated reasons"; the
    supervisor corrected it in `57c6fe93`. Measured: on macOS the trio is red at `74af361c` and green at the fix; in
    `ubuntu:24.04` (bash 5.2, arm64, with `nodejs`) `run-all.sh` is 11 run, 4 failed at base and 11 run, 1 failed at the
