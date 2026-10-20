@@ -26234,56 +26234,76 @@ project"), before `44b3d13`.
 **Logged:** 2026-10-17
 **Category:** CI headroom
 **Severity:** Low — green today; the next slow suite on either leg reds it
-**Status:** Closed — 2026-10-19 (fix `382c80e`). Projected, not yet observed: the real proof is the pull request's own
+**Status:** Closed — 2026-10-19 (fix `382c80e`; refit to four runs in `ae00781`). Projected, not yet observed: the real proof is the pull request's own
 `unit-shard` run, whose per-leg times the supervisor adds below once it exists.
 
 **What.** On `main` run 39003021516 (push of `08e940f`, after the eleventh leg, PR #510), `unit-shard (adopt)`
 took 640s and `unit-shard (slow-misc)` 620s of the 720s cap (`timeout-minutes: 12`); `approval` took 265s.
 Direction: move a measured long pole off each (the `pin_adopt` / `pin_adopt_b` notes in `tests.yml`), or add a leg.
 
-**What was measured.** Per-suite `::group::` spans from two runs of the same code: PR #515's run 39300587530 (tip
-`6a2746a`) and the main push run 39302163304 (merge of PR #515). Job times, seconds, of the 720s cap:
-`adopt` 655 and 498, `approval` 642 and 594, `slow-misc` 626 and 661, `lint-scan` 570 and 700, `adopt-b` 598 and 486,
-`mcp-mutants` 582 and 612, `commit-hooks` 539 and 583, `mcp` 494 and 553, `sast` 542 and 461, `rest` 480 and 463,
-`lint-sweep` 433 and 438. Setup is 21-32s per leg. Long poles (seconds on those two runs): bl132-sast-index-scan
-375 and 323 (`sast`), bl311-adopt-mcp-mutants 307 and 319 (`mcp-mutants`), wp9b-preflight-approval 282 and 215 and
-bl322-s4-wording 118 and 88 (`adopt`), bl314-tool-usage-concurrent 218 and 207 and bl310-adopt-symlink-write 159 and
-137 (`approval`), wp6-collision-archive 148 and 159 and upgrade-sync-framework 60 and 62 (`slow-misc`). The suites total
-~5850s and ~5770s, so eleven legs average ~560s even if perfectly balanced, and the same suites swing a leg by up to
-157s between runs: a re-pin of eleven legs fitted to one run read 614s and 709s on the other. Fitted to both runs at
-once, eleven legs reach 574.5s with twenty moves and no slack on either run, so a twelfth leg was added instead
-(the doctrine on `pin_mcp` in `tests.yml`: split further, never raise the cap).
+**What was measured.** Per-suite `::group::` spans (group start to end, per leg) from four runs: PR #515's run
+39300587530 (tip `6a2746a`), the main push run 39302163304 (merge of PR #515), PR #516's run 39347576623 and the main push
+run 39348728358 (merge of PR #516, `ad6d5854`). The last two ran the eleven-leg layout and 261 suites; the first two ran 260.
+Setup is 21-32s per leg. Long poles (seconds, runs 1-4): bl132-sast-index-scan 375, 323 (`sast`), bl311-adopt-mcp-mutants
+307, 319 (`mcp-mutants`), wp9b-preflight-approval 282, 215 (`adopt`), bl314-tool-usage-concurrent 218, 207 and
+bl310-adopt-symlink-write 159, 137 (`approval`), wp6-collision-archive 148, 159 (`slow-misc`), bl277-adopted-detector-on
+115, 111, 139, 160 (`rest`). The suites total ~5850s per run, so eleven legs average ~560s even if perfectly balanced, and
+the same suites swing a leg by up to 157s between runs.
 
-**Fix.** Leg `adopt-c` (matrix, roster, `pins_for` arm, `pin_adopt_c`) and eleven moves; each moved entry carries its
-measured seconds, both run ids and its from-leg in `tests.yml`. `adopt-c` takes bl310-adopt-symlink-write (from
-`approval`), bl322-s4-wording (`adopt`), wp2-scout-sections (`lint-scan`), wp9c-session-layer (`commit-hooks`) and
-upgrade-sync-framework (`slow-misc`). The rest: bl200-syntax-detector `mcp-mutants` -> `mcp`, bl235-tool-matrix-probes
-`lint-scan` -> `adopt-b`, bl276-stdin-hang `slow-misc` -> `approval`, bl311-c-scout-runner-ignore-rule `mcp` ->
-`commit-hooks`, bl311-d-relayed-escape `mcp-mutants` -> `rest`, wp4-driver `adopt-b` -> `lint-sweep`. No suite's content
-changed; the timeout, the `unit` aggregator's name and its need of every leg are unchanged.
+**First fit, refuted out of sample.** Fitted to runs 1 and 2 alone, the map (a twelfth leg, `adopt-c`, and eleven moves)
+projected 546s for the worst leg. Runs 3 and 4 refuted it: that map read `rest` at 600s and 703s (bl311-d-relayed-escape
+had been moved INTO `rest`, the leg every new suite lands in, and PR #516's suite costs 31.9s and 33.5s on CI, not the ~15s
+assumed) and `lint-sweep` at 585s. A fit to one pair of runs read 614s or 709s on the other. So the pins are now fitted
+to all four runs; the twelfth leg stays (the doctrine on `pin_mcp` in `tests.yml`: split further, never raise the cap).
 
-**Projection** (job seconds = setup 29s + the suites' measured spans; `rest` carries the ~15s suite PR #516 adds):
+**Fix.** Leg `adopt-c` (matrix, roster, `pins_for` arm, `pin_adopt_c`), the first eleven moves, and a refit of eleven more
+on all four runs: bl131-domsink-rules `sast` -> `mcp`, bl277-adopted-detector-on and bl277-detector-authorship `rest` ->
+`lint-scan` and `sast`, bl311-d-relayed-escape `rest` -> `lint-sweep` (back out of `rest`), bl318-g1-test-command `mcp` ->
+`adopt`, dispositions-template `adopt` -> `slow-misc`, wp1-scout `slow-misc` -> `rest`, wp9d-driver-edges `slow-misc` ->
+`sast`, f015-tamper-pin-allowlist `lint-scan` -> `adopt-b`, lint-raw-read-prompt `lint-scan` -> `lint-sweep`, run-lints
+`lint-sweep` -> `slow-misc`. Each moved entry carries its four measured spans and its from-leg in `tests.yml`. The cap, the
+`unit` aggregator's name and its need of every leg are unchanged; no suite's content changed. `rest` is kept the lightest
+leg on purpose (CLAUDE.md says why).
 
-| Leg | Before, run 39300587530 | Before, 39302163304 | After, 39300587530 | After, 39302163304 |
+**Measured before** (job seconds, eleven legs; `rest` of runs 3 and 4 carries PR #516's suite):
+
+| Leg | Run 1 | Run 2 | Run 3 | Run 4 |
 |---|---|---|---|---|
-| `lint-sweep` | 433 | 438 | 544 | 528 |
-| `lint-scan` | 570 | 700 | 425 | 541 |
-| `sast` | 542 | 461 | 545 | 469 |
-| `slow-misc` | 626 | 661 | 514 | 546 |
-| `adopt` | 655 | 498 | 540 | 415 |
-| `adopt-b` | 598 | 486 | 533 | 446 |
-| `adopt-c` | — | — | 544 | 516 |
-| `commit-hooks` | 539 | 583 | 501 | 542 |
-| `mcp` | 494 | 553 | 490 | 543 |
-| `mcp-mutants` | 582 | 612 | 515 | 545 |
-| `approval` | 642 | 594 | 538 | 516 |
-| `rest` | 480 | 463 | 529 | 522 |
+| `lint-sweep` | 433 | 438 | 495 | 473 |
+| `lint-scan` | 570 | 700 | 540 | 495 |
+| `sast` | 542 | 461 | 504 | 445 |
+| `slow-misc` | 626 | 661 | 627 | 443 |
+| `adopt` | 655 | 498 | 561 | 650 |
+| `adopt-b` | 598 | 486 | 524 | 525 |
+| `commit-hooks` | 539 | 583 | 539 | 552 |
+| `mcp` | 494 | 553 | 544 | 575 |
+| `mcp-mutants` | 582 | 612 | 628 | 626 |
+| `approval` | 642 | 594 | 651 | 609 |
+| `rest` | 480 | 463 | 556 | 665 |
 
-Worst leg after: 546s (76% of 720s; the line was 576s, 80%), against 700s (97%) before. Checked on the edited file: the
-job's own selection script, extracted and run for each of the twelve legs, puts all 260 canonical suites in exactly one
-leg (none twice, none dropped); four mutants of the roster, the `pins_for` arm, a double pin and a pin absent from the
-canonical array each fail it by name. The legs sit within 30s of each other, so a third run's swing can still push one
-above 576s; the cap is what holds the line, and the next re-pin starts from the run after this one.
+**Projected after** (setup 29s + the suites' measured spans on each run; PR #516's suite counted at 31.9s and 33.5s in
+`rest` on runs 1 and 2 as well, where it did not yet exist):
+
+| Leg | Run 1 | Run 2 | Run 3 | Run 4 |
+|---|---|---|---|---|
+| `lint-sweep` | 528 | 535 | 558 | 539 |
+| `lint-scan` | 461 | 548 | 470 | 467 |
+| `sast` | 554 | 492 | 522 | 461 |
+| `slow-misc` | 546 | 557 | 554 | 439 |
+| `adopt` | 544 | 444 | 485 | 556 |
+| `adopt-b` | 560 | 483 | 496 | 499 |
+| `adopt-c` | 544 | 516 | 511 | 487 |
+| `commit-hooks` | 501 | 542 | 506 | 520 |
+| `mcp` | 520 | 551 | 551 | 554 |
+| `mcp-mutants` | 515 | 545 | 553 | 552 |
+| `approval` | 538 | 516 | 541 | 510 |
+| `rest` | 424 | 419 | 446 | 503 |
+
+Worst leg after: 560s on any of the four runs (78% of 720s; the line was 576s, 80%), against 700s (97%) before; `rest`
+at most 503s. Checked on the edited file: the job's own selection script, extracted and run for each of the twelve legs,
+puts all 261 canonical suites in exactly one leg (none twice, none dropped); mutants of the roster, the `pins_for` arm, a
+double pin and a pin absent from the canonical array each fail it by name. The legs sit within 30s of each other, so a
+fifth run's swing can still push one above 576s; the cap is what holds the line.
 
 ## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
 
