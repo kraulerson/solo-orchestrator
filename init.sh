@@ -1360,6 +1360,14 @@ create_project() {
 
   print_step "Creating project at $PROJECT_DIR..."
 
+  # BL-323-SCAFFOLD-FRESH: only a directory init creates, or finds empty, yields a
+  # scaffold commit that is init's alone. --allow-existing-dir can point at files
+  # or history the operator already had; those are never recorded as the scaffold.
+  SCAFFOLD_DIR_FRESH=false
+  if [ ! -e "$PROJECT_DIR" ] || [ -z "$(ls -A "$PROJECT_DIR" 2>/dev/null)" ]; then
+    SCAFFOLD_DIR_FRESH=true
+  fi
+
   mkdir -p "$PROJECT_DIR"
   cd "$PROJECT_DIR"
 
@@ -2250,6 +2258,18 @@ Framework: Solo Orchestrator v1.0"
   # post-commit does NOT dirty the working tree.
   ( git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt ) || true
 
+  # BL-323-SCAFFOLD-RECORD: record the scaffold commit, so the scaffold push (here
+  # or by check-gate.sh --repair) can take the review check's attested escape for
+  # it and for nothing else (`# BL-323-SCAFFOLD-ONLY`, scripts/lib/phase2-state.sh).
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/scripts/lib/phase2-state.sh"
+  if [ "$SCAFFOLD_DIR_FRESH" = true ]; then
+    _phase2_record_scaffold \
+      || print_warn "Could not record the scaffold commit — its push will need a review on record, like any other push."
+  else
+    print_info "The project directory already held files or history, so the first push is treated as ordinary work: the pre-push review check will want a review on record."
+  fi
+
   # --- Host-aware repo creation (spec 2026-04-21 host-aware repo gate) ---
   # Reads git_host + repo_visibility from intake-progress.json (set by
   # intake-wizard.sh). If absent, prompts inline. Creates remote, registers
@@ -2444,7 +2464,9 @@ create_and_protect_remote() {
         elif [ "${DEFER_REMOTE_PUSH:-false}" = true ]; then
           print_warn "Push failed — DEFERRING the push at your explicit request (--defer-remote-push)."
           print_warn "You MUST push before advancing Phase 1→2 — the gate WILL block you until the remote has the branch."
-          print_info "  git push -u origin main            # then verify with:"
+          # BL-323-REMEDY-DEFER: a plain `git push` meets the pre-push review check
+          # with no review on record; --repair pushes the scaffold the way init does.
+          print_info "  scripts/check-gate.sh --repair     # pushes the scaffold, then verify with:"
           print_info "  scripts/check-gate.sh --preflight"
           _record_remote_ack "push_deferred_acknowledged" "initial push to '$remote_url' failed; operator will push manually before Phase 1→2"
           # Deferral is on the record — init may exit 0, but the Phase 1→2

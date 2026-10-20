@@ -2368,7 +2368,8 @@ if [ "$current_phase" -ge 2 ]; then
     elif [ "$bl084_push_deferred_ack" = true ]; then
       echo -e "${RED}[FAIL]${NC} Phase 1→2 push gate: push was DEFERRED (--defer-remote-push) but the remote still does NOT have the branch (BL-084)."
       echo "        The deferral does not let you advance — push before Phase 1→2:"
-      echo "          git push -u origin main   # then: scripts/check-gate.sh --preflight"
+      echo "          scripts/check-gate.sh --repair   # then: scripts/check-gate.sh --preflight"   # BL-323-REMEDY-DEFER-GATE
+      echo "        (Commits made since init need a review on record first: scripts/record-pr-review.sh.)"
       issues=$((issues + 1))
     else
       echo -e "${RED}[FAIL]${NC} Phase 1→2 push gate: no verified remote and no local-only acknowledgment on record (BL-084)."

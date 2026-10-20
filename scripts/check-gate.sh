@@ -338,7 +338,7 @@ cmd_repair() {
       # `origin` with no pushed branch) — the guard is intact, we simply have
       # nothing legitimate to reconcile from. Name the exact recovery command
       # so the operator is not left guessing (BL-157 message ask).
-      print_fail "Post-hoc attestation preconditions unmet: no pushed remote branch detected on 'origin' (remote_repo_created / pushed_initial are not on record, and the repair preflight found no repo+branch to reconcile them from — BL-157). The attestation covers the protection TIER, not the remote's existence. Create and push the remote first, e.g.:  git push -u origin main   then re-run:  scripts/check-gate.sh --repair --branch-protection-attested"
+      print_fail "Post-hoc attestation preconditions unmet: no pushed remote branch detected on 'origin' (remote_repo_created / pushed_initial are not on record, and the repair preflight found no repo+branch to reconcile them from — BL-157). The attestation covers the protection TIER, not the remote's existence. Push first with:  scripts/check-gate.sh --repair   (it pushes the scaffold through the pre-push review check; on a free-tier host its protection step then fails, as expected)   then re-run:  scripts/check-gate.sh --repair --branch-protection-attested"  # BL-323-REMEDY-BL157
       return 1
     else
       _bp_host=$(jq -r '.host // ""' .claude/manifest.json 2>/dev/null || echo "")
