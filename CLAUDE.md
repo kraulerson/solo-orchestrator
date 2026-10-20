@@ -403,10 +403,12 @@ here.
     silently depended on. A suite that runs `upgrade-project.sh` exports an
     empty temp HOME and unsets `CDF_HOME` (`# BL-344-HOME`): its
     `# BL-320-UP-PULL` pulls `~/.claude-dev-framework`, which on a
-    contributor's machine is their own clone. The unit-shard step enforces it
-    (`## BL-344:`): it plants a stand-in clone in the runner's HOME (one file,
-    NOT the Guardrails, so every reader still finds none) and fails any suite
-    that writes under it (`# BL-344-RUNNER-CHECK`). It sees a write that acts
+    contributor's machine is their own clone. The unit-shard step checks the
+    HOME route only, since CI never sets `CDF_HOME` (`## BL-344:`): it plants a
+    stand-in clone in the runner's HOME (one file, NOT the Guardrails, so no
+    reader finds a usable clone, though `verify-install.sh`, which looks for
+    `.git` alone, reports one) and fails any suite that writes under it
+    (`# BL-344-RUNNER-CHECK`). It sees a write that acts
     on any clone (a pull, a fetch, a file); not one that first needs the
     Guardrails' own files, such as the pull inside CDF's refresh that
     `refresh-guardrails.sh` runs.

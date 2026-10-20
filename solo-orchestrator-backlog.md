@@ -25652,12 +25652,15 @@ repository one commit ahead (so a pull moves it), and an untracked sentinel file
 only (`GIT_ALLOW_PROTOCOL=file`, dead proxies), and a `git` first on PATH logged every call naming the clone and every
 remote URL. Each suite's HEAD, reflog and every path written under the stand-in were compared before and after, and the
 contributor's real `~/.claude-dev-framework` after every suite: it stayed at `654917b` with 33 reflog entries throughout.
+The shim saw git calls only: 23 of the readers below were found that way, and bl318-g5 by reading its source (review
+R-344-1, which also found bl320, missed here because its own temp clones, also named `.claude-dev-framework`, filled
+the summary). So the reader count is a floor.
 
 | Suites | Wrote the HOME clone? | Network? | Fixed how |
 |---|---|---|---|
 | `tests/test-bl312-tldr-mode.sh`, `tests/test-upgrade-manifest-refresh.sh`, `tests/test-upgrade-non-interactive.sh`, `tests/test-upgrade-paths.sh`, `tests/test-upgrade-project-atomic.sh`, `tests/test-upgrade-project-retroactive-section.sh`, `tests/test-upgrade-sentinel-block.sh`, `tests/test-upgrade-to-production-preconditions.sh`, `tests/test-upgrade-to-production-warn.sh` (9) | Yes: `git -C ~/.claude-dev-framework pull --ff-only` (`# BL-320-UP-PULL`), HEAD moved, reflog 1 to 2 | Yes on a real clone, whose origin is GitHub (the stand-in's was local) | An empty temp HOME, `CDF_HOME` unset (`# BL-344-HOME`) |
-| 22 suites: the adoption suites (`tests/test-brownfield-wp4-driver.sh`, wp5b, wp6, wp7b, wp7d, wp7e, wp7f, wp9, wp9b, wp9d-driver-edges, wp9d-window-rehearsal, wp10a, wp11, wp12a, wp12b, dispositions-template; `tests/test-bl253-adoption-state-parity.sh`, `tests/test-bl277-detector-authorship.sh`, `tests/test-bl296-adopt-guardrails.sh`, `tests/test-bl318-g2-resume-adoptee.sh`) and `cdf_fixture_copy`'s local fallback (`tests/test-upgrade-cdf-refresh.sh`, `tests/test-bl318-g4g6.sh`) | No: reads only (`rev-parse --short HEAD`, `remote get-url origin`, `show HEAD:FRAMEWORK_VERSION`, a clone out of it) | No | Not changed (reads; see residuals) |
-| The other 230 | No | No | — |
+| At least 24 suites: the adoption suites (`tests/test-brownfield-wp4-driver.sh`, wp5b, wp6, wp7b, wp7d, wp7e, wp7f, wp9, wp9b, wp9d-driver-edges, wp9d-window-rehearsal, wp10a, wp11, wp12a, wp12b, dispositions-template; `tests/test-bl253-adoption-state-parity.sh`, `tests/test-bl277-detector-authorship.sh`, `tests/test-bl296-adopt-guardrails.sh`, `tests/test-bl318-g2-resume-adoptee.sh`); `cdf_fixture_copy`'s local fallback (`tests/test-upgrade-cdf-refresh.sh`, `tests/test-bl318-g4g6.sh`, and `tests/test-bl320-approval-schema2.sh` R10/E1, `clone -q --no-local --no-checkout ~/.claude-dev-framework …`); and `tests/test-bl318-g5-guardrails-refresh.sh` E1, which reads `$HOME/.claude-dev-framework/scripts/cdf-refresh.sh` | No: reads only (`rev-parse --short HEAD`, `remote get-url origin`, `show HEAD:FRAMEWORK_VERSION`, a clone out of it, a file) | No | Not changed (reads; see residuals) |
+| The other 228 | No write, and no git call naming it (file reads were not traced) | No | — |
 
 The grep's prediction was wrong both ways: of the 24 suites that name `upgrade-project.sh` and set neither `HOME` nor
 `CDF_HOME`, 8 pulled and 16 did not, and `tests/test-upgrade-sentinel-block.sh`, which sets `CDF_HOME` on most of its
@@ -25682,11 +25685,18 @@ since the plant (`# BL-344-RUNNER-CHECK`), then plants it again so the next suit
 clone (run 39348728358: bl296 G6 skips with "no clone at ~/.claude-dev-framework on this host"), which is why the
 pull was invisible there; the check does not depend on one. **What is planted is not the Guardrails**: one file on
 `main`, no `scripts/init.sh`, `scripts/cdf-refresh.sh` or `FRAMEWORK_VERSION`, so adoption, the refresh, the version
-rows and S5's real-clone cases still find no usable clone, and no suite can come to depend on it (a full clone would
+rows and S5's real-clone cases still find no usable clone (`verify-install.sh`, which looks for `.git` alone, now prints
+"[OK] Development Guardrails global clone exists"), and no suite can come to depend on it (a full clone would
 have made every adoption suite on the adopt legs run the Guardrails installer). A check by execution in the step,
-chosen over a lint because a grep of the same question was wrong both ways (above).
+chosen over a lint because a grep of the same question was wrong both ways (above). It covers the HOME route only: CI
+never sets `CDF_HOME` (the review re-ran 36 suites with `CDF_HOME` at a stand-in; none wrote). Review R-344-2
+(`83d75f0`): it failed open when the stamp was moved before a pull (`find -newer` erred into silence) and missed `git rm
+--cached`, `update-index --chmod` and a deleted `.git/config` or `.git/HEAD`; it now fails when the stamp is missing and
+also compares the path listing and the index entries (`git ls-files -s`, which a reader's `git status` refresh leaves
+alone) with what the plant recorded. No HEAD comparison: every HEAD change writes `.git/HEAD` or a ref (newer than the
+stamp) or removes HEAD (the listing), so such a line would have no killer.
 Cost: on bash 5.2 in `ubuntu:24.04`, the plant 23ms and each check 0.7ms (100 in 72ms); on this Mac 336ms and 4ms.
-`tests/test-bl344-home-clone-guard.sh` (in `rest`; 9.8s here, 2s in the container): G1-G10, and mutants M1-M17, each
+`tests/test-bl344-home-clone-guard.sh` (in `rest`; 15s here, 2s in the container): G1-G14, and mutants M1-M22, each
 killed by a named case; G9 and G10 run the step's own lines extracted from `tests.yml`, over throwaway suites
 including one that pulls `$HOME/.claude-dev-framework`.
 
@@ -25695,14 +25705,15 @@ moved from … to …"), on bash 3.2 here, where each passed its own tally, and 
 non-root user; at
 `f2d94bf` all nine pass and nothing is touched, on both; with the `# BL-344-HOME` line of any one of the nine made a
 no-op, the check fails that suite (all nine here, bl312 on 5.2). The whole unit list (262) through the step's loop in
-six local legs at `f2d94bf` (empty temp HOME, `SOIF_TEST_CDF_FIXTURE` set): 262 passed, none touched the stand-in. In
+six local legs at `f2d94bf` (empty temp HOME, `SOIF_TEST_CDF_FIXTURE` set): 262 passed, none touched the stand-in;
+the same at `83d75f0`, with the hardened check: 262 passed, none touched. In
 `ubuntu:24.04`, bl312 needs gitleaks (8 cases fail without it, the same 51/8 at `1eb1606`); with it, 73/0.
 
 **Residuals (not fixed).**
 - **The check does not see a write that first needs the Guardrails' own files**: the pull inside CDF's refresh that
   `refresh-guardrails.sh` runs, or anything the Guardrails installer does to its clone. The audit ran every suite
   against a full clone and found none today.
-- **The 22 readers still read the contributor's clone locally**, so locally an adoption suite takes the "present" path
+- **At least 24 readers still read the contributor's clone locally**, so locally an adoption suite takes the "present" path
   (runs the Guardrails installer) and on CI the "absent" one. Reads do not change the clone; whether those suites
   should pin `SOIF_ADOPT_GUARDRAILS_DIR` is not decided here.
 - **Only the unit lane is checked.** The `full` job's `init.sh` suites can clone CDF into the runner's HOME when it has
