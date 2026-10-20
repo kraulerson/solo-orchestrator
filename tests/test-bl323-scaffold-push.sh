@@ -466,6 +466,18 @@ else
   fail_ "S3" "record calls=$s_rec_calls (want 1); line before it='$s_rec_arm'; fresh=true lines=$s_fresh_sets (want 1); test before it='$s_fresh_test'; assignments in order='$s_fresh_seq' (want false then true); line before the test='$s_fresh_before'"
 fi
 
+# S4 — the attested prefix runs only inside a subshell (# BL-323-ATTEST-SUBSHELL).
+# Q6 kills a missing subshell only where bash keeps a prefix assignment after a
+# function returns (POSIX mode, 3.2-5.0); CI's 5.2 discards it, so this structural
+# pin is what lets the PR lane see the subshell go.
+s4_lines="$(_code "$PHASE2" | grep -c 'SOLO_PR_REVIEW_ATTESTED=1')"
+s4_sub="$(_code "$PHASE2" | grep -c '^[[:space:]]*([[:space:]]*SOLO_PR_REVIEW_ATTESTED=1 .*)[[:space:]]*$')"
+if [ "$s4_lines" = "1" ] && [ "$s4_sub" = "1" ]; then
+  pass "S4: phase2-state.sh sets SOLO_PR_REVIEW_ATTESTED=1 exactly once, as a prefix inside a ( … ) subshell"
+else
+  fail_ "S4" "attested-prefix lines=$s4_lines (want 1); inside a subshell=$s4_sub (want 1)"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
