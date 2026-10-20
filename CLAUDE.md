@@ -334,8 +334,11 @@ here.
   ```
   Every hit that later **clones back out of its bare** must name the branch.
   None but the BL-234 suite does today, so none of the rest is broken *by this
-  defect* — which is not the same as "not broken": the `e2e-init*` trio is
-  already red on main for unrelated reasons, and four of the hits
+  defect* — which is not the same as "not broken": the `e2e-init*` trio was
+  red on main until `## BL-323:` (the pre-push review check refused init's
+  scaffold push) and runs green on this Mac since its fix, while
+  `bitbucket.test.sh` still fails in an ubuntu:24.04 container at base and
+  head alike — and four of the hits
   (`test-bl084-tier-aware-remote-policy.sh` plus that trio) are **full-lane
   only**, so a break there would not gate a PR at all.
   **Do not pin this on the host's default branch.** `git-init(1)` says the
