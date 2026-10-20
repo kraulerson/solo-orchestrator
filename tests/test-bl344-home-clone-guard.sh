@@ -28,10 +28,11 @@
 #       and leaves it as it was
 #   G8  hcg_replant after a touch puts back a fresh plant; with nothing planted
 #       in the shell it refuses and removes nothing
-#   G9  the unit-shard step's own loop (extracted from tests.yml) over four
+#   G9  the unit-shard step's own loop (extracted from tests.yml) over five
 #       throwaway suites — clean, one that pulls $HOME/.claude-dev-framework,
-#       clean, one that fails without touching — fails exactly the puller and
-#       the failing one, and does not blame the clean suite after the puller
+#       clean, one that fails without touching, one that pulls and fails — fails
+#       exactly the last three, each once, and does not blame the clean suite
+#       after the puller
 #   G10 that loop exits before any suite runs when the clone cannot be planted
 #   M   mutants of the helper and of the step, each killed by a named case
 #
@@ -178,19 +179,21 @@ run_loop() {
   ( cd "$d/repo" && env -u CDF_HOME HOME="$d/home" RUNNER_TEMP="$d/rt" SHARD=t \
       bash "$sc" </dev/null > "$d/out" 2>&1 ); printf '%s' "$?" > "$d/rc"
 }
-mk_suites() {   # DIR — four throwaway suites
+mk_suites() {   # DIR — five throwaway suites
   mkdir -p "$1/s" || return 1
   printf '#!/bin/bash\necho clean\n' > "$1/s/clean1.sh"
   printf '#!/bin/bash\ngit -C "$HOME/.claude-dev-framework" pull --ff-only --quiet\n' > "$1/s/pulls.sh"
   printf '#!/bin/bash\necho clean\n' > "$1/s/clean2.sh"
   printf '#!/bin/bash\nexit 3\n' > "$1/s/fails.sh"
+  printf '#!/bin/bash\ngit -C "$HOME/.claude-dev-framework" pull --ff-only --quiet\nexit 4\n' > "$1/s/both.sh"
 }
-case_G9() {   # FW — the step fails the puller and the failing suite, only
+case_G9() {   # FW — the step fails the puller, the failing suite and the one that does both (once), only
   local fw="$1" d="" f="" bad=""
   d="$(newtmp)"; mk_suites "$d" || { CASE_DETAIL="fixture"; return 1; }
-  run_loop "$fw" "$d" "$d/s/clean1.sh" "$d/s/pulls.sh" "$d/s/clean2.sh" "$d/s/fails.sh" || { CASE_DETAIL="no loop to run (step_loop)"; return 1; }
+  run_loop "$fw" "$d" "$d/s/clean1.sh" "$d/s/pulls.sh" "$d/s/clean2.sh" "$d/s/fails.sh" "$d/s/both.sh" || { CASE_DETAIL="no loop to run (step_loop)"; return 1; }
   f="$(sed -n 's/^FAILED=//p' "$d/out")"
-  [ "$f" = "$d/s/pulls.sh $d/s/fails.sh" ] || bad="$bad [failed is '$f', want the puller and the failing suite]"
+  [ "$f" = "$d/s/pulls.sh $d/s/fails.sh $d/s/both.sh" ] || bad="$bad [failed is '$f', want the puller, the failing suite and the one that does both, each once]"
+  grep -qF "FAIL $d/s/both.sh: it touched the Guardrails clone in the runner's HOME" "$d/out" || bad="$bad [the suite that fails and pulls is not named as touching the clone]"
   grep -qF "FAIL $d/s/pulls.sh: it touched the Guardrails clone in the runner's HOME" "$d/out" || bad="$bad [the puller is not named as touching the clone]"
   grep -qxF "PASS $d/s/clean2.sh" "$d/out" || bad="$bad [the clean suite after the puller did not pass]"
   grep -qF "FAIL $d/s/clean2.sh" "$d/out" && bad="$bad [the clean suite after the puller was blamed]"
@@ -220,7 +223,7 @@ check "G5: a written file fails it, by name" case_G5
 check "G6: a removed clone fails it" case_G6
 check "G7: the plant refuses an existing directory or symlink and leaves it alone" case_G7
 check "G8: a replant restores it; with nothing planted it refuses and removes nothing" case_G8
-check "G9: the unit-shard loop fails the puller and the failing suite, and not the clean suite after the puller" case_G9
+check "G9: the unit-shard loop fails the puller, the failing suite and the one that does both (once each), and not the clean suite after the puller" case_G9
 check "G10: the unit-shard loop runs no suite when the clone cannot be planted" case_G10
 
 # ── M: mutants ───────────────────────────────────────────────────────────────
@@ -262,7 +265,8 @@ mutant M12 "$WF" '# BL-344-RUNNER-REPLANT' '              :' case_G9 "the step d
 mutant M13 "$WF" '# BL-344-RUNNER-SOURCE' '          :' case_G9 "the step does not load the check"
 mutant M14 "$WF" '# BL-344-RUNNER-SAY' '              :' case_G9 "the step does not say which suite touched the clone"
 mutant M15 "$WF" '# BL-344-RUNNER-FAILED' '              :' case_G9 "a suite that touched the clone is not counted as failed"
-mutant M16 "$WF" '# BL-344-RUNNER-PLANT' '          hcg_plant "$HOME/.claude-dev-framework" "$RUNNER_TEMP/bl344-home-clone"' case_G10 "the step runs the suites when the plant failed"
+mutant M16 "$WF" '# BL-344-RUNNER-FAILED' '              failed+=("${t}")' case_G9 "a suite that fails and touches the clone is counted twice"
+mutant M17 "$WF" '# BL-344-RUNNER-PLANT' '          hcg_plant "$HOME/.claude-dev-framework" "$RUNNER_TEMP/bl344-home-clone"' case_G10 "the step runs the suites when the plant failed"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed"

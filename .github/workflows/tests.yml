@@ -1462,7 +1462,7 @@ jobs:
             fi
             if ! hcg_check; then   # BL-344-RUNNER-CHECK
               echo "FAIL ${t}: it touched the Guardrails clone in the runner's HOME (${HCG_WHY}). Give the suite a temp HOME (## BL-344:)."   # BL-344-RUNNER-SAY
-              failed+=("${t}")   # BL-344-RUNNER-FAILED
+              case " ${failed[*]:-} " in *" ${t} "*) ;; *) failed+=("${t}") ;; esac   # BL-344-RUNNER-FAILED
               hcg_replant || { echo "shard '${SHARD}': ${HCG_WHY}" >&2; exit 1; }   # BL-344-RUNNER-REPLANT
             fi
             echo "::endgroup::"
