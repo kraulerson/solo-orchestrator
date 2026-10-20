@@ -708,6 +708,7 @@ jobs:
           #
           # Seconds are measured CI time from run 30297887329 (main @ 9d71824).
           pin_lint_sweep=(
+            # wp9-act-boundaries and lint-raw-read-prompt WERE HERE until the BL-350 follow-up (2026-10-20) and are in `pin_commit_hooks` and `pin_approval`.
             # From `adopt`, 2026-09-24: that leg ran 10m54s (91%) on PR #446.
             tests/test-brownfield-wp7d-audit-rows.sh       #  68s on PR #446
             # run-lints WAS HERE until 2026-10-19 (BL-350, refit) and is in `pin_slow_misc`.
@@ -875,7 +876,7 @@ jobs:
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
-            # lint-raw-read-prompt WAS HERE until 2026-10-19 (BL-350, refit) and is in `pin_lint_sweep`.
+            # lint-raw-read-prompt WAS HERE until 2026-10-19 (BL-350, refit) went to `pin_lint_sweep`, and is in `pin_approval` since the BL-350 follow-up.
             tests/test-lint-doc-anchors.sh             #  16s — real-repo arm
             # Three from `rest`, 2026-09-24: with `adopt` added, `rest` projected
             # to 576s (80%) and every new suite lands there; this leg had 313s spare.
@@ -1180,7 +1181,6 @@ jobs:
             #    why) and f015 is back here since 2026-10-19 (BL-350).
             tests/test-bl235-tool-matrix-probes.sh                            # 40.1s, 41.5s, 40.9s and 41.3s on the four runs of the `adopt-c` note — from `lint-scan`
             tests/test-f015-tamper-pin-allowlist.sh                     # 27.1s, 36.9s, 26.7s and 26.1s on the four runs of the `adopt-c` note — from `lint-scan`
-            tests/test-brownfield-wp9-act-boundaries.sh                       # 73.8s and 69.4s on runs 39354376715 and 39355429113 (after the twelve-leg refit), where `lint-sweep` ran 650s and 628s — from `lint-sweep` (BL-350 follow-up)
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
@@ -1205,7 +1205,7 @@ jobs:
             #    `rest` (job 581s, 428s and 481s on those runs and PR #503's
             #    37676814405; near 672s, 519s and 566s with its 89s, 91s and 85s).
             tests/test-bl311-c-scout-runner-ignore-rule.sh                    # 36.8s, 43.0s, 42.3s and 44.5s on the four runs of the `adopt-c` note — from `mcp`
-            tests/test-lint-raw-read-prompt.sh                                # 65.7s and 61.7s on runs 39354376715 and 39355429113 (after the twelve-leg refit), where `lint-sweep` ran 650s and 628s — from `lint-sweep` (BL-350 follow-up)
+            tests/test-brownfield-wp9-act-boundaries.sh                       # 73.8s and 69.4s on runs 39354376715 and 39355429113 (after the twelve-leg refit), where `lint-sweep` ran 650s and 628s — from `lint-sweep` (BL-350 follow-up)
           )
           # ── `mcp` and `mcp-mutants` — the BL-311 group A suite, in two files
           # (2026-09-30). The history, all on PR #477:
@@ -1285,6 +1285,7 @@ jobs:
             # adopt 500s and 647s).
             # bl310-adopt-symlink-write WAS HERE until 2026-10-19 (BL-350) and is in `pin_adopt_c`.
             tests/test-bl276-stdin-hang.sh                                    # 51.8s, 52.6s, 51.8s and 47.2s on the four runs of the `adopt-c` note — from `slow-misc`
+            tests/test-lint-raw-read-prompt.sh                                # 65.7s and 61.7s on runs 39354376715 and 39355429113 (after the twelve-leg refit), where `lint-sweep` ran 650s and 628s — from `lint-sweep` (BL-350 follow-up)
           )
           # ── `adopt-c` — the twelfth leg (2026-10-19, BL-350). On main run 39302163304
           # (merge of PR #515) `lint-scan` took 700s of 720s, and on PR #515's run

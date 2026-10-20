@@ -26312,8 +26312,10 @@ slow-misc 652/395, lint-sweep 650/628, sast 603/544, adopt-c 591/531, adopt 588/
 lint-scan 527/599, approval 490/498, adopt-b 445/449, rest 436/406, commit-hooks 381/414. The worst leg fell from 700s to
 652s/628s, not to the projected 560s: the same suites swing by up to 257s between runs (slow-misc 652 then 395), and only
 `lint-sweep` ran hot on both (suites summing 626s and 597s). **Follow-up:** `test-brownfield-wp9-act-boundaries.sh`
-(73.8s, 69.4s) moves to `adopt-b` and `test-lint-raw-read-prompt.sh` (65.7s, 61.7s) to `commit-hooks`, which projects
-`lint-sweep` at about 511s/497s, `adopt-b` 519s/518s and `commit-hooks` 447s/476s on those two runs.
+(73.8s, 69.4s) moves to `commit-hooks` and `test-lint-raw-read-prompt.sh` (65.7s, 61.7s) to `approval`; `lint-sweep`
+projects at about 511s/497s on those two runs. Targets chosen on all six measured runs: the first pair tried (`adopt-b`,
+`commit-hooks`) was light only on the last two and projected 612s and 610s on runs 1–2; this pair's six-run maxima are
+596s and 592s. No leg nears 720s; the six-run worst stays slow-misc's 652s, a run-to-run swing (395s on the next run).
 
 ## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
 
