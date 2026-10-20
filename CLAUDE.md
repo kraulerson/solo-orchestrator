@@ -256,10 +256,12 @@ here.
   **UNVERIFIED BY CHECKSUM, DELIBERATELY AND ONLY HERE.** `tests.yml`'s
   `Install gitleaks (pinned + checksum-verified)` step pins
   `GITLEAKS_SHA256` and calls `scripts/ci-verify-sha256.sh` — but that pin is
-  for the **x64** asset and there is no arm64 pin in the repo, so verifying
-  would break the arch selection above. This recipe is a local diagnostic that
-  never gates anything; **do not copy it into anything that does** without
-  pinning both digests.
+  for the **x64** asset only, so verifying against it would break the arch
+  selection above. Both digests, x64 and arm64, are pinned in
+  `scripts/install-gitleaks.sh` (`## BL-316:`), the installer the tool matrix
+  runs on Linux. This recipe is a local diagnostic that never gates anything;
+  **do not copy it into anything that does** without that installer's two
+  pins and its verifier.
 - **`grep` INSIDE A CLAUDE CODE AGENT SHELL IS A SNAPSHOT FUNCTION ROUTING TO AN
   EMBEDDED ugrep, AND ugrep IS LOCALE-INSENSITIVE WHERE EVERY RUNNER'S GREP IS
   NOT.** There is no ugrep binary on this host at all; the function is the whole

@@ -22993,8 +22993,8 @@ may have closed one without saying so here.
 
 | # | Residual | Where in `## BL-242:` |
 |---|---|---|
-| 1 | `resolve-tools.sh` files a documentation URL in the `auto_install` bucket, and `init.sh` executes that bucket (the shared resolver's defect) | "BL-242 residual — `resolve-tools.sh` files a documentation URL…" |
-| 2 | the Linux gitleaks recipe adoption offers is an unpinned, unverified root install; CI pins the same artefact by version and checksum | "A SECOND RESIDUAL, FOUND AT THE SAME REVIEW…" |
+| 1 | **Fixed, `e59272a` and `3149fd8`** (below). `resolve-tools.sh` files a documentation URL in the `auto_install` bucket, and `init.sh` executes that bucket (the shared resolver's defect) | "BL-242 residual — `resolve-tools.sh` files a documentation URL…" |
+| 2 | **Fixed, `1ae8332` (`## BL-316:`), `e59272a` and `3149fd8`** (below). the Linux gitleaks recipe adoption offers is an unpinned, unverified root install; CI pins the same artefact by version and checksum | "A SECOND RESIDUAL, FOUND AT THE SAME REVIEW…" |
 | 3 | `# BL-242-RESOLVER-NO-EXEC` tells the operator to "run adoption again", which `# BL-242-PREFLIGHT-ARM1` refuses | its own residual heading |
 | 4 | **Fixed** in `077b4f1b` and `433d7a1a` (2026-10-18; below). Was: adoption follows a symlink out of the project and overwrites its target — partly guarded since (22 `-L` / `adopt_path_under_link` sites in `scripts/lib/adopt/` on 2026-09-27), but `adopt_write_file` itself was still `cat >` | "BL-242 residual — adoption follows a SYMLINK…" |
 | 5 | init parity: thirteen `init.sh` effects adoption does not perform and nothing designs (the §8.7a table) | "THE INIT-PARITY RESIDUAL" |
@@ -23005,6 +23005,73 @@ may have closed one without saying so here.
 | 10 | eight suites still carry the `"test":"npm test"` fixture that hangs a shard once one commits a source file after adoption | "RESIDUAL — the other eight still carry it" |
 | 11 | the `--finish` / commit-hook review list: MANIFEST still says `replaced` after an edited hook is refused; three guard lines unkilled; root `-w` on a `chmod 444` hook; no time bound on the adoptee's test command; a red suite blocks every source commit from day one; `soif_write_precommit_hook` returns `chmod`'s status; hook order against §10 | "RESIDUALS from these reviews, recorded not fixed" |
 | 12 | the real Guardrails installer runs only where a host has the clone; the PR lane exercises it through a stub | `## BL-296:` (closed), its review-round block |
+
+**Rows 1 and 2 — fixed 2026-10-19 on `fix/bl310-gitleaks-recipe`, fix commits `e59272a` and `3149fd8` (review round 1).**
+
+- **Row 2 was mostly closed already, by `## BL-316:` (`1ae8332`).** The matrix's three Linux gitleaks
+  rows have been `bash "${SOLO_SCRIPTS_DIR:-scripts}/install-gitleaks.sh"` since then. The installer pins
+  8.30.1 (the version `tests.yml` pins), downloads to a temporary file, checks the SHA-256 for x64 or
+  arm64 with `scripts/ci-verify-sha256.sh` before extracting only `gitleaks`, refuses any other machine
+  type before downloading, and ends in `sudo install` into `/usr/local/bin`. Both digests were re-read
+  2026-10-19: they match `gitleaks_8.30.1_checksums.txt` on the v8.30.1 release and GitHub's asset
+  `digest` field, and that file's own SHA-256 matches its asset digest. `tests/test-bl316-installers.sh`
+  pins all of it; G2 is the check that fails when the installer's version or x64 digest drifts from
+  `tests.yml`'s.
+- **What it left was the consent.** The operator was shown the command string, and nothing in it says
+  sudo. `soif_install_elevation_note` (`scripts/lib/helpers-core.sh`, `# BL-310-ELEVATION-NOTE`) supplies
+  "this will run sudo to install gitleaks into /usr/local/bin"; adoption prints it after the command and
+  before the question (`# BL-310-ADOPT-ELEVATION`), and init's plan prints it beside the tool
+  (`# BL-310-INIT-ELEVATION`). `brew install gitleaks` gets no such line.
+- **Row 1.** `manual` is no longer an install key (`# BL-310-MANUAL-NOT-A-KEY`), so a tool with no
+  recipe for the host reaches the resolver's existing fallback, which files its `manual` value under
+  `manual_install`. **The change reaches past gitleaks, by design.** Measured over the whole matrix,
+  every `manual` value that was filed as a command now lands in `manual_install` instead. Most are URLs
+  or prose. One is prose with a pipe: Context7's `Run: echo y | claude mcp add context7 …`, on a host
+  without npm. `eval` runs the right-hand side of that pipe whatever the left does, so init's loop ran
+  `claude mcp add context7 …`. Under init's `set -euo pipefail` the pipeline's status is the failed
+  `Run:`, so init then printed `[WARN] Could not install Context7 MCP` — a registration attempt that
+  reported itself as a failure (measured on bash 3.2 and 5.2).
+- **Five `manual` values are runnable commands, and only one path ever ran them.**
+  `cargo install cargo-license`, `dart pub global activate dart_license_checker`,
+  `dotnet tool install --global dotnet-project-licenses`, `pip install pip-licenses` and
+  `gem install fastlane` belong to phase-3 tools. init, verify-install and adoption resolve with
+  `--phase 2`, so they file all five under `deferred`, before this change and after it (measured).
+  `upgrade-project.sh`'s track-change step is the only reader that runs them (it resolves with
+  `--phase "$CURRENT_PHASE"`; check-phase-gate.sh and intake-wizard.sh resolve at the project's phase too but
+  run none of the five). At phase 3 or later it used to run them where the host had no recipe key
+  for them: on dnf-only or bare Linux and on macOS without brew for the first three, on macOS without
+  brew for pip-licenses, and on every Linux host for fastlane. It now lists them under manual setup.
+  Package-manager recipes are unchanged.
+- **Review round 1, fix commit `3149fd8`.**
+  - Every recipe that runs sudo now says so in init's plan (`# BL-310-ELEVATION-SUDO`): "this will run
+    sudo", for the 31 matrix values (12 tools) that contain it, Docker's
+    `sudo apt install … && sudo usermod …` among them. Before, only the gitleaks row carried a sentence,
+    so a bare Docker row beside it read as "this one does not elevate". Adoption offers only gitleaks
+    and needed nothing more.
+  - `check-versions.sh` was the other reader of `.install.manual`, and it ran it. On a host without
+    brew, a tool with no npm/pip key — Git, Go, gitleaks — offered its `manual` value as the update
+    command, and "update all" and "select" ran it with `eval`. It now takes commands from `darwin_brew`,
+    `npm` and `linux_pip` only (`# BL-310-CV-NO-MANUAL`). It keeps the `manual` value per row as a
+    reference (`# BL-310-CV-REF-MIN`, `# BL-310-CV-REF-LATEST`) and prints it where a row has no command
+    (`# BL-310-CV-SHOW-REF`, `# BL-310-CV-REF-A`, `# BL-310-CV-REF-B`), so the two listings
+    (`# BL-310-CV-SHOW-C`, `# BL-310-CV-SHOW-N`) read as before. A search of `scripts/` and `init.sh`
+    found no other read of `manual` besides the resolver's own fallback.
+- **Tests.** `tests/test-bl310-install-buckets-and-consent.sh`: 18 cases and 17 mutants, 35 passed and
+  0 failed. On `08295ae` (the base) the first version of the suite gave 5 passed and 13 failed; on
+  `414b238` (before review round 1) this version gave 20 passed and 15 failed.
+- **Residuals, not fixed.**
+  - `upgrade-project.sh`'s track-change list and verify-install's interactive fix list show no install
+    command for any tool, so they name no sudo. `verify-install.sh --auto-fix` is a no-consent surface
+    by design, and it can reach the installer's sudo.
+  - `check-phase-gate.sh`'s phase-transition "Install now?" selects `.install_command`, a field the
+    resolver never writes (it writes `install_cmd`), so it runs nothing and says nothing: a silent
+    no-op. This was also recorded under `## BL-316:`.
+  - `check-versions.sh` never considers the `linux_apt`, `linux_dnf` or `linux_pacman` keys, so on Linux
+    it offers only an npm or pip command (read, not changed).
+  - Follow-up: cargo-license, dart_license_checker and dotnet-project-licenses carry their install
+    command under `darwin_brew`, `linux_apt` and `linux_pacman` but not under `linux_dnf` or
+    `darwin_manual`. Adding those two keys with the same string would let a dnf-only host, or macOS
+    without brew, install them. The review excluded fastlane and pip-licenses from this.
 
 Hook managers (item 11's pre-commit/lefthook line) are **not** a residual: Karl ruled 2026-09-25 that
 adoption replaces them (`## BL-242:`, "Karl's ruling on hook managers").

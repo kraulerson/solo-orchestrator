@@ -1615,7 +1615,7 @@ All scripts live in `scripts/` and can be run with `bash scripts/<name>.sh`. Scr
 | `detect-out-of-band-commits.sh` | Records user-terminal commits made outside the hooks (BL-030) | Automatic (SessionStart hook) | 2+ |
 | `escalate-to-user.sh` | The documented alternative to bypassing a gate — hands the decision to you (BL-029) | `bash scripts/escalate-to-user.sh --help` | Any |
 | `install-filesystem-gates.sh` | Installs the strict-mode git hooks (BL-030) | `bash scripts/install-filesystem-gates.sh` | Any |
-| `install-gitleaks.sh` | Installs a pinned, checksum-verified gitleaks on Linux (x86_64, aarch64) — the tool matrix's Linux recipe, run for you by init, upgrade, verify-install and adoption; on macOS use `brew install gitleaks` | `bash scripts/install-gitleaks.sh` | Any |
+| `install-gitleaks.sh` | Installs a pinned, checksum-verified gitleaks on Linux (x86_64, aarch64) — the tool matrix's Linux recipe, run for you by init, upgrade, verify-install and adoption; on macOS use `brew install gitleaks`. It runs `sudo` to install into `/usr/local/bin`, and init's tool plan and adoption's offer say so before they ask | `bash scripts/install-gitleaks.sh` | Any |
 | `lint-backlog-references.sh` | Closed backlog entries must cite a PR or SHA (in a generated project it self-declares nothing to validate unless a backlog file exists) | Automatic (pre-commit hook) | Any |
 | `lint-counter-antipattern.sh` | Refuses the `((x++))`-under-`set -e` class of counter bug in shell scripts | Automatic (pre-commit hook) | Any |
 | `lint-fixture-envelopes.sh` | Refuses test fixtures still using the retired envelope shape — shipped, but wired into no hook or pipeline in a generated project; run it by hand | `bash scripts/lint-fixture-envelopes.sh` | Any |
