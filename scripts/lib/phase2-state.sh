@@ -89,7 +89,10 @@ _phase2_push_attempt() {
   local b="$1" reason="initial scaffold push: framework-generated files only, no operator code to review"
   shift
   if _phase2_scaffold_only "$b"; then
-    SOLO_PR_REVIEW_ATTESTED=1 SOLO_PR_REVIEW_ATTESTED_REASON="$reason" "$@" "$b"
+    # BL-323-ATTEST-SUBSHELL: a subshell, because in POSIX mode bash 3.2-5.0 keep
+    # a prefix assignment on a FUNCTION call (host_push_initial) after it returns,
+    # exported — measured, it carried this pair into the master attempt.
+    ( SOLO_PR_REVIEW_ATTESTED=1 SOLO_PR_REVIEW_ATTESTED_REASON="$reason" "$@" "$b" )
     return $?
   fi
   # A branch that does not exist fails at git's refspec check, before any hook:
