@@ -22,6 +22,14 @@
 #   # BL-324-NAMED-EXISTS     drop the check    -> T11b RED
 #   # BL-324-NAMED-SHA        record HEAD again -> T11b, T15 RED
 #   the classifier (_is_git_commit) dropped     -> T6, T7 RED
+# The commits the host does not name (`-q`, no summary line), proved from
+# HEAD's reflog instead (T16-T25):
+#   # BL-324-REFLOG-NOFILE    drop the check    -> T21 RED
+#   # BL-324-REFLOG-INLINE    drop the check    -> T22 RED
+#   # BL-324-REFLOG-WINDOW    drop the check    -> T18 RED
+#   # BL-324-REFLOG-ACTION    any action counts -> T20 RED
+#   # BL-324-REFLOG-SUBJECT   drop the check    -> T19 RED
+#   # BL-324-LEDGER-ONCE      drop the check    -> T24 RED
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -307,10 +315,182 @@ else
 fi
 cd "$REPO_ROOT"; teardown
 
+# ── `## BL-324:` a commit the host does not name ────────────────────────────
+# A `-q` commit prints no summary line, so the envelope has no gitOperation.
+# The recorder then takes, from HEAD's reflog, each `commit` / `commit (amend)`
+# / `commit (initial)` entry written in the last 30 seconds whose subject is
+# in the command's own text, when the command supplies its message inline
+# (-m / --message, or -F - with a heredoc) and not from a file.
+
+# setup_old <subject> — like setup, but the one commit is dated 2020, so its
+# reflog entry is far outside the recorder's window.
+setup_old() {
+  TMP=$(mktemp -d)
+  mkdir -p "$TMP/.claude"
+  ( cd "$TMP" && git init -q && git config user.email t@t.l && git config user.name t
+    echo old > o.txt && git add o.txt \
+      && GIT_COMMITTER_DATE="2020-01-01T00:00:00Z" GIT_AUTHOR_DATE="2020-01-01T00:00:00Z" git commit -qm "$1" )
+  SHA=$(cd "$TMP" && git rev-parse HEAD)
+}
+
+# T16: a -q commit with -m is recorded, once, by its full SHA.
+echo "T16: a -q commit (no gitOperation) is recorded from HEAD's reflog"
+setup
+cd "$TMP"
+echo q > q.txt && git add q.txt
+CMDQ="git commit -q -m 'feat: a quiet commit'"
+OUT=$(eval "$CMDQ" 2>&1); NEW=$(git rev-parse HEAD)
+env_bash "$CMDQ" "$OUT" | run_hook || true
+if [ "$(shas)" = "$NEW " ]; then pass "T16"; else fail_ "T16" "want '$NEW ', got '$(shas)'"; fi
+cd "$REPO_ROOT"; teardown
+
+# T17: the message from a heredoc on stdin (-F -) is in the command too.
+echo "T17: a -q commit whose message is a heredoc on stdin (-F -) is recorded"
+setup
+cd "$TMP"
+echo h > h.txt && git add h.txt
+CMDH="git commit -q -F - <<'MSG'
+feat: from a heredoc
+
+The body.
+MSG"
+OUT=$(eval "$CMDH" 2>&1); NEW=$(git rev-parse HEAD)
+env_bash "$CMDH" "$OUT" | run_hook || true
+if [ "$(shas)" = "$NEW " ]; then pass "T17"; else fail_ "T17" "want '$NEW ', got '$(shas)'"; fi
+cd "$REPO_ROOT"; teardown
+
+# T18: the commit fails inside `; true`; HEAD's newest entry has the subject the
+# command supplied but is from 2020: outside the window, so nothing is recorded.
+echo "T18: a failed -q commit is not recorded when HEAD's matching entry is old"
+setup_old 'feat: same subject'
+cd "$TMP"
+CMDF="git commit -q -m 'feat: same subject'; true"
+OUT=$(eval "$CMDF" 2>&1)
+env_bash "$CMDF" "$OUT" | run_hook || true
+if [ "$(git rev-parse HEAD)" = "$SHA" ] && [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
+  pass "T18"
+else
+  fail_ "T18" "a commit that did not happen was recorded: $(shas)"
+fi
+cd "$REPO_ROOT"; teardown
+
+# T19: the commit fails inside `; true`; HEAD's newest entry is recent, but its
+# subject is not the message the command supplied.
+echo "T19: a failed -q commit is not recorded when HEAD's recent entry has another subject"
+setup
+cd "$TMP"
+CMDF="git commit -q -m 'feat: never made'; true"
+OUT=$(eval "$CMDF" 2>&1)
+env_bash "$CMDF" "$OUT" | run_hook || true
+if [ "$(git rev-parse HEAD)" = "$SHA" ] && [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
+  pass "T19"
+else
+  fail_ "T19" "HEAD's own commit was recorded for a commit that failed: $(shas)"
+fi
+cd "$REPO_ROOT"; teardown
+
+# T20: a recent reflog entry with the command's subject that is not a commit
+# (a cherry-pick from another worktree) is not taken; the command's own commit
+# failed.
+echo "T20: a recent cherry-pick entry with the same subject is not recorded"
+setup
+WT=$(mktemp -d)/wt
+( cd "$TMP" && git worktree add -q -b side "$WT" >/dev/null 2>&1 )
+( cd "$WT" && echo p > p.txt && git add p.txt && git commit -qm 'feat: picked' )
+( cd "$TMP" && git cherry-pick "$(git -C "$WT" rev-parse HEAD)" >/dev/null 2>&1 )
+cd "$TMP"
+CMDF="git commit -q -m 'feat: picked'; true"
+OUT=$(eval "$CMDF" 2>&1)
+env_bash "$CMDF" "$OUT" | run_hook || true
+if git log -g -1 --format=%gs HEAD | grep -q '^cherry-pick: feat: picked$' && [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
+  pass "T20"
+else
+  fail_ "T20" "want a cherry-pick entry and no row; HEAD@{0} '$(git log -g -1 --format=%gs HEAD)', rows: $(shas)"
+fi
+cd "$REPO_ROOT"; rm -rf "$(dirname "$WT")"; teardown
+
+# T21: a message from a file (-F <file>) is not the command's own text, even
+# when the file is written by the same command.
+echo "T21: a -q commit with -F <file> is not recorded"
+setup
+cd "$TMP"
+echo f > f.txt && git add f.txt
+CMDFILE="printf 'feat: from a file\n' > m.txt && git commit -q -F m.txt"
+OUT=$(eval "$CMDFILE" 2>&1)
+env_bash "$CMDFILE" "$OUT" | run_hook || true
+if git log -1 --format=%s | grep -q '^feat: from a file$' && [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
+  pass "T21"
+else
+  fail_ "T21" "want the commit made and no row; rows: $(shas)"
+fi
+cd "$REPO_ROOT"; teardown
+
+# T22: no message supplied (--amend --no-edit); the subject is in the command
+# only as a comment.
+echo "T22: a -q commit with no inline message is not recorded"
+setup
+cd "$TMP"
+CMDNE="git commit -q --amend --no-edit # first"
+OUT=$(eval "$CMDNE" 2>&1)
+env_bash "$CMDNE" "$OUT" | run_hook || true
+if git log -g -1 --format=%gs HEAD | grep -q '^commit (amend): first$' && [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
+  pass "T22"
+else
+  fail_ "T22" "want an amend entry and no row; HEAD@{0} '$(git log -g -1 --format=%gs HEAD)', rows: $(shas)"
+fi
+cd "$REPO_ROOT"; teardown
+
+# T23: two -q commits in one call: both are proved, both are recorded.
+echo "T23: two -q commits in one call are both recorded"
+setup
+cd "$TMP"
+CMD2="echo 1 > one.txt && git add one.txt && git commit -q -m 'feat: one' && echo 2 > two.txt && git add two.txt && git commit -q -m 'feat: two'"
+OUT=$(eval "$CMD2" 2>&1)
+TWO=$(git rev-parse HEAD); ONE=$(git rev-parse HEAD~1)
+env_bash "$CMD2" "$OUT" | run_hook || true
+got=$(shas)
+if [ "$(rows)" = "2" ] && case " $got" in *" $ONE "*) true ;; *) false ;; esac && case " $got" in *" $TWO "*) true ;; *) false ;; esac; then
+  pass "T23"
+else
+  fail_ "T23" "want '$ONE' and '$TWO', got '$got'"
+fi
+cd "$REPO_ROOT"; teardown
+
+# T24: a commit already in the ledger is not written twice: the agent's -q
+# commit, then the same command again failing inside `; true`, within the window.
+echo "T24: a failed repeat of a recorded -q commit adds no row"
+setup
+cd "$TMP"
+echo q > q.txt && git add q.txt
+CMDQ="git commit -q -m 'feat: a quiet commit'"
+OUT=$(eval "$CMDQ" 2>&1); NEW=$(git rev-parse HEAD)
+env_bash "$CMDQ" "$OUT" | run_hook || true
+CMDF="git commit -q -m 'feat: a quiet commit'; true"
+OUT=$(eval "$CMDF" 2>&1)
+env_bash "$CMDF" "$OUT" | run_hook || true
+if [ "$(shas)" = "$NEW " ]; then pass "T24"; else fail_ "T24" "want one row '$NEW ', got '$(shas)'"; fi
+cd "$REPO_ROOT"; teardown
+
+# T25: the project is a linked worktree; its HEAD has its own reflog.
+echo "T25: a -q commit is recorded when the project is a linked worktree"
+setup
+WT=$(mktemp -d)/wt
+( cd "$TMP" && git worktree add -q -b wtb "$WT" >/dev/null 2>&1 )
+mkdir -p "$WT/.claude"
+cd "$WT"
+echo w > w.txt && git add w.txt
+CMDQ="git commit -q -m 'feat: in a worktree'"
+OUT=$(eval "$CMDQ" 2>&1); NEW=$(git rev-parse HEAD)
+env_bash "$CMDQ" "$OUT" | CLAUDE_PROJECT_DIR="$WT" bash "$HOOK" >/dev/null 2>&1 || true
+got=$({ jq -r '.sha' "$WT/.claude/claude-commits.jsonl" 2>/dev/null || true; } | tr '\n' ' ')
+if [ "$got" = "$NEW " ]; then pass "T25"; else fail_ "T25" "want '$NEW ', got '$got'"; fi
+cd "$REPO_ROOT"; rm -rf "$(dirname "$WT")"; teardown
+
 # T13: end to end, through the hook commands a project's settings.json
 # registers (soif_register_hook_roster, which init.sh and adoption share): the
 # agent's commit, recorded from its real envelope, is the agent's; a commit
-# made with no envelope (a terminal) is still out of band.
+# made with no envelope (a terminal) is still out of band. The agent's second
+# commit is a -q one, made after the terminal commit and within its window.
 echo "T13: end to end through the registered hooks: the agent's commit is not out of band; a terminal commit is"
 P=$(mktemp -d)
 mkdir -p "$P/.claude" "$P/scripts/hooks" "$P/scripts/lib"
@@ -331,13 +511,17 @@ OUT=$(git commit -m "feat: the agent's commit" 2>&1); AGENT=$(git rev-parse HEAD
 env_bash "git commit -m \"feat: the agent's commit\"" "$OUT" "$(git_op "$P")" \
   | CLAUDE_PROJECT_DIR="$P" bash -c "$REC_CMD" >/dev/null 2>&1 || true
 echo t > t.txt && git add t.txt && git commit -qm "chore: typed in a terminal"; TERM_SHA=$(git rev-parse HEAD)
+echo q > q.txt && git add q.txt
+CMDQ="git commit -q -m 'feat: the agent, quietly'"
+OUT=$(eval "$CMDQ" 2>&1); QUIET=$(git rev-parse HEAD)
+env_bash "$CMDQ" "$OUT" | CLAUDE_PROJECT_DIR="$P" bash -c "$REC_CMD" >/dev/null 2>&1 || true
 CLAUDE_PROJECT_DIR="$P" bash -c "$DET_CMD" </dev/null >/dev/null 2>&1 || true
 oob() { jq -r --arg s "$1" '[.[] | select(.type == "out_of_band_commit" and .details.commit_sha == $s)] | length' "$P/.claude/bypass-audit.json" 2>/dev/null || echo ERR; }
-a=$(oob "$AGENT"); t=$(oob "$TERM_SHA")
-if [ -n "$REC_CMD" ] && [ -n "$DET_CMD" ] && [ "$a" = "0" ] && [ "$t" = "1" ]; then
+a=$(oob "$AGENT"); q=$(oob "$QUIET"); t=$(oob "$TERM_SHA")
+if [ -n "$REC_CMD" ] && [ -n "$DET_CMD" ] && [ "$a" = "0" ] && [ "$q" = "0" ] && [ "$t" = "1" ]; then
   pass "T13"
 else
-  fail_ "T13" "out_of_band rows: agent commit $a (want 0), terminal commit $t (want 1); recorder '$REC_CMD', detector '$DET_CMD'"
+  fail_ "T13" "out_of_band rows: agent commit $a (want 0), agent -q commit $q (want 0), terminal commit $t (want 1); recorder '$REC_CMD', detector '$DET_CMD'"
 fi
 cd "$REPO_ROOT"; rm -rf "$P"
 
