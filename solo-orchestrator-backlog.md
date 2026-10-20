@@ -25284,7 +25284,7 @@ leaves no record and cannot help `check-gate.sh --repair`.
 **Logged:** 2026-10-08 (issue #483, filed 2026-09-30; found independently while building `## BL-322:` S1)
 **Category:** Bug (correctness)
 **Severity:** Medium — every agent commit not covered by a Guardrails approval is recorded as a user-terminal commit
-**Status:** Open
+**Status:** Closed — shipped 2026-10-20 (fix `82c3536`, suites `232d942`)
 
 **What.** `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code // 1`
 and exits before writing when the value is not 0. Claude Code's PostToolUse result for Bash has no `exit_code`
@@ -25298,6 +25298,64 @@ PostToolUseFailure), so the event itself is the success signal: record on PostTo
 not interrupted, keep honouring an explicit non-zero `exit_code` from any host that sends one, and test with the
 real envelope. Still to decide when this is built: whether `.claude/claude-commits.jsonl` is tracked or ignored
 (the Guardrails keep their own `.jsonl` audit logs tracked, and their stop check treats `.jsonl` as data from 4.4.2).
+
+**Reproduced on main `74af361c`** with a real-shaped envelope (a fixture commit, its own git output, `gitOperation`
+naming it, no `exit_code`): the hook exited 0 and wrote no `.claude/claude-commits.jsonl`, the detector then wrote an
+`out_of_band_commit` row (`user_terminal_inferred`) for that agent commit, and the old synthetic envelope wrote one row.
+
+**Which commit is recorded (`# BL-324-NAMED-SHA`).** Treating PostToolUse alone as success is not enough: a call can
+succeed while the commit in it failed (`git commit -m x; true`, `|| true`), and recording HEAD then hides a commit the
+call did not make, possibly the user's own, from the detector. Measured over the Claude Code transcripts on this Mac
+(2026-10-20, 2.1.271 to 2.1.303): of 382 successful Bash results whose command matched the recorder's `git commit`
+classifier, 75 carried `tool_response.gitOperation.commit` (`{sha` abbreviated, `kind` `committed` or `amended`,
+`branch}`), and every one that did had git's summary line (`[main 1a2b3c4] subject`) or a truncated stdout; none
+without it had one. 251 of the rest carried `-q`/`--quiet`; of the other 56, the 14 read were commands that only
+name `git commit` in text (heredocs, `--body` strings); and at least one result shows a commit that failed inside a
+chain exiting 0 (`commit rc=1`). So the hook records the commit the host names, checked to be a commit object in
+this repository (`# BL-324-NAMED-HEX`, `# BL-324-NAMED-EXISTS`) and written by its full SHA; it skips an interrupted call (`# BL-324-NOT-INTERRUPTED`) and an explicit non-zero `exit_code`
+(`# BL-324-EXIT-CODE`). The envelope shape in the suite is a real `toolUseResult` from dogfood run 3 (commit
+`d77fc1b`, Claude Code 2.1.292) inside the documented PostToolUse input fields; Anthropic's own claude-security plugin
+reads `tool_response.gitOperation` in its hook the same way.
+
+**Tracked or ignored: ignored (`# BL-324-LEDGER-IGNORE`).** Measured: nothing wrote an ignore rule for it (init's
+template, the BL-174 upgrade backfill and adoption's `.claude/.gitignore` named the baseline and the tool ledger
+only), so once written it would sit untracked until a `git add -A` (which `reconfigure-project.sh`'s finalize commit
+runs) tracked it. The detector reads it only for `git log <baseline>..HEAD`, and the baseline
+`.claude/last-checked-commit.txt` is ignored and per-clone: a fresh clone sets its baseline at HEAD and never reads
+older rows. A row is written after the commit it names, so it can never be in that commit: tracked, the file is
+modified after every agent commit (the BL-030 baseline, BL-161 receipt and BL-236 tool-ledger pattern, each fixed by
+ignoring the file), and staging it in the next commit leaves that commit's own row behind. The Guardrails' stop
+check (`is_source_file` at `654917b`) treats `.jsonl` as data, so neither choice trips it; tracking would only help a
+second clone recognise rows someone had swept into a later commit. Since the recorder never wrote, no project can
+track the file today, so no `git rm --cached` step is needed. Ignored in: `templates/generated/gitignore-base.tmpl`,
+the `# BL-174-GITIGNORE-BACKFILL` block of `scripts/upgrade-project.sh` (a fourth line), and
+`_adopt_session_ignore_rules` (`/claude-commits.jsonl`, with the kept-theirs note naming it).
+
+**Tests.** `tests/test-record-claude-commit.sh` (16 cases; red on `74af361c` at 10/6): every envelope is the real
+shape; T3 keeps one explicit `exit_code`; T10 interrupted, T11 a commit that failed inside a chain exiting 0 (HEAD
+unchanged), T11b a named commit this repository lacks, T12 a PostToolUseFailure envelope, T14 a `gitOperation` that
+is not a hash, T15 HEAD moved after the commit; T13 end to end through the hook commands `soif_register_hook_roster`
+registers: the agent's commit gets no `out_of_band_commit` row, a terminal commit still gets one. Mutants (killer):
+NOT-INTERRUPTED (T10), EXIT-CODE (T3), NAMED-HEX (T14), NAMED-EXISTS (T11b), NAMED-SHA back to `rev-parse HEAD`
+(T11b, T15), the classifier dropped (T6, T7). `tests/test-bl322-s1-audit-loop.sh` adds the ledger to `RUNTIME_FILES`
+(I1, A1, A2) with mutants M16 (adoption) and M17 (template), and M14 now names the new kept-theirs line;
+`tests/test-bl174-gitignore-backfill.sh` T1, T2 and T4 require the fourth backfill line (dropping it: T1, T2 red).
+
+**Residuals (not fixed).**
+- **A quiet commit is not recorded.** `git commit -q` (or output git does not print) has no summary line, so the host
+  names nothing and the detector still flags the commit. In the transcripts above, 251 of the 382 were `-q` commits
+  with no `gitOperation`; dogfood runs 2 and 3 (downstream projects) had 6 commits, all named. The same holds on a
+  Claude Code version without `gitOperation`: the 20 results from 2.1.271 included no commit with a summary line, so
+  when the field arrived is not known. Recognising them needs HEAD read before the call: a PreToolUse registration
+  on Bash keyed by `tool_use_id`, which every existing project would also have to be given. Not built.
+- **One commit per call.** A call making two commits gets the one the host names; which one is not measured.
+- **`session_id` in each row is `${CLAUDE_SESSION_ID:-unknown}`.** The envelope's own `session_id` is not read, and
+  this agent shell carries `CLAUDE_CODE_SESSION_ID`, not `CLAUDE_SESSION_ID`; what a hook's environment carries is
+  not measured. The detector does not read the field.
+- **`interrupted: true` was never seen** in any transcript; the check fails closed on anything but `false`.
+- **Team Orchestrator v1** (`docs/designs/2026-08-02-team-orchestrator-v1.md` §5.1, §5.4, WP2b) describes this ledger
+  as tracked and plans a union of every member's ledger; ignored, that union needs another way to share rows.
+- **A commit pulled from another clone is still flagged** on this one (the per-clone ledger; unchanged).
 
 ## BL-325: the pending-approval hold stops `git commit` and `gh pr create` only, so other commands still create commits while a decision is pending
 

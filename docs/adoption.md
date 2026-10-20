@@ -2710,24 +2710,27 @@ adopted one now gets the same one, from the same code
   ```
 
   Then commit `.claude/settings.json` with the files the sync refreshed.
-- **`.claude/.gitignore`**, so git ignores the two files those hooks rewrite in
-  every session: `.claude/last-checked-commit.txt` (where the out-of-band
-  commit check left off) and `.claude/tool-usage.json` (the MCP tool record).
-  Before this they sat untracked in an adopted project (`## BL-322:`). A new
-  project's `.gitignore` from `init.sh` has four `.claude/` runtime lines;
-  adoption covers these two because the other two are for files an adopted
-  project does not get: `.claude/cache/` (the freshness check's cache, written
-  only for a manifest with a `currency` block, which only `init.sh` writes) and
+- **`.claude/.gitignore`**, so git ignores the three files those hooks write:
+  `.claude/last-checked-commit.txt` (where the out-of-band commit check left
+  off), `.claude/tool-usage.json` (the MCP tool record) and
+  `.claude/claude-commits.jsonl` (the commits the agent made, which that check
+  reads; `## BL-324:` — it is written after each commit, so a tracked copy
+  would be modified after every one). Before this the first two sat untracked
+  in an adopted project (`## BL-322:`). A new project's `.gitignore` from
+  `init.sh` has more `.claude/` runtime lines; adoption covers these three
+  because the others are for files an adopted project does not get:
+  `.claude/cache/` (the freshness check's cache, written only for a manifest
+  with a `currency` block, which only `init.sh` writes) and
   `.claude/last-gate-pass.txt` (the receipt of the strict terminal-commit check,
   `.git/hooks/framework-gate.sh`, which adoption does not install). A
   `.claude/.gitignore` you already have is left alone, and the run names the
-  two lines to add to it.
+  lines to add to it.
 - **Adoption does not change your own `.gitignore`. The first
-  `upgrade-project.sh --sync-framework` does:** it appends three commented
+  `upgrade-project.sh --sync-framework` does:** it appends four commented
   blocks (`.claude/last-checked-commit.txt`, `.claude/last-gate-pass.txt`,
-  `.claude/tool-usage.json`), even where `.claude/.gitignore` already covers two
-  of them. That is also how a project adopted before `.claude/.gitignore`
-  existed gets them.
+  `.claude/tool-usage.json`, `.claude/claude-commits.jsonl`), even where
+  `.claude/.gitignore` already covers three of them. That is also how a project
+  adopted before `.claude/.gitignore` existed gets them.
 - **Not ignored:** `.claude/approvals.jsonl` (the Development Guardrails' record
   of your approvals; whether a project commits it is theirs to decide) and
   `.claude/tdd-warn-ledger.jsonl` (the commit check's audit trail, meant to be
