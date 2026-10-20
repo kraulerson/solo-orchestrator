@@ -122,22 +122,26 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
   # ignores both; adoption never edits the project's own ignore files, so the rule
   # goes in a file the framework owns, .claude/.gitignore, committed with the
   # adoption. One the project already has is theirs and is left alone
-  # (keep-theirs, no archive row, as `# BL-318-TESTCMD-KEEP`). Only these two:
-  # init's other .claude/ runtime lines are for files an adoption never writes
-  # (.claude/cache/ needs a manifest `currency` block, last-gate-pass.txt the
-  # strict terminal-commit check, framework-gate.sh, which adoption does not
-  # install). .claude/approvals.jsonl is the Guardrails' file and
+  # (keep-theirs, no archive row, as `# BL-318-TESTCMD-KEEP`). `## BL-324:` adds
+  # the Claude-commit ledger, .claude/claude-commits.jsonl, which the commit
+  # recorder writes after each agent commit (tracked, it would be modified after
+  # every one). Only these: init's other .claude/ runtime lines are for files
+  # an adoption never writes (.claude/cache/ needs a manifest `currency` block,
+  # last-gate-pass.txt the strict terminal-commit check, framework-gate.sh,
+  # which adoption does not install). .claude/approvals.jsonl is the Guardrails' file and
   # .claude/tdd-warn-ledger.jsonl a tracked audit trail; neither is ignored here.
   # (The stop hook's "Uncommitted source changes" over those two is the
   # Guardrails' source-file test, handed to them.)
   if [ -e "$root/$ADOPT_SESSION_IGNORE_REL" ] || [ -L "$root/$ADOPT_SESSION_IGNORE_REL" ] || adopt_path_under_link "$root" "$ADOPT_SESSION_IGNORE_REL"; then   # BL-322-ADOPT-IGNORE-KEEP
     adopt_note "$ADOPT_SESSION_IGNORE_REL is already yours, so it was left alone. If git shows"
-    adopt_note ".claude/last-checked-commit.txt or .claude/tool-usage.json as untracked, add these"
-    adopt_note "two lines to it: /last-checked-commit.txt and /tool-usage.json"
+    adopt_note ".claude/last-checked-commit.txt, .claude/tool-usage.json or"
+    adopt_note ".claude/claude-commits.jsonl as untracked, add these lines to it:"
+    adopt_note "/last-checked-commit.txt, /tool-usage.json and /claude-commits.jsonl"
   else
     _adopt_session_ignore_rules | adopt_write_file "$root" "$ADOPT_SESSION_IGNORE_REL" || return 1   # BL-322-ADOPT-IGNORE-WRITE
-    adopt_note "Wrote $ADOPT_SESSION_IGNORE_REL: git ignores the two files the session hooks rewrite"
-    adopt_note "(.claude/last-checked-commit.txt, .claude/tool-usage.json). Your .gitignore is unchanged."
+    adopt_note "Wrote $ADOPT_SESSION_IGNORE_REL: git ignores the three files the session hooks write"
+    adopt_note "(.claude/last-checked-commit.txt, .claude/tool-usage.json, .claude/claude-commits.jsonl)."
+    adopt_note "Your .gitignore is unchanged."
   fi
 
   # ── the vendored skills: framework-wins, theirs archived ──────────────────
@@ -192,5 +196,6 @@ _adopt_session_ignore_rules() {
     "# in every session; they are not project content. Written by adoption." \
     "/last-checked-commit.txt" \
     "/tool-usage.json.lw.*" \
+    "/claude-commits.jsonl" \
     "/tool-usage.json"
 }
