@@ -48,8 +48,9 @@ _record_phase2_step() {
 # BL-323-SCAFFOLD-ATTEST: init.sh installs the pre-push review gate
 # (`# BL-243-HOOK-TEMPLATE`) before this push, and a new project has no review on
 # record, so the gate refused the push and the new remote stayed empty. A branch
-# that is init's scaffold and nothing else holds no operator code to review, so
-# its push takes the gate's own attested escape with a fixed reason, which
+# that is init's recorded scaffold commit, plus at most one commit changing only
+# the two state files, holds no operator code to review, so its push takes the
+# gate's own attested escape with a fixed reason, which
 # check-pr-review.sh writes to .claude/process-state.json::pr_review_attestations[]
 # with the date and the pushed commit. The pair is set on the push command alone
 # and never exported, so no later push inherits it; the gate never counts an
@@ -81,8 +82,8 @@ _phase2_push_scaffold() {
 }
 
 # _phase2_push_attempt <branch> <push-command…> — one attempt of the above. The
-# attested pair goes on the push only when the branch is init's scaffold and
-# nothing else; any other branch is pushed without it, after a plain sentence
+# attested pair goes on the push only when `_phase2_scaffold_only` holds; any
+# other branch is pushed without it, after a plain sentence
 # saying why the review check will want a review.
 _phase2_push_attempt() {
   local b="$1" reason="initial scaffold push: framework-generated files only, no operator code to review"
@@ -122,9 +123,11 @@ _phase2_record_scaffold() {
   git update-ref "$_PHASE2_SCAFFOLD_REF" "$sha"
 }
 
-# _phase2_scaffold_only <branch> — 0 when everything on <branch> is init's: its tip
-# is the recorded scaffold commit, or one commit on it that changes only the two
-# state files init's finalize commit writes. Anything else — no record, a record
+# _phase2_scaffold_only <branch> — 0 when <branch>'s tip is the recorded scaffold
+# commit, or ONE commit on it that changes only .claude/manifest.json and
+# .claude/process-state.json. init's finalize commit has that shape; so does any
+# commit of that shape, whoever made it — state files, not code, which is what the
+# fixed reason claims. Anything else — no record, a record
 # that is not a root commit (history under the scaffold), more commits, a merge,
 # any other file — is 1. BL-323-SCAFFOLD-ONLY: this is what keeps the fixed
 # reason true; measured, the branch alone (with no such check) carried operator
