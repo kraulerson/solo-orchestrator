@@ -18,8 +18,15 @@
 # I2  a later push of new work, with no review, is still refused.
 # I3  --git-host github (a driver's host_push_initial, mock gh): the same.
 # I4  --git-host other with the remote missing at init time: the main attempt's
-#     own error is shown and the plain-words reason names main; then, with the
-#     remote present, the project's own scripts/check-gate.sh --repair pushes.
+#     own error is shown, the plain-words reason names main, and the deferral's
+#     printed remedy is scripts/check-gate.sh --repair; then, with the remote
+#     present, the project's own --repair pushes.
+# I5  the same failed push, then operator commits, then --repair: refused without
+#     a review, no attestation (the escape covers init's scaffold only).
+# I6  --allow-existing-dir into a repository that already has history: init
+#     records no scaffold, the push is refused without a review, no attestation.
+# I7  the same into a directory that held files but no repository.
+# I8  --no-remote-creation: the record is written and the tree stays one clean commit.
 #
 # Hermetic: local bare remotes, a mock gh, no network; HOME is a temp dir
 # holding a private copy of the pinned Guardrails fixture (`## BL-344:`,
@@ -158,8 +165,9 @@ gitcfg "$D4" "$URL4" || { echo "FATAL: I4 fixture" >&2; exit 1; }
 # on-the-record way past it (`# BL-084-TIER-GATE`).
 run_init "$D4" other "$URL4" --defer-remote-push
 if [ "$INIT_RC" -eq 0 ] && _gq 'does not appear to be a git repository' "$D4/init.log" \
-   && _gq -F "the push of 'main' failed" "$D4/init.log" && [ "$(att_count "$D4/proj")" = "0" ]; then
-  pass "I4a: a failed scaffold push SHOWS the main attempt's own error and names main as the branch that failed (it used to discard both attempts)"
+   && _gq -F "the push of 'main' failed" "$D4/init.log" && [ "$(att_count "$D4/proj")" = "0" ] \
+   && grep -A1 'DEFERRING the push' "$D4/init.log" >/dev/null && _gq -F 'scripts/check-gate.sh --repair     # pushes the scaffold' "$D4/init.log"; then
+  pass "I4a: a failed scaffold push SHOWS the main attempt's own error, names main as the branch that failed, and the deferral names scripts/check-gate.sh --repair"
 else
   fail_ "I4a" "rc=$INIT_RC records=$(att_count "$D4/proj") log: $(logtail "$D4/init.log")"
 fi
@@ -171,6 +179,63 @@ if [ "$i4_rc" -eq 0 ] && [ "$(remote_sha "$D4/bare.git" main)" = "$i4_head" ] \
   pass "I4b: the project's own check-gate.sh --repair — the remedy init prints — pushes through the installed hook and leaves the record"
 else
   fail_ "I4b" "rc=$i4_rc bare main=$(remote_sha "$D4/bare.git" main) head=$i4_head records=$(att_count "$D4/proj") out: $(printf '%s' "$i4_out" | grep -m4 -E 'FAIL|BLOCKED|refspec|Repair|Why' | cut -c1-160 | tr '\n' '|')"
+fi
+
+echo ""
+echo "=== I5–I6: the escape covers init's scaffold and nothing else ==="
+D5="$(newtmp)"; URL5="https://example.invalid/bl323/later-work.git"
+gitcfg "$D5" "$URL5" || { echo "FATAL: I5 fixture" >&2; exit 1; }
+run_init "$D5" other "$URL5" --defer-remote-push
+i5_init=$INIT_RC
+( cd "$D5/proj" && echo 'console.log("operator code")' > app.js && git add app.js \
+    && GIT_CONFIG_GLOBAL="$D5/gitconfig" git commit -q --no-verify -m "feat: operator code" ) >/dev/null 2>&1
+mkbare "$D5/bare.git" || { echo "FATAL: I5 bare" >&2; exit 1; }
+i5_out="$( cd "$D5/proj" && GIT_CONFIG_GLOBAL="$D5/gitconfig" bash scripts/check-gate.sh --repair </dev/null 2>&1 )"; i5_rc=$?
+if [ "$i5_init" -eq 0 ] && [ "$i5_rc" -ne 0 ] && [ "$(remote_sha "$D5/bare.git" main)" = "none" ] && [ "$(att_count "$D5/proj")" = "0" ] \
+   && printf '%s' "$i5_out" | _gq 'holds commits init.sh did not make' && printf '%s' "$i5_out" | _gq 'no review has ever been recorded'; then
+  pass "I5: --repair after a failed init push and operator commits is REFUSED without a review — nothing lands, no attestation"
+else
+  fail_ "I5" "init rc=$i5_init repair rc=$i5_rc bare main=$(remote_sha "$D5/bare.git" main) records=$(att_count "$D5/proj") out: $(printf '%s' "$i5_out" | grep -m4 -E 'INFO|BLOCKED|ATTESTED|FAIL' | cut -c1-160 | tr '\n' '|')"
+fi
+
+D6="$(newtmp)"; URL6="https://example.invalid/bl323/existing.git"
+mkbare "$D6/bare.git" && gitcfg "$D6" "$URL6" || { echo "FATAL: I6 fixture" >&2; exit 1; }
+mkdir -p "$D6/proj" && ( cd "$D6/proj" && git init -q && echo 'old()' > old.py && git add old.py \
+    && GIT_CONFIG_GLOBAL="$D6/gitconfig" git commit -q -m "feat: before init" ) >/dev/null 2>&1
+run_init "$D6" other "$URL6" --allow-existing-dir
+i6_ref="$(git -C "$D6/proj" rev-parse -q --verify refs/solo-orchestrator/scaffold 2>/dev/null || printf 'none')"
+if [ "$INIT_RC" -ne 0 ] && [ "$(remote_sha "$D6/bare.git" main)" = "none" ] && [ "$(att_count "$D6/proj")" = "0" ] \
+   && [ "$i6_ref" = "none" ] && _gq 'already held files or history' "$D6/init.log" && _gq 'no review has ever been recorded' "$D6/init.log"; then
+  pass "I6: init --allow-existing-dir into a repository with history records no scaffold, and its push is REFUSED without a review — nothing lands, no attestation"
+else
+  fail_ "I6" "rc=$INIT_RC bare main=$(remote_sha "$D6/bare.git" main) records=$(att_count "$D6/proj") ref=$i6_ref log: $(logtail "$D6/init.log")"
+fi
+
+# I7 — --allow-existing-dir into a directory with files but no repository: the
+# scaffold commit is a root commit, but it holds the operator's files too.
+D7="$(newtmp)"; URL7="https://example.invalid/bl323/files.git"
+mkbare "$D7/bare.git" && gitcfg "$D7" "$URL7" || { echo "FATAL: I7 fixture" >&2; exit 1; }
+mkdir -p "$D7/proj" && echo 'mine()' > "$D7/proj/mine.py"
+run_init "$D7" other "$URL7" --allow-existing-dir
+i7_ref="$(git -C "$D7/proj" rev-parse -q --verify refs/solo-orchestrator/scaffold 2>/dev/null || printf 'none')"
+if [ "$INIT_RC" -ne 0 ] && [ "$(remote_sha "$D7/bare.git" main)" = "none" ] && [ "$(att_count "$D7/proj")" = "0" ] \
+   && [ "$i7_ref" = "none" ] && _gq 'already held files or history' "$D7/init.log"; then
+  pass "I7: init --allow-existing-dir into a directory that already held files records no scaffold — the push is REFUSED without a review, no attestation"
+else
+  fail_ "I7" "rc=$INIT_RC bare main=$(remote_sha "$D7/bare.git" main) records=$(att_count "$D7/proj") ref=$i7_ref log: $(logtail "$D7/init.log")"
+fi
+
+# I8 — --no-remote-creation: the record is a ref, so the scaffold stays one clean
+# commit, and it names that commit for a later --repair.
+D8="$(newtmp)"; gitcfg "$D8" "https://example.invalid/bl323/none.git" || { echo "FATAL: I8 fixture" >&2; exit 1; }
+run_init "$D8" github "https://example.invalid/bl323/none.git" --no-remote-creation
+i8_ref="$(git -C "$D8/proj" rev-parse -q --verify refs/solo-orchestrator/scaffold 2>/dev/null || printf 'none')"
+i8_dirty="$(git -C "$D8/proj" status --porcelain 2>/dev/null)"
+if [ "$INIT_RC" -eq 0 ] && [ "$i8_ref" = "$(git -C "$D8/proj" rev-parse HEAD 2>/dev/null)" ] \
+   && [ "$(git -C "$D8/proj" rev-list --count HEAD 2>/dev/null)" = "1" ] && [ -z "$i8_dirty" ]; then
+  pass "I8: --no-remote-creation — the scaffold record names the one commit, and the tree stays clean (the record is a ref, not a tracked file)"
+else
+  fail_ "I8" "rc=$INIT_RC ref=$i8_ref head=$(git -C "$D8/proj" rev-parse HEAD 2>/dev/null) commits=$(git -C "$D8/proj" rev-list --count HEAD 2>/dev/null) dirty='$i8_dirty'"
 fi
 
 finish

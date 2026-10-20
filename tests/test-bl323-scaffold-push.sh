@@ -23,7 +23,15 @@
 #      master fallback, with the main attempt's error shown; P6 a refusal on
 #      the main attempt is shown and the plain-words reason names main; P7 no
 #      main or master branch at all is said so.
-#   R  check-gate.sh --repair pushes through the hook and records it.
+#   Q  the escape covers init's scaffold and nothing else (`# BL-323-SCAFFOLD-ONLY`,
+#      supervisor decision 2026-10-20): Q1 the record is written for a root
+#      commit only; Q2 --repair after operator commits, Q3 a scaffold on earlier
+#      history, Q4 a finalize-shaped commit with another file, Q5 work under a
+#      state-only tip — each refused without a review, no attestation.
+#   R  check-gate.sh --repair pushes the scaffold and init's finalize commit
+#      through the hook and records it.
+#   G  the printed remedies (check-phase-gate.sh's deferred arm, check-gate.sh's
+#      BL-157 message) name scripts/check-gate.sh --repair, and it works.
 #   S  by structure: init.sh's two sites and check-gate.sh's one call the
 #      helper, nothing pushes main/master around it, and nothing exports the
 #      pair.
@@ -64,10 +72,13 @@ for f in "$PHASE2" "$CHECK_GATE" "$INIT_SH" "$REPO_ROOT/scripts/check-pr-review.
   [ -f "$f" ] || { echo "FATAL: missing $f" >&2; exit 1; }
 done
 
-# mkproj DIR BRANCH — a scaffold: one commit on BRANCH, the shipped gate at
-# scripts/check-pr-review.sh, and the pre-push hook init.sh installs.
+# mkproj DIR BRANCH [norecord] — a scaffold: one commit on BRANCH, the shipped
+# gate at scripts/check-pr-review.sh, the pre-push hook init.sh installs, and the
+# scaffold record init.sh writes (`# BL-323-SCAFFOLD-RECORD`) unless `norecord`.
+# The record is written only when the writer exists, so this file can be run
+# against a tree that predates it; Q1 pins the writer itself.
 mkproj() {
-  local d="$1" br="$2"
+  local d="$1" br="$2" rec="${3:-record}"
   mkdir -p "$d/scripts" || return 1
   cp "$REPO_ROOT/scripts/check-pr-review.sh" "$d/scripts/" && chmod +x "$d/scripts/check-pr-review.sh" || return 1
   ( cd "$d" || exit 1
@@ -75,11 +86,29 @@ mkproj() {
     mkdir -p .git/hooks
     . "$REPO_ROOT/scripts/lib/hook-templates.sh" && soif_write_prepush_hook .git/hooks/pre-push || exit 1
     echo scaffold > README.md && git add -A && git commit -qm "chore: initialize Solo Orchestrator project" || exit 1
+    if [ "$rec" = record ]; then
+      . "$PHASE2" || exit 1
+      if type _phase2_record_scaffold >/dev/null 2>&1; then _phase2_record_scaffold || exit 1; fi
+    fi
   ) >/dev/null 2>&1 || return 1
   [ -x "$d/.git/hooks/pre-push" ] || return 1
 }
 # mkbare DIR BRANCH — the remote. BL-234-FIXTURE-BARE-HEAD: its HEAD names the branch.
 mkbare() { git init -q --bare "$1" && git -C "$1" symbolic-ref HEAD "refs/heads/$2"; }
+# finalize DIR — the commit init.sh's finalize makes after the push: the two state
+# files it writes, nothing else.
+finalize() {
+  ( cd "$1" && mkdir -p .claude \
+      && printf '{"host":"other","mode":"personal"}\n' > .claude/manifest.json \
+      && { [ -f .claude/process-state.json ] || printf '{}\n' > .claude/process-state.json; } \
+      && git add .claude/manifest.json .claude/process-state.json \
+      && git commit -qm "chore: record host setup outcome (init finalize)" ) >/dev/null 2>&1
+}
+# operator_commit DIR — work the operator made after init.
+operator_commit() {
+  ( cd "$1" && echo 'console.log("operator code")' > app.js && git add app.js \
+      && git commit -qm "feat: operator code" ) >/dev/null 2>&1
+}
 # spush DIR — the helper, called the way init.sh's bring-your-own-host branch
 # calls it. Output to DIR.out; exit code in SPUSH_RC.
 SPUSH_RC=0
@@ -178,6 +207,81 @@ else
 fi
 
 echo ""
+echo "=== Q. the escape covers init's scaffold and nothing else ==="
+
+Q1="$(newtmp)/proj"; mkproj "$Q1" main norecord || { echo "FATAL: Q1 fixture" >&2; exit 1; }
+q1_root="$( cd "$Q1" && . "$PHASE2" && _phase2_record_scaffold && git rev-parse -q --verify refs/solo-orchestrator/scaffold )"
+operator_commit "$Q1"
+q1_nonroot_rc="$( cd "$Q1" && git update-ref -d refs/solo-orchestrator/scaffold && . "$PHASE2" && _phase2_record_scaffold; echo $? )"
+q1_after="$(git -C "$Q1" rev-parse -q --verify refs/solo-orchestrator/scaffold || printf 'none')"
+if [ -n "$q1_root" ] && [ "$q1_root" = "$(git -C "$Q1" rev-parse HEAD~1)" ] && [ "$q1_nonroot_rc" != "0" ] && [ "$q1_after" = "none" ]; then
+  pass "Q1: the scaffold record is written for a ROOT commit and refused for a commit with history under it (nothing recorded)"
+else
+  fail_ "Q1" "root record='$q1_root' (want the first commit) non-root rc=$q1_nonroot_rc (want non-zero) ref after=$q1_after (want none)"
+fi
+
+# Q2 — the measured route through --repair: init's push failed, the operator
+# committed, then ran the remedy. The scaffold escape must not carry that work.
+Q2="$(newtmp)/proj"; Q2B="${Q2%/proj}/bare.git"
+mkproj "$Q2" main && mkbare "$Q2B" main && git -C "$Q2" remote add origin "$Q2B" || { echo "FATAL: Q2 fixture" >&2; exit 1; }
+mkdir -p "$Q2/.claude"
+jq -n --arg at "$(date -u +%FT%TZ)" \
+  '{phase2_init:{steps_completed:["remote_repo_created","branch_protection_configured","branch_protection_verified"],
+                 attestations:{branch_protection:{attested_by:"orchestrator",at:$at}}}}' > "$Q2/.claude/process-state.json"
+finalize "$Q2" && operator_commit "$Q2" || { echo "FATAL: Q2 commits" >&2; exit 1; }
+q2_out="$( cd "$Q2" && bash "$CHECK_GATE" --repair </dev/null 2>&1 )"; q2_rc=$?
+if [ "$q2_rc" -ne 0 ] && [ "$(remote_sha "$Q2B" main)" = "none" ] && [ "$(att_count "$Q2")" = "0" ] \
+   && printf '%s' "$q2_out" | _gq "holds commits init.sh did not make" \
+   && printf '%s' "$q2_out" | _gq -F 'scripts/record-pr-review.sh' \
+   && printf '%s' "$q2_out" | _gq 'no review has ever been recorded'; then
+  pass "Q2: --repair after operator commits is REFUSED without a review — nothing lands, no attestation is written, and the message names the review to record"
+else
+  fail_ "Q2" "rc=$q2_rc bare main=$(remote_sha "$Q2B" main) records=$(att_count "$Q2") out: $(printf '%s' "$q2_out" | grep -m4 -E 'INFO|BLOCKED|ATTESTED|Push' | tr '\n' '|')"
+fi
+
+# Q3 — history under the scaffold (init --allow-existing-dir into a repository).
+# init records nothing there; even a record that names that commit is refused.
+Q3="$(newtmp)/proj"; Q3B="${Q3%/proj}/bare.git"
+mkdir -p "$Q3" && ( cd "$Q3" && git init -q -b main . && git config user.email bl323@example.invalid \
+    && git config user.name "BL323 T" && echo 'old()' > old.py && git add old.py && git commit -qm "feat: before init" ) >/dev/null 2>&1
+mkproj "$Q3" main norecord && mkbare "$Q3B" main && git -C "$Q3" remote add origin "$Q3B" || { echo "FATAL: Q3 fixture" >&2; exit 1; }
+spush "$Q3"; q3a_rc=$SPUSH_RC; q3a_count="$(att_count "$Q3")"; q3a_said="$(grep -c "no record of init's scaffold commit" "$Q3.out")"
+git -C "$Q3" update-ref refs/solo-orchestrator/scaffold HEAD
+spush "$Q3"; q3b_rc=$SPUSH_RC
+q3_count="$(att_count "$Q3")"
+if [ "$q3a_rc" -ne 0 ] && [ "$q3b_rc" -ne 0 ] && [ "$(remote_sha "$Q3B" main)" = "none" ] \
+   && [ "$q3a_said" -ge 1 ] && { [ "$q3_count" = "none" ] || [ "$q3_count" = "0" ]; } && [ "$q3a_count" = "$q3_count" ]; then
+  pass "Q3: a scaffold laid on earlier history is refused without a review — with no record, and with a record naming that non-root commit — and no attestation is written"
+else
+  fail_ "Q3" "no-record rc=$q3a_rc (said: $q3a_said) recorded rc=$q3b_rc bare main=$(remote_sha "$Q3B" main) records=$(att_count "$Q3") out: $(oneline "$Q3.out")"
+fi
+
+# Q4 — init's finalize commit is the one thing allowed on top, and only while it
+# touches the two state files alone.
+Q4="$(newtmp)/proj"; Q4B="${Q4%/proj}/bare.git"
+mkproj "$Q4" main && mkbare "$Q4B" main && git -C "$Q4" remote add origin "$Q4B" || { echo "FATAL: Q4 fixture" >&2; exit 1; }
+( cd "$Q4" && mkdir -p .claude && printf '{}\n' > .claude/manifest.json && printf '{}\n' > .claude/process-state.json \
+    && echo 'x()' > extra.js && git add -A && git commit -qm "chore: record host setup outcome (init finalize)" ) >/dev/null 2>&1
+spush "$Q4"
+if [ "$SPUSH_RC" -ne 0 ] && [ "$(remote_sha "$Q4B" main)" = "none" ] && [ "$(att_count "$Q4")" = "0" ]; then
+  pass "Q4: a finalize-shaped commit that also carries another file is NOT the scaffold — refused, no attestation"
+else
+  fail_ "Q4" "rc=$SPUSH_RC bare main=$(remote_sha "$Q4B" main) records=$(att_count "$Q4") out: $(oneline "$Q4.out")"
+fi
+
+# Q5 — operator work hidden under a state-only commit: the tip alone looks like
+# init's finalize, but there is more than one commit on the scaffold.
+Q5="$(newtmp)/proj"; Q5B="${Q5%/proj}/bare.git"
+mkproj "$Q5" main && mkbare "$Q5B" main && git -C "$Q5" remote add origin "$Q5B" || { echo "FATAL: Q5 fixture" >&2; exit 1; }
+operator_commit "$Q5" && finalize "$Q5" || { echo "FATAL: Q5 commits" >&2; exit 1; }
+spush "$Q5"
+if [ "$SPUSH_RC" -ne 0 ] && [ "$(remote_sha "$Q5B" main)" = "none" ] && [ "$(att_count "$Q5")" = "0" ]; then
+  pass "Q5: operator work under a state-only tip is NOT the scaffold — exactly one commit may sit on it — refused, no attestation"
+else
+  fail_ "Q5" "rc=$SPUSH_RC bare main=$(remote_sha "$Q5B" main) records=$(att_count "$Q5") out: $(oneline "$Q5.out")"
+fi
+
+echo ""
 echo "=== R. check-gate.sh --repair, the remedy init prints ==="
 
 # A bring-your-own-host project whose scaffold push never landed: the remote is
@@ -189,13 +293,67 @@ printf '{"host":"other","mode":"personal","remote_url":"%s"}\n' "$RB" > "$R/.cla
 jq -n --arg at "$(date -u +%FT%TZ)" \
   '{phase2_init:{steps_completed:["remote_repo_created","branch_protection_configured","branch_protection_verified"],
                  attestations:{branch_protection:{attested_by:"orchestrator",at:$at}}}}' > "$R/.claude/process-state.json"
+# As after a failed init push: init's finalize commit sits on the scaffold.
+( cd "$R" && git add .claude/manifest.json .claude/process-state.json \
+    && git commit -qm "chore: record host setup outcome (init finalize)" ) >/dev/null 2>&1 || { echo "FATAL: R finalize" >&2; exit 1; }
 r_out="$( cd "$R" && bash "$CHECK_GATE" --repair </dev/null 2>&1 )"; r_rc=$?
 r_steps="$(jq -r '.phase2_init.steps_completed | index("pushed_initial") != null' "$R/.claude/process-state.json" 2>/dev/null)"
 if [ "$r_rc" -eq 0 ] && [ "$(remote_sha "$RB" main)" = "$(head_of "$R")" ] && [ "$r_steps" = "true" ] \
    && [ "$(att_count "$R")" = "1" ] && [ "$(att_field "$R" reason)" = "$REASON" ]; then
-  pass "R1: check-gate.sh --repair pushes the scaffold THROUGH the installed hook, records pushed_initial, and leaves the same dated record"
+  pass "R1: check-gate.sh --repair pushes the scaffold and init's finalize commit THROUGH the installed hook, records pushed_initial, and leaves the same dated record"
 else
   fail_ "R1" "rc=$r_rc bare main=$(remote_sha "$RB" main) pushed_initial=$r_steps records=$(att_count "$R") out: $(printf '%s' "$r_out" | grep -m4 -E 'FAIL|BLOCKED|refspec|Repair' | tr '\n' '|')"
+fi
+
+echo ""
+echo "=== G. the printed remedies name a command that works ==="
+
+# G1 — check-phase-gate.sh's Phase 1→2 push check, deferred arm: a project that
+# deferred its push (--defer-remote-push) and never pushed. The command it names
+# must land the scaffold. The fixture is test-bl084's gate fixture, trimmed.
+G1="$(newtmp)/proj"; G1B="${G1%/proj}/bare.git"
+mkdir -p "$G1/.claude" "$G1/docs/phase-0"
+for f in frd user-journey data-contract; do printf '%s\n' "$f" > "$G1/docs/phase-0/$f.md"; done
+printf '{"frameworkVersion":"test","host":"other","mode":"personal","remote_url":"%s"}\n' "$G1B" > "$G1/.claude/manifest.json"
+printf '{"current_phase":2,"deployment":"personal","poc_mode":null,"track":"light","gates":{"phase_0_to_1":"2026-01-01","phase_1_to_2":"2026-02-01"}}\n' > "$G1/.claude/phase-state.json"
+jq -n --arg at "$(date -u +%FT%TZ)" '{phase2_init:{steps_completed:[],attestations:{branch_protection:{attested_by:"orchestrator",at:$at}},
+  remote:{push_deferred_acknowledged:{risk_accepted:true,reason:"test",date:$at,by:"tester"}}},
+  phase1_artifacts:{data_classification:"public",zdr_attested:false}}' > "$G1/.claude/process-state.json"
+printf '# APPROVAL_LOG\n\n## Phase 0 → Phase 1\n| Field | Value |\n|---|---|\n| Approver | Alice Signer |\n| Date | 2026-01-01 |\n\n## Phase 1 → Phase 2\n| Field | Value |\n|---|---|\n| Approver | Alice Signer |\n| Date | 2026-02-01 |\n' > "$G1/APPROVAL_LOG.md"
+{ echo "# PRODUCT_MANIFESTO"; for i in 1 2 3 4 5 6 7 8; do printf '\n## %s. Section %s\nFilled content.\n' "$i" "$i"; done; } > "$G1/PRODUCT_MANIFESTO.md"
+{ echo "# PROJECT_BIBLE"; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do printf '\n## %s. Section %s\nContent.\n' "$i" "$i"; done; } > "$G1/PROJECT_BIBLE.md"
+mkproj "$G1" main && mkbare "$G1B" main && git -C "$G1" remote add origin "$G1B" || { echo "FATAL: G1 fixture" >&2; exit 1; }
+g1_gate="$( cd "$G1" && bash "$REPO_ROOT/scripts/check-phase-gate.sh" </dev/null 2>&1 )"
+g1_said="$(printf '%s\n' "$g1_gate" | grep -A3 'push was DEFERRED' | grep -c 'scripts/check-gate.sh --repair')"
+g1_out="$( cd "$G1" && bash "$CHECK_GATE" --repair </dev/null 2>&1 )"; g1_rc=$?
+g1_after="$( cd "$G1" && bash "$REPO_ROOT/scripts/check-phase-gate.sh" </dev/null 2>&1 | grep -c 'push gate: remote has the branch' )"
+if [ "$g1_said" -ge 1 ] && [ "$g1_rc" -eq 0 ] && [ "$(remote_sha "$G1B" main)" = "$(head_of "$G1")" ] && [ "$g1_after" -ge 1 ]; then
+  pass "G1: check-phase-gate.sh's deferred-push arm names scripts/check-gate.sh --repair, and that command lands the scaffold — the gate then sees the branch"
+else
+  fail_ "G1" "named=$g1_said repair rc=$g1_rc bare main=$(remote_sha "$G1B" main) gate after=$g1_after; gate said: $(printf '%s\n' "$g1_gate" | grep -A3 'push gate' | head -4 | tr '\n' '|') repair: $(printf '%s' "$g1_out" | grep -m3 -E 'FAIL|BLOCKED|Repair' | tr '\n' '|')"
+fi
+
+# G2 — check-gate.sh's BL-157 message: --repair --branch-protection-attested on a
+# github project whose remote exists but holds nothing. It names a push first;
+# that command must land the scaffold, and the flagged re-run must then pass.
+# origin is a local bare, so the github driver's protection step fails before any
+# gh call (as a free-tier 403 would); a failing gh stub guards it anyway.
+G2="$(newtmp)/proj"; G2B="${G2%/proj}/bare.git"; G2BIN="${G2%/proj}/bin"
+mkdir -p "$G2/.claude" "$G2/scripts/host-drivers" "$G2BIN"
+printf '#!/bin/sh\necho "gh stub: no network in this suite" >&2\nexit 1\n' > "$G2BIN/gh"; chmod +x "$G2BIN/gh"
+cp "$REPO_ROOT/scripts/host-drivers/github.sh" "$G2/scripts/host-drivers/github.sh"
+printf '{"host":"github","mode":"personal"}\n' > "$G2/.claude/manifest.json"
+printf '{"phase2_init":{"steps_completed":[],"attestations":{}}}\n' > "$G2/.claude/process-state.json"
+mkproj "$G2" main && mkbare "$G2B" main && git -C "$G2" remote add origin "$G2B" || { echo "FATAL: G2 fixture" >&2; exit 1; }
+g2_msg="$( cd "$G2" && PATH="$G2BIN:$PATH" bash "$CHECK_GATE" --repair --branch-protection-attested </dev/null 2>&1 )"
+g2_said="$(printf '%s' "$g2_msg" | grep 'preconditions unmet' | grep -c 'Push first with:  scripts/check-gate.sh --repair ')"
+g2_out="$( cd "$G2" && PATH="$G2BIN:$PATH" bash "$CHECK_GATE" --repair </dev/null 2>&1 )"
+g2_landed="$(remote_sha "$G2B" main)"
+g2_rc2="$( cd "$G2" && PATH="$G2BIN:$PATH" bash "$CHECK_GATE" --repair --branch-protection-attested </dev/null >/dev/null 2>&1; echo $? )"
+if [ "$g2_said" -ge 1 ] && [ "$g2_landed" = "$(head_of "$G2")" ] && [ "$(att_count "$G2")" = "1" ] && [ "$g2_rc2" = "0" ]; then
+  pass "G2: check-gate.sh's BL-157 message names scripts/check-gate.sh --repair, that command lands the scaffold, and the flagged re-run it names then passes"
+else
+  fail_ "G2" "named=$g2_said bare main=$g2_landed records=$(att_count "$G2") flagged re-run rc=$g2_rc2; said: $(printf '%s' "$g2_msg" | grep -m1 'preconditions' | cut -c1-200) repair: $(printf '%s' "$g2_out" | grep -m3 -E 'FAIL|BLOCKED|Repair' | tr '\n' '|')"
 fi
 
 echo ""
