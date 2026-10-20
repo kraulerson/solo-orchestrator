@@ -1097,6 +1097,15 @@ run_child_suite "tests/test-bl354-state-jsonl-exempt.sh" \
 run_child_suite "tests/test-bl344-home-clone-guard.sh" \
   "BL-344: the unit lane fails a suite that touches the Guardrails clone in HOME; the check plants, checks and replants" \
   "BL-344 home-clone-guard tests FAILED (run tests/test-bl344-home-clone-guard.sh for details)"
+# BL-323: init.sh installed the pre-push review gate and then pushed the scaffold
+# into it; with no review on record the gate refused, the remote stayed empty,
+# and the first attempt's error was discarded. --repair failed the same way.
+run_child_suite "tests/test-bl323-scaffold-push.sh" \
+  "BL-323: the scaffold push goes through the review gate's attested escape, is recorded, and a later unreviewed push is still refused" \
+  "BL-323 scaffold-push tests FAILED (run tests/test-bl323-scaffold-push.sh for details)"
+run_child_suite "tests/test-bl323-scaffold-push-init.sh" \
+  "BL-323: a real init.sh lands the scaffold on the remote (both host branches) and check-gate.sh --repair pushes" \
+  "BL-323 scaffold-push init tests FAILED (run tests/test-bl323-scaffold-push-init.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

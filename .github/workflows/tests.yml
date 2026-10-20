@@ -680,6 +680,7 @@ jobs:
             tests/test-bl354-state-jsonl-exempt.sh
             tests/test-bl310-install-buckets-and-consent.sh
             tests/test-bl344-home-clone-guard.sh
+            tests/test-bl323-scaffold-push.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
