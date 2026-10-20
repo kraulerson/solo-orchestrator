@@ -25,6 +25,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/upgrade-project.sh"
+# `## BL-344:` an empty temp HOME, as a runner has. upgrade-project.sh pulls the
+# Guardrails clone in $HOME/.claude-dev-framework (`# BL-320-UP-PULL`), and with
+# the contributor's HOME that is the contributor's own clone, which every
+# project on the computer reads. With none, the pull is skipped, as on CI.
+HOME_TMP="$(mktemp -d)" || exit 1
+trap 'rm -rf "$HOME_TMP"' EXIT
+export HOME="$HOME_TMP"; unset CDF_HOME CLAUDE_CONFIG_DIR XDG_CONFIG_HOME GIT_CONFIG_GLOBAL   # BL-344-HOME
 
 PASSED=0
 FAILED=0
