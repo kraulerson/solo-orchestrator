@@ -386,8 +386,8 @@ here.
     rest]`, twelve legs since 2026-10-19), but only the
     measured long poles are pinned to a shard by the `pin_*` arrays; `rest`
     is the COMPLEMENT, so a new entry lands there automatically. Keep `rest`
-    the lightest leg: every new suite lands in it, so a suite pinned INTO it
-    spends the slack the next one needs (`## BL-350:`).
+    light: every new suite lands in it, so a suite pinned INTO it spends the
+    slack the next one needs (`## BL-350:`).
   - **A case that needs a real Guardrails clone reads the pinned fixture,
     never `~/.claude-dev-framework` on CI** (`## BL-322:` S5).
     `tests/test-helpers/cdf-fixture.sh` is the one way in:

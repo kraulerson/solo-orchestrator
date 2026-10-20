@@ -1178,8 +1178,8 @@ jobs:
             # wp4-driver WAS HERE until 2026-10-19 (BL-350) and is in `pin_lint_sweep`.
             tests/test-bl322-s2-project-rules.sh              # 113.2s — from `mcp`; ~120s local after S5 review round 1 (74s before it: 48 more mutants, one more adoption); 150s after round 2 (D1, 12 more mutants); 174s after round 3 (D2, 9 more); 102.4s on PR #506
             # bl322-s1-audit-loop and f015 WERE HERE until S5 review round 3 and
-            #    went to `pin_lint_scan`; f015 is back here since 2026-10-19 (BL-350) and
-            #    are in `pin_lint_scan` (its note says why).
+            #    went to `pin_lint_scan`; bl322-s1-audit-loop is still there (its note says
+            #    why) and f015 is back here since 2026-10-19 (BL-350).
             tests/test-bl235-tool-matrix-probes.sh                            # 40.1s, 41.5s, 40.9s and 41.3s on the four runs of the `adopt-c` note — from `lint-scan`
             tests/test-f015-tamper-pin-allowlist.sh                     # 27.1s, 36.9s, 26.7s and 26.1s on the four runs of the `adopt-c` note — from `lint-scan`
           )
@@ -1299,11 +1299,11 @@ jobs:
           # bl311-d into `rest`, where every new suite lands; on PR #516's run
           # 39347576623 and main's 39348728358 (after it, 11 legs) that map read `rest`
           # 600s and 703s and `lint-sweep` 585s, and PR #516's own suite cost 31.9s and
-          # 33.5s, not ~15s. So the pins are fitted to ALL FOUR runs, `rest` kept the
-          # lightest leg (bl311-d, bl277-adopted-detector-on and bl277-detector-
+          # 33.5s, not ~15s. So the pins are fitted to ALL FOUR runs, `rest` kept
+          # light (bl311-d, bl277-adopted-detector-on and bl277-detector-
           # authorship pinned out of it), and every leg projects at or below 560s on
           # each of the four (78% of 720s; the line was 576s, 80%). `rest` projects
-          # at most 502s. See `## BL-350:` for the table. Each moved entry carries
+          # at most 503s: the lightest leg on runs 1-3, sixth on run 4. See `## BL-350:` for the table. Each moved entry carries
           # its four spans; each lands last in its leg.
           pin_adopt_c=(
             tests/test-bl310-adopt-symlink-write.sh                           # 158.9s, 136.7s, 162.3s and 142.9s on the four runs of the `adopt-c` note — from `approval`
