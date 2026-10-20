@@ -26167,11 +26167,56 @@ project"), before `44b3d13`.
 **Logged:** 2026-10-17
 **Category:** CI headroom
 **Severity:** Low — green today; the next slow suite on either leg reds it
-**Status:** Open
+**Status:** Closed — 2026-10-19 (fix `382c80e`). Projected, not yet observed: the real proof is the pull request's own
+`unit-shard` run, whose per-leg times the supervisor adds below once it exists.
 
 **What.** On `main` run 39003021516 (push of `08e940f`, after the eleventh leg, PR #510), `unit-shard (adopt)`
 took 640s and `unit-shard (slow-misc)` 620s of the 720s cap (`timeout-minutes: 12`); `approval` took 265s.
 Direction: move a measured long pole off each (the `pin_adopt` / `pin_adopt_b` notes in `tests.yml`), or add a leg.
+
+**What was measured.** Per-suite `::group::` spans from two runs of the same code: PR #515's run 39300587530 (tip
+`6a2746a`) and the main push run 39302163304 (merge of PR #515). Job times, seconds, of the 720s cap:
+`adopt` 655 and 498, `approval` 642 and 594, `slow-misc` 626 and 661, `lint-scan` 570 and 700, `adopt-b` 598 and 486,
+`mcp-mutants` 582 and 612, `commit-hooks` 539 and 583, `mcp` 494 and 553, `sast` 542 and 461, `rest` 480 and 463,
+`lint-sweep` 433 and 438. Setup is 21-32s per leg. Long poles (seconds on those two runs): bl132-sast-index-scan
+375 and 323 (`sast`), bl311-adopt-mcp-mutants 307 and 319 (`mcp-mutants`), wp9b-preflight-approval 282 and 215 and
+bl322-s4-wording 118 and 88 (`adopt`), bl314-tool-usage-concurrent 218 and 207 and bl310-adopt-symlink-write 159 and
+137 (`approval`), wp6-collision-archive 148 and 159 and upgrade-sync-framework 60 and 62 (`slow-misc`). The suites total
+~5850s and ~5770s, so eleven legs average ~560s even if perfectly balanced, and the same suites swing a leg by up to
+157s between runs: a re-pin of eleven legs fitted to one run read 614s and 709s on the other. Fitted to both runs at
+once, eleven legs reach 574.5s with twenty moves and no slack on either run, so a twelfth leg was added instead
+(the doctrine on `pin_mcp` in `tests.yml`: split further, never raise the cap).
+
+**Fix.** Leg `adopt-c` (matrix, roster, `pins_for` arm, `pin_adopt_c`) and eleven moves; each moved entry carries its
+measured seconds, both run ids and its from-leg in `tests.yml`. `adopt-c` takes bl310-adopt-symlink-write (from
+`approval`), bl322-s4-wording (`adopt`), wp2-scout-sections (`lint-scan`), wp9c-session-layer (`commit-hooks`) and
+upgrade-sync-framework (`slow-misc`). The rest: bl200-syntax-detector `mcp-mutants` -> `mcp`, bl235-tool-matrix-probes
+`lint-scan` -> `adopt-b`, bl276-stdin-hang `slow-misc` -> `approval`, bl311-c-scout-runner-ignore-rule `mcp` ->
+`commit-hooks`, bl311-d-relayed-escape `mcp-mutants` -> `rest`, wp4-driver `adopt-b` -> `lint-sweep`. No suite's content
+changed; the timeout, the `unit` aggregator's name and its need of every leg are unchanged.
+
+**Projection** (job seconds = setup 29s + the suites' measured spans; `rest` carries the ~15s suite PR #516 adds):
+
+| Leg | Before, run 39300587530 | Before, 39302163304 | After, 39300587530 | After, 39302163304 |
+|---|---|---|---|---|
+| `lint-sweep` | 433 | 438 | 544 | 528 |
+| `lint-scan` | 570 | 700 | 425 | 541 |
+| `sast` | 542 | 461 | 545 | 469 |
+| `slow-misc` | 626 | 661 | 514 | 546 |
+| `adopt` | 655 | 498 | 540 | 415 |
+| `adopt-b` | 598 | 486 | 533 | 446 |
+| `adopt-c` | — | — | 544 | 516 |
+| `commit-hooks` | 539 | 583 | 501 | 542 |
+| `mcp` | 494 | 553 | 490 | 543 |
+| `mcp-mutants` | 582 | 612 | 515 | 545 |
+| `approval` | 642 | 594 | 538 | 516 |
+| `rest` | 480 | 463 | 529 | 522 |
+
+Worst leg after: 546s (76% of 720s; the line was 576s, 80%), against 700s (97%) before. Checked on the edited file: the
+job's own selection script, extracted and run for each of the twelve legs, puts all 260 canonical suites in exactly one
+leg (none twice, none dropped); four mutants of the roster, the `pins_for` arm, a double pin and a pin absent from the
+canonical array each fail it by name. The legs sit within 30s of each other, so a third run's swing can still push one
+above 576s; the cap is what holds the line, and the next re-pin starts from the run after this one.
 
 ## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
 
