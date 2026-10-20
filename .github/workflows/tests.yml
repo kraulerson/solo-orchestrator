@@ -179,7 +179,7 @@ jobs:
       # PR author sees one failure and cannot tell what else is broken.
       fail-fast: false
       matrix:
-        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, adopt-b, commit-hooks, mcp, mcp-mutants, approval, rest]
+        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, adopt-b, adopt-c, commit-hooks, mcp, mcp-mutants, approval, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -361,7 +361,7 @@ jobs:
           # it. Delete a name here and its `pin_*` array is ORPHANED — it
           # no longer enters `pinned`, so those paths fall back into `rest`
           # and STILL RUN. Fail-safe, not silently dropped.
-          shard_names="lint-sweep lint-scan sast slow-misc adopt adopt-b commit-hooks mcp mcp-mutants approval rest"
+          shard_names="lint-sweep lint-scan sast slow-misc adopt adopt-b adopt-c commit-hooks mcp mcp-mutants approval rest"
 
           roster="|"
           shard_arms=0
@@ -869,6 +869,7 @@ jobs:
             #    run 37676814405). It went back to `pin_adopt` on 2026-10-07,
             #    when the tenth leg took two suites out of `adopt`. See the
             #    `pin_adopt_b` note.
+            tests/test-brownfield-wp4-driver.sh                               # 108.4s and 84.6s on runs 39300587530 and 39302163304 — from `adopt-b`
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
@@ -889,7 +890,7 @@ jobs:
             #    measures 468s/720s (65%) and would have gone to ~80%, whereas
             #    lint-scan measures 97s TOTAL — the three figures above it
             #    pre-date BL-191 and overstate it by roughly 3x.
-            tests/test-brownfield-wp2-scout-sections.sh  # 108.5s in CI
+            # wp2-scout-sections WAS HERE until 2026-10-19 (BL-350) and is in `pin_adopt_c`.
             # ── Pinned 2026-08-17 with BL-235. Landed here on the same
             #    reasoning as the line above: this leg measured 97s TOTAL at its
             #    last real measurement (~206s if the three stale pre-BL-191
@@ -920,7 +921,7 @@ jobs:
             #    it, and that `rest` came down to 61%. Both were the point.
             #    NOTE FOR THE NEXT RE-PIN: `slow-misc` at 79% is now the closest
             #    to the cap, not `rest`.
-            tests/test-bl235-tool-matrix-probes.sh       # leg measured 245s/720s (34%) with this suite in it — run 32046301464
+            # bl235-tool-matrix-probes WAS HERE until 2026-10-19 (BL-350) and is in `pin_adopt_b`.
             # ── Re-pinned 2026-09-02, and this is the case the note in
             #    `pin_lint_sweep` said could not arise (that note is in
             #    `pin_lint_sweep`, not `pin_slow_misc` — this line named the
@@ -1025,7 +1026,7 @@ jobs:
             #    `pin_adopt`, then to `pin_lint_sweep`, and back to `pin_adopt`
             #    with the tenth leg): this leg's job ran 652s and 630s of 720s on
             #    PR #502's run and the main run after it.
-            tests/test-upgrade-sync-framework.sh       #  37s
+            # upgrade-sync-framework WAS HERE until 2026-10-19 (BL-350) and is in `pin_adopt_c`.
             tests/test-plan-staging.sh                 #  34s
             # ── Re-pinned 2026-08-09, measured from runs 31332638444 (main @
             #    faffd7a, complement leg 626s/720s) and 31332771622 (WP8 branch,
@@ -1069,7 +1070,7 @@ jobs:
             #    work package of headroom.
             tests/test-brownfield-wp5b-test-debt.sh          #  ~45s in CI (30s local)
             tests/test-brownfield-wp6-collision-archive.sh   #  ~61s in CI (36s local)
-            tests/test-bl276-stdin-hang.sh               # 53s on PR #412 — the complement's new longest pole; bounds four stdin-hang cases with timeouts by design
+            # bl276-stdin-hang WAS HERE until 2026-10-19 (BL-350) and is in `pin_approval`.
             tests/test-bl233-wpb-accumulation.sh         # 43s on PR #412 — moved WITH bl276 so the complement lands near 85% of the cap, not 99%: run 35028774242 hit 748s against 720s with 0 failures
             # Three from `rest` with the tenth leg, 2026-10-07 (the `pin_adopt_b` note):
             tests/test-bl256-unearned-receipts.sh        # 25.5s at its slowest of three runs
@@ -1102,7 +1103,7 @@ jobs:
             # of tests behind a 117s setup. It went to `pin_lint_sweep`, and came
             # back on 2026-10-07 when wp4 and bl322-s3 left (the `pin_adopt_b` note).
             tests/test-brownfield-wp11-archive-classes.sh     #  42.0s at its slowest of three runs — real adoptions; the archive's classes and dispositions
-            tests/test-bl322-s4-wording.sh                    #  94s local, measured after review round 1 — three real adoptions, two more refused at the preflight, 48 mutants; here because this leg ran 420s of 720s on PR #505, the lightest of the ten
+            # bl322-s4-wording WAS HERE until 2026-10-19 (BL-350) and is in `pin_adopt_c`.
             # The two BL-282/BL-301 `--set-answer` suites (PR #453, 2026-10-16): in `rest` they
             # would take that leg from 643s to ~682s of 720s (job times on main run
             # 38938263164, b9ce2bf); this leg ran 424s there, the lightest of the ten.
@@ -1162,10 +1163,11 @@ jobs:
           # a pin array with `pin_[a-z_]+=\(`, which a `pin_adopt_2` slips past.
           pin_adopt_b=(
             tests/test-bl322-s3-ignore-preflight.sh           # 202.4s on PR #504; ~230s on main run 37714043379 (derived — cancelled at case 46 of 47) — from `adopt`
-            tests/test-brownfield-wp4-driver.sh               # 128.2s at its slowest of three runs — from `adopt`
+            # wp4-driver WAS HERE until 2026-10-19 (BL-350) and is in `pin_lint_sweep`.
             tests/test-bl322-s2-project-rules.sh              # 113.2s — from `mcp`; ~120s local after S5 review round 1 (74s before it: 48 more mutants, one more adoption); 150s after round 2 (D1, 12 more mutants); 174s after round 3 (D2, 9 more); 102.4s on PR #506
             # bl322-s1-audit-loop and f015 WERE HERE until S5 review round 3 and
             #    are in `pin_lint_scan` (its note says why).
+            tests/test-bl235-tool-matrix-probes.sh                            # 40.1s and 41.5s on runs 39300587530 and 39302163304 — from `lint-scan`
           )
           # ── `commit-hooks` — the suites that drive real commits through real
           # hooks (2026-09-24). The same tree ran slow-misc at 8m49s and then
@@ -1177,7 +1179,7 @@ jobs:
             tests/test-pre-commit-gate-lints.sh        # 122s — from slow-misc; runs 4 lint copies inside fixture projects
             tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — from slow-misc
             tests/test-brownfield-wp7b-commit-hook.sh  # ~172s on CI (PR #442) — from lint-sweep; real adoptions and real commits
-            tests/test-brownfield-wp9c-session-layer.sh  # new — six real adoptions
+            # wp9c-session-layer WAS HERE until 2026-10-19 (BL-350) and is in `pin_adopt_c`.
             tests/test-brownfield-wp7f-provenance.sh   # new — one real adoption, then the checker and the finisher
             tests/test-brownfield-wp7e-ci-carveout.sh  # new — real adoptions, CI files read and one written
             # From `rest`, 2026-10-05: that leg's job ran 638s of 720s on PR #498 (89%) and
@@ -1189,6 +1191,7 @@ jobs:
             #    it, 37653263402 (91% and 97% of 720s). It is unpinned now, in
             #    `rest` (job 581s, 428s and 481s on those runs and PR #503's
             #    37676814405; near 672s, 519s and 566s with its 89s, 91s and 85s).
+            tests/test-bl311-c-scout-runner-ignore-rule.sh                    # 36.8s and 43.0s on runs 39300587530 and 39302163304 — from `mcp`
           )
           # ── `mcp` and `mcp-mutants` — the BL-311 group A suite, in two files
           # (2026-09-30). The history, all on PR #477:
@@ -1217,7 +1220,7 @@ jobs:
           pin_mcp=(                                       # 314s on PR #490's run, of 720s
             tests/test-bl311-adopt-mcp.sh                 # ~230s local — the 57 cases, no mutant
             tests/test-bl311-b-adopt-guardrails-track.sh  # 42s local, measured — one real adoption, four cases halted at the intake, 12 direct writer calls
-            tests/test-bl311-c-scout-runner-ignore-rule.sh  # 36s local without uv, as the runner has none (39s with uv, measured); Scout suites run ~2x local in CI — one real adoption, stubbed and real --run-tests, 35 mutants (M25 needs uv); here, not in `rest`, which measured 577s of 720s on PR #490
+            # bl311-c-scout-runner-ignore-rule WAS HERE until 2026-10-19 (BL-350) and is in `pin_commit_hooks`.
             tests/test-bl316-installers.sh                  # 15s local, measured — two real adoptions, seven resolver runs, 11 mutants; here, not in `rest` (612s of 720s on PR #493)
             tests/test-bl318-g1-test-command.sh             # 69s local, measured — four real adoptions plus three under mutants, 24 mutants; here, not in `rest` (620s of 720s on PR #495; `mcp` was 397s)
             tests/test-bl318-g5-guardrails-refresh.sh       # 34-35s local, measured twice after the final check (E1 skips on CI: no clone; E0 runs) — 48 cases, 48 mutants; here, not in `rest` (test step 563s, job 596s of 720s on main run 37354155101; `mcp` step 352s)
@@ -1227,13 +1230,14 @@ jobs:
             #    three runs in that note, not the ~70s it was pinned on, and this
             #    leg's job ran 603s and 638s on the first two.
             tests/test-delta-db-ledger-close.sh             # 29.8s at its slowest of three runs — from `rest` with the tenth leg (the `pin_adopt_b` note)
+            tests/test-bl200-syntax-detector.sh                               # 32.6s and 32.8s on runs 39300587530 and 39302163304 — from `mcp-mutants`
           )
           pin_mcp_mutants=(                               # 400s on PR #490's run, 355s on PR #494's, of 720s
             tests/test-bl311-adopt-mcp-mutants.sh         # ~318s local — the 71 mutation proofs
             tests/test-bl312-tldr-mode.sh                 # ~100s local, measured (100s and 105s after review round 1) — five completed adoptions and two refused, eight adoption mutants, 34 mutants in all; here, not in `rest` (518s of 720s on PR #494) or `mcp` (349s, four files)
-            tests/test-bl311-d-relayed-escape.sh          # 34s and 33s on PR #498 and main run 37400574352 — from `rest`, its second pole, moved with bl296 (to `commit-hooks`) so `rest` drops ~112s, to ~525s of 720s on PR #498's figures; this leg's job ran 457s and 456s on those runs
+            # bl311-d-relayed-escape WAS HERE until 2026-10-19 (BL-350) and is in `rest` (unpinned).
             tests/test-bl318-g3-ci-template.sh            # 35s local, measured after review round 1 — two real adoptions and two under mutants, 24 cases and 36 mutants; here, not in `rest` (job 638s of 720s on PR #498) or `mcp` (job 521s on main run 37400574352); this leg's job ran 457s on PR #498
-            tests/test-bl200-syntax-detector.sh           # 35.9s at its slowest of three runs — from `lint-sweep` with the tenth leg (the `pin_adopt_b` note); semgrep is on every leg
+            # bl200-syntax-detector WAS HERE until 2026-10-19 (BL-350) and is in `pin_mcp`.
             tests/test-bl322-s5-hardening.sh              # ~60s local — runs bl141, bl145 and pr-review-gate once each, and 13 mutants; here because this leg ran 467s of 720s on PR #506, the lightest of the ten
           )
           # ── `approval` — the eleventh leg (2026-10-16, after the contributor
@@ -1263,7 +1267,30 @@ jobs:
             # adoptions and a re-add under mutants. Here, the steadiest light leg: 487s and
             # 486s on main runs 39158120322 and 39075330841 (commit-hooks 378s and 522s;
             # adopt 500s and 647s).
-            tests/test-bl310-adopt-symlink-write.sh
+            # bl310-adopt-symlink-write WAS HERE until 2026-10-19 (BL-350) and is in `pin_adopt_c`.
+            tests/test-bl276-stdin-hang.sh                                    # 51.8s and 52.6s on runs 39300587530 and 39302163304 — from `slow-misc`
+          )
+          # ── `adopt-c` — the twelfth leg (2026-10-19, BL-350). On main run 39302163304
+          # (merge of PR #515) `lint-scan` took 700s of 720s, and on PR #515's run
+          # 39300587530 `adopt` took 655s, `approval` 642s and `slow-misc` 626s: each of
+          # the eleven legs took 433s-700s over those two runs, and the same suites
+          # swing leg totals by up to 157s between runs (`lint-scan` 570s -> 700s,
+          # `adopt` 655s -> 498s). Measured per ::group:: span, the suites total ~5850s
+          # and ~5770s on those runs, so eleven legs average ~560s even if perfectly
+          # balanced: a re-pin inside eleven legs fitted to one run reads 614s-709s on
+          # the other (the doctrine on `pin_mcp`: split further, never raise the cap).
+          # Eleven moves, five of them into this leg, project every leg at or below
+          # 546s on BOTH runs' numbers (76% of 720s), ~30s under the 576s (80%) line:
+          # see `## BL-350:` for the table. `rest` also carries the one suite PR #516
+          # adds, bl310-install-buckets-and-consent (~15s local). The five here are the
+          # adoption and Scout suites that were heaviest in `adopt`, `approval`,
+          # `lint-scan`, `commit-hooks` and `slow-misc`. Each lands last in its leg.
+          pin_adopt_c=(
+            tests/test-bl310-adopt-symlink-write.sh                           # 158.9s and 136.7s on runs 39300587530 and 39302163304 — from `approval`
+            tests/test-bl322-s4-wording.sh                                    # 117.7s and 87.7s on runs 39300587530 and 39302163304 — from `adopt`
+            tests/test-brownfield-wp2-scout-sections.sh                       # 102.5s and 117.2s on runs 39300587530 and 39302163304 — from `lint-scan`
+            tests/test-brownfield-wp9c-session-layer.sh                       # 76.4s and 83.5s on runs 39300587530 and 39302163304 — from `commit-hooks`
+            tests/test-upgrade-sync-framework.sh                              # 59.9s and 62.4s on runs 39300587530 and 39302163304 — from `slow-misc`
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
@@ -1280,6 +1307,7 @@ jobs:
               slow-misc)  printf '%s\n' "${pin_slow_misc[@]}" ;;
               adopt)      printf '%s\n' "${pin_adopt[@]}" ;;
               adopt-b)    printf '%s\n' "${pin_adopt_b[@]}" ;;
+              adopt-c)    printf '%s\n' "${pin_adopt_c[@]}" ;;
               commit-hooks) printf '%s\n' "${pin_commit_hooks[@]}" ;;
               mcp)        printf '%s\n' "${pin_mcp[@]}" ;;
               mcp-mutants) printf '%s\n' "${pin_mcp_mutants[@]}" ;;
