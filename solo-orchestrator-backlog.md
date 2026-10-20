@@ -26307,6 +26307,14 @@ double pin and a pin absent from the canonical array each fail it by name. The p
 can still push one above 576s (PR #514's runs, two stand-ins, project lint-sweep 623s and sast 606s), and the cap is what
 holds the line.
 
+**Measured after merge (PR #517, merge `1eb1606`).** Job seconds, the PR's run 39354376715 / main's push run 39355429113:
+slow-misc 652/395, lint-sweep 650/628, sast 603/544, adopt-c 591/531, adopt 588/393, mcp 561/552, mcp-mutants 558/539,
+lint-scan 527/599, approval 490/498, adopt-b 445/449, rest 436/406, commit-hooks 381/414. The worst leg fell from 700s to
+652s/628s, not to the projected 560s: the same suites swing by up to 257s between runs (slow-misc 652 then 395), and only
+`lint-sweep` ran hot on both (suites summing 626s and 597s). **Follow-up:** `test-brownfield-wp9-act-boundaries.sh`
+(73.8s, 69.4s) moves to `adopt-b` and `test-lint-raw-read-prompt.sh` (65.7s, 61.7s) to `commit-hooks`, which projects
+`lint-sweep` at about 511s/497s, `adopt-b` 519s/518s and `commit-hooks` 447s/476s on those two runs.
+
 ## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
 
 **Logged:** 2026-10-17 (carried from two Closed entries that listed it: `## BL-225:` residual (0) and `## BL-318:`'s
