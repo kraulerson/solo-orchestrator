@@ -25,7 +25,7 @@
 #     a review, no attestation (the escape covers init's scaffold only).
 # I6  --allow-existing-dir into a repository that already has history: init
 #     records no scaffold, the push is refused without a review, no attestation.
-# I7  the same into a directory that held files but no repository.
+# I7  the same into a directory that held files but no repository; I7b, dotfiles only.
 # I8  --no-remote-creation: the record is written and the tree stays one clean commit.
 #
 # Hermetic: local bare remotes, a mock gh, no network; HOME is a temp dir
@@ -223,6 +223,20 @@ if [ "$INIT_RC" -ne 0 ] && [ "$(remote_sha "$D7/bare.git" main)" = "none" ] && [
   pass "I7: init --allow-existing-dir into a directory that already held files records no scaffold — the push is REFUSED without a review, no attestation"
 else
   fail_ "I7" "rc=$INIT_RC bare main=$(remote_sha "$D7/bare.git" main) records=$(att_count "$D7/proj") ref=$i7_ref log: $(logtail "$D7/init.log")"
+fi
+
+# I7b — the same with nothing but a dotfile tree (.github/workflows/): a directory
+# whose only entries start with a dot is in use too.
+D7b="$(newtmp)"; URL7b="https://example.invalid/bl323/dotfiles.git"
+mkbare "$D7b/bare.git" && gitcfg "$D7b" "$URL7b" || { echo "FATAL: I7b fixture" >&2; exit 1; }
+mkdir -p "$D7b/proj/.github/workflows" && printf 'on: push\njobs: {}\n' > "$D7b/proj/.github/workflows/operator.yml"
+run_init "$D7b" other "$URL7b" --allow-existing-dir
+i7b_ref="$(git -C "$D7b/proj" rev-parse -q --verify refs/solo-orchestrator/scaffold 2>/dev/null || printf 'none')"
+if [ "$INIT_RC" -ne 0 ] && [ "$(remote_sha "$D7b/bare.git" main)" = "none" ] && [ "$(att_count "$D7b/proj")" = "0" ] \
+   && [ "$i7b_ref" = "none" ] && _gq 'already held files or history' "$D7b/init.log"; then
+  pass "I7b: init --allow-existing-dir into a directory holding only a dotfile tree records no scaffold — the push is REFUSED without a review, no attestation"
+else
+  fail_ "I7b" "rc=$INIT_RC bare main=$(remote_sha "$D7b/bare.git" main) records=$(att_count "$D7b/proj") ref=$i7b_ref log: $(logtail "$D7b/init.log")"
 fi
 
 # I8 — --no-remote-creation: the record is a ref, so the scaffold stays one clean
