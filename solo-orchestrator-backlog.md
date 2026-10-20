@@ -25261,7 +25261,7 @@ M133, M135). Verified by the review on `791ed0d`, not re-run on these changes: m
 **Logged:** 2026-10-08 (issue #421, filed by an outside contributor 2026-09-17; route decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** High — every host's scaffold push fails, and the remedy init prints fails the same way
-**Status:** Open
+**Status:** Closed — shipped 2026-10-20 (fix `68c103f9`, suite `ef38e50c`)
 
 **What.** `install_precommit_hook` writes `.git/hooks/pre-push` (`# BL-243-HOOK-TEMPLATE`) before the remote
 step pushes the scaffold. A new project has no review record, so `scripts/check-pr-review.sh` refuses the push
@@ -25278,6 +25278,41 @@ and the push lands with the hook moved aside.
 which holds no operator code to review), in all three call sites, so each push leaves a dated record. The first
 attempt's error is no longer discarded. Pushing before the hook is installed was considered and rejected: it
 leaves no record and cannot help `check-gate.sh --repair`.
+
+**Fix.** The three call sites push through one helper, `_phase2_push_scaffold` in `scripts/lib/phase2-state.sh`
+(`# BL-323-SCAFFOLD-ATTEST`), which init.sh and check-gate.sh both source already. Each attempt carries
+`SOLO_PR_REVIEW_ATTESTED=1` and the fixed reason `initial scaffold push: framework-generated files only, no operator
+code to review` as a prefix on the push command alone, so `check-pr-review.sh` appends one dated record (`head`,
+`pushed`, `reason`, `at`, `by`) to `.claude/process-state.json::pr_review_attestations[]` and nothing after the push
+inherits the pair (measured on bash 3.2, 4.0 and 5.2: a prefix assignment on a function call reaches the function's
+child processes and is gone when it returns). The check passes a push only on `pr_review`, never on an attestation, so
+the next push without a review is still refused. Neither attempt is silenced (`# BL-323-FIRST-ERROR`): one line between
+them says `main` did not work and `master` is next, and when both fail one plain-words line names the branch whose
+error matters (`main` when it exists, else `master`, else neither). A missing refspec fails before git runs the
+pre-push hook, so a `master` project still gets exactly one record. `tests/host-drivers/run-all.sh` on macOS, bash
+3.2: base `74af361c` 11 run, 3 failed (`e2e-init-bitbucket` 2/3, `e2e-init-gitlab` 2/5, `e2e-init` 2/3); at the fix
+11 run, 0 failed. Suites: `tests/test-bl323-scaffold-push.sh` (unit lane, 10 cases, 1 passed and 9 failed at base) and
+`tests/test-bl323-scaffold-push-init.sh` (full lane, runs init.sh, 5 cases, all 5 failed at base); 11 mutants, each
+failed by a named case.
+
+**Residuals, not fixed.**
+1. **The escape covers more than the scaffold when the pushed branch holds more: a decision for Karl.** The helper
+   attests the branch as it stands. Two reachable routes now ship operator commits under a reason that says there are
+   none, where before the fix the check refused both: `check-gate.sh --repair` after a failed init push and later
+   commits (measured: a `feat:` commit adding `app.js` landed on the bare, recorded with the scaffold reason), and
+   `init.sh --allow-existing-dir` into a repository that already has history (measured: the earlier commit landed
+   under the scaffold commit). Options: (A) attest only when every commit the push ships is one init made, otherwise
+   push without the pair and let the check decide; (B) never attest at `--repair`; (C) keep it, as the guides now
+   say. Recommendation: A, because it keeps the recorded reason true and the escape as narrow as the decision meant.
+2. Three printed remedies still say `git push -u origin main`: init.sh's `--defer-remote-push` arm, `check-gate.sh`'s
+   `## BL-157:` precondition message and `check-phase-gate.sh`'s push backstop. With no review on record the check
+   refuses that push and prints its own options; `check-gate.sh --repair` is the route that records the scaffold
+   attestation. The guides say so now; the messages are unchanged.
+3. The check writes the attestation before git sends anything (pre-push runs first), so a push the remote then
+   rejects still leaves a record, and a retry adds a second. That is `check-pr-review.sh`'s behaviour for every
+   attested push, unchanged here.
+4. CLAUDE.md's ENVIRONMENT TRAPS says the `e2e-init*` trio is "already red on main for unrelated reasons". On macOS
+   the reason was this defect, and the trio is green at the fix. The sentence is left for Karl.
 
 ## BL-324: record-claude-commit.sh never records a commit, because Claude Code's Bash result carries no exit code
 
