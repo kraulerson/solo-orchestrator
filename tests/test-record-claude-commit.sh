@@ -19,8 +19,8 @@
 #   # BL-324-NOT-INTERRUPTED  drop the check    -> T10 RED
 #   # BL-324-EXIT-CODE        drop the check    -> T3 RED
 #   # BL-324-NAMED-HEX        drop the check    -> T14 RED
-#   # BL-324-NAMED-EXISTS     drop the check    -> T11b RED
 #   # BL-324-NAMED-SHA        record HEAD again -> T11b, T15 RED
+#     (its `rev-parse --verify` is the existence check: empty, nothing written)
 #   the classifier (_is_git_commit) dropped     -> T6, T7 RED
 # The commits the host does not name (`-q`, no summary line), proved from
 # HEAD's reflog instead (T16-T25):
@@ -409,13 +409,13 @@ else
 fi
 cd "$REPO_ROOT"; rm -rf "$(dirname "$WT")"; teardown
 
-# T21: a message from a file (-F <file>) is not the command's own text, even
-# when the file is written by the same command.
+# T21: a message from a file (-F <file>) is not taken, even when the file is
+# written by the same command and another -m (git log's) is in it.
 echo "T21: a -q commit with -F <file> is not recorded"
 setup
 cd "$TMP"
 echo f > f.txt && git add f.txt
-CMDFILE="printf 'feat: from a file\n' > m.txt && git commit -q -F m.txt"
+CMDFILE="printf 'feat: from a file\n' > m.txt && git commit -q -F m.txt && git log -1 -m --format=%s"
 OUT=$(eval "$CMDFILE" 2>&1)
 env_bash "$CMDFILE" "$OUT" | run_hook || true
 if git log -1 --format=%s | grep -q '^feat: from a file$' && [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
