@@ -56,6 +56,12 @@ NOCLONE="$WORK/no-guardrails-clone"   # never created: no real Guardrails clone 
 # mktemp, not a counter: almost every caller is inside `$( … )`, a subshell, so
 # a counter would never advance and every case would share one directory.
 newtmp() { mktemp -d "$WORK/tXXXXXX"; }
+# `## BL-344:` an empty temp HOME, as a runner has. U1 runs upgrade-project.sh,
+# whose Guardrails pull (`# BL-320-UP-PULL`) runs in $HOME/.claude-dev-framework:
+# with the contributor's HOME, that is the contributor's own clone, which every
+# project on the computer reads. With none, the pull is skipped, as on CI.
+export HOME="$WORK/home"; unset CDF_HOME CLAUDE_CONFIG_DIR XDG_CONFIG_HOME GIT_CONFIG_GLOBAL   # BL-344-HOME
+mkdir -p "$HOME" || exit 1
 
 # check LABEL CASE [ARGS…] — run a case against the real tree and report it.
 CASE_DETAIL=""

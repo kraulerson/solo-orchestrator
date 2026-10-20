@@ -679,6 +679,7 @@ jobs:
             tests/test-bl310-adopt-symlink-write.sh
             tests/test-bl354-state-jsonl-exempt.sh
             tests/test-bl310-install-buckets-and-consent.sh
+            tests/test-bl344-home-clone-guard.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1438,6 +1439,19 @@ jobs:
           fi
 
           failed=()
+          # ── `## BL-344:` no suite may touch the Guardrails clone in HOME ──
+          # upgrade-project.sh pulls $HOME/.claude-dev-framework; with a
+          # contributor's HOME that moves the clone every project on the
+          # computer reads. A runner's HOME has none, so the pull is skipped
+          # and the leg stayed green while tests/test-bl312-tldr-mode.sh moved
+          # Karl's. So plant a stand-in there (one file on main, NOT the
+          # Guardrails, so every reader still finds no usable clone; its origin
+          # one commit ahead, so a pull moves it), fail any suite that writes
+          # under it, and plant it again, so the next suite is judged alone.
+          # tests/test-bl344-home-clone-guard.sh G9/G10 run these lines as
+          # they stand here.
+          . tests/test-helpers/home-clone-guard.sh   # BL-344-RUNNER-SOURCE
+          hcg_plant "$HOME/.claude-dev-framework" "$RUNNER_TEMP/bl344-home-clone" || { echo "shard '${SHARD}': cannot plant the Guardrails clone the BL-344 check watches: ${HCG_WHY}" >&2; exit 1; }   # BL-344-RUNNER-PLANT
           for t in "${run_list[@]}"; do
             echo "::group::${t}"
             if bash "${t}"; then
@@ -1447,8 +1461,13 @@ jobs:
               echo "FAIL ${t} (rc=${rc})"
               failed+=("${t}")
             fi
+            if ! hcg_check; then   # BL-344-RUNNER-CHECK
+              echo "FAIL ${t}: it touched the Guardrails clone in the runner's HOME (${HCG_WHY}). Give the suite a temp HOME (## BL-344:)."   # BL-344-RUNNER-SAY
+              case " ${failed[*]:-} " in *" ${t} "*) ;; *) failed+=("${t}") ;; esac   # BL-344-RUNNER-FAILED
+              hcg_replant || { echo "shard '${SHARD}': ${HCG_WHY}" >&2; exit 1; }   # BL-344-RUNNER-REPLANT
+            fi
             echo "::endgroup::"
-          done
+          done   # BL-344-RUNNER-LOOP-END
 
           echo ""
           echo "==================================================================="

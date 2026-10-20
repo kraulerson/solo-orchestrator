@@ -1091,6 +1091,12 @@ run_child_suite "tests/test-bl310-adopt-symlink-write.sh" \
 run_child_suite "tests/test-bl354-state-jsonl-exempt.sh" \
   "BL-354: .jsonl state files are exempt like .json in check_commit_ready, and .claude/*.jsonl in accumulation" \
   "BL-354 state-jsonl tests FAILED (run tests/test-bl354-state-jsonl-exempt.sh for details)"
+# BL-344: a unit suite that ran upgrade-project.sh with the contributor's HOME
+# pulled the contributor's own Guardrails clone; the unit-shard step now plants
+# one in the runner's HOME and fails any suite that writes under it.
+run_child_suite "tests/test-bl344-home-clone-guard.sh" \
+  "BL-344: the unit lane fails a suite that touches the Guardrails clone in HOME; the check plants, checks and replants" \
+  "BL-344 home-clone-guard tests FAILED (run tests/test-bl344-home-clone-guard.sh for details)"
 # BL-265: `label` is a jq keyword, so `def row(label; val)` refused to compile
 # and render_intake_file() wrote a Project Context table with no rows.
 run_child_suite "tests/test-bl265-jq-reserved-label.sh" \

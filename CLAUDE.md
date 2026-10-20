@@ -400,11 +400,18 @@ here.
     `verify-install.sh --auto-fix` gives it a temp HOME with a stand-in clone
     (`# BL-322-S5-HOME`): with the runner's HOME it clones CDF over the
     network, which is how `rest` once leaked a clone that later suites
-    silently depended on. That covers those three suites only: others can still
-    reach the real HOME (`tests/test-bl312-tldr-mode.sh` U1 runs
-    `upgrade-project.sh`, whose `# BL-320-UP-PULL` pulls
-    `~/.claude-dev-framework`), so run any suite that runs `upgrade-project.sh`
-    with `HOME="$(mktemp -d)"`.
+    silently depended on. A suite that runs `upgrade-project.sh` exports an
+    empty temp HOME and unsets `CDF_HOME` (`# BL-344-HOME`): its
+    `# BL-320-UP-PULL` pulls `~/.claude-dev-framework`, which on a
+    contributor's machine is their own clone. The unit-shard step checks the
+    HOME route only, since CI never sets `CDF_HOME` (`## BL-344:`): it plants a
+    stand-in clone in the runner's HOME (one file, NOT the Guardrails, so no
+    reader finds a usable clone, though `verify-install.sh`, which looks for
+    `.git` alone, reports one) and fails any suite that writes under it
+    (`# BL-344-RUNNER-CHECK`). It sees a write that acts
+    on any clone (a pull, a fetch, a file); not one that first needs the
+    Guardrails' own files, such as the pull inside CDF's refresh that
+    `refresh-guardrails.sh` runs.
   - **Never write the literal array-opening token (`tests`+`=`+`(`) anywhere
     else in that file below the array.** `_build_unit_list_set` scopes with an
     UNANCHORED `awk '/tests=\(/'` and does not strip comments, so a second
