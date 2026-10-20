@@ -25295,7 +25295,7 @@ pre-push hook, so a `master` project still gets exactly one record. `tests/host-
 `tests/test-bl323-scaffold-push-init.sh` (full lane, runs init.sh, 5 cases, all 5 failed at base); 11 mutants, each
 failed by a named case.
 
-**The escape covers init's own commits and nothing else (supervisor decision 2026-10-20, option A).** As first
+**The escape is narrowed to init's scaffold (supervisor decision 2026-10-20, option A).** As first
 shipped, the helper attested the branch as it stood, and two reachable routes carried operator commits under a reason
 that says there are none (measured at `ccffc964`: both landed with the scaffold record): `check-gate.sh --repair` after
 a failed init push and later commits, and `init.sh --allow-existing-dir` into a repository with history. Now init
@@ -25303,16 +25303,21 @@ records its scaffold commit as a local ref, `refs/solo-orchestrator/scaffold` (`
 created the project directory or found it empty (`# BL-323-SCAFFOLD-FRESH`) and only for a root commit. A ref rather
 than a state-file field: it changes no tracked file, so a `--no-remote-creation` scaffold stays one clean commit; it is
 never pushed with a branch; and a clone does not carry it, so a copy elsewhere fails closed. The pair goes on a push
-only when `_phase2_scaffold_only` holds (`# BL-323-SCAFFOLD-ONLY`): the branch tip is that commit, or one commit on it
-that changes `.claude/manifest.json` and `.claude/process-state.json` and nothing else (init's finalize commit,
-measured to touch exactly those two). Any other branch is pushed without the pair after a plain sentence naming
+only when `_phase2_scaffold_only` holds (`# BL-323-SCAFFOLD-ONLY`): the branch tip is that commit, or ONE commit on it
+that changes `.claude/manifest.json` and `.claude/process-state.json` and nothing else. init's finalize commit has that
+shape (measured to touch exactly those two); so does any commit of that shape, whoever made it: an operator commit
+with arbitrary content in those two files is attested. State files, not code, which is what the fixed reason claims. Any other branch is pushed without the pair after a plain sentence naming
 `scripts/record-pr-review.sh` and `scripts/check-gate.sh --repair`, and the review check decides. The three printed
 remedies that said `git push -u origin main` (init.sh's `--defer-remote-push` arm, `check-gate.sh`'s `## BL-157:`
 precondition message, `check-phase-gate.sh`'s deferred push arm) now name `scripts/check-gate.sh --repair`, and a case
 runs each one on a scaffold-only project. Suites at `2dfc052c`: unit 17 cases (6 failed at `ccffc964`), init 9 cases
 (4 failed at `ccffc964`); 9 more mutants (the predicate always true, its root check, its file list, its one-commit
 depth, the writer's root check, the freshness check, the record call, the message, attesting regardless), each failed
-by a named case.
+by a named case. A review of that tree found the check's width unpinned (a `.claude/*` file pattern, `ls` without
+`-A`, and an unconditional `master` attempt all survived, and init.sh's half was pinned only in the full lane); the
+suites now carry Q4b (a commit adding `.claude/settings.json`), Q2m (Q2 on a `master` project), I7b (a directory holding
+only `.github/workflows/`) and S3 (init.sh's record call, its arm and `ls -A`, by structure, in the unit lane): unit 20
+cases, init 10, and those five mutants each failed by a named case.
 
 **Residuals, not fixed.**
 1. The check writes the attestation before git sends anything (pre-push runs first), so a push the remote then
@@ -25322,11 +25327,19 @@ by a named case.
 2. A project with no scaffold ref — scaffolded before this change, a clone, or init in a directory already in use —
    gets no scaffold escape: its first push needs a review or the operator's own attestation, and the helper says so.
    A directory holding only `.DS_Store` counts as in use.
-3. CLAUDE.md's ENVIRONMENT TRAPS says the `e2e-init*` trio is "already red on main for unrelated reasons". On macOS
-   the reason was this defect, and the trio is green at the fix. In `ubuntu:24.04` (bash 5.2, arm64, with `nodejs`)
-   `run-all.sh` is 11 run, 4 failed at base and 11 run, 1 failed at the fix; the one is `bitbucket.test.sh`, which
-   fails at base in that image too. The supervisor asked for the sentence to be updated; agents do not edit
-   CLAUDE.md, so it is left for Karl.
+3. The scaffold ref is forgeable: pointing `refs/solo-orchestrator/scaffold` at an orphan root commit, or
+   `git replace --graft` making a commit with history look like a root, gets a branch carrying `app.js` attested
+   (measured). That is deliberate forgery, the same effort as setting the attested pair by hand, and the record still
+   keeps `pushed`, `by` and `at`: `# BL-112-SAST-NOTRUN`'s posture.
+4. In bash's POSIX mode (`set -o posix`, or `POSIXLY_CORRECT` in the environment) a prefix assignment on a function
+   call persists after it returns, and is exported, on bash 3.2, 4.0, 4.4 and 5.0; 5.1, 5.2 and 5.3 discard it
+   (measured, `bash:<v>` images and this Mac). So in that mode the pair outlives `host_push_initial` in init.sh's
+   first-class branch and in `--repair`. Neither makes another push in that process, so it is inert; running the
+   attempt in a subshell would remove it.
+5. CLAUDE.md's ENVIRONMENT TRAPS said the `e2e-init*` trio was "already red on main for unrelated reasons"; the
+   supervisor corrected it in `57c6fe93`. Measured: on macOS the trio is red at `74af361c` and green at the fix; in
+   `ubuntu:24.04` (bash 5.2, arm64, with `nodejs`) `run-all.sh` is 11 run, 4 failed at base and 11 run, 1 failed at the
+   fix, the one being `bitbucket.test.sh`, which fails at base in that image too.
 
 ## BL-324: record-claude-commit.sh never records a commit, because Claude Code's Bash result carries no exit code
 
