@@ -25693,8 +25693,10 @@ never sets `CDF_HOME` (the review re-ran 36 suites with `CDF_HOME` at a stand-in
 (`83d75f0`): it failed open when the stamp was moved before a pull (`find -newer` erred into silence) and missed `git rm
 --cached`, `update-index --chmod` and a deleted `.git/config` or `.git/HEAD`; it now fails when the stamp is missing and
 also compares the path listing and the index entries (`git ls-files -s`, which a reader's `git status` refresh leaves
-alone) with what the plant recorded. No HEAD comparison: every HEAD change writes `.git/HEAD` or a ref (newer than the
-stamp) or removes HEAD (the listing), so such a line would have no killer.
+alone) with what the plant recorded. No HEAD comparison: every HEAD change git makes writes `.git/HEAD` or a ref (newer than
+the stamp) or removes HEAD (the listing). Residual: a non-git copy that preserves the mtime (`cp -p` of another SHA over
+`.git/HEAD` or a ref) moves HEAD unseen (reviewer: a31a8bc -> 1111111, check passes); no suite does that, and a HEAD
+comparison would catch it.
 Cost: on bash 5.2 in `ubuntu:24.04`, the plant 23ms and each check 0.7ms (100 in 72ms); on this Mac 336ms and 4ms.
 `tests/test-bl344-home-clone-guard.sh` (in `rest`; 15s here, 2s in the container): G1-G14, and mutants M1-M22, each
 killed by a named case; G9 and G10 run the step's own lines extracted from `tests.yml`, over throwaway suites
