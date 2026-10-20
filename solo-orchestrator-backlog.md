@@ -25312,7 +25312,9 @@ failed by a named case.
    rejects still leaves a record, and a retry adds a second. That is `check-pr-review.sh`'s behaviour for every
    attested push, unchanged here.
 4. CLAUDE.md's ENVIRONMENT TRAPS says the `e2e-init*` trio is "already red on main for unrelated reasons". On macOS
-   the reason was this defect, and the trio is green at the fix. The sentence is left for Karl.
+   the reason was this defect, and the trio is green at the fix. In `ubuntu:24.04` (bash 5.2, arm64, with `nodejs`)
+   `run-all.sh` is 11 run, 4 failed at base and 11 run, 1 failed at the fix; the one is `bitbucket.test.sh`, which
+   fails at base in that image too. The sentence is left for Karl.
 
 ## BL-324: record-claude-commit.sh never records a commit, because Claude Code's Bash result carries no exit code
 
