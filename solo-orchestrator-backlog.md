@@ -25261,7 +25261,7 @@ M133, M135). Verified by the review on `791ed0d`, not re-run on these changes: m
 **Logged:** 2026-10-08 (issue #421, filed by an outside contributor 2026-09-17; route decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** High — every host's scaffold push fails, and the remedy init prints fails the same way
-**Status:** Closed — shipped 2026-10-20 (fix `68c103f9`, suite `ef38e50c`)
+**Status:** Closed — shipped 2026-10-20 (fixes `68c103f9` and `2dfc052c`; suites `ef38e50c` and `de4b86a8`)
 
 **What.** `install_precommit_hook` writes `.git/hooks/pre-push` (`# BL-243-HOOK-TEMPLATE`) before the remote
 step pushes the scaffold. A new project has no review record, so `scripts/check-pr-review.sh` refuses the push
@@ -25295,26 +25295,38 @@ pre-push hook, so a `master` project still gets exactly one record. `tests/host-
 `tests/test-bl323-scaffold-push-init.sh` (full lane, runs init.sh, 5 cases, all 5 failed at base); 11 mutants, each
 failed by a named case.
 
+**The escape covers init's own commits and nothing else (supervisor decision 2026-10-20, option A).** As first
+shipped, the helper attested the branch as it stood, and two reachable routes carried operator commits under a reason
+that says there are none (measured at `ccffc964`: both landed with the scaffold record): `check-gate.sh --repair` after
+a failed init push and later commits, and `init.sh --allow-existing-dir` into a repository with history. Now init
+records its scaffold commit as a local ref, `refs/solo-orchestrator/scaffold` (`# BL-323-SCAFFOLD-REF`), only when it
+created the project directory or found it empty (`# BL-323-SCAFFOLD-FRESH`) and only for a root commit. A ref rather
+than a state-file field: it changes no tracked file, so a `--no-remote-creation` scaffold stays one clean commit; it is
+never pushed with a branch; and a clone does not carry it, so a copy elsewhere fails closed. The pair goes on a push
+only when `_phase2_scaffold_only` holds (`# BL-323-SCAFFOLD-ONLY`): the branch tip is that commit, or one commit on it
+that changes `.claude/manifest.json` and `.claude/process-state.json` and nothing else (init's finalize commit,
+measured to touch exactly those two). Any other branch is pushed without the pair after a plain sentence naming
+`scripts/record-pr-review.sh` and `scripts/check-gate.sh --repair`, and the review check decides. The three printed
+remedies that said `git push -u origin main` (init.sh's `--defer-remote-push` arm, `check-gate.sh`'s `## BL-157:`
+precondition message, `check-phase-gate.sh`'s deferred push arm) now name `scripts/check-gate.sh --repair`, and a case
+runs each one on a scaffold-only project. Suites at `2dfc052c`: unit 17 cases (6 failed at `ccffc964`), init 9 cases
+(4 failed at `ccffc964`); 9 more mutants (the predicate always true, its root check, its file list, its one-commit
+depth, the writer's root check, the freshness check, the record call, the message, attesting regardless), each failed
+by a named case.
+
 **Residuals, not fixed.**
-1. **The escape covers more than the scaffold when the pushed branch holds more: a decision for Karl.** The helper
-   attests the branch as it stands. Two reachable routes now ship operator commits under a reason that says there are
-   none, where before the fix the check refused both: `check-gate.sh --repair` after a failed init push and later
-   commits (measured: a `feat:` commit adding `app.js` landed on the bare, recorded with the scaffold reason), and
-   `init.sh --allow-existing-dir` into a repository that already has history (measured: the earlier commit landed
-   under the scaffold commit). Options: (A) attest only when every commit the push ships is one init made, otherwise
-   push without the pair and let the check decide; (B) never attest at `--repair`; (C) keep it, as the guides now
-   say. Recommendation: A, because it keeps the recorded reason true and the escape as narrow as the decision meant.
-2. Three printed remedies still say `git push -u origin main`: init.sh's `--defer-remote-push` arm, `check-gate.sh`'s
-   `## BL-157:` precondition message and `check-phase-gate.sh`'s push backstop. With no review on record the check
-   refuses that push and prints its own options; `check-gate.sh --repair` is the route that records the scaffold
-   attestation. The guides say so now; the messages are unchanged.
-3. The check writes the attestation before git sends anything (pre-push runs first), so a push the remote then
+1. The check writes the attestation before git sends anything (pre-push runs first), so a push the remote then
    rejects still leaves a record, and a retry adds a second. That is `check-pr-review.sh`'s behaviour for every
-   attested push, unchanged here.
-4. CLAUDE.md's ENVIRONMENT TRAPS says the `e2e-init*` trio is "already red on main for unrelated reasons". On macOS
+   attested push, unchanged here. The predicate reads local commits only, so a remote that already holds other
+   history (a host's own first commit) rejects the push as non-fast-forward after the record is written.
+2. A project with no scaffold ref — scaffolded before this change, a clone, or init in a directory already in use —
+   gets no scaffold escape: its first push needs a review or the operator's own attestation, and the helper says so.
+   A directory holding only `.DS_Store` counts as in use.
+3. CLAUDE.md's ENVIRONMENT TRAPS says the `e2e-init*` trio is "already red on main for unrelated reasons". On macOS
    the reason was this defect, and the trio is green at the fix. In `ubuntu:24.04` (bash 5.2, arm64, with `nodejs`)
    `run-all.sh` is 11 run, 4 failed at base and 11 run, 1 failed at the fix; the one is `bitbucket.test.sh`, which
-   fails at base in that image too. The sentence is left for Karl.
+   fails at base in that image too. The supervisor asked for the sentence to be updated; agents do not edit
+   CLAUDE.md, so it is left for Karl.
 
 ## BL-324: record-claude-commit.sh never records a commit, because Claude Code's Bash result carries no exit code
 
