@@ -25284,7 +25284,7 @@ leaves no record and cannot help `check-gate.sh --repair`.
 **Logged:** 2026-10-08 (issue #483, filed 2026-09-30; found independently while building `## BL-322:` S1)
 **Category:** Bug (correctness)
 **Severity:** Medium — every agent commit not covered by a Guardrails approval is recorded as a user-terminal commit
-**Status:** Closed — shipped 2026-10-20 (fix `82c3536`, suites `232d942`)
+**Status:** Closed — shipped 2026-10-20 (fixes `82c3536` and `3bcc995`, suites `232d942` and `2c14712`)
 
 **What.** `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code // 1`
 and exits before writing when the value is not 0. Claude Code's PostToolUse result for Bash has no `exit_code`
@@ -25312,10 +25312,30 @@ classifier, 75 carried `tool_response.gitOperation.commit` (`{sha` abbreviated, 
 without it had one. 251 of the rest carried `-q`/`--quiet`; of the other 56, the 14 read were commands that only
 name `git commit` in text (heredocs, `--body` strings); and at least one result shows a commit that failed inside a
 chain exiting 0 (`commit rc=1`). So the hook records the commit the host names, checked to be a commit object in
-this repository (`# BL-324-NAMED-HEX`, `# BL-324-NAMED-EXISTS`) and written by its full SHA; it skips an interrupted call (`# BL-324-NOT-INTERRUPTED`) and an explicit non-zero `exit_code`
+this repository (`# BL-324-NAMED-HEX`; `git rev-parse --verify` on the next line) and written by its full SHA; it skips an interrupted call (`# BL-324-NOT-INTERRUPTED`) and an explicit non-zero `exit_code`
 (`# BL-324-EXIT-CODE`). The envelope shape in the suite is a real `toolUseResult` from dogfood run 3 (commit
 `d77fc1b`, Claude Code 2.1.292) inside the documented PostToolUse input fields; Anthropic's own claude-security plugin
 reads `tool_response.gitOperation` in its hook the same way.
+
+**A commit the host does not name (`3bcc995`, after review: the first fix left the `-q` commits flagged).** With no
+`gitOperation`, `_reflog_commits` proves the commits from HEAD's reflog: each `commit`, `commit (amend)` or
+`commit (initial)` entry (`# BL-324-REFLOG-ACTION`) written in the last 30 seconds (`# BL-324-REFLOG-WINDOW`) whose
+subject is in the command's own text (`# BL-324-REFLOG-SUBJECT`), when the command gives its message inline: `-m` /
+`--message`, or `-F -` with a heredoc (`# BL-324-REFLOG-INLINE`), never `-F <file>` (`# BL-324-REFLOG-NOFILE`). A SHA
+already in the ledger is not written again (`# BL-324-LEDGER-ONCE`). A failed commit writes no reflog entry, so
+`git commit -q -m x; true` leaves only older entries or ones with another subject. Measured, `git reflog` on git 2.54
+(macOS) and 2.43 (ubuntu 24.04): `%gs` is `commit: <first line>`, `commit (amend): …`, `commit (initial): …`; `%gd`
+with `--date=unix` is `HEAD@{<seconds>}`; a linked worktree has its own HEAD reflog, so a project that is a worktree
+works and a commit in another worktree is not seen. The window: over the 173 transcript commits whose reflog entry
+survives, the result came 2.4 s after the entry at the median, 10.7 s at p95, within 30 s for 167. A subject match
+is a literal substring test, not a parse of the shell words: it accepts exactly the commands that carry the subject
+verbatim (`-m '…'`, a heredoc) and refuses the rest (`-m "$MSG"`, escapes). Re-measured by replaying the rule over the
+same transcripts (384 results by then) against each repository's reflog: 75 named by the host and 98 proved from
+the reflog are recorded; 17 commits are still flagged (13 `-F <file>`, 2 with no inline message, 2 whose subject is
+not literal or that ran past 30 s); 173 calls made no commit in the project's repository (text naming `git commit`,
+or a commit elsewhere), and the replay recorded none of them; 21 cannot be replayed (repository or worktree gone).
+The `-F -` heredoc form is taken although the review asked for no `-F`: it is 77 of the 98 and its message is in the
+command text; `-F <file>` stays refused.
 
 **Tracked or ignored: ignored (`# BL-324-LEDGER-IGNORE`).** Measured: nothing wrote an ignore rule for it (init's
 template, the BL-174 upgrade backfill and adoption's `.claude/.gitignore` named the baseline and the tool ledger
@@ -25335,20 +25355,26 @@ the `# BL-174-GITIGNORE-BACKFILL` block of `scripts/upgrade-project.sh` (a fourt
 shape; T3 keeps one explicit `exit_code`; T10 interrupted, T11 a commit that failed inside a chain exiting 0 (HEAD
 unchanged), T11b a named commit this repository lacks, T12 a PostToolUseFailure envelope, T14 a `gitOperation` that
 is not a hash, T15 HEAD moved after the commit; T13 end to end through the hook commands `soif_register_hook_roster`
-registers: the agent's commit gets no `out_of_band_commit` row, a terminal commit still gets one. Mutants (killer):
-NOT-INTERRUPTED (T10), EXIT-CODE (T3), NAMED-HEX (T14), NAMED-EXISTS (T11b), NAMED-SHA back to `rev-parse HEAD`
-(T11b, T15), the classifier dropped (T6, T7). `tests/test-bl322-s1-audit-loop.sh` adds the ledger to `RUNTIME_FILES`
+registers: the agent's commit and its `-q` commit get no `out_of_band_commit` row, a terminal commit still gets
+one. T16-T25 (26 cases; red on `173bc49a` at 20/6): `-m`, a heredoc, two commits in one call, a project that is a
+linked worktree are recorded; a failed commit with an old matching entry (T18) or a recent entry of another subject
+(T19), a cherry-pick entry (T20), `-F <file>` (T21), no inline message (T22) and a repeat (T24) are not. Mutants
+(killer): NOT-INTERRUPTED (T10), EXIT-CODE (T3), NAMED-HEX (T14), NAMED-SHA back to `rev-parse HEAD` (T11b, T15),
+the classifier dropped (T6, T7), REFLOG-NOFILE (T21), REFLOG-INLINE (T22), REFLOG-WINDOW (T18), REFLOG-ACTION (T20),
+REFLOG-SUBJECT (T19 and eight more), LEDGER-ONCE (T24). An empty alternative in the first `-F` regex made BSD grep
+exit 2, which read as "no file" (fail open); measured, and the regex no longer has one. `tests/test-bl322-s1-audit-loop.sh` adds the ledger to `RUNTIME_FILES`
 (I1, A1, A2) with mutants M16 (adoption) and M17 (template), and M14 now names the new kept-theirs line;
 `tests/test-bl174-gitignore-backfill.sh` T1, T2 and T4 require the fourth backfill line (dropping it: T1, T2 red).
 
 **Residuals (not fixed).**
-- **A quiet commit is not recorded.** `git commit -q` (or output git does not print) has no summary line, so the host
-  names nothing and the detector still flags the commit. In the transcripts above, 251 of the 382 were `-q` commits
-  with no `gitOperation`; dogfood runs 2 and 3 (downstream projects) had 6 commits, all named. The same holds on a
-  Claude Code version without `gitOperation`: the 20 results from 2.1.271 included no commit with a summary line, so
-  when the field arrived is not known. Recognising them needs HEAD read before the call: a PreToolUse registration
-  on Bash keyed by `tool_use_id`, which every existing project would also have to be given. Not built.
-- **One commit per call.** A call making two commits gets the one the host names; which one is not measured.
+- **Still flagged:** a commit whose message comes from `-F <file>`, a variable or an editor, or whose subject the
+  command spells with escapes; one more than 30 s before the call ends (a long command after it); a `-q` commit in
+  another worktree or repository. A HEAD snapshot taken before the call (a PreToolUse hook on Bash, new in the roster
+  for init, adoption and the `--sync-framework` gap of `## BL-353:`) would cover them; not built.
+- **A user's commit can be taken** when it lands in HEAD's reflog in the 30 s before an agent call that names its
+  exact subject and supplies a message inline. The replay found none.
+- **Two commits in one call:** with no name from the host, every provable one is recorded (T23); with a name, only
+  the named one (the reflog is not read then); which one the host names is not measured.
 - **`session_id` in each row is `${CLAUDE_SESSION_ID:-unknown}`.** The envelope's own `session_id` is not read, and
   this agent shell carries `CLAUDE_CODE_SESSION_ID`, not `CLAUDE_SESSION_ID`; what a hook's environment carries is
   not measured. The detector does not read the field.
