@@ -382,10 +382,12 @@ here.
   HOUSE RULES).
   - **Adding a test is still a ONE-LINE edit** — append it to the canonical
     array. The lane is sharded (matrix `shard: [lint-sweep, lint-scan, sast,
-    slow-misc, adopt, adopt-b, commit-hooks, mcp, mcp-mutants, approval, rest]`, eleven
-    legs since 2026-10-16), but only the
+    slow-misc, adopt, adopt-b, adopt-c, commit-hooks, mcp, mcp-mutants, approval,
+    rest]`, twelve legs since 2026-10-19), but only the
     measured long poles are pinned to a shard by the `pin_*` arrays; `rest`
-    is the COMPLEMENT, so a new entry lands there automatically.
+    is the COMPLEMENT, so a new entry lands there automatically. Keep `rest`
+    light: every new suite lands in it, so a suite pinned INTO it spends the
+    slack the next one needs (`## BL-350:`).
   - **A case that needs a real Guardrails clone reads the pinned fixture,
     never `~/.claude-dev-framework` on CI** (`## BL-322:` S5).
     `tests/test-helpers/cdf-fixture.sh` is the one way in:
