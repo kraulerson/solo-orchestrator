@@ -1088,6 +1088,7 @@ jobs:
             tests/test-lint-diagnostic-destruction.sh    # 16.4s
             tests/test-brownfield-dispositions-template.sh              # 52.6s, 40.2s, 45.0s and 52.5s on the four runs of the `adopt-c` note — from `adopt`
             tests/test-run-lints.sh                                     # 100.3s, 100.2s, 116.9s and 110.9s on the four runs of the `adopt-c` note — from `lint-sweep`
+            tests/test-bl339-bl334-protection.sh                        # 54.8s local (macOS, bash 3.2), 13s in ubuntu:24.04 arm64 (bash 5.2); no CI figure yet. Pinned on arrival (BL-339 review, 2026-10-20): slow-misc 427s against rest 483/491/533s on recent main runs
           )
           # ── `adopt` — the brownfield adoption suites (2026-09-24) ─────────
           # PR #444 measured four legs within 140s of the 720s cap: lint-scan
