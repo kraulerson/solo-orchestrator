@@ -25513,7 +25513,7 @@ documents get.
 **Logged:** 2026-10-08 (issue #486, filed 2026-09-30; decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** Medium — a protected `main` passes the backstop while an unprotected integration branch goes unchecked
-**Status:** Open
+**Status:** Closed — shipped 2026-10-20 (fix `8b6bd83`, with `## BL-339:`)
 
 **What.** `verify_init` in `scripts/process-checklist.sh` and the Phase 1 → Phase 2 backstop in
 `scripts/check-phase-gate.sh` call `host_verify_protection "main"`, and the push check (`# BL-084-PUSH-VERIFY`)
@@ -25525,6 +25525,34 @@ TDD half of the same assumption.
 when the key is absent. At the push check that means keeping its `master` fallback (today it loops over `main` and
 `master`): nothing writes `.integration_branch`, and init.sh falls back to pushing `master`, so `// "main"` alone
 there would drop a case that passes today.
+
+**Built (2026-10-20, fix `8b6bd83`).** `soif_integration_branch` in `scripts/lib/helpers-core.sh` is the one
+reader: `.integration_branch` from `.claude/manifest.json`, or `main` when the key is absent or empty, the read
+`_tdd_triggers` makes (`# BL-334-READ`, `# BL-334-DEFAULT`). It also refuses a value `git check-ref-format`
+rejects (`# BL-334-REFNAME`), which the decision did not ask for: the push check passes the key to
+`git ls-remote --heads origin`, which treats it as a glob, so `dev*` would have matched any branch. The
+backstop (`# BL-334-BACKSTOP-BRANCH`) and `verify_init` (`# BL-334-VERIFY-INIT-BRANCH`) check that branch and
+fail on a key that is not a branch name; the push check (`# BL-334-PUSH-BRANCH`) loops over the key, then
+`master`, so a keyless project still loops over `main master`, and a bad key prints a non-blocking `[WARN]` and
+leaves the verdict to the arms below (one issue, not two). The backstop's `[OK]` and `[FAIL]` lines and
+`verify_init`'s now name the branch. `tests/test-bl339-bl334-protection.sh` B1-B7, mutants M1-M10.
+
+**Residuals.**
+- `scripts/check-gate.sh --preflight` and `--repair` (and init.sh's own protection call) still check `main`, then
+  `master`. The backstop's failure lines name both commands as the remedy, so on a project keyed `develop` they
+  report on `main`, not the branch that failed. Not in the decision's three places; the builders guide says so.
+- With a key, the push check accepts `master` but not `main`: a project keyed `develop` whose remote holds only
+  `master` passes, and one whose remote holds only `main` fails. That follows the decision as written (keep the
+  `master` fallback); the alternative is to apply the fallback only when the key is absent.
+- The github driver's force-push failure text still says "main branch allows force-push" whatever branch it
+  checked. The backstop and `verify_init` discard driver stderr, so neither shows it; `--preflight` on a
+  `master` project does.
+- A branch name reaches the host APIs unencoded (`branch-restrictions?pattern=<branch>` on Bitbucket, the
+  `branches/<branch>/protection` path on GitHub), and `git check-ref-format` accepts `&`, `#` and `%`
+  (measured 2026-10-20), so a key such as `main&x` makes Bitbucket answer for `main`. Unchanged for every
+  caller; reachable only by writing such a key into the project's own manifest.
+- Nothing writes `.integration_branch` (as `## BL-286:` records); the guide now tells a project with another
+  trunk to add it by hand.
 
 ## BL-335: `mcp_requirements.additional_required` is erased at every fresh session, though the MCP notice tells the Orchestrator to set it there
 
@@ -25615,7 +25643,8 @@ Solo's docs can say Guardrails 4.4.5 and later show the date.
 **Logged:** 2026-10-08 (issue #487, filed 2026-09-30, with a narrowed proposal in its comments; decided by Karl 2026-10-08)
 **Category:** Gap (enforcement)
 **Severity:** Medium
-**Status:** Open — buildable: `## BL-274:` merged 2026-10-16 (PR #452, merge `b9ce2bf`)
+**Status:** Closed — shipped 2026-10-20 (fix `8b6bd83`, with `## BL-334:`); reading repository rulesets is
+not decided and stays below
 
 **What.** `host_verify_protection` in `scripts/host-drivers/github.sh` fails org mode when
 `required_approving_review_count` is 0, and both the Phase 1 → Phase 2 backstop and `--verify-init` call it. GitHub
@@ -25635,8 +25664,49 @@ check); nothing reads the record to decide a gate, and nothing expires it. The p
 So this must key on the `SOLO_SINGLE_AUTHORITY_ATTESTED` env pair on that same run (one predicate shared
 by both callers), or add a record both can read.
 
+**Built (2026-10-20, fix `8b6bd83`).** What "stands" means: `SOLO_SINGLE_AUTHORITY_ATTESTED` is exactly `1`
+and `SOLO_SINGLE_AUTHORITY_ATTESTED_REASON` is not blank once C0 controls and `\` are stripped and the ends
+trimmed, in the environment of THIS run (`host_single_authority_reason` in `scripts/lib/host.sh`,
+`# BL-339-SA-OFFERED`, `# BL-339-SA-SANITISE`, `# BL-339-SA-REASON`), the test `_cpg_single_authority_gate`
+applies. Nothing persisted is read back, so nothing can go stale. Reading BL-274's record was measured and
+rejected: it is written only in `validate_approval_fields`' self-approval arm, which the gate runs after this
+backstop, and `--verify-init` never runs it.
+- **One predicate.** `host_verify_protection_attested` is called by the Phase 1→2 backstop and by `verify_init`,
+  and passes the driver a third argument, `single-authority`, only while the attestation stands
+  (`# BL-339-SA-ONLY-WHEN-STANDS`). The github, gitlab and bitbucket drivers, each of which has the equivalent
+  approvals rule, set `HOST_VERIFY_APPROVALS_ZERO` when the count is 0 (`# BL-339-APPROVALS-ZERO`) and drop that
+  one failure only on that argument (`# BL-339-WAIVE`). Every other rule, and every other caller
+  (`check-gate.sh --preflight`/`--repair`, init.sh), is unchanged.
+- **Accepted** only when every other rule holds (`# BL-339-SA-ACCEPT-ONLY-ON-PASS`): an `[ATTESTED]` block that
+  names §XIV item 5 as a BLOCKING pre-condition that REMAINS UNMET and avoids the vocabulary of a finished
+  check, with no `[OK] … verified` line beside it (`# BL-339-NOT-VERIFIED`, `# BL-339-VI-NOT-VERIFIED`), and a
+  record in `.claude/process-state.json::phase2_init.attestations.branch_protection`: reason
+  `single_authority_approvals`, the attestation's reason, branch, HEAD, date, git identity and `recorded_via`
+  (`# BL-339-RECORD-WRITE`), unchanged on a repeat at the same branch, reason and HEAD (`# BL-339-RECORD-SAME`).
+- **Refused** with a blank reason (`[BLOCKED]`, `# BL-339-SA-REFUSED`), and when the record cannot be written
+  (`# BL-339-SA-UNRECORDED`; the backstop counts it, `# BL-339-UNRECORDED`, and `verify_init` marks no step,
+  `# BL-339-VI-UNRECORDED`): a read-only or irregular state file (`# BL-339-RECORD-WRITABLE`), a state file that
+  is not a JSON object, or that slot already holding another attestation, which it never overwrites
+  (`# BL-339-RECORD-FOREIGN`). Without the attestation a count of 0 fails exactly as before.
+- `tests/test-bl339-bl334-protection.sh` S1-S14 (S10: the two callers reach the same verdict for attested, blank,
+  `yes` and absent), D1 (gitlab), D2 (bitbucket), mutants M11-M31, each with its killer named.
+
 **Not decided.** Reading repository rulesets: the issue notes, untested, that `host_verify_protection` reads classic
 branch protection only, so a repository protected by rulesets alone would read as unprotected.
+
+**Residuals.**
+- `check-gate.sh --preflight` and `--repair` do not take the attestation, so they keep reporting the count of 0
+  as a failure on a project the backstop accepts. The backstop names `--preflight` only on its failure path.
+- As for `## BL-274:`, an agent can put the pair on its own command line, and the record's `by` is the git
+  identity, so it does not show that a person made the call.
+- The record is written with `mktemp` and `mv` but no lock, as `process-checklist.sh`'s own state writes are;
+  the gate's other recorders take `.claude/process-state.json.lockdir`. Two runs at once could lose one write.
+- The gitlab driver reads a failed `approval_rules` request as no rules (`|| echo '[]'`), so under the
+  attestation an unreadable rule list is accepted as a count of 0 without saying the read failed. The
+  attestation accepts any count, so the verdict is the same; the silence predates this change.
+- GitHub's rule (an author's approval of their own pull request does not count) is in Karl's decision. The
+  equivalent rules on GitLab and Bitbucket were not checked against their documentation here; the docs claim
+  only that there is no second person to approve.
 
 ## BL-340: with GitHub Issues named as the bug tracker, the Phase 2 → Phase 3 bug gate passes on an empty BUGS.md while GitHub is not counted
 
