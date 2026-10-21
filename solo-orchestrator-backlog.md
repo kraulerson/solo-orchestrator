@@ -25513,7 +25513,7 @@ documents get.
 **Logged:** 2026-10-08 (issue #486, filed 2026-09-30; decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** Medium — a protected `main` passes the backstop while an unprotected integration branch goes unchecked
-**Status:** Closed — shipped 2026-10-20 (fix `8b6bd83`, with `## BL-339:`; push-check fallback narrowed in fix `7d632cc`)
+**Status:** Closed — shipped 2026-10-20 (fix `8b6bd83`, with `## BL-339:`; push-check fallback narrowed in fix `7d632cc`, exact ref in fix `232b692`)
 
 **What.** `verify_init` in `scripts/process-checklist.sh` and the Phase 1 → Phase 2 backstop in
 `scripts/check-phase-gate.sh` call `host_verify_protection "main"`, and the push check (`# BL-084-PUSH-VERIFY`)
@@ -25540,9 +25540,11 @@ the supervisor's (2026-10-20, in fix `7d632cc`, test `d6496f8`): the `master` fa
 "nothing writes `.integration_branch`, and init.sh falls back to pushing `master`", which describes the
 key-absent case only. A project that has named its trunk is checked on that trunk, so neither fallback stands
 for it. The first build kept `master` for a keyed project too, which let a `develop` project pass on a
-`master`-only remote while failing on a `main`-only one. The backstop's `[OK]` and `[FAIL]` lines and
-`verify_init`'s now name the branch. `tests/test-bl339-bl334-protection.sh` B1-B8 and B5m, mutants M1-M10 and
-M39-M41.
+`master`-only remote while failing on a `main`-only one. The loop asks `ls-remote` for `refs/heads/<branch>`
+(`# BL-334-PUSH-EXACT`, fix `232b692`): a bare name is matched against each ref's tail, so before it
+`feature/main` alone passed the keyless check and `feature/dev` passed a `dev` key (review of `2b52e53`). The backstop's `[OK]` and `[FAIL]` lines and
+`verify_init`'s now name the branch. `tests/test-bl339-bl334-protection.sh` B1-B9, B5m and B9m, mutants M1-M10,
+M39-M41, M45 and M46.
 
 **Residuals.**
 - `scripts/check-gate.sh --preflight` and `--repair` (and init.sh's own protection call) still check `main`, then
@@ -25650,8 +25652,8 @@ Solo's docs can say Guardrails 4.4.5 and later show the date.
 **Logged:** 2026-10-08 (issue #487, filed 2026-09-30, with a narrowed proposal in its comments; decided by Karl 2026-10-08)
 **Category:** Gap (enforcement)
 **Severity:** Medium
-**Status:** Closed — shipped 2026-10-20 (fix `8b6bd83`, with `## BL-334:`); reading repository rulesets is
-not decided and stays below
+**Status:** Closed — shipped 2026-10-20 (fix `8b6bd83`, with `## BL-334:`; a missing pull-request rule is not
+waived since fix `232b692`); reading repository rulesets is not decided and stays below
 
 **What.** `host_verify_protection` in `scripts/host-drivers/github.sh` fails org mode when
 `required_approving_review_count` is 0, and both the Phase 1 → Phase 2 backstop and `--verify-init` call it. GitHub
@@ -25684,6 +25686,13 @@ backstop, and `--verify-init` never runs it.
   approvals rule, set `HOST_VERIFY_APPROVALS_ZERO` when the count is 0 (`# BL-339-APPROVALS-ZERO`) and drop that
   one failure only on that argument (`# BL-339-WAIVE`). Every other rule, and every other caller
   (`check-gate.sh --preflight`/`--repair`, init.sh), is unchanged.
+- **A missing pull-request rule is not a count of 0** (fix `232b692`, review of `2b52e53`). The github driver read
+  `.required_pull_request_reviews.required_approving_review_count // 0`, so a branch with no pull-request rule at
+  all, which anyone can push to, read as a count of 0 and the attestation waived it: `[ATTESTED]`, rc 0,
+  recorded, and `--verify-init` marked the step. It now fails ("pull requests are not required on <branch>")
+  whatever the attestation (`# BL-339-PR-RULE`); only a rule that requires 0 approvals can be waived. GitLab and
+  Bitbucket require pull requests through a separate rule the attestation never touches (`push_access_level` 0,
+  and a `push` restriction), and both still fail under the attestation when it is missing (D3, D4).
 - **Accepted** only when every other rule holds (`# BL-339-SA-ACCEPT-ONLY-ON-PASS`): an `[ATTESTED]` block that
   names §XIV item 5 as a BLOCKING pre-condition that REMAINS UNMET and avoids the vocabulary of a finished
   check, with no `[OK] … verified` line beside it (`# BL-339-NOT-VERIFIED`, `# BL-339-VI-NOT-VERIFIED`), and a
@@ -25695,9 +25704,10 @@ backstop, and `--verify-init` never runs it.
   `# BL-339-VI-UNRECORDED`): a read-only or irregular state file (`# BL-339-RECORD-WRITABLE`), a state file that
   is not a JSON object, or that slot already holding another attestation, which it never overwrites
   (`# BL-339-RECORD-FOREIGN`). Without the attestation a count of 0 fails exactly as before.
-- `tests/test-bl339-bl334-protection.sh` S1-S15 and S9b (S10: the two callers reach the same verdict for
-  attested, blank, `yes` and absent), D1 (gitlab), D2 (bitbucket), mutants M11-M38 (test commit `04fe3dc` added
-  M32-M38), each with its killer named. Lines with no mutant, because no case can tell a mutant from the
+- `tests/test-bl339-bl334-protection.sh` S1-S16, S9b and S12b (S10: the two callers reach the same verdict for
+  attested, blank, `yes` and absent; S12b: a new reason or branch at one HEAD rewrites the record, whose two
+  idempotence terms survived deletion before it), D1-D4, mutants M11-M38, M42-M44 and M47 (test commit
+  `04fe3dc` added M32-M38, `00050b9` M42-M47), each with its killer named. Lines with no mutant, because no case can tell a mutant from the
   original: the recorder's `jq`-absent arm (the driver needs `jq` before the recorder runs), its `mktemp`
   failure arm (the write fails and refuses with the same verdict), and the wrapper's
   `[ "$_src" -eq 0 ] || return` (a count of 0 with no attestation has already failed in the driver).
