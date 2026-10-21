@@ -25675,7 +25675,7 @@ there would drop a case that passes today.
 **Logged:** 2026-10-08 (issue #484, filed 2026-09-30; decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-10-21 (fix `2bd8f745`, suite `b03ad02f`)
 
 **What.** `scripts/session-test-gate-check.sh`'s MCP notice tells the Orchestrator to add a server under
 `mcp_requirements.additional_required` in `.claude/tool-usage.json`, and `scripts/session-mcp-gate.sh` enforces
@@ -25686,6 +25686,33 @@ An entry added as advised lasts until the next fresh session, then disappears wi
 **Decision (Karl, 2026-10-08).** Carry `additional_required` across the startup rewrite, as the merge path already
 does. The startup path's reason for not carrying outcome flags (a committed ledger must not pre-satisfy the check in
 a clone's first session) applies to satisfaction, not to the list of requirements.
+
+**What shipped.** `scripts/session-test-gate-check.sh` reads the list once (`# BL-335-READ`) and writes it back on all
+three paths: the merge (`# BL-335-MERGE`), the jq-failure fallback heredoc and the startup heredoc. Only non-empty
+strings are kept; anything else is dropped with one note line (`# BL-335-DROP-NOTE`), so the next start is silent.
+Startup still empties `calls[]` and leaves out `qdrant_find_succeeded` / `context7_query_docs_succeeded` (BL-236), so
+a carried entry is a requirement only: the first Write of a fresh session is refused until a matching tool returns
+successfully in that session (S6). Where the list cannot be carried, the hook says so in one line naming the entries
+it found as text, and still exits 0: a ledger that is not valid JSON (it is rewritten, `# BL-335-UNREADABLE`), and a
+startup with jq or the ledger writer missing (the ledger is removed as BL-314 does, `# BL-335-NOJQ`). The
+fallback does have jq — it runs when jq fails on the file — so the "cannot use jq" case is the invalid-JSON one, and
+text cut from a broken file is printed, never carried. `tests/test-bl335-additional-required-carry.sh`: 17 cases,
+15 mutants.
+
+**Tracked or ignored.** `.claude/tool-usage.json` is git-ignored in generated projects (`# BL-236-LEDGER-IGNORE` in
+`templates/generated/gitignore-base.tmpl`, backfilled by `upgrade-project.sh`) and in adopted ones (the
+`.claude/.gitignore` adoption writes, unless the project has its own). So the list is per checkout: a clone's first
+session does not see it. The notice and `docs/cli-setup-addendum.md` say so.
+
+**Residuals (not fixed here).**
+- An entry that is not a valid regex is carried. The gate's `test($pat)` then errors, which reads as "not
+  succeeded", so every Write is refused with a message that names the entry but not the cause. Fail-closed.
+- When the startup write cannot land (`# BL-314-RESET-FAIL-CLOSED`), the ledger is emptied and the list goes with it;
+  that path's stderr line does not mention the list.
+- `track-tool-usage.sh` reseeds an unparseable ledger mid-session with no `mcp_requirements` (`# BL-233-NO-REQ-RESEED`),
+  so a list in a ledger corrupted mid-session is lost before the next SessionStart could name it.
+- The issue's second shape — the list in committed config, seeded into the ledger at SessionStart so every clone
+  gets it — is not built. Karl chose the first shape.
 
 ## BL-336: the bypass detector does not scan text the agent writes with Edit or MultiEdit
 

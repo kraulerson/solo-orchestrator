@@ -397,6 +397,24 @@ The CLAUDE.md template (Section 6) instructs the agent on when to use Qdrant. Ke
 - **When debugging:** Retrieve prior issues with similar symptoms.
 - **During Context Health Checks:** Retrieve the list of features built and their implementation summaries to verify against the Bible.
 
+### Requiring Another MCP Server at Session Start
+
+Qdrant and Context7 are required automatically when they are registered: the MCP check (`scripts/session-mcp-gate.sh`) blocks Write and Edit until each has returned a successful call in the session. To hold a session to another server the same way, add it to `mcp_requirements.additional_required` in `.claude/tool-usage.json`. Each entry is a string matched as a pattern against tool names:
+
+```json
+"mcp_requirements": {
+  "qdrant_required": true,
+  "context7_required": true,
+  "additional_required": ["mcp__sentry__"]
+}
+```
+
+The session start prints this route when it sees a server it does not recognize. Three things to know:
+
+- **The list carries over.** Every session start keeps it. What does not carry over is whether a matching tool succeeded: that is reset at each fresh session, so the first Write of every session waits for a successful call again.
+- **It is per checkout.** `.claude/tool-usage.json` is git-ignored in generated and adopted projects, so the list is not committed and a fresh clone starts without it.
+- **Bad entries are dropped, with one line saying so.** An entry that is not a non-empty string is removed at the next session start. If the file is not valid JSON, or jq is not installed, the list cannot be carried; the session start then prints the entries it found so you can add them again.
+
 ---
 
 ## 6. CLAUDE.md (Project-Level Agent Instructions)
