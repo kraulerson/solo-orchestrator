@@ -920,6 +920,13 @@ _run_idempotent_backfill() {
         printf '.claude/tool-usage.json\n'
       } >> .gitignore && _bl174_added=1 || true
     fi
+    if ! grep -qxF '.claude/claude-commits.jsonl' .gitignore 2>/dev/null; then
+      {
+        printf '\n# BL-324 operational state — the Claude-commit ledger. Written after each\n'
+        printf '# agent commit, so a tracked copy would be modified after every one of them.\n'
+        printf '.claude/claude-commits.jsonl\n'
+      } >> .gitignore && _bl174_added=1 || true
+    fi
     if [ "$_bl174_added" -eq 1 ]; then
       print_ok "gitignore sidecar ignore-lines backfilled (BL-174)"
     fi

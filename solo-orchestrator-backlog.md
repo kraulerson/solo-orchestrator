@@ -25349,7 +25349,7 @@ in the unit lane): unit 21 cases with Q6 (residual 4), init 10, and those mutant
 **Logged:** 2026-10-08 (issue #483, filed 2026-09-30; found independently while building `## BL-322:` S1)
 **Category:** Bug (correctness)
 **Severity:** Medium — every agent commit not covered by a Guardrails approval is recorded as a user-terminal commit
-**Status:** Open
+**Status:** Closed — shipped 2026-10-20 (fixes `82c3536`, `3bcc995`, `d71be9d` and `d5c076c`; suites `232d942`, `2c14712`, `387b360` and `e6279b1`)
 
 **What.** `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code // 1`
 and exits before writing when the value is not 0. Claude Code's PostToolUse result for Bash has no `exit_code`
@@ -25363,6 +25363,150 @@ PostToolUseFailure), so the event itself is the success signal: record on PostTo
 not interrupted, keep honouring an explicit non-zero `exit_code` from any host that sends one, and test with the
 real envelope. Still to decide when this is built: whether `.claude/claude-commits.jsonl` is tracked or ignored
 (the Guardrails keep their own `.jsonl` audit logs tracked, and their stop check treats `.jsonl` as data from 4.4.2).
+
+**Reproduced on main `74af361c`** with a real-shaped envelope (a fixture commit, its own git output, `gitOperation`
+naming it, no `exit_code`): the hook exited 0 and wrote no `.claude/claude-commits.jsonl`, the detector then wrote an
+`out_of_band_commit` row (`user_terminal_inferred`) for that agent commit, and the old synthetic envelope wrote one row.
+
+**Which commit is recorded (`# BL-324-NAMED-SHA`).** Treating PostToolUse alone as success is not enough: a call can
+succeed while the commit in it failed (`git commit -m x; true`, `|| true`), and recording HEAD then hides a commit the
+call did not make, possibly the user's own, from the detector. Measured over the Claude Code transcripts on this Mac
+(2026-10-20, 2.1.271 to 2.1.303): of 382 successful Bash results whose command matched the recorder's `git commit`
+classifier, 75 carried `tool_response.gitOperation.commit` (`{sha` abbreviated, `kind` `committed` or `amended`,
+`branch}`), and every one that did had git's summary line (`[main 1a2b3c4] subject`) or a truncated stdout; none
+without it had one. 251 of the rest carried `-q`/`--quiet`; of the other 56, the 14 read were commands that only
+name `git commit` in text (heredocs, `--body` strings); and at least one result shows a commit that failed inside a
+chain exiting 0 (`commit rc=1`). So the hook records the commit the host names, checked to be a commit object in
+this repository (`# BL-324-NAMED-HEX`; `git rev-parse --verify` on the next line) and written by its full SHA; it skips an interrupted call (`# BL-324-NOT-INTERRUPTED`) and an explicit non-zero `exit_code`
+(`# BL-324-EXIT-CODE`). The envelope shape in the suite is a real `toolUseResult` from dogfood run 3 (commit
+`d77fc1b`, Claude Code 2.1.292) inside the documented PostToolUse input fields; Anthropic's own claude-security plugin
+reads `tool_response.gitOperation` in its hook the same way.
+
+**A commit the host does not name (`3bcc995`, after review: the first fix left the `-q` commits flagged).** With no
+`gitOperation`, `_reflog_commits` proves the commits from HEAD's reflog: each `commit`, `commit (amend)` or
+`commit (initial)` entry (`# BL-324-REFLOG-ACTION`) written in the last 30 seconds (`# BL-324-REFLOG-WINDOW`) whose
+subject equals the first line of a message a `git commit` invocation in the command supplies (`# BL-324-REFLOG-SUBJECT`;
+the rule as of `d5c076c`, below; this first version took any copy of the subject in the command). A SHA already in
+the ledger is not written again (`# BL-324-LEDGER-ONCE`). A failed commit writes no reflog entry. Measured,
+`git reflog` on git 2.54
+(macOS) and 2.43 (ubuntu 24.04): `%gs` is `commit: <first line>`, `commit (amend): …`, `commit (initial): …`; `%gd`
+with `--date=unix` is `HEAD@{<seconds>}`; a linked worktree has its own HEAD reflog, so a project that is a worktree
+works and a commit in another worktree is not seen. The window: over the 173 transcript commits whose reflog entry
+survives, the result came 2.4 s after the entry at the median, 10.7 s at p95, within 30 s for 167. Replayed over
+the same transcripts (384 results) against each repository's reflog, this first version recorded 75 named + 98
+proved and flagged 17. The `-F -` heredoc form is taken although the first review asked for no `-F`: its message is
+in the command text; `-F <file>` stays refused.
+
+**Review of `ab785e26` (BLOCK; fixed in `d71be9d`, cases in `387b360` and `d2b7b8b`).** Two claims were refuted. (1)
+"A failed commit leaves only older entries or ones with another subject" is false when someone else commits inside
+the window: a user's `wip`, then the agent's failed `git commit -q -m 'chore: wipe the cache'; true`, recorded the
+user's SHA. (2) The subject test was a substring of the whole command, so a user's `fix` matched `-m 'fix(bl-1): …'`,
+`.` matched any path, `notes` matched `docs/notes.md`, and a `--dry-run -m` call recorded too; short subjects nearly
+always matched. The window's value and the subject's width were unpinned (30 → 86400 s, or a 3-character or
+first-word subject, kept 26/0). That fix made the subject stand alone between a quote or newline on both sides and
+skipped a `--dry-run` with a whole-command regex (both superseded by `d5c076c`, below); only a PostToolUse envelope is read
+(`# BL-324-EVENT`; a PostToolUseFailure whose command named HEAD's subject wrote a row), the window carries
+`# BL-324-WINDOW-SECONDS`, and the reflog is read with `--no-show-signature` (`# BL-324-NO-SHOW-SIGNATURE`;
+log.showSignature=true put a `No signature` line first, which ended the read). What standing alone still cannot rule
+out: a commit someone else made in the same 30 s whose subject is exactly the message the agent's failed command
+supplied. The replay above, re-run with this rule: 75 named, 98 proved, 17 flagged, 173 no commit, 21 unreplayable,
+0 calls with a recorded SHA the call did not make (the substring rule also scored 0 on this history; the refuted
+cases were built).
+
+**Review of `829928a8` (BLOCK; fixed in `d5c076c`, cases in `e6279b1`).** "An agent call whose own commit fails and
+whose message, standing alone, is exactly that commit's subject" was refuted: any quoted or whole-line copy of a
+user's subject anywhere in the command was enough, and the agent's own commit could succeed beside it, so both SHAs
+were recorded (`echo "wip"; git commit -q -m "chore: x"`, `grep -q "fix" b`, `git add "docs"`, `touch 'tmp'`,
+`--format='x'`, a heredoc line `wip`; bash 3.2 and 5.2). Now `_RC_AWK` (awk, in the hook; identical output measured on
+macOS awk, mawk 1.3.4 and gawk) reads the command as shell words (single and double quotes, backslashes, comments,
+heredocs; not `$'…'`) and prints, for each `git commit` invocation, the first line of the message that invocation
+supplies: its `-m` / `--message` values (`-mX`, `-qm X`, and `-m=X`, which git reads as the message `=X`, measured;
+`--message=X` and `--message X`), or the body of the heredoc on its own `-F -` / `--file=-` (`# BL-324-AWK-STDIN`,
+`# BL-324-AWK-HEREDOC`), including `-m "$(cat <<'EOF' … EOF)"` (`# BL-324-AWK-CATHEREDOC`). A message with an
+expansion (`$VAR`, `$(…)`, a backquote, an unquoted heredoc that expands) prints nothing (`# BL-324-AWK-DYNMSG`,
+`# BL-324-AWK-DYNAMIC`), and so does a `--dry-run` invocation (`# BL-324-AWK-DRYRUN`). The line is squeezed as git
+squeezes a reflog message (leading space dropped, runs of whitespace one space, trailing dropped;
+`# BL-324-AWK-SQUEEZE`), and a reflog subject must equal one of these lines. Nothing else in the command counts.
+What still cannot be told apart: a commit someone else makes in the same 30 s whose subject is exactly a message the
+agent's command supplied. Replay with this rule (384 results): 75 named + 107 proved = 182 recorded; 8 still flagged
+(read: messages from a file or a pipe, amends that reuse a message, and messages built by another program); 173 made
+no commit in the project's repository; 21 cannot be replayed; 0 calls recorded a SHA they did not make. The proved
+count rose from 98 because the old whole-command `-F` regex had refused commits whose `-F` belonged to another
+command.
+
+**Tracked or ignored: ignored (`# BL-324-LEDGER-IGNORE`).** Measured: nothing wrote an ignore rule for it (init's
+template, the BL-174 upgrade backfill and adoption's `.claude/.gitignore` named the baseline and the tool ledger
+only), so once written it would sit untracked until a `git add -A` (which `reconfigure-project.sh`'s finalize commit
+runs) tracked it. The detector reads it only for `git log <baseline>..HEAD`, and the baseline
+`.claude/last-checked-commit.txt` is ignored and per-clone: a fresh clone sets its baseline at HEAD and never reads
+older rows. A row is written after the commit it names, so it can never be in that commit: tracked, the file is
+modified after every agent commit (the BL-030 baseline, BL-161 receipt and BL-236 tool-ledger pattern, each fixed by
+ignoring the file), and staging it in the next commit leaves that commit's own row behind. The Guardrails' stop
+check (`is_source_file` at `654917b`) treats `.jsonl` as data, so neither choice trips it; tracking would only help a
+second clone recognise rows someone had swept into a later commit. Since the recorder never wrote, no project can
+track the file today, so no `git rm --cached` step is needed. Ignored in: `templates/generated/gitignore-base.tmpl`,
+the `# BL-174-GITIGNORE-BACKFILL` block of `scripts/upgrade-project.sh` (a fourth line), and
+`_adopt_session_ignore_rules` (`/claude-commits.jsonl`, with the kept-theirs note naming it).
+
+**Tests.** `tests/test-record-claude-commit.sh` (16 cases; red on `74af361c` at 10/6): every envelope is the real
+shape; T3 keeps one explicit `exit_code`; T10 interrupted, T11 a commit that failed inside a chain exiting 0 (HEAD
+unchanged), T11b a named commit this repository lacks, T12 a PostToolUseFailure envelope, T14 a `gitOperation` that
+is not a hash, T15 HEAD moved after the commit; T13 end to end through the hook commands `soif_register_hook_roster`
+registers: the agent's commit and its `-q` commit get no `out_of_band_commit` row, a terminal commit still gets
+one. T16-T25 (26 cases; red on `173bc49a` at 20/6): `-m`, a heredoc, two commits in one call, a project that is a
+linked worktree are recorded; a failed commit with an old matching entry (T18) or a recent entry of another subject
+(T19), a cherry-pick entry (T20), `-F <file>` (T21), no inline message (T22) and a repeat (T24) are not. Mutants
+(killer): NOT-INTERRUPTED (T10), EXIT-CODE (T3), NAMED-HEX (T14), NAMED-SHA back to `rev-parse HEAD` (T11b, T15),
+the classifier dropped (T6, T7), the whole-command `-F <file>` and inline-message checks of that version (T21, T22),
+REFLOG-WINDOW (T18, T28), REFLOG-ACTION (T20), REFLOG-SUBJECT dropped (T11 and eleven more), LEDGER-ONCE (T24). An empty alternative in the first `-F` regex
+made BSD grep exit 2, which read as "no file" (fail open); measured, and the regex no longer has one. After the
+review (32 cases; red on `ab785e26` at 26/6): T26 `fix` vs `fix(x): y`, T27 `wip` vs `chore: wip` and
+`chore: wipe the cache`, T28 a matching entry 120 s old, T29 a heredoc that only mentions `git commit -m`, T30
+`--dry-run`, T31 a signed commit under log.showSignature=true (skipped without ssh-keygen), T12 now names HEAD's
+subject. Mutants: EVENT (T12), window 86400 and 31536000 (T28), left delimiter dropped (T27), right dropped (T26),
+substring (T26, T27, T29), 3-character or first-word subject as a substring (T26, T27, T29) or delimited (T16 and
+six more), DRYRUN (T30), no `--no-show-signature` (T31); all 23 killed on bash 3.2 (BSD grep) and 5.2 (GNU grep).
+After the second review (53 cases; red on `829928a8` at 41/12): T32-T37 the six shapes above, each with the agent's
+own -q commit recorded and the user's not; T38 a multi-line `-m` (first line); T39 `-m=`; T40 `--message=`; T41 two
+heredocs on one line; T42 a matching entry 45 s old; T43 the `$(cat <<EOF)` idiom; T44 `-m "wip$X"`; T45 a comment
+with an apostrophe; T46 `-qm`; T47 `<<-`; T48 an unquoted heredoc with `$X`; T49 doubled spaces; T50 a leading
+assignment; T51 a leading `if`; T52 `-m "feat: $X"`. 29 mutants, each killed (killer): NOT-INTERRUPTED (T10),
+EXIT-CODE (T3), NAMED-HEX (T14), NAMED-SHA (T11b, T15), classifier (T6, T7), EVENT (T12), REFLOG-WINDOW (T18, T28,
+T42), window 100 (T42), 86400 and 31536000 (T28, T42), REFLOG-ACTION (T20), LEDGER-ONCE (T24), no
+`--no-show-signature` (T31), REFLOG-SUBJECT any (28 cases), substring (T26, T27, T32-T37, T39, T41, T49), quoted
+substring (T32-T34 and 18 more), AWK-TABS (T47), AWK-CATHEREDOC (T43), AWK-DYNAMIC (T52), AWK-DYNMSG (T44),
+AWK-SQUEEZE (T49), AWK-PREFIX (T50, T51), AWK-DRYRUN (T30), AWK-LONGEQ (T40), AWK-CLUSTER first letter only (T46),
+AWK-STDIN (T17, T41, T47), AWK-COMMENT (T45), AWK-HEREDOC to the first command (T41) or taking an expanding body
+(T48). `tests/test-bl322-s1-audit-loop.sh` adds the ledger to `RUNTIME_FILES`
+(I1, A1, A2) with mutants M16 (adoption) and M17 (template), and M14 now names the new kept-theirs line;
+`tests/test-bl174-gitignore-backfill.sh` T1, T2 and T4 require the fourth backfill line (dropping it: T1, T2 red).
+
+**Residuals (not fixed).**
+- **Still flagged (all fail safe):** a commit whose message comes from `-F <file>`, a pipe
+  (`printf '…' | git commit -F -`), `$'…'`, an expansion or an editor; a commit inside `bash -c`, `sh -c` or `eval`;
+  a message flag git accepts as an abbreviation (`--mess=…`); one more than 30 s before the call ends, or dated back
+  with `GIT_COMMITTER_DATE`;
+  `git -C <dir> commit` and `git -c k=v commit`, which the classifier does not take even when the host names the
+  commit (21 successful such calls in the transcripts, none host-named; the classifier is left as it is); a `-q`
+  commit in another worktree or repository. A HEAD snapshot taken before the call (a PreToolUse hook on Bash, new in
+  the roster for init, adoption and the `--sync-framework` gap of `## BL-353:`) would cover most of them; not built.
+- **A user's commit can be taken** when it lands in HEAD's reflog in the 30 s before an agent call one of whose
+  `git commit` invocations supplies a message whose first line is exactly that commit's subject (the agent's commit
+  failed, never ran — an uncalled function, `if false`, an unused `||` branch — or made the same subject). The
+  replay found none.
+- **Parser limits (review of `bf9d0f1d`):** `--author "-mwip <a@b>"` is read as a message (not reachable in
+  practice); bash 3.2 ends `$(cat <<'EOF'…)` at a `)` in the body while the parser follows bash 5.2, so such a commit
+  is missed (fail-safe); the parser's cost grows with the square of the command length (a 1.27 MB heredoc took 2-7 s);
+  BWK awk in an arm64 container sometimes printed nothing (the `## BL-260:` class; amd64 agrees across awks).
+- **Two commits in one call:** with no name from the host, every provable one is recorded (T23); with a name, only
+  the named one (the reflog is not read then); which one the host names is not measured.
+- **`session_id` in each row is `${CLAUDE_SESSION_ID:-unknown}`.** The envelope's own `session_id` is not read, and
+  this agent shell carries `CLAUDE_CODE_SESSION_ID`, not `CLAUDE_SESSION_ID`; what a hook's environment carries is
+  not measured. The detector does not read the field.
+- **`interrupted: true` was never seen** in any transcript; the check fails closed on anything but `false`.
+- **Team Orchestrator v1** (`docs/designs/2026-08-02-team-orchestrator-v1.md`) plans a union of every member's
+  ledger (WP2b); §5.1, §5.2 and §5.4 now say the ledger is gitignored, so that union needs another way to share rows.
+- **A commit pulled from another clone is still flagged** on this one (the per-clone ledger; unchanged).
 
 ## BL-325: the pending-approval hold stops `git commit` and `gh pr create` only, so other commands still create commits while a decision is pending
 

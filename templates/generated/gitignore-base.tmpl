@@ -76,14 +76,15 @@ terraform.tfvars.json
 # receiving the line (which is the BL-174 defect itself, reintroduced). Same
 # convention as the `# BL-084-TIER-KEY` SYNC-SIBLINGS predicate.
 #
-# A THIRD COPY of two lines in this file (`## BL-322:`), the first sidecar
-# below and the tool-usage ledger at the end: an ADOPTED project gets
-# .claude/last-checked-commit.txt and .claude/tool-usage.json ignored by
+# A THIRD COPY of three lines in this file (`## BL-322:`, `## BL-324:`), the
+# first sidecar below, the tool-usage ledger and the Claude-commit ledger at the
+# end: an ADOPTED project gets .claude/last-checked-commit.txt,
+# .claude/tool-usage.json and .claude/claude-commits.jsonl ignored by
 # `_adopt_session_ignore_rules` in scripts/lib/adopt/adopt-session.sh, which
-# writes them to .claude/.gitignore as anchored `/last-checked-commit.txt` and
-# `/tool-usage.json`. The backfill's `grep -qxF` reads the root .gitignore only,
-# so it does not see that file. Rename or drop either line and change that
-# function in the same commit.
+# writes them to .claude/.gitignore as anchored `/last-checked-commit.txt`,
+# `/tool-usage.json` and `/claude-commits.jsonl`. The backfill's `grep -qxF`
+# reads the root .gitignore only, so it does not see that file. Rename or drop
+# any of those lines and change that function in the same commit.
 #
 # BL-030 operational state — the detection baseline file. Not project
 # content. Updated by scripts/detect-out-of-band-commits.sh on every
@@ -125,3 +126,10 @@ terraform.tfvars.json
 # BL-314: the ledger writer's temps (scripts/lib/ledger-write.sh). A SIGKILL
 # can leave one, a full copy of the ledger, until the next write sweeps it.
 .claude/tool-usage.json.lw.*
+
+# BL-324-LEDGER-IGNORE — the Claude-commit ledger. scripts/hooks/record-claude-commit.sh
+# appends a commit's SHA AFTER the commit is made, so a row can never be in its
+# own commit: tracked, the file would be modified after every agent commit. Its
+# only reader, scripts/detect-out-of-band-commits.sh, reads it for the commits
+# since .claude/last-checked-commit.txt, which is ignored and per-clone too.
+.claude/claude-commits.jsonl
