@@ -358,7 +358,12 @@ host_verify_protection() {
 
   if [ "$mode" = "org" ]; then
     [ "$has_push" -eq 0 ]      && failures="${failures}push not restricted (org mode requires PR-only)\n"
-    [ "$has_approvals" -eq 0 ] && failures="${failures}approvals not required on PRs (org mode requires at least 1)\n"
+    if [ "$has_approvals" -eq 0 ]; then
+      # BL-339: the same excuse as the github driver's, on the same terms.
+      HOST_VERIFY_APPROVALS_ZERO=1   # BL-339-APPROVALS-ZERO
+      [ "${3:-}" = "single-authority" ] \
+        || failures="${failures}approvals not required on PRs (org mode requires at least 1)\n"   # BL-339-WAIVE
+    fi
     [ "$has_builds" -eq 0 ]    && failures="${failures}passing CI builds not required for merge (org mode requires at least 1)\n"
   fi
 

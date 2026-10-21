@@ -1632,16 +1632,27 @@ verify_init() {
   elif [ -f "$SCRIPT_DIR/lib/host.sh" ] && [ -f ".claude/manifest.json" ]; then
     # shellcheck disable=SC1090
     source "$SCRIPT_DIR/lib/host.sh"
-    local mode
+    # BL-334: the project's integration branch, not a literal main. BL-339:
+    # through host_verify_protection_attested, the predicate the Phase 1→2
+    # backstop in check-phase-gate.sh shares, so the two cannot disagree.
+    local mode="" bp_branch="" bp_rc=0
     mode=$(jq -r '.mode // "personal"' .claude/manifest.json 2>/dev/null || echo "personal")
-    if host_load_driver 2>/dev/null && host_verify_protection "main" "$mode" 2>/dev/null; then
-      if ! step_is_completed "phase2_init" "branch_protection_configured"; then
-        jq '.phase2_init.steps_completed += ["branch_protection_configured"]' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
-        auto_marked=$((auto_marked + 1))
-      fi
-      print_ok "branch_protection_configured — host protection verified via API"
-    else
+    if ! bp_branch=$(soif_integration_branch); then   # BL-334-VERIFY-INIT-BRANCH
+      print_fail "branch_protection_configured — .integration_branch in .claude/manifest.json is not a branch name (git check-ref-format), so protection was not checked"
+    elif ! host_load_driver 2>/dev/null; then
       print_fail "branch_protection_configured — protection verification failed (run scripts/check-gate.sh --preflight)"
+    else
+      host_verify_protection_attested "branch_protection_configured" "$bp_branch" "$mode" verify-init 2>/dev/null || bp_rc=$?
+      if [ "$bp_rc" -eq 0 ]; then   # BL-339-VI-UNRECORDED
+        if ! step_is_completed "phase2_init" "branch_protection_configured"; then
+          jq '.phase2_init.steps_completed += ["branch_protection_configured"]' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
+          auto_marked=$((auto_marked + 1))
+        fi
+        [ "$HOST_SA_STATE" = "accepted" ] \
+          || print_ok "branch_protection_configured — host protection verified via API on '$bp_branch'"   # BL-339-VI-NOT-VERIFIED
+      elif [ "$bp_rc" -ne 3 ]; then
+        print_fail "branch_protection_configured — protection verification failed on '$bp_branch' (run scripts/check-gate.sh --preflight)"
+      fi
     fi
   else
     print_fail "branch_protection_configured — host dispatcher or manifest missing"

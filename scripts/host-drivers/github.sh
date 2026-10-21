@@ -204,7 +204,13 @@ host_verify_protection() {
   if [ "$mode" = "org" ]; then
     val=$(echo "$resp" | jq -r '.required_pull_request_reviews.required_approving_review_count // 0')
     if [ "$val" = "0" ] || [ "$val" = "null" ]; then
-      failures="${failures}required_approving_review_count is 0 (org mode requires at least 1)\n"
+      # BL-339: excused only when the caller passes "single-authority", which
+      # host_verify_protection_attested (scripts/lib/host.sh) does only while
+      # `## BL-274:`'s attestation stands, and records it. The flag tells that
+      # caller there was a count to excuse.
+      HOST_VERIFY_APPROVALS_ZERO=1   # BL-339-APPROVALS-ZERO
+      [ "${3:-}" = "single-authority" ] \
+        || failures="${failures}required_approving_review_count is 0 (org mode requires at least 1)\n"   # BL-339-WAIVE
     fi
     val=$(echo "$resp" | jq -r '.required_status_checks // empty')
     [ -z "$val" ] && failures="${failures}no status checks enforced (org mode requires CI status check)\n"

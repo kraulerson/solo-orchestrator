@@ -308,3 +308,137 @@ _host_define_other_fallbacks() {
     return 0
   }
 }
+
+# ── The single-authority attestation at the protection check (`## BL-339:`) ──
+# `## BL-274:` lets an organizational project whose only technical authority is
+# one person run on a recorded attestation: SOLO_SINGLE_AUTHORITY_ATTESTED=1 and
+# a mandatory SOLO_SINGLE_AUTHORITY_ATTESTED_REASON. That project cannot require
+# an approving review either: there is no second person to give one, and GitHub
+# does not count an author's approval of their own pull request. So its count is
+# 0, and the org-mode protection check failed on it. Decided (Karl, 2026-10-08):
+# a count of 0 is accepted only while that attestation stands, recorded as a new
+# `branch_protection.reason` tied to it; without it the check fails as before,
+# and every other protection rule is checked as before.
+#
+# WHAT "STANDS" MEANS. The pair is in the environment of THIS run, the variable
+# is exactly 1, and the reason is not blank once C0 controls and `\` are
+# stripped and the ends trimmed: the test _cpg_single_authority_gate applies.
+# Nothing persisted is read back to decide. The record written below is an
+# audit trail and an idempotence key, so it cannot go stale and cannot stand in
+# for an attestation nobody supplied. Reading BL-274's own record instead was
+# measured and rejected: it is written only inside the self-approval arm of
+# validate_approval_fields, which check-phase-gate.sh runs AFTER this backstop,
+# and process-checklist.sh --verify-init never runs it.
+#
+# ONE PREDICATE, TWO CALLERS. The Phase 1→2 backstop (check-phase-gate.sh) and
+# verify_init (process-checklist.sh) both call host_verify_protection_attested,
+# so they reach the same verdict. Every other caller of host_verify_protection
+# (check-gate.sh --preflight and --repair, init.sh) passes no third argument,
+# records nothing, and fails a count of 0 exactly as before.
+
+# host_single_authority_reason — prints the reason, sanitised and trimmed.
+#   0 — the attestation stands on this run
+#   1 — SOLO_SINGLE_AUTHORITY_ATTESTED=1 with a blank reason: refused
+#   2 — not offered: the variable is absent or anything other than exactly 1
+host_single_authority_reason() {
+  local _r=""
+  [ "${SOLO_SINGLE_AUTHORITY_ATTESTED:-}" = "1" ] || return 2   # BL-339-SA-OFFERED
+  _r=$(printf '%s' "${SOLO_SINGLE_AUTHORITY_ATTESTED_REASON:-}" | LC_ALL=C tr -d '\000-\037\\')   # BL-339-SA-SANITISE
+  _r=$(printf '%s' "$_r" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  [ -n "$_r" ] || return 1   # BL-339-SA-REASON
+  printf '%s\n' "$_r"
+}
+
+# _host_record_single_authority <branch> <reason> <recorded_via>
+# Writes .claude/process-state.json::phase2_init.attestations.branch_protection
+# with reason `single_authority_approvals`, the attestation's reason, the branch,
+# the commit it excuses, the date and the git identity. Returns 0 when recorded,
+# or when the same reason, branch and commit are already on record; 1 when it
+# cannot be, with the cause in HOST_SA_RECORD_ERR. It never overwrites another
+# attestation in that slot: check-gate.sh honours `github_free_tier` and
+# `gitlab_free_tier_approvals` there, and the "other" host reads `.at`.
+_host_record_single_authority() {
+  local _b="$1" _r="$2" _via="$3" _f=".claude/process-state.json"
+  local _cur="" _head="" _by="" _tmp=""
+  HOST_SA_RECORD_ERR=""
+  command -v jq >/dev/null 2>&1 || { HOST_SA_RECORD_ERR="jq is not on PATH, and the record is written with it."; return 1; }
+  # A read-only file is refused up front: mv over it succeeds in a writable
+  # directory, which would record what the caller is told was refused.
+  if [ -e "$_f" ] && { [ ! -f "$_f" ] || [ ! -w "$_f" ]; }; then   # BL-339-RECORD-WRITABLE
+    HOST_SA_RECORD_ERR="$_f cannot be written (read-only, or not a regular file)."; return 1
+  fi
+  if [ ! -f "$_f" ]; then
+    printf '{}\n' > "$_f" 2>/dev/null || { HOST_SA_RECORD_ERR=".claude/ refuses writes."; return 1; }
+  fi
+  _cur=$(jq -r '.phase2_init.attestations.branch_protection | if . == null then "" else (.reason // "<none>") end' "$_f" 2>/dev/null) \
+    || { HOST_SA_RECORD_ERR="$_f is not a JSON object the record can be added to."; return 1; }
+  case "$_cur" in
+    ""|single_authority_approvals) ;;
+    *) HOST_SA_RECORD_ERR="phase2_init.attestations.branch_protection already holds another attestation (reason: $(printf '%s' "$_cur" | LC_ALL=C tr -d '\000-\037\\')); it is not overwritten."
+       return 1 ;;   # BL-339-RECORD-FOREIGN
+  esac
+  _head=$(git rev-parse HEAD 2>/dev/null || printf '')
+  if jq -e --arg b "$_b" --arg r "$_r" --arg h "$_head" \
+       '.phase2_init.attestations.branch_protection | .branch == $b and .single_authority_reason == $r and .head == $h' \
+       "$_f" >/dev/null 2>&1; then
+    return 0   # BL-339-RECORD-SAME
+  fi
+  _by="$(git config user.name 2>/dev/null || printf '') <$(git config user.email 2>/dev/null || printf '')>"
+  _tmp=$(mktemp "$_f.XXXXXX" 2>/dev/null) || { HOST_SA_RECORD_ERR=".claude/ refuses writes."; return 1; }
+  if jq --arg b "$_b" --arg r "$_r" --arg h "$_head" --arg d "$(date +%Y-%m-%d)" --arg by "$_by" --arg via "$_via" \
+       '.phase2_init.attestations.branch_protection = {reason: "single_authority_approvals", single_authority_reason: $r, branch: $b, head: $h, date: $d, by: $by, recorded_via: $via}' \
+       "$_f" > "$_tmp" 2>/dev/null && mv "$_tmp" "$_f"; then   # BL-339-RECORD-WRITE
+    return 0
+  fi
+  rm -f "$_tmp"
+  HOST_SA_RECORD_ERR="$_f is not a JSON object the record can be added to."
+  return 1
+}
+
+# host_verify_protection_attested <label> <branch> <mode> <recorded_via>
+#   0 — the branch's protection meets the bar for <mode>. HOST_SA_STATE is
+#       "accepted" when a count of 0 was excused: the [ATTESTED] block is
+#       printed and the record written, and the caller prints no line that says
+#       the protection was verified.
+#   1 — it does not. HOST_SA_STATE is "refused" when the count was 0 and the
+#       attestation was offered with a blank reason; the [BLOCKED] line is printed.
+#   3 — excused, but the record could not be written: refused, the [FAIL] line is
+#       printed. An escape that leaves no trace is the check switched off.
+# Everything this prints goes to stdout; the driver's own lines go to stderr.
+host_verify_protection_attested() {
+  local _label="$1" _b="$2" _m="$3" _via="$4" _r="" _src=0 _rc=0
+  HOST_SA_STATE="" HOST_VERIFY_APPROVALS_ZERO=""
+  _r=$(host_single_authority_reason) || _src=$?
+  if [ "$_src" -eq 0 ]; then   # BL-339-SA-ONLY-WHEN-STANDS
+    host_verify_protection "$_b" "$_m" single-authority || _rc=$?
+  else
+    host_verify_protection "$_b" "$_m" || _rc=$?
+  fi
+  # The driver sets HOST_VERIFY_APPROVALS_ZERO in org mode when the count is 0.
+  # Unset, there was nothing to excuse, and the answer is the driver's.
+  [ -n "$HOST_VERIFY_APPROVALS_ZERO" ] || return "$_rc"
+  if [ "$_src" -eq 1 ]; then
+    HOST_SA_STATE="refused"   # BL-339-SA-REFUSED
+    printf '%b[BLOCKED]%b %s: required approving reviews on %s is 0, and SOLO_SINGLE_AUTHORITY_ATTESTED=1 was set with no reason, so it is not accepted.\n' "${RED:-}" "${NC:-}" "$_label" "'$_b'"
+    echo "        Set SOLO_SINGLE_AUTHORITY_ATTESTED_REASON=\"<why this organisation has a single technical authority>\" and re-run."
+    return "$_rc"
+  fi
+  [ "$_src" -eq 0 ] || return "$_rc"
+  [ "$_rc" -eq 0 ] || return "$_rc"   # BL-339-SA-ACCEPT-ONLY-ON-PASS
+  if ! _host_record_single_authority "$_b" "$_r" "$_via"; then
+    HOST_SA_STATE="unrecorded"
+    printf '%b[FAIL]%b %s: a single-authority attestation was supplied but COULD NOT BE RECORDED to .claude/process-state.json — refusing it. %s\n' "${RED:-}" "${NC:-}" "$_label" "$HOST_SA_RECORD_ERR"
+    return 3   # BL-339-SA-UNRECORDED
+  fi
+  HOST_SA_STATE="accepted"
+  # printf '%s' for the reason, never echo -e: it is operator-supplied. The word
+  # "verified" is absent from this block in every form, as in BL-274's: an
+  # accepted exception must not read like a finished check.
+  printf '%b[ATTESTED]%b %s: required approving reviews on %s is 0, ACCEPTED under the single-authority attestation — one person holds the only technical authority here, so no second person can approve. Reason: ' "${YELLOW:-}" "${NC:-}" "$_label" "'$_b'"
+  printf '%s' "$_r"
+  printf '\n'
+  echo "        This RECORDS an accepted exception, and no review is required on this branch. Every other $_m-mode protection rule on '$_b' was checked and holds."
+  echo "        docs/governance-framework.md §XIV item 5 — a second technologist with repository and hosting access — is a BLOCKING pre-condition and REMAINS UNMET. This attestation does not clear it."
+  echo "        Recorded to .claude/process-state.json::phase2_init.attestations.branch_protection (reason: single_authority_approvals), pinned to this commit. See docs/reference/builders-guide.md § \"Single-Authority Attestation\" (framework backlog: ## BL-339:)."
+  return 0
+}
