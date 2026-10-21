@@ -2166,7 +2166,7 @@ run_child_suite "tests/test-test-gate-null-handling.sh" \
   "tests/test-test-gate-null-handling.sh (5/5)"
 run_child_suite "tests/test-validate-counter-sanitizer.sh" \
   "tests/test-validate-counter-sanitizer.sh (5/5)"
-run_child_suite "tests/test-record-claude-commit.sh" "tests/test-record-claude-commit.sh (26/26)"
+run_child_suite "tests/test-record-claude-commit.sh" "tests/test-record-claude-commit.sh (32/32)"
 run_child_suite "tests/test-unrecord-feature.sh" "tests/test-unrecord-feature.sh (7/7)"
 run_child_suite "tests/test-session-test-gate-check-merge.sh" \
   "tests/test-session-test-gate-check-merge.sh (20/20)"

@@ -30,6 +30,13 @@
 #   # BL-324-REFLOG-ACTION    any action counts -> T20 RED
 #   # BL-324-REFLOG-SUBJECT   drop the check    -> T19 RED
 #   # BL-324-LEDGER-ONCE      drop the check    -> T24 RED
+# Review of ab785e26 (T26-T31, T12 sharpened):
+#   # BL-324-EVENT            drop the check    -> T12 RED
+#   # BL-324-WINDOW-SECONDS   30 -> 86400, 31536000 -> T28 RED
+#   # BL-324-REFLOG-SUBJECT   left delimiter dropped -> T27; right dropped -> T26;
+#                             subject cut to 3 chars / first word -> T16 and more
+#   # BL-324-REFLOG-DRYRUN    drop the check    -> T30 RED
+#   # BL-324-NO-SHOW-SIGNATURE  drop the flag   -> T31 RED (needs ssh-keygen)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -270,12 +277,13 @@ else
 fi
 cd "$REPO_ROOT"; rm -rf "$OTHER"; teardown
 
-# T12: a failed call fires PostToolUseFailure (no tool_response at all).
+# T12: a failed call fires PostToolUseFailure (no tool_response at all). Its
+# command names HEAD's own recent subject, so only the event stops a row.
 echo "T12: a PostToolUseFailure envelope is not recorded"
 setup
 cd "$TMP"
 jq -nc '{session_id:"bl324", hook_event_name:"PostToolUseFailure", tool_name:"Bash",
-  tool_input:{command:"git commit -m x"}, tool_use_id:"toolu_bl324",
+  tool_input:{command:"git commit -q -m '"'"'first'"'"'"}, tool_use_id:"toolu_bl324",
   error:"Exit code 1\nnothing to commit, working tree clean", is_interrupt:false}' | run_hook || true
 if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
   pass "T12"
@@ -485,6 +493,100 @@ env_bash "$CMDQ" "$OUT" | CLAUDE_PROJECT_DIR="$WT" bash "$HOOK" >/dev/null 2>&1 
 got=$({ jq -r '.sha' "$WT/.claude/claude-commits.jsonl" 2>/dev/null || true; } | tr '\n' ' ')
 if [ "$got" = "$NEW " ]; then pass "T25"; else fail_ "T25" "want '$NEW ', got '$got'"; fi
 cd "$REPO_ROOT"; rm -rf "$(dirname "$WT")"; teardown
+
+# ── review of ab785e26: someone else's commit in the window ─────────────────
+# user_commit <subject> [age-seconds] — a commit in $TMP that the agent did not
+# make (a terminal), its reflog entry <age> seconds old (default 0).
+user_commit() {
+  local when=""
+  [ -n "${2:-}" ] && when="@$(( $(date +%s) - $2 )) +0000"
+  ( cd "$TMP" && echo "$1" >> user.txt && git add user.txt \
+      && if [ -n "$when" ]; then GIT_COMMITTER_DATE="$when" GIT_AUTHOR_DATE="$when" git commit -qm "$1"; else git commit -qm "$1"; fi )
+}
+
+# T26: the user's subject `fix` is a prefix of the agent's `fix(x): y`; the
+# agent's commit fails. Not recorded: the subject must stand alone.
+echo "T26: a user's 'fix' is not taken for an agent's 'fix(x): y' that failed"
+setup
+user_commit fix
+cd "$TMP"
+CMDF="git commit -q -m 'fix(x): y'; true"
+OUT=$(eval "$CMDF" 2>&1)
+env_bash "$CMDF" "$OUT" | run_hook || true
+if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then pass "T26"; else fail_ "T26" "the user's commit was recorded: $(shas)"; fi
+cd "$REPO_ROOT"; teardown
+
+# T27: the user's `wip` sits at the end of the agent's `chore: wip` (and inside
+# `chore: wipe the cache`); both agent commits fail. Not recorded.
+echo "T27: a user's 'wip' is not taken for an agent's 'chore: wip' or 'chore: wipe the cache' that failed"
+setup
+user_commit wip
+cd "$TMP"
+for CMDF in "git commit -q -m 'chore: wip'; true" "git commit -q -m 'chore: wipe the cache'; true"; do
+  OUT=$(eval "$CMDF" 2>&1)
+  env_bash "$CMDF" "$OUT" | run_hook || true
+done
+if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then pass "T27"; else fail_ "T27" "the user's commit was recorded: $(shas)"; fi
+cd "$REPO_ROOT"; teardown
+
+# T28: an entry 120 seconds old with the exact subject; the agent's commit
+# fails. Outside the 30 s window: not recorded.
+echo "T28: a matching entry 120 seconds old is not recorded"
+setup
+user_commit 'feat: two minutes ago' 120
+cd "$TMP"
+CMDF="git commit -q -m 'feat: two minutes ago'; true"
+OUT=$(eval "$CMDF" 2>&1)
+env_bash "$CMDF" "$OUT" | run_hook || true
+if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then pass "T28"; else fail_ "T28" "a 120 s old entry was recorded: $(shas)"; fi
+cd "$REPO_ROOT"; teardown
+
+# T29: a call that only writes about `git commit -m` into a notes file; the
+# user's recent subject is `notes`. No commit, no row.
+echo "T29: a heredoc that only mentions 'git commit -m' records nothing"
+setup
+user_commit notes
+cd "$TMP"
+mkdir -p docs
+CMDN="cat >> docs/notes.md <<'EOF'
+run git commit -m before you push
+EOF"
+OUT=$(eval "$CMDN" 2>&1)
+env_bash "$CMDN" "$OUT" | run_hook || true
+if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then pass "T29"; else fail_ "T29" "recorded: $(shas)"; fi
+cd "$REPO_ROOT"; teardown
+
+# T30: --dry-run commits nothing; the user's recent commit has the same
+# subject. Not recorded.
+echo "T30: a --dry-run commit records nothing"
+setup
+user_commit 'feat: dry'
+cd "$TMP"
+echo d > d.txt && git add d.txt
+CMDD="git commit --dry-run -q -m 'feat: dry'"
+OUT=$( { eval "$CMDD" 2>&1 || true; } )
+env_bash "$CMDD" "$OUT" | run_hook || true
+if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then pass "T30"; else fail_ "T30" "recorded: $(shas)"; fi
+cd "$REPO_ROOT"; teardown
+
+# T31: log.showSignature=true prints a signature line before a signed commit's
+# reflog line; the recorder reads the reflog with --no-show-signature. Needs
+# ssh-keygen (an SSH signing key made here, in the temp folder).
+echo "T31: a signed -q commit is recorded with log.showSignature=true"
+if command -v ssh-keygen >/dev/null 2>&1; then
+  setup
+  cd "$TMP"
+  ssh-keygen -q -t ed25519 -N '' -C bl324 -f "$TMP/.k" >/dev/null 2>&1
+  git config gpg.format ssh && git config user.signingkey "$TMP/.k.pub" && git config log.showSignature true
+  echo s > s.txt && git add s.txt
+  CMDS="git commit -q -S -m 'feat: signed'"
+  OUT=$(eval "$CMDS" 2>&1); NEW=$(git rev-parse HEAD)
+  env_bash "$CMDS" "$OUT" | run_hook || true
+  if [ "$(shas)" = "$NEW " ]; then pass "T31"; else fail_ "T31" "want '$NEW ', got '$(shas)'"; fi
+  cd "$REPO_ROOT"; teardown
+else
+  echo "  [SKIP] T31 — ssh-keygen not installed"
+fi
 
 # T13: end to end, through the hook commands a project's settings.json
 # registers (soif_register_hook_roster, which init.sh and adoption share): the
