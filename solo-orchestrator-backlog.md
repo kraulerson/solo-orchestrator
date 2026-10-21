@@ -25532,18 +25532,25 @@ reader: `.integration_branch` from `.claude/manifest.json`, or `main` when the k
 rejects (`# BL-334-REFNAME`), which the decision did not ask for: the push check passes the key to
 `git ls-remote --heads origin`, which treats it as a glob, so `dev*` would have matched any branch. The
 backstop (`# BL-334-BACKSTOP-BRANCH`) and `verify_init` (`# BL-334-VERIFY-INIT-BRANCH`) check that branch and
-fail on a key that is not a branch name; the push check (`# BL-334-PUSH-BRANCH`) loops over the key, then
-`master`, so a keyless project still loops over `main master`, and a bad key prints a non-blocking `[WARN]` and
-leaves the verdict to the arms below (one issue, not two). The backstop's `[OK]` and `[FAIL]` lines and
-`verify_init`'s now name the branch. `tests/test-bl339-bl334-protection.sh` B1-B7, mutants M1-M10.
+fail on a key that is not a branch name. The push check reads `soif_integration_branch_key`
+(`# BL-334-PUSH-BRANCH`): with the key absent it looks for `main` or `master`, as before
+(`# BL-334-PUSH-KEYLESS`); with the key set it looks for that branch alone (`# BL-334-PUSH-KEYED`), and a bad
+key prints a non-blocking `[WARN]` and leaves the verdict to the arms below (one issue, not two). The rule is
+the supervisor's (2026-10-20, in fix `7d632cc`, test `d6496f8`): the `master` fallback was justified by
+"nothing writes `.integration_branch`, and init.sh falls back to pushing `master`", which describes the
+key-absent case only. A project that has named its trunk is checked on that trunk, so neither fallback stands
+for it. The first build kept `master` for a keyed project too, which let a `develop` project pass on a
+`master`-only remote while failing on a `main`-only one. The backstop's `[OK]` and `[FAIL]` lines and
+`verify_init`'s now name the branch. `tests/test-bl339-bl334-protection.sh` B1-B8 and B5m, mutants M1-M10 and
+M39-M41.
 
 **Residuals.**
 - `scripts/check-gate.sh --preflight` and `--repair` (and init.sh's own protection call) still check `main`, then
   `master`. The backstop's failure lines name both commands as the remedy, so on a project keyed `develop` they
   report on `main`, not the branch that failed. Not in the decision's three places; the builders guide says so.
-- With a key, the push check accepts `master` but not `main`: a project keyed `develop` whose remote holds only
-  `master` passes, and one whose remote holds only `main` fails. That follows the decision as written (keep the
-  `master` fallback); the alternative is to apply the fallback only when the key is absent.
+- A project that sets `.integration_branch` after init has pushed `main` (or `master`) fails the push check until
+  the keyed branch is on the remote: init.sh does not read the key, and the check no longer falls back once the
+  key is set.
 - The github driver's force-push failure text still says "main branch allows force-push" whatever branch it
   checked. The backstop and `verify_init` discard driver stderr, so neither shows it; `--preflight` on a
   `master` project does.
