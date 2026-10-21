@@ -1353,7 +1353,9 @@ What the refresh does:
 CDF's `--backfill-only` (above) refreshes the *Development Guardrails* assets. A
 separate concern is the **solo-orchestrator** side of your project: the vendored
 gate scripts (`pre-commit-gate.sh`, `check-phase-gate.sh`, …), the helper libs,
-your git hooks, and the framework reference docs. Those are copied in at project
+your git hooks, the framework reference docs, and the tool matrix
+(`templates/tool-matrix/*.json`, the version floors and install commands
+`check-versions.sh` and the phase checks read). Those are copied in at project
 creation and, at your current tier, only refresh as a side effect of a *tier
 change*. `scripts/upgrade-project.sh --sync-framework` is the same-tier refresh —
 it brings a month-old project up to current framework behaviour without changing
@@ -1396,6 +1398,10 @@ command yourself:
   anything you added outside it is preserved. A pre-`--sync-framework` hook with
   no marker block is treated as entirely yours: it is never overwritten; a
   `<hook>.new` sidecar is written for you to diff and adopt.
+- **Tool-matrix files missing from your project.** A file under
+  `templates/tool-matrix/` that the framework ships and your project lacks is
+  copied in. Nothing of yours is replaced by this; a file you *have* is handled
+  as below.
 - It also runs the manifest/host **backfills** and the **CDF asset refresh**, and
   stamps `.claude/manifest.json`'s `soloFrameworkCommit` to the framework commit
   you synced from (distinct from CDF's `frameworkCommit`).
@@ -1412,6 +1418,16 @@ command yourself:
   Your customised `CLAUDE.md` is safe, under every flag below. Nothing is written
   *beside* them either: no `.new`, no `.bak`, no template copy — a sync leaves no
   new `CLAUDE.md*` / `PROJECT_INTAKE.md*` file of any kind on disk.
+- **Tool-matrix files** (`templates/tool-matrix/*.json`) that differ from the
+  framework's get exactly the reference docs' treatment: a drift notice with a
+  capped diff, then skip / sidecar / overwrite. The sync cannot tell an old copy
+  of the framework's file from one you edited (you may have added a tool), so it
+  never replaces one on its own. Until you apply it, `check-versions.sh` and the
+  phase checks keep enforcing **your copy's** floors — when the framework raises a
+  floor (gitleaks went from 8.18.0 to 8.19.0), that is the line to act on. A
+  project with no `templates/tool-matrix/` at all — an adopted one — is left
+  without one: `check-versions.sh` already reads the framework clone's own copy
+  there, which is always current.
 
 #### Applying doc updates without a prompt: `--apply-doc-updates`
 
@@ -1434,7 +1450,8 @@ bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
 ```
 
 - `--apply-doc-updates <skip|sidecar|overwrite>` — what a **non-interactive** run
-  does with a drifted `docs/reference/*.md`. An unknown value is a hard usage
+  does with a drifted `docs/reference/*.md` or `templates/tool-matrix/*.json`
+  file. An unknown value is a hard usage
   error. Interactive runs ignore it and ask you per doc, as before.
 - `--confirm-doc-overwrite` — the separate consent for the one destructive
   action. `--apply-doc-updates overwrite` **without** it is refused per doc
@@ -1457,7 +1474,8 @@ bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
   with it, hooks need `--install-hooks` and doc applies need `--apply-doc-updates`
   — no prompt is shown, and nothing is auto-answered `yes`.
 - Both flags are valid **only** with `--sync-framework`, and they apply **only**
-  to the seven verbatim `docs/reference/*.md` files. `CLAUDE.md` and
+  to the seven verbatim `docs/reference/*.md` files and the
+  `templates/tool-matrix/*.json` files. `CLAUDE.md` and
   `PROJECT_INTAKE.md` stay notice-only no matter what you pass — including
   `--apply-doc-updates sidecar`, which writes nothing next to them.
 

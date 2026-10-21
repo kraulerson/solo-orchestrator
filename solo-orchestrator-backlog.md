@@ -12188,7 +12188,9 @@ to do":**
    human-facing surface. A distinct BUCKET in `scripts/resolve-tools.sh`'s JSON
    is a schema change with many consumers and was not attempted.
 3. **`templates/tool-matrix/*.json` is in no sync set** — see below. Recorded,
-   not fixed; the ordering is safe and the entry says why.
+   not fixed; the ordering is safe and the entry says why. **Since `## BL-333:`
+   (fix `e49d1d7`) it is:** the sync copies a missing matrix file and reports a
+   drifted one, applying it when the run declares `--apply-doc-updates`.
 
 **What the five review rounds were actually evidence of.** The verdicts ran
 `block` → `block` → `minor_concerns` → `block` → `block` → `approve`, and **four
@@ -12457,6 +12459,9 @@ and **the review blocked it.** Everything below is that round.
   probe — cannot occur, because the rows only ever arrive via `init.sh`, which
   copies both. The consequence is that an existing project keeps the old
   declaration behaviour until it is re-initialised, not that it breaks.
+  *(`## BL-333:` added the matrix to the sync. The ordering still holds: the
+  sync refreshes the scripts, the probe included, before it touches a matrix
+  file in the same run.)*
 - **Five rows now leave `check-versions.sh` entirely.** The rows with genuinely
   no version dropped `version_command`, and `CHECKABLE_TOOLS` filters on a
   non-empty one — so `Android Studio`, both Apple Developer Program rows, the
@@ -23760,6 +23765,7 @@ Group E and `tests/test-brownfield-wp10a-tool-resolution.sh` X5 now name the new
   never writes (it writes `install_cmd`), so its "Install now?" runs nothing. Same family, own defect.
 - Existing scaffolded projects keep their own copy of the matrix: `--sync-framework` copies the shipped
   scripts, not `templates/tool-matrix/`, and `fix_tool_matrix` replaces only a missing or invalid one.
+  *(Closed by `## BL-333:`, fix `e49d1d7`: the sync now reports a drifted matrix and applies it when declared.)*
 - Superpowers has no `linux_dnf` key, so a dnf-only host gets the manual text. Neither the row nor the
   fixer adds the official marketplace first, which the docs say a machine that has never opened an
   interactive session needs.
@@ -25642,7 +25648,7 @@ file cannot be read.
 **Logged:** 2026-10-08 (issue #469, filed 2026-09-30; also a residual on `## BL-235:`)
 **Category:** Bug (correctness)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-10-21 (fix `e49d1d7`)
 
 **What.** init.sh copies the tool matrix into every project, and `scripts/check-versions.sh` reads the project's
 copy first. `--sync-framework` refreshes scripts, hooks and the verbatim reference documents but nothing under
@@ -25651,6 +25657,62 @@ copy first. `--sync-framework` refreshes scripts, hooks and the verbatim referen
 
 **Direction.** Add the matrix to the sync's shipped set as a verbatim copy with the same drift report the reference
 documents get.
+
+**Reproduced** on `539eac4` with a project whose `common.json` is the file as it stood before `7578fb9`
+(`git show 7578fb9^:templates/tool-matrix/common.json`): `--sync-framework` exits 0, names no matrix, leaves
+`min_version` at 8.18.0, and `check-versions.sh` with a stub gitleaks 8.18.5 prints `[OK] gitleaks: 8.18.5 (min:
+8.18.0)`.
+
+**Fix.**
+- **The set is derived, not listed.** `soif_parse_shipped_tool_matrix` (`scripts/lib/scaffold-shipped-set.sh`,
+  `# BL-333-MATRIX-PARSER`) reads init.sh's own `cp "$SCRIPT_DIR/templates/tool-matrix/"*.json` line
+  (`# BL-333-MATRIX-SHIP`) and expands its glob against the framework. `P2` of the suite runs init.sh's two matrix
+  lines in a scratch directory and asserts they land exactly the parser's set, so init's copy and the sync's set
+  cannot drift apart unnoticed.
+- **The reference documents' treatment, through their own processor.** Measured first on the doc path, then
+  reproduced on the matrix: a bare non-interactive run prints the drift and a capped diff and writes nothing
+  ("notice only"); `--apply-doc-updates sidecar` writes `<file>.new`; `overwrite` needs `--confirm-doc-overwrite`
+  and keeps a dated `.bak` of the project's bytes; an interactive run asks per file (default skip, overwrite
+  default N); `--dry-run` writes nothing. `_bl333_sync_tool_matrix` hands every drifted matrix file to
+  `_bl099_process_doc` (`# BL-333-MATRIX-DRIFT`), so it is that code, not a copy of it.
+- **The choice on a locally edited matrix: report it and keep theirs unless the run declares otherwise.** That is
+  the precedent, and the precedent does not silently discard anything (the overwrite needs two flags and keeps a
+  `.bak`). The sync cannot tell an old upstream copy from an edited one — `.claude/manifest.json`'s currency
+  inventory carries no matrix hashes — so both get the same notice, plus one line saying `check-versions.sh` and
+  the phase gate keep reading the project's floors until it is applied (`# BL-333-MATRIX-KEPT-NOTE`). The
+  consequence, stated rather than implied: **a bare unattended sync still leaves an old floor in force**; it now
+  says so, with the command that applies it.
+- **Two departures from the doc precedent, both deliberate.** A file MISSING from a vendored matrix is copied
+  (the doc path skips a missing doc): there is nothing of the project's to lose, and an absent file is an absent
+  floor. A project with NO `templates/tool-matrix/` gets none (`# BL-333-MATRIX-VENDORED`): that is an adopted
+  project, and `check-versions.sh` there already falls back to the framework clone's own copy through
+  `.claude/orchestrator-source.json` (measured: `(min: 9.0.0) — BELOW MINIMUM` against the fixture framework's
+  floor); creating a copy would freeze it.
+- **The list is read on fd 3** (`# BL-333-MATRIX-OWN-FD`). The first cut fed it on stdin, and an interactive apply
+  prompts inside the loop: measured with the tty seam forced, `prompt_choice` read the next FILE NAME as the
+  operator's answer (`Invalid choice` per remaining file, then EOF, skip), and the files after the first drifted
+  one were never visited.
+- A copy that does not land is a `[FAIL]` and a non-zero exit (`# BL-333-MATRIX-WRITE-STATUS`, the same
+  `_bl099_write_ok`); an init.sh with no matrix line is a warning, not a silent exit under `set -e`
+  (`# BL-333-MATRIX-EMPTY-SET`).
+
+**Adoption.** Adoption does not install the matrix (`docs/designs/2026-08-23-brownfield-adoption-v2.md` §8.7a row
+7, "undispositioned"), and for THIS defect it needs no treatment: its `check-versions.sh` reads the framework's
+live copy. The row itself stays open there: `check-phase-gate.sh`'s tool block and `verify-install.sh`'s resolver
+row name `templates/tool-matrix` in the project and get nothing on an adoptee.
+
+**Tests.** `tests/test-bl333-sync-tool-matrix.sh`, 12 cases and 11 mutants, 23 passed / 0 failed; 0 / 23 against
+`539eac4`. It drives the real `upgrade-project.sh` against a framework mirror whose matrix is one gitleaks row, and
+reads the floor back out of `check-versions.sh`. Unpinned (`rest`).
+
+**Residuals, not fixed.**
+1. **`docs/reference/messaging-standard.md` is shipped and never drift-checked.** `soif_parse_shipped_reference_docs`
+   returns eight documents; `_bl099_doc_drift` loops over a hand-kept list of seven. Measured: a project with a
+   stale copy of it and of `user-guide.md` gets `user-guide.md: differs from framework` and no line naming
+   `messaging-standard` at all. The fix is the same as this entry's — loop over the parser.
+2. **A bare unattended sync still leaves an old floor in force** (above). Applying a raised floor automatically
+   needs a baseline that tells an untouched old copy from an edited one — the matrix's hashes in the currency
+   inventory, or a match against the framework's own history of the file — which is a design choice, not taken here.
 
 ## BL-334: the Phase 1 → Phase 2 protection backstop and `--verify-init` check `main`, not the project's integration branch
 
