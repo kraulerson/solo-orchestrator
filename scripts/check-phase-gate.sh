@@ -2360,15 +2360,20 @@ if [ "$current_phase" -ge 2 ]; then
     fi
 
     bl084_remote_verified=false  # BL-084-PUSH-VERIFY
-    # BL-334: the integration branch, then `master`, which init.sh falls back to
-    # pushing when `main` fails; with no key that is `main master`, as before.
-    # A key that is not a branch name is looked for nowhere, and the arms below
+    # BL-334: with no .integration_branch, `main` or `master`, as before: nothing
+    # writes the key, and init.sh falls back to pushing `master` when `main`
+    # fails. With the key set, that branch and no other: the project has named
+    # its trunk, so neither fallback stands for it (supervisor, 2026-10-20). A
+    # key that is not a branch name is looked for nowhere, and the arms below
     # decide as for an unpushed remote: a non-blocking WARN, no second issue.
+    # `_bl084_brs` is split on purpose: check-ref-format admits no space or glob.
     bl084_ib=""
-    if ! bl084_ib=$(soif_integration_branch); then   # BL-334-PUSH-BRANCH
+    _bl084_brs="main master"   # BL-334-PUSH-KEYLESS
+    if ! bl084_ib=$(soif_integration_branch_key); then   # BL-334-PUSH-BRANCH
       echo -e "${YELLOW}[WARN]${NC} Phase 1→2 push gate: .integration_branch in .claude/manifest.json is not a branch name (git check-ref-format), so no remote branch was looked for (BL-334)."
     elif git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git remote get-url origin >/dev/null 2>&1; then
-      for _bl084_br in "$bl084_ib" master; do
+      [ -z "$bl084_ib" ] || _bl084_brs="$bl084_ib"   # BL-334-PUSH-KEYED
+      for _bl084_br in $_bl084_brs; do
         if git ls-remote --heads origin "$_bl084_br" 2>/dev/null | grep -q .; then
           bl084_remote_verified=true
           break

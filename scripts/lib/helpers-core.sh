@@ -1062,21 +1062,29 @@ soif_read_deployment() { soif_read_phase_state_key "$1" "deployment" "${2:-}"; }
 soif_read_poc_mode()   { soif_read_phase_state_key "$1" "poc_mode" "${2:-}"; }
 # BL-095-STATE-READERS-END
 
-# soif_integration_branch — the branch the Phase 1→2 protection backstop, the
-# push check (`# BL-084-PUSH-VERIFY`) and `--verify-init` check (`## BL-334:`):
-# `.integration_branch` from .claude/manifest.json, or `main` when the key is
-# absent or empty, so a project that never set it is checked exactly as before.
-# It is the read `_tdd_triggers` in scripts/pre-commit-gate.sh makes, for the
-# same reason: an explicit key, nothing inferred. Prints the branch and returns
-# 0; prints nothing and returns 1 when the key is not a branch name, because a
-# glob there (`dev*`) would let `git ls-remote --heads` match any branch.
-soif_integration_branch() {
+# soif_integration_branch_key — `.integration_branch` from .claude/manifest.json,
+# empty when the key is absent or empty (`## BL-334:`). It is the read
+# `_tdd_triggers` in scripts/pre-commit-gate.sh makes, for the same reason: an
+# explicit key, nothing inferred. Returns 1, printing nothing, when the key is
+# not a branch name, because a glob there (`dev*`) would let
+# `git ls-remote --heads` match any branch. The push check (`# BL-084-PUSH-VERIFY`)
+# reads this one, since it treats an absent key differently from `main`.
+soif_integration_branch_key() {
   local ib=""
   if [ -f .claude/manifest.json ] && command -v jq >/dev/null 2>&1; then
     ib=$(jq -r '.integration_branch // ""' .claude/manifest.json 2>/dev/null || echo "")   # BL-334-READ
   fi
+  [ -z "$ib" ] || git check-ref-format "refs/heads/$ib" 2>/dev/null || return 1   # BL-334-REFNAME
+  printf '%s\n' "$ib"
+}
+
+# soif_integration_branch — the branch the Phase 1→2 protection backstop and
+# `--verify-init` check: the key above, or `main` when it is absent, so a project
+# that never set it is checked exactly as before. Returns 1 as the key's reader does.
+soif_integration_branch() {
+  local ib=""
+  ib=$(soif_integration_branch_key) || return 1
   [ -n "$ib" ] || ib="main"   # BL-334-DEFAULT
-  git check-ref-format "refs/heads/$ib" 2>/dev/null || return 1   # BL-334-REFNAME
   printf '%s\n' "$ib"
 }
 
