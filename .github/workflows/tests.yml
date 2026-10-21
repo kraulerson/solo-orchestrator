@@ -630,6 +630,7 @@ jobs:
             tests/test-bl209-hooksdir-resolution.sh
             tests/test-bl275-selfapproval-remedy.sh
             tests/test-bl274-single-authority-attestation.sh
+            tests/test-bl339-bl334-protection.sh
             tests/test-bl287-reconfigure-ci-host.sh
             tests/test-bl288-scout-shallow-history-claim.sh
             tests/test-bl308-gitleaks-vendored-clean.sh
