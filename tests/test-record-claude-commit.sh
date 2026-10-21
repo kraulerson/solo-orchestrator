@@ -23,20 +23,32 @@
 #     (its `rev-parse --verify` is the existence check: empty, nothing written)
 #   the classifier (_is_git_commit) dropped     -> T6, T7 RED
 # The commits the host does not name (`-q`, no summary line), proved from
-# HEAD's reflog instead (T16-T25):
-#   # BL-324-REFLOG-NOFILE    drop the check    -> T21 RED
-#   # BL-324-REFLOG-INLINE    drop the check    -> T22 RED
-#   # BL-324-REFLOG-WINDOW    drop the check    -> T18 RED
-#   # BL-324-REFLOG-ACTION    any action counts -> T20 RED
-#   # BL-324-REFLOG-SUBJECT   drop the check    -> T19 RED
-#   # BL-324-LEDGER-ONCE      drop the check    -> T24 RED
-# Review of ab785e26 (T26-T31, T12 sharpened):
+# HEAD's reflog instead (T16-T25, T26-T31 from the review of ab785e26, T32-T52
+# from the review of 829928a8). A reflog subject counts only when it EQUALS the
+# first line of a message a `git commit` invocation in the command supplies
+# (-m / --message, or a `-F -` heredoc), as the awk program _RC_AWK reads them.
 #   # BL-324-EVENT            drop the check    -> T12 RED
-#   # BL-324-WINDOW-SECONDS   30 -> 86400, 31536000 -> T28 RED
-#   # BL-324-REFLOG-SUBJECT   left delimiter dropped -> T27; right dropped -> T26;
-#                             subject cut to 3 chars / first word -> T16 and more
-#   # BL-324-REFLOG-DRYRUN    drop the check    -> T30 RED
+#   # BL-324-REFLOG-WINDOW    drop the check    -> T18, T28 RED
+#   # BL-324-WINDOW-SECONDS   30 -> 100, 86400, 31536000 -> T42 (and T28) RED
+#   # BL-324-REFLOG-ACTION    any action counts -> T20 RED
+#   # BL-324-REFLOG-SUBJECT   equality -> substring / stand-alone substring
+#                                                -> T32-T37 RED
+#   # BL-324-LEDGER-ONCE      drop the check    -> T24 RED
 #   # BL-324-NO-SHOW-SIGNATURE  drop the flag   -> T31 RED (needs ssh-keygen)
+#   In _RC_AWK:
+#   # BL-324-AWK-DRYRUN       drop              -> T30 RED
+#   # BL-324-AWK-STDIN        drop              -> T17 RED
+#   # BL-324-AWK-HEREDOC      bodies to the first heredoc's command -> T41 RED
+#   # BL-324-AWK-HEREDOC      unquoted $ body taken -> T48 RED
+#   # BL-324-AWK-CATHEREDOC   drop the idiom    -> T43 RED
+#   # BL-324-AWK-DYNMSG       drop              -> T44 RED
+#   # BL-324-AWK-DYNAMIC      drop              -> T52 RED
+#   # BL-324-AWK-COMMENT      drop              -> T45 RED
+#   # BL-324-AWK-CLUSTER      first letter only -> T46 RED
+#   # BL-324-AWK-TABS         drop              -> T47 RED
+#   # BL-324-AWK-LONGEQ       drop              -> T40 RED
+#   # BL-324-AWK-SQUEEZE      drop              -> T49 RED
+#   # BL-324-AWK-PREFIX       drop              -> T50, T51 RED
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -587,6 +599,114 @@ if command -v ssh-keygen >/dev/null 2>&1; then
 else
   echo "  [SKIP] T31 — ssh-keygen not installed"
 fi
+
+# ── review of 829928a8: only the messages the commit itself supplies ────────
+# agent_shape <id> <user-subject> <command> — the user commits <subject> in the
+# window; the agent's command copies that word somewhere that is not a commit
+# message and makes its own -q commit, which must be the only row.
+agent_shape() {
+  local id="$1" usr="$2" cmd="$3" ag="" out=""
+  setup
+  user_commit "$usr"
+  cd "$TMP"
+  echo "$id" > "s-$id.txt" && git add "s-$id.txt"
+  out=$(eval "$cmd" 2>&1); ag=$(git rev-parse HEAD)
+  env_bash "$cmd" "$out" | run_hook || true
+  if [ "$(git log -1 --format=%s)" != "$usr" ] && [ "$(shas)" = "$ag " ]; then
+    pass "$id"
+  else
+    fail_ "$id" "want only the agent's '$ag ', got '$(shas)' (HEAD subject '$(git log -1 --format=%s)')"
+  fi
+  cd "$REPO_ROOT"; teardown
+}
+NL='
+'
+echo "T32: a user's 'wip' echoed by the agent's command is not taken; the agent's -q commit is"
+agent_shape T32 wip 'echo "wip"; git commit -q -m "chore: x"'
+echo "T33: a user's 'fix' as a grep pattern is not taken"
+agent_shape T33 fix 'grep -q "fix" b.txt; git commit -q -m "chore: y"'
+echo "T34: a user's 'docs' as a git add path is not taken"
+agent_shape T34 docs "mkdir -p docs && echo d > docs/d.txt && git add \"docs\"; git commit -q -m \"chore: z\""
+echo "T35: a user's 'tmp' as a touch argument is not taken"
+agent_shape T35 tmp "touch 'tmp'; git commit -q -m \"chore: t\""
+echo "T36: a user's 'x' as a --format value is not taken"
+agent_shape T36 x "git log -1 --format='x' >/dev/null; git commit -q -m \"chore: f\""
+echo "T37: a user's 'wip' as a line of an unrelated heredoc is not taken"
+agent_shape T37 wip "cat > n.txt <<'END'${NL}wip${NL}END${NL}git commit -q -m \"chore: h\""
+
+# rec_case <id> <command> — the agent's command makes one -q commit; it must be
+# recorded by its SHA.
+rec_case() {
+  local id="$1" cmd="$2" out="" new=""
+  setup
+  cd "$TMP"
+  echo "$id" > "r-$id.txt" && git add "r-$id.txt"
+  out=$(eval "$cmd" 2>&1); new=$(git rev-parse HEAD)
+  env_bash "$cmd" "$out" | run_hook || true
+  if [ "$new" != "$SHA" ] && [ "$(shas)" = "$new " ]; then pass "$id"; else fail_ "$id" "want '$new ', got '$(shas)' (out: $out)"; fi
+  cd "$REPO_ROOT"; teardown
+}
+echo "T38: a multi-line -m is matched by its first line"
+rec_case T38 "git commit -q -m 'feat: line one${NL}line two'"
+echo "T39: -m=X gives git the message '=X', and that is what is matched"
+rec_case T39 "git commit -q -m='feat: eq'"
+echo "T40: --message=X is a message"
+rec_case T40 "git commit -q --message='feat: long eq'"
+
+# T41: two heredocs on one line; the first (cat's) carries the user's 'wip',
+# the second is the agent's -F - message. Only the agent's commit is recorded.
+echo "T41: a heredoc is matched only to its own command"
+agent_shape T41 wip "cat > a.txt <<'A' && git commit -q -F - <<'MSG'${NL}wip${NL}A${NL}feat: second heredoc${NL}MSG"
+
+# T42: an entry 45 seconds old with the agent's exact message; the agent's
+# commit fails. Outside 30 s: not recorded (a 100 s window would take it).
+echo "T42: a matching entry 45 seconds old is not recorded"
+setup
+user_commit 'feat: forty-five seconds ago' 45
+cd "$TMP"
+CMDF="git commit -q -m 'feat: forty-five seconds ago'; true"
+OUT=$(eval "$CMDF" 2>&1)
+env_bash "$CMDF" "$OUT" | run_hook || true
+if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then pass "T42"; else fail_ "T42" "a 45 s old entry was recorded: $(shas)"; fi
+cd "$REPO_ROOT"; teardown
+
+echo "T43: -m \"\$(cat <<'EOF' ... EOF)\" is matched by the heredoc's first line"
+rec_case T43 "git commit -q -m \"\$(cat <<'END'${NL}feat: idiom${NL}${NL}A body (with parens) and \"quotes\".${NL}END${NL})\""
+
+# no_case <id> <user-subject> <command> — the agent's command fails to commit
+# (nothing staged); nothing may be recorded although the user's commit is in
+# the window.
+no_case() {
+  local id="$1" usr="$2" cmd="$3" out=""
+  setup
+  user_commit "$usr"
+  cd "$TMP"
+  out=$(eval "$cmd" 2>&1)
+  env_bash "$cmd" "$out" | run_hook || true
+  if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then pass "$id"; else fail_ "$id" "the user's commit was recorded: $(shas)"; fi
+  cd "$REPO_ROOT"; teardown
+}
+echo "T44: a message with an expansion in it (-m \"wip\$X\") is not read as 'wip'"
+no_case T44 wip 'X=""; git commit -q -m "wip$X"; true'
+
+echo "T45: a comment with an apostrophe before the commit does not hide its message"
+rec_case T45 "# don't skip this${NL}git commit -q -m 'feat: after a comment'"
+echo "T46: -qm (a cluster of short options) carries the message"
+rec_case T46 "git commit -qm 'feat: cluster'"
+echo "T47: a <<- heredoc has its tabs removed"
+rec_case T47 "git commit -q -F - <<-MSG${NL}	feat: tabbed${NL}	MSG"
+
+echo "T48: an unquoted heredoc that expands \$X is not read literally"
+no_case T48 'feat: $X' "X=''; git commit -q -F - <<MSG${NL}feat: \$X${NL}MSG${NL}true"
+
+echo "T49: runs of spaces are squeezed, as git's reflog does"
+rec_case T49 "git commit -q -m 'feat:  two  spaces'"
+echo "T50: a leading NAME=value assignment does not hide the commit"
+rec_case T50 "GIT_AUTHOR_NAME=bl324 git commit -q -m 'feat: env'"
+echo "T51: a leading 'if' does not hide the commit"
+rec_case T51 "if git commit -q -m 'feat: in an if'; then :; fi"
+echo "T52: -m \"feat: \$X\" is an expansion, not the literal text"
+no_case T52 'feat: $X' 'X=""; git commit -q -m "feat: $X"; true'
 
 # T13: end to end, through the hook commands a project's settings.json
 # registers (soif_register_hook_roster, which init.sh and adoption share): the
