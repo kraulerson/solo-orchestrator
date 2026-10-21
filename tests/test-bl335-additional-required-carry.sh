@@ -46,6 +46,9 @@
 #   T3  a list whose closing `]` lies past the 64 KB window: the note says it
 #       was cut off and must be added again — never silence.
 #   F1  a FIFO at the ledger path: the lib-less start does not block on it.
+#   T4  a string value ENDING in `"additional_required` (an error message)
+#       sits before the real key: the key is found as a key, and the note
+#       names the list (stray `}` with jq, and lib-less).
 #   K1  the scan is cancelled mid-run (lib-less): the ledger was already
 #       removed, so the gate denies. K2: the same on the stray-`}` ledger with
 #       jq: it was already reset.
@@ -353,6 +356,16 @@ c_T3() {
   DETAIL="rc=$HOOK_RC notes=$(notes) says_cut=$cut note=[$(note | cut -c1-200)] (want 0 1 yes)"
   [ "$HOOK_RC" = 0 ] && [ "$(notes)" = 1 ] && [ "$cut" = yes ]
 }
+c_T4() {
+  mkp '{}'
+  printf '%s\n' '{"last_mcp_error": "server said: unknown field \"additional_required", "mcp_requirements": {"qdrant_required": false, "additional_required": ["mcp__a", "mcp__b"]}, "calls": []}}' > "$T/t4.json"
+  cp "$T/t4.json" "$P/.claude/tool-usage.json"; run_hook "$1" startup
+  local n_jq=no; note | grep -qF '("mcp__a", "mcp__b"), and this session start could not carry them over' && n_jq=yes
+  cp "$T/t4.json" "$P/.claude/tool-usage.json"; run_hook "$(nolib_copy "$1")" startup
+  local n_nolib=no; note | grep -qF '("mcp__a", "mcp__b"), and this session start could not carry them over' && n_nolib=yes
+  DETAIL="named_stray_brace=$n_jq named_nolib=$n_nolib (want yes yes)"
+  [ "$n_jq" = yes ] && [ "$n_nolib" = yes ]
+}
 c_F1() {
   mkp '{}'; rm -f "$P/.claude/tool-usage.json"; mkfifo "$P/.claude/tool-usage.json"
   run_bounded "$(nolib_copy "$1")" 5
@@ -433,6 +446,7 @@ check B1  "the list FIRST in a 570 KB broken ledger is named, and the scan is fe
 check T1  "a 70 KB last_mcp_error after the list: carried when valid, named when broken (stray } with jq, and lib-less)"
 check T3  "a list whose ] lies past the window: the note says it was cut off and must be added again"
 check F1  "a FIFO at the ledger path does not block the lib-less start"
+check T4  "a string ending in \"additional_required before the real key: the key is matched as a key and the note names the list"
 check K1  "a scan cancelled mid-run (lib-less) leaves the ledger already removed: the gate denies"
 check K2  "a scan cancelled mid-run (stray }, with jq) leaves the ledger already reset: the gate denies"
 
@@ -501,6 +515,8 @@ mk_mut '# BL-335-SNAP-REGULAR' '  :   # BL-335-SNAP-REGULAR' 1
 killed_by "MU21: no regular-file check before reading the ledger (# BL-335-SNAP-REGULAR)" F1
 mk_mut '# BL-335-CUT-NOTE' '      ADD_NOTE=""   # BL-335-CUT-NOTE' 1
 killed_by "MU22: a list cut off by the window is dropped in silence (# BL-335-CUT-NOTE)" T3
+mk_sub '# BL-335-SNAP-KEY' "grep -boE -m1 '\"additional_required\"[[:space:]]*:'" "grep -boF -m1 '\"additional_required\"'"
+killed_by "MU23: the key found as bare text, not as a key (# BL-335-SNAP-KEY)" T4
 mk_mut '# BL-335-NOJQ' '  _add_snap "$TOOL_USAGE" "$ADD_WHY"; _add_scan   # BL-335-NOJQ' 1
 killed_by "MU12: lib-less, the scan runs BEFORE the ledger is removed" K1
 mk_mut '# BL-335-UNREADABLE' '      _add_snap "$TOOL_USAGE" "the file is not valid JSON, so it was rewritten"; _add_scan   # BL-335-UNREADABLE' 1
