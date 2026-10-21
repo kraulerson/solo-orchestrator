@@ -25284,7 +25284,7 @@ leaves no record and cannot help `check-gate.sh --repair`.
 **Logged:** 2026-10-08 (issue #483, filed 2026-09-30; found independently while building `## BL-322:` S1)
 **Category:** Bug (correctness)
 **Severity:** Medium — every agent commit not covered by a Guardrails approval is recorded as a user-terminal commit
-**Status:** Closed — shipped 2026-10-20 (fixes `82c3536`, `3bcc995` and `d71be9d`; suites `232d942`, `2c14712` and `387b360`)
+**Status:** Closed — shipped 2026-10-20 (fixes `82c3536`, `3bcc995`, `d71be9d` and `d5c076c`; suites `232d942`, `2c14712`, `387b360` and `e6279b1`)
 
 **What.** `scripts/hooks/record-claude-commit.sh` (`## BL-030:`'s recorder) reads `.tool_response.exit_code // 1`
 and exits before writing when the value is not 0. Claude Code's PostToolUse result for Bash has no `exit_code`
@@ -25320,21 +25320,17 @@ reads `tool_response.gitOperation` in its hook the same way.
 **A commit the host does not name (`3bcc995`, after review: the first fix left the `-q` commits flagged).** With no
 `gitOperation`, `_reflog_commits` proves the commits from HEAD's reflog: each `commit`, `commit (amend)` or
 `commit (initial)` entry (`# BL-324-REFLOG-ACTION`) written in the last 30 seconds (`# BL-324-REFLOG-WINDOW`) whose
-subject stands alone in the command's text (`# BL-324-REFLOG-SUBJECT`; `d71be9d`, below), when the command gives its
-message inline: `-m` / `--message`, or `-F -` with a heredoc (`# BL-324-REFLOG-INLINE`), never `-F <file>`
-(`# BL-324-REFLOG-NOFILE`). A SHA already in the ledger is not written again (`# BL-324-LEDGER-ONCE`). A failed commit
-writes no reflog entry. Measured, `git reflog` on git 2.54
+subject equals the first line of a message a `git commit` invocation in the command supplies (`# BL-324-REFLOG-SUBJECT`;
+the rule as of `d5c076c`, below; this first version took any copy of the subject in the command). A SHA already in
+the ledger is not written again (`# BL-324-LEDGER-ONCE`). A failed commit writes no reflog entry. Measured,
+`git reflog` on git 2.54
 (macOS) and 2.43 (ubuntu 24.04): `%gs` is `commit: <first line>`, `commit (amend): …`, `commit (initial): …`; `%gd`
 with `--date=unix` is `HEAD@{<seconds>}`; a linked worktree has its own HEAD reflog, so a project that is a worktree
 works and a commit in another worktree is not seen. The window: over the 173 transcript commits whose reflog entry
-survives, the result came 2.4 s after the entry at the median, 10.7 s at p95, within 30 s for 167. The subject test
-is not a parse of the shell words: `-m "$MSG"` and escaped subjects are refused. Re-measured by replaying the rule over the
-same transcripts (384 results by then) against each repository's reflog: 75 named by the host and 98 proved from
-the reflog are recorded; 17 commits are still flagged (13 `-F <file>`, 2 with no inline message, 2 whose subject is
-not literal or that ran past 30 s); 173 calls made no commit in the project's repository (text naming `git commit`,
-or a commit elsewhere), and the replay recorded none of them; 21 cannot be replayed (repository or worktree gone).
-The `-F -` heredoc form is taken although the review asked for no `-F`: it is 77 of the 98 and its message is in the
-command text; `-F <file>` stays refused.
+survives, the result came 2.4 s after the entry at the median, 10.7 s at p95, within 30 s for 167. Replayed over
+the same transcripts (384 results) against each repository's reflog, this first version recorded 75 named + 98
+proved and flagged 17. The `-F -` heredoc form is taken although the first review asked for no `-F`: its message is
+in the command text; `-F <file>` stays refused.
 
 **Review of `ab785e26` (BLOCK; fixed in `d71be9d`, cases in `387b360` and `d2b7b8b`).** Two claims were refuted. (1)
 "A failed commit leaves only older entries or ones with another subject" is false when someone else commits inside
@@ -25342,8 +25338,8 @@ the window: a user's `wip`, then the agent's failed `git commit -q -m 'chore: wi
 user's SHA. (2) The subject test was a substring of the whole command, so a user's `fix` matched `-m 'fix(bl-1): …'`,
 `.` matched any path, `notes` matched `docs/notes.md`, and a `--dry-run -m` call recorded too; short subjects nearly
 always matched. The window's value and the subject's width were unpinned (30 → 86400 s, or a 3-character or
-first-word subject, kept 26/0). Now: the subject must stand alone between a quote or newline on both sides
-(`# BL-324-REFLOG-SUBJECT`), a `--dry-run` is skipped (`# BL-324-REFLOG-DRYRUN`), only a PostToolUse envelope is read
+first-word subject, kept 26/0). That fix made the subject stand alone between a quote or newline on both sides and
+skipped a `--dry-run` with a whole-command regex (both superseded by `d5c076c`, below); only a PostToolUse envelope is read
 (`# BL-324-EVENT`; a PostToolUseFailure whose command named HEAD's subject wrote a row), the window carries
 `# BL-324-WINDOW-SECONDS`, and the reflog is read with `--no-show-signature` (`# BL-324-NO-SHOW-SIGNATURE`;
 log.showSignature=true put a `No signature` line first, which ended the read). What standing alone still cannot rule
@@ -25351,6 +25347,27 @@ out: a commit someone else made in the same 30 s whose subject is exactly the me
 supplied. The replay above, re-run with this rule: 75 named, 98 proved, 17 flagged, 173 no commit, 21 unreplayable,
 0 calls with a recorded SHA the call did not make (the substring rule also scored 0 on this history; the refuted
 cases were built).
+
+**Review of `829928a8` (BLOCK; fixed in `d5c076c`, cases in `e6279b1`).** "An agent call whose own commit fails and
+whose message, standing alone, is exactly that commit's subject" was refuted: any quoted or whole-line copy of a
+user's subject anywhere in the command was enough, and the agent's own commit could succeed beside it, so both SHAs
+were recorded (`echo "wip"; git commit -q -m "chore: x"`, `grep -q "fix" b`, `git add "docs"`, `touch 'tmp'`,
+`--format='x'`, a heredoc line `wip`; bash 3.2 and 5.2). Now `_RC_AWK` (awk, in the hook; identical output measured on
+macOS awk, mawk 1.3.4 and gawk) reads the command as shell words (single and double quotes, backslashes, comments,
+heredocs; not `$'…'`) and prints, for each `git commit` invocation, the first line of the message that invocation
+supplies: its `-m` / `--message` values (`-mX`, `-qm X`, and `-m=X`, which git reads as the message `=X`, measured;
+`--message=X` and `--message X`), or the body of the heredoc on its own `-F -` / `--file=-` (`# BL-324-AWK-STDIN`,
+`# BL-324-AWK-HEREDOC`), including `-m "$(cat <<'EOF' … EOF)"` (`# BL-324-AWK-CATHEREDOC`). A message with an
+expansion (`$VAR`, `$(…)`, a backquote, an unquoted heredoc that expands) prints nothing (`# BL-324-AWK-DYNMSG`,
+`# BL-324-AWK-DYNAMIC`), and so does a `--dry-run` invocation (`# BL-324-AWK-DRYRUN`). The line is squeezed as git
+squeezes a reflog message (leading space dropped, runs of whitespace one space, trailing dropped;
+`# BL-324-AWK-SQUEEZE`), and a reflog subject must equal one of these lines. Nothing else in the command counts.
+What still cannot be told apart: a commit someone else makes in the same 30 s whose subject is exactly a message the
+agent's command supplied. Replay with this rule (384 results): 75 named + 107 proved = 182 recorded; 8 still flagged
+(read: messages from a file or a pipe, amends that reuse a message, and messages built by another program); 173 made
+no commit in the project's repository; 21 cannot be replayed; 0 calls recorded a SHA they did not make. The proved
+count rose from 98 because the old whole-command `-F` regex had refused commits whose `-F` belonged to another
+command.
 
 **Tracked or ignored: ignored (`# BL-324-LEDGER-IGNORE`).** Measured: nothing wrote an ignore rule for it (init's
 template, the BL-174 upgrade backfill and adoption's `.claude/.gitignore` named the baseline and the tool ledger
@@ -25375,29 +25392,42 @@ one. T16-T25 (26 cases; red on `173bc49a` at 20/6): `-m`, a heredoc, two commits
 linked worktree are recorded; a failed commit with an old matching entry (T18) or a recent entry of another subject
 (T19), a cherry-pick entry (T20), `-F <file>` (T21), no inline message (T22) and a repeat (T24) are not. Mutants
 (killer): NOT-INTERRUPTED (T10), EXIT-CODE (T3), NAMED-HEX (T14), NAMED-SHA back to `rev-parse HEAD` (T11b, T15),
-the classifier dropped (T6, T7), REFLOG-NOFILE (T21), REFLOG-INLINE (T22), REFLOG-WINDOW (T18, T28), REFLOG-ACTION
-(T20), REFLOG-SUBJECT dropped (T11 and eleven more), LEDGER-ONCE (T24). An empty alternative in the first `-F` regex
+the classifier dropped (T6, T7), the whole-command `-F <file>` and inline-message checks of that version (T21, T22),
+REFLOG-WINDOW (T18, T28), REFLOG-ACTION (T20), REFLOG-SUBJECT dropped (T11 and eleven more), LEDGER-ONCE (T24). An empty alternative in the first `-F` regex
 made BSD grep exit 2, which read as "no file" (fail open); measured, and the regex no longer has one. After the
 review (32 cases; red on `ab785e26` at 26/6): T26 `fix` vs `fix(x): y`, T27 `wip` vs `chore: wip` and
 `chore: wipe the cache`, T28 a matching entry 120 s old, T29 a heredoc that only mentions `git commit -m`, T30
 `--dry-run`, T31 a signed commit under log.showSignature=true (skipped without ssh-keygen), T12 now names HEAD's
 subject. Mutants: EVENT (T12), window 86400 and 31536000 (T28), left delimiter dropped (T27), right dropped (T26),
 substring (T26, T27, T29), 3-character or first-word subject as a substring (T26, T27, T29) or delimited (T16 and
-six more), DRYRUN (T30), no `--no-show-signature` (T31); all 23 killed on bash 3.2 (BSD grep) and 5.2 (GNU grep). `tests/test-bl322-s1-audit-loop.sh` adds the ledger to `RUNTIME_FILES`
+six more), DRYRUN (T30), no `--no-show-signature` (T31); all 23 killed on bash 3.2 (BSD grep) and 5.2 (GNU grep).
+After the second review (53 cases; red on `829928a8` at 41/12): T32-T37 the six shapes above, each with the agent's
+own -q commit recorded and the user's not; T38 a multi-line `-m` (first line); T39 `-m=`; T40 `--message=`; T41 two
+heredocs on one line; T42 a matching entry 45 s old; T43 the `$(cat <<EOF)` idiom; T44 `-m "wip$X"`; T45 a comment
+with an apostrophe; T46 `-qm`; T47 `<<-`; T48 an unquoted heredoc with `$X`; T49 doubled spaces; T50 a leading
+assignment; T51 a leading `if`; T52 `-m "feat: $X"`. 29 mutants, each killed (killer): NOT-INTERRUPTED (T10),
+EXIT-CODE (T3), NAMED-HEX (T14), NAMED-SHA (T11b, T15), classifier (T6, T7), EVENT (T12), REFLOG-WINDOW (T18, T28,
+T42), window 100 (T42), 86400 and 31536000 (T28, T42), REFLOG-ACTION (T20), LEDGER-ONCE (T24), no
+`--no-show-signature` (T31), REFLOG-SUBJECT any (28 cases), substring (T26, T27, T32-T37, T39, T41, T49), quoted
+substring (T32-T34 and 18 more), AWK-TABS (T47), AWK-CATHEREDOC (T43), AWK-DYNAMIC (T52), AWK-DYNMSG (T44),
+AWK-SQUEEZE (T49), AWK-PREFIX (T50, T51), AWK-DRYRUN (T30), AWK-LONGEQ (T40), AWK-CLUSTER first letter only (T46),
+AWK-STDIN (T17, T41, T47), AWK-COMMENT (T45), AWK-HEREDOC to the first command (T41) or taking an expanding body
+(T48). `tests/test-bl322-s1-audit-loop.sh` adds the ledger to `RUNTIME_FILES`
 (I1, A1, A2) with mutants M16 (adoption) and M17 (template), and M14 now names the new kept-theirs line;
 `tests/test-bl174-gitignore-backfill.sh` T1, T2 and T4 require the fourth backfill line (dropping it: T1, T2 red).
 
 **Residuals (not fixed).**
-- **Still flagged (all fail safe):** a commit whose message comes from `-F <file>` (any `-F <word>` in the command
-  refuses the reflog path), a variable or an editor; a subject that does not stand alone: an unquoted `-m word`, a
-  `<<-` heredoc's tab, leading spaces, `printf '…\n' | git commit -F -`, a double space or tab (git's reflog squeezes
-  them to one space, measured); one more than 30 s before the call ends, or dated back with `GIT_COMMITTER_DATE`;
+- **Still flagged (all fail safe):** a commit whose message comes from `-F <file>`, a pipe
+  (`printf '…' | git commit -F -`), `$'…'`, an expansion or an editor; a commit inside `bash -c`, `sh -c` or `eval`;
+  a message flag git accepts as an abbreviation (`--mess=…`); one more than 30 s before the call ends, or dated back
+  with `GIT_COMMITTER_DATE`;
   `git -C <dir> commit` and `git -c k=v commit`, which the classifier does not take even when the host names the
   commit (21 successful such calls in the transcripts, none host-named; the classifier is left as it is); a `-q`
   commit in another worktree or repository. A HEAD snapshot taken before the call (a PreToolUse hook on Bash, new in
   the roster for init, adoption and the `--sync-framework` gap of `## BL-353:`) would cover most of them; not built.
-- **A user's commit can be taken** when it lands in HEAD's reflog in the 30 s before an agent call whose own commit
-  fails and whose message, standing alone, is exactly that commit's subject. The replay found none.
+- **A user's commit can be taken** when it lands in HEAD's reflog in the 30 s before an agent call one of whose
+  `git commit` invocations supplies a message whose first line is exactly that commit's subject (the agent's commit
+  failed, or made the same subject). The replay found none.
 - **Two commits in one call:** with no name from the host, every provable one is recorded (T23); with a name, only
   the named one (the reflog is not read then); which one the host names is not measured.
 - **`session_id` in each row is `${CLAUDE_SESSION_ID:-unknown}`.** The envelope's own `session_id` is not read, and

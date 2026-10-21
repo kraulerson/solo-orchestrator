@@ -557,8 +557,8 @@ other ledger."*
 >
 > **Be precise about why, because "per-clone" is not the same as "untracked" (§5.1 lists the
 > ledger as tracked, and it was; since `## BL-324:` it is gitignored, which makes it per-clone by
-> construction, like the baseline).** `.claude/claude-commits.jsonl` is a committed file, but the
-> hook that writes it is a **PostToolUse** hook: it appends the SHA of a commit that has already
+> construction, like the baseline).** When this was written `.claude/claude-commits.jsonl` was a
+> committed file (it is gitignored since `## BL-324:`), but the hook that writes it is a **PostToolUse** hook: it appends the SHA of a commit that has already
 > been created, and it never stages the ledger (`>> "$LEDGER"`, no `git add`). A row therefore
 > **can never ride in its own commit**, and nothing makes anyone stage it afterwards — so in
 > practice each developer's working copy carries their own rows and the shared history carries
