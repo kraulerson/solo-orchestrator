@@ -104,26 +104,82 @@ if ( . "$SCRIPT_DIR/lib/ledger-write.sh" && command -v _lw_update && command -v 
   # shellcheck source=scripts/lib/ledger-write.sh
   . "$SCRIPT_DIR/lib/ledger-write.sh" && _lw_traps && LW_READY=1
 fi
+# `## BL-335:` _add_raw FILE — the text inside FILE's additional_required list,
+# whitespace collapsed, or nothing when the file names no non-empty list. It
+# reads text, not JSON, so it works where jq does not (absent, or the file is
+# not valid JSON). It is only ever PRINTED, so the operator can add the entries
+# again; a list it found this way is never carried, because text cut out of a
+# broken file is not known to be the list.
+_add_raw() {
+  local t="" r="" s=""
+  [ -f "$1" ] || return 0
+  t=$(cat "$1" 2>/dev/null) || return 0
+  case "$t" in *'"additional_required"'*) ;; *) return 0 ;; esac
+  r=${t#*'"additional_required"'}
+  r=${r%%]*}
+  s=${r//[[:space:]]/}
+  case "$s" in ':['*) ;; *) return 0 ;; esac
+  r=${r#*\[}
+  r=$(printf '%s' "$r" | tr -s '[:space:]' ' ')
+  r=${r# }; r=${r% }
+  if [ "${#r}" -gt 300 ]; then r="${r:0:300} ..."; fi
+  printf '%s' "$r"
+}
+# _add_lost_note FILE WHY — sets ADD_NOTE when FILE names a non-empty list that
+# this start cannot carry, and says why in one line.
+ADD_NOTE=""
+_add_lost_note() {
+  local raw=""
+  raw=$(_add_raw "$1")
+  [ -n "$raw" ] || return 0
+  ADD_NOTE="MCP REQUIREMENTS NOTE: $1 listed extra required MCP tools under mcp_requirements.additional_required ($raw), and this session start could not carry them over because $2. Add them to that list again."
+}
+
 if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
   SESSION_ID=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   mkdir -p .claude
 
+  # `## BL-335:` THE OPERATOR'S EXTRA MCP REQUIREMENTS SURVIVE EVERY REWRITE.
+  # mcp_requirements.additional_required is the list the MCP SERVER NOTICE below
+  # tells the Orchestrator to edit, and session-mcp-gate.sh enforces it
+  # (`# BL-233-ADDITIONAL-OUTCOME`). The startup heredoc and the jq-failure
+  # fallback used to write `[]`, so an entry lasted until the next fresh session.
+  # It is a REQUIREMENT, not a satisfaction: the startup still empties calls[]
+  # and leaves out the outcome flags (BL-236, below), so a carried entry blocks
+  # until its tool returns successfully in this session. Read once, here, for
+  # all three writes. Only non-empty strings are kept; what is dropped, or lost
+  # because the ledger is not valid JSON, is said in one line.
+  ADD_REQ='[]'; ADD_DROPPED=0
+  if [ -s "$TOOL_USAGE" ]; then
+    if ADD_READ=$(jq -rs '(if length != 1 then error("not one JSON value") else (.[0] | try .mcp_requirements.additional_required catch null) end) as $a | if $a == null then [[], 0] elif ($a | type) == "array" then [$a[] | select(type == "string" and length > 0)] as $k | [$k, ($a | length) - ($k | length)] else [[], 1] end | "\(.[1]) \(.[0] | tojson)"' "$TOOL_USAGE" 2>/dev/null); then   # BL-335-READ
+      ADD_DROPPED=${ADD_READ%% *}
+      ADD_REQ=${ADD_READ#* }
+      case "$ADD_DROPPED" in ''|*[!0-9]*) ADD_DROPPED=0 ;; esac
+      if [ "$ADD_DROPPED" -gt 0 ]; then
+        ADD_NOTE="MCP REQUIREMENTS NOTE: $ADD_DROPPED value(s) under mcp_requirements.additional_required in $TOOL_USAGE were not tool-name patterns and were dropped. It must be a list of non-empty strings, such as [\"mcp__sentry__\"]; the valid entries were kept."   # BL-335-DROP-NOTE
+      fi
+    else
+      _add_lost_note "$TOOL_USAGE" "the file is not valid JSON, so it was rewritten"   # BL-335-UNREADABLE
+    fi
+  fi
+
   if [ "$SESSION_SOURCE" != "startup" ] && [ -f "$TOOL_USAGE" ]; then
     # Merge path: preserve in-flight ledger state (calls, counters,
-    # flags, operator-added additional_required), refresh session_id
-    # so the boundary is visible to a successor, and re-derive the
-    # MCP requirements in case the user added or removed servers
-    # between sessions.
+    # flags), refresh session_id so the boundary is visible to a
+    # successor, re-derive the MCP requirements in case the user added
+    # or removed servers between sessions, and write back the
+    # operator's additional_required as read and checked above.
     if ! _lw_update \
         --arg sid "$SESSION_ID" \
         --argjson qreq "$QDRANT_CONFIGURED" \
         --argjson creq "$CONTEXT7_CONFIGURED" \
+        --argjson add "$ADD_REQ" \
         '. as $orig |
          $orig
          | .session_id = $sid
          | .mcp_requirements.qdrant_required = $qreq
          | .mcp_requirements.context7_required = $creq
-         | .mcp_requirements.additional_required = ($orig.mcp_requirements.additional_required // [])'; then
+         | .mcp_requirements.additional_required = $add'; then   # BL-335-MERGE
       # If jq fails (malformed prior file, etc.), fall through to a
       # fresh write so the gate is not left wedged.
       _lw_put << TUEOF
@@ -138,7 +194,7 @@ if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
   "mcp_requirements": {
     "qdrant_required": $QDRANT_CONFIGURED,
     "context7_required": $CONTEXT7_CONFIGURED,
-    "additional_required": []
+    "additional_required": $ADD_REQ
   }
 }
 TUEOF
@@ -169,7 +225,7 @@ TUEOF
   "mcp_requirements": {
     "qdrant_required": $QDRANT_CONFIGURED,
     "context7_required": $CONTEXT7_CONFIGURED,
-    "additional_required": []
+    "additional_required": $ADD_REQ
   }
 }
 TUEOF
@@ -188,7 +244,17 @@ TUEOF
     fi
   fi
 elif [ "$SESSION_SOURCE" = "startup" ]; then
+  # `## BL-335:` the removal takes the operator's additional_required with it,
+  # and nothing here can write it back, so it is named before it goes.
+  if [ "$LW_READY" = "1" ]; then ADD_WHY="jq is not installed, so the file was removed"; else ADD_WHY="the ledger writer cannot be loaded, so the file was removed"; fi
+  _add_lost_note "$TOOL_USAGE" "$ADD_WHY"   # BL-335-NOJQ
   rm -f .claude/tool-usage.json   # BL-314-NOLIB-RESET
+fi
+# `## BL-335:` one line, and only when something was dropped or lost — a later
+# start finds the list clean (or gone) and says nothing.
+if [ -n "$ADD_NOTE" ]; then
+  echo ""
+  echo "$ADD_NOTE"   # BL-335-NOTE
 fi
 # Without the lib, this session's MCP calls cannot be recorded either, and the
 # write above was skipped: say so, on every source, rather than pass in silence.
@@ -207,7 +273,7 @@ MCP SERVER NOTICE: The following MCP server(s) are configured but not recognized
 
 Ask the Orchestrator: "I see you have [$UNKNOWN_SERVERS] configured as MCP server(s). Would you like me to use them during this session? If so, what should I use them for?"
 
-If the Orchestrator wants a server used at session start (like Qdrant), they can add it to .claude/tool-usage.json under mcp_requirements.additional_required.
+If the Orchestrator wants a server used at session start (like Qdrant), they can add it to .claude/tool-usage.json under mcp_requirements.additional_required: a list of strings, each matched as a pattern against tool names (for example "mcp__sentry__"). Write and Edit are then blocked until a matching tool returns successfully in each session. The list carries over from one session to the next; the file is git-ignored, so it holds for this checkout only.
 EOF
 fi
 
