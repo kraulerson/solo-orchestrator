@@ -35,7 +35,8 @@
 # Nothing else in the command counts. A commit that failed writes no entry.
 # What that does NOT prove: a commit someone else made in the same window whose
 # subject is exactly a message the agent's command supplied (its own commit
-# failed, or made the same subject) is taken for the agent's.
+# failed, never ran — an uncalled function, `if false`, an unused `||` branch —
+# or made the same subject) is taken for the agent's.
 #
 # No-op conditions:
 #   - .claude/ doesn't exist (project not initialized)
