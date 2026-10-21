@@ -72,7 +72,10 @@
 #       --no-verify: the detector reads history and approvals.jsonl, not how a
 #       commit was made
 #   A2  an adoptee's own .claude/.gitignore is left exactly as it was, and the
-#       run names both lines to add
+#       run names the lines to add
+#   (`## BL-324:` added .claude/claude-commits.jsonl, the Claude-commit ledger,
+#   to the runtime files I1 and A1 check: it is written after the commit it
+#   names, so a tracked copy would leave the tree modified after every commit.)
 #   M   mutants: each rewrites ONE marked line (or deletes one exact line) in a
 #       mirror, checks the edit landed and still parses, and needs a named case
 #       to go RED
@@ -289,7 +292,8 @@ case_D11() {   # a matched:false commit used the approval; the approved tree com
 # ── I: init.sh's .gitignore ──────────────────────────────────────────────────
 # The third path is a temp scripts/lib/ledger-write.sh leaves when SIGKILL takes a
 # writer mid-write (`## BL-314:`): a full copy of the ledger until the next sweep.
-RUNTIME_FILES=".claude/last-checked-commit.txt .claude/tool-usage.json .claude/tool-usage.json.lw.AbC123"
+# The fourth is the Claude-commit ledger (`## BL-324:`).
+RUNTIME_FILES=".claude/last-checked-commit.txt .claude/tool-usage.json .claude/tool-usage.json.lw.AbC123 .claude/claude-commits.jsonl"
 ignored_all() {   # DIR — git ignores every runtime file's path (check-ignore needs no file there)
   local d="$1" f bad=""
   for f in $RUNTIME_FILES; do
@@ -356,6 +360,8 @@ case_A1() {   # adoption writes and commits .claude/.gitignore; on the adoptee, 
   printf '{"calls":[]}\n' > "$p/.claude/tool-usage.json"   # what the MCP tracker leaves after a call
   cp "$p/.claude/tool-usage.json" "$p/.claude/tool-usage.json.lw.AbC123"   # and what a SIGKILLed write leaves
   approved_commit "$p" src/fix.txt "fix: the approved change" || { CASE_DETAIL="approved commit"; return 1; }
+  jq -nc --arg s "$(git -C "$p" rev-parse HEAD)" '{sha: $s, timestamp: "t", session_id: "s", gate: "passed"}' \
+    > "$p/.claude/claude-commits.jsonl"   # and what the commit recorder writes after it
   snap="$(newtmp)/audit.json"; cp "$p/.claude/bypass-audit.json" "$snap"
   bash "$p/scripts/detect-out-of-band-commits.sh" "$p" </dev/null >/dev/null 2>&1
   [ "$(oob "$p")" = 0 ] || { CASE_DETAIL="the approved commit was recorded: $(rows "$p")"; return 1; }
@@ -380,8 +386,8 @@ case_A2() {   # an adoptee's own .claude/.gitignore is left as it was
   [ -z "$(git -C "$p" diff HEAD~1 HEAD -- .claude/.gitignore)" ] || { CASE_DETAIL="the adoption commit changed theirs"; return 1; }
   grep -qF '.claude/.gitignore is already yours' "$RUN_OUT" || { CASE_DETAIL="the run does not say it was left alone"; return 1; }
   named="$(grep -E '(^|[ :])/last-checked-commit\.txt' "$RUN_OUT")"
-  grep -qE '(^|[ :])/tool-usage\.json' <<< "$named" \
-    || { CASE_DETAIL="the run does not name both lines to add (/last-checked-commit.txt, /tool-usage.json)"; return 1; }
+  grep -qE '(^|[ :])/tool-usage\.json' <<< "$named" && grep -qE '(^|[ :])/claude-commits\.jsonl' <<< "$named" \
+    || { CASE_DETAIL="the run does not name the lines to add (/last-checked-commit.txt, /tool-usage.json, /claude-commits.jsonl)"; return 1; }
 }
 
 check() {   # LABEL CASE
@@ -405,7 +411,7 @@ echo "=== I — init.sh's .gitignore ==="
 check "I1: init.sh copies the template, and it ignores the runtime files" case_I1
 echo "=== A — adoption ==="
 check "A1: adoption writes and commits .claude/.gitignore; theirs unchanged; the runtime files ignored; the adoptee's detector skips an approved commit" case_A1
-check "A2: an adoptee's own .claude/.gitignore is left exactly as it was, and the run names both lines to add" case_A2
+check "A2: an adoptee's own .claude/.gitignore is left exactly as it was, and the run names the lines to add" case_A2
 
 # ── M: mutants ───────────────────────────────────────────────────────────────
 mk_mirror() {   # SRC DST — scripts, templates and init.sh: enough for every case
@@ -465,11 +471,13 @@ mutant M11 "$DET" '# BL-322-APPROVED-SHA' '         then .ok += [$e.commit | tos
 SES=scripts/lib/adopt/adopt-session.sh
 mutant M7 "$SES" '# BL-322-ADOPT-IGNORE-WRITE' '    :' case_A1 "adoption writes no ignore rule"
 mutant M8 "$SES" '# BL-322-ADOPT-IGNORE-KEEP' '  if false; then' case_A2 "adoption writes over the adoptee's own .claude/.gitignore"
-mutant_drop M14 "$SES" '    adopt_note "two lines to it: /last-checked-commit.txt and /tool-usage.json"' case_A2 "the kept-theirs note stops naming the two lines"
+mutant_drop M14 "$SES" '    adopt_note "/last-checked-commit.txt, /tool-usage.json and /claude-commits.jsonl"' case_A2 "the kept-theirs note stops naming the lines"
 mutant_drop M15 "$SES" '    "/tool-usage.json.lw.*" \' case_A1 "adoption stops ignoring the ledger writer's temps (BL-314)"
+mutant_drop M16 "$SES" '    "/claude-commits.jsonl" \' case_A1 "adoption stops ignoring the Claude-commit ledger (BL-324)"
 TPL=templates/generated/gitignore-base.tmpl
 mutant_drop M9 "$TPL" '.claude/tool-usage.json' case_I1 "init.sh's template stops ignoring the MCP tool ledger"
 mutant_drop M10 "$TPL" '.claude/last-checked-commit.txt' case_I1 "init.sh's template stops ignoring the detector's baseline"
+mutant_drop M17 "$TPL" '.claude/claude-commits.jsonl' case_I1 "init.sh's template stops ignoring the Claude-commit ledger (BL-324)"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
