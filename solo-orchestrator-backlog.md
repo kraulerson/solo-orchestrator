@@ -25688,8 +25688,12 @@ backstop, and `--verify-init` never runs it.
   `# BL-339-VI-UNRECORDED`): a read-only or irregular state file (`# BL-339-RECORD-WRITABLE`), a state file that
   is not a JSON object, or that slot already holding another attestation, which it never overwrites
   (`# BL-339-RECORD-FOREIGN`). Without the attestation a count of 0 fails exactly as before.
-- `tests/test-bl339-bl334-protection.sh` S1-S14 (S10: the two callers reach the same verdict for attested, blank,
-  `yes` and absent), D1 (gitlab), D2 (bitbucket), mutants M11-M31, each with its killer named.
+- `tests/test-bl339-bl334-protection.sh` S1-S15 and S9b (S10: the two callers reach the same verdict for
+  attested, blank, `yes` and absent), D1 (gitlab), D2 (bitbucket), mutants M11-M38 (test commit `04fe3dc` added
+  M32-M38), each with its killer named. Lines with no mutant, because no case can tell a mutant from the
+  original: the recorder's `jq`-absent arm (the driver needs `jq` before the recorder runs), its `mktemp`
+  failure arm (the write fails and refuses with the same verdict), and the wrapper's
+  `[ "$_src" -eq 0 ] || return` (a count of 0 with no attestation has already failed in the driver).
 
 **Not decided.** Reading repository rulesets: the issue notes, untested, that `host_verify_protection` reads classic
 branch protection only, so a repository protected by rulesets alone would read as unprotected.
