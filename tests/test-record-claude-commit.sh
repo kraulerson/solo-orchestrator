@@ -423,7 +423,7 @@ echo "T21: a -q commit with -F <file> is not recorded"
 setup
 cd "$TMP"
 echo f > f.txt && git add f.txt
-CMDFILE="printf 'feat: from a file\n' > m.txt && git commit -q -F m.txt && git log -1 -m --format=%s"
+CMDFILE="printf '%s\n' 'feat: from a file' > m.txt && git commit -q -F m.txt && git log -1 -m --format=%s"
 OUT=$(eval "$CMDFILE" 2>&1)
 env_bash "$CMDFILE" "$OUT" | run_hook || true
 if git log -1 --format=%s | grep -q '^feat: from a file$' && [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
@@ -433,12 +433,12 @@ else
 fi
 cd "$REPO_ROOT"; teardown
 
-# T22: no message supplied (--amend --no-edit); the subject is in the command
-# only as a comment.
+# T22: no message supplied (--amend --no-edit); the subject stands alone in the
+# command only inside a comment.
 echo "T22: a -q commit with no inline message is not recorded"
 setup
 cd "$TMP"
-CMDNE="git commit -q --amend --no-edit # first"
+CMDNE="git commit -q --amend --no-edit # 'first'"
 OUT=$(eval "$CMDNE" 2>&1)
 env_bash "$CMDNE" "$OUT" | run_hook || true
 if git log -g -1 --format=%gs HEAD | grep -q '^commit (amend): first$' && [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
