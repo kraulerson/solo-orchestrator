@@ -104,35 +104,55 @@ if ( . "$SCRIPT_DIR/lib/ledger-write.sh" && command -v _lw_update && command -v 
   # shellcheck source=scripts/lib/ledger-write.sh
   . "$SCRIPT_DIR/lib/ledger-write.sh" && _lw_traps && LW_READY=1
 fi
-# `## BL-335:` _add_raw FILE — the text inside FILE's additional_required list,
-# whitespace collapsed, or nothing when the file names no non-empty list. It
-# reads text, not JSON, so it works where jq does not (absent, or the file is
-# not valid JSON). It is only ever PRINTED, so the operator can add the entries
-# again; a list it found this way is never carried, because text cut out of a
-# broken file is not known to be the list.
-_add_raw() {
-  local t="" r="" s=""
-  [ -f "$1" ] || return 0
-  t=$(cat "$1" 2>/dev/null) || return 0
-  case "$t" in *'"additional_required"'*) ;; *) return 0 ;; esac
-  r=${t#*'"additional_required"'}
-  r=${r%%]*}
-  s=${r//[[:space:]]/}
-  case "$s" in ':['*) ;; *) return 0 ;; esac
-  r=${r#*\[}
-  r=$(printf '%s' "$r" | tr -s '[:space:]' ' ')
-  r=${r# }; r=${r% }
-  if [ "${#r}" -gt 300 ]; then r="${r:0:300} ..."; fi
-  printf '%s' "$r"
+# `## BL-335:` A LIST THIS START CANNOT CARRY IS NAMED, AFTER THE RESET.
+# When the ledger is not valid JSON, or jq or the ledger writer is missing, the
+# list cannot be read as JSON, so its text is printed for the operator to add
+# again; text cut from a broken file is never written back as the list. The
+# order is the point: _add_snap keeps the last 64 KB of the ledger BEFORE the
+# reset (`tail -c` reads only that much), and _add_scan reads it AFTER, so a
+# session start cancelled mid-scan has already dropped the last session's
+# outcome flags. Every ledger the framework writes keeps mcp_requirements last,
+# so the window holds the list; one written further up is not looked for.
+ADD_NOTE=""; ADD_SNAP=""; ADD_WHY=""
+_add_snap() {   # FILE WHY
+  ADD_SNAP=$(tail -c 65536 "$1" 2>/dev/null) || ADD_SNAP=""   # BL-335-SNAP-BOUND
+  ADD_WHY="$2"
 }
-# _add_lost_note FILE WHY — sets ADD_NOTE when FILE names a non-empty list that
-# this start cannot carry, and says why in one line.
-ADD_NOTE=""
-_add_lost_note() {
+# _add_scan — one pass over ADD_SNAP (awk, byte locale): the text inside the
+# first `"additional_required": [`, up to the `]` that closes it — a `]` inside
+# a quoted entry does not — with whitespace collapsed outside strings and the
+# output cut at 300 bytes. Sets ADD_NOTE when that text is not empty.
+_add_scan() {
   local raw=""
-  raw=$(_add_raw "$1")
+  [ -n "$ADD_SNAP" ] || return 0
+  raw=$(printf '%s\n' "$ADD_SNAP" | LC_ALL=C awk '
+    { buf = buf $0 "\n" }
+    END {
+      k = "\"additional_required\""; i = index(buf, k); if (!i) exit
+      s = substr(buf, i + length(k)); n = length(s); p = 1
+      while (p <= n && substr(s, p, 1) ~ /[ \t\r\n]/) p++
+      if (substr(s, p, 1) != ":") exit
+      p++
+      while (p <= n && substr(s, p, 1) ~ /[ \t\r\n]/) p++
+      if (substr(s, p, 1) != "[") exit
+      p++
+      out = ""; instr = 0; esc = 0; sp = 0
+      for (; p <= n && length(out) < 300; p++) {
+        c = substr(s, p, 1)
+        if (c ~ /[\t\r\n]/) c = " "
+        if (instr) { out = out c; if (esc) esc = 0; else if (c == "\\") esc = 1; else if (c == "\"") instr = 0; continue }
+        if (c == "]") break
+        if (c == " ") { if (out != "" && !sp) { out = out " "; sp = 1 }; continue }
+        sp = 0
+        if (c == "\"") instr = 1
+        out = out c
+      }
+      sub(/ +$/, "", out)
+      if (length(out) >= 300) out = out " ..."
+      if (out != "") print out
+    }') || raw=""   # BL-335-SCAN-AWK
   [ -n "$raw" ] || return 0
-  ADD_NOTE="MCP REQUIREMENTS NOTE: $1 listed extra required MCP tools under mcp_requirements.additional_required ($raw), and this session start could not carry them over because $2. Add them to that list again."
+  ADD_NOTE="MCP REQUIREMENTS NOTE: $TOOL_USAGE listed extra required MCP tools under mcp_requirements.additional_required ($raw), and this session start could not carry them over because $ADD_WHY. Add them to that list again."
 }
 
 if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
@@ -147,19 +167,21 @@ if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
   # It is a REQUIREMENT, not a satisfaction: the startup still empties calls[]
   # and leaves out the outcome flags (BL-236, below), so a carried entry blocks
   # until its tool returns successfully in this session. Read once, here, for
-  # all three writes. Only non-empty strings are kept; what is dropped, or lost
-  # because the ledger is not valid JSON, is said in one line.
+  # all three writes, by jq (linear: 26 MB in 0.2 s). Only non-empty strings
+  # that compile as a regex (the gate matches them with test()) are kept: one
+  # that does not would refuse every Write of every session. What is dropped,
+  # or lost because the ledger is not valid JSON, is said in one line.
   ADD_REQ='[]'; ADD_DROPPED=0
   if [ -s "$TOOL_USAGE" ]; then
-    if ADD_READ=$(jq -rs '(if length != 1 then error("not one JSON value") else (.[0] | try .mcp_requirements.additional_required catch null) end) as $a | if $a == null then [[], 0] elif ($a | type) == "array" then [$a[] | select(type == "string" and length > 0)] as $k | [$k, ($a | length) - ($k | length)] else [[], 1] end | "\(.[1]) \(.[0] | tojson)"' "$TOOL_USAGE" 2>/dev/null); then   # BL-335-READ
+    if ADD_READ=$(jq -rs '(if length != 1 then error("not one JSON value") else (.[0] | try .mcp_requirements.additional_required catch null) end) as $a | if $a == null then [[], 0] elif ($a | type) == "array" then [$a[] | select(type == "string" and length > 0) | select(. as $p | (try ("" | test($p)) catch null) != null)] as $k | [$k, ($a | length) - ($k | length)] else [[], 1] end | "\(.[1]) \(.[0] | tojson)"' "$TOOL_USAGE" 2>/dev/null); then   # BL-335-READ
       ADD_DROPPED=${ADD_READ%% *}
       ADD_REQ=${ADD_READ#* }
       case "$ADD_DROPPED" in ''|*[!0-9]*) ADD_DROPPED=0 ;; esac
       if [ "$ADD_DROPPED" -gt 0 ]; then
-        ADD_NOTE="MCP REQUIREMENTS NOTE: $ADD_DROPPED value(s) under mcp_requirements.additional_required in $TOOL_USAGE were not tool-name patterns and were dropped. It must be a list of non-empty strings, such as [\"mcp__sentry__\"]; the valid entries were kept."   # BL-335-DROP-NOTE
+        ADD_NOTE="MCP REQUIREMENTS NOTE: $ADD_DROPPED value(s) under mcp_requirements.additional_required in $TOOL_USAGE were not tool-name patterns and were dropped. It must be a list of non-empty strings, each a regular expression jq can compile, such as [\"mcp__sentry__\"]; the valid entries were kept."   # BL-335-DROP-NOTE
       fi
     else
-      _add_lost_note "$TOOL_USAGE" "the file is not valid JSON, so it was rewritten"   # BL-335-UNREADABLE
+      _add_snap "$TOOL_USAGE" "the file is not valid JSON, so it was rewritten"   # BL-335-UNREADABLE
     fi
   fi
 
@@ -245,11 +267,13 @@ TUEOF
   fi
 elif [ "$SESSION_SOURCE" = "startup" ]; then
   # `## BL-335:` the removal takes the operator's additional_required with it,
-  # and nothing here can write it back, so it is named before it goes.
-  if [ "$LW_READY" = "1" ]; then ADD_WHY="jq is not installed, so the file was removed"; else ADD_WHY="the ledger writer cannot be loaded, so the file was removed"; fi
-  _add_lost_note "$TOOL_USAGE" "$ADD_WHY"   # BL-335-NOJQ
+  # and nothing here can write it back, so its text is kept to be named after.
+  if [ "$LW_READY" = "1" ]; then ADD_WHY="jq is not installed, so the file was removed"; else ADD_WHY="the ledger writer cannot be loaded, so the file was removed"; fi   # BL-335-WHY
+  _add_snap "$TOOL_USAGE" "$ADD_WHY"   # BL-335-NOJQ
   rm -f .claude/tool-usage.json   # BL-314-NOLIB-RESET
 fi
+# `## BL-335:` only now, with every reset above done, is the snapshot scanned.
+_add_scan   # BL-335-SCAN
 # `## BL-335:` one line, and only when something was dropped or lost — a later
 # start finds the list clean (or gone) and says nothing.
 if [ -n "$ADD_NOTE" ]; then
@@ -273,7 +297,7 @@ MCP SERVER NOTICE: The following MCP server(s) are configured but not recognized
 
 Ask the Orchestrator: "I see you have [$UNKNOWN_SERVERS] configured as MCP server(s). Would you like me to use them during this session? If so, what should I use them for?"
 
-If the Orchestrator wants a server used at session start (like Qdrant), they can add it to .claude/tool-usage.json under mcp_requirements.additional_required: a list of strings, each matched as a pattern against tool names (for example "mcp__sentry__"). Write and Edit are then blocked until a matching tool returns successfully in each session. The list carries over from one session to the next; the file is git-ignored, so it holds for this checkout only.
+If the Orchestrator wants a server used at session start (like Qdrant), they can add it to .claude/tool-usage.json under mcp_requirements.additional_required: a list of strings, each a regular expression matched against tool names (for example "mcp__sentry__"). Write and Edit are then blocked until a matching tool returns successfully in each fresh session. The list carries over from one session to the next; the file is git-ignored, so it holds for this checkout only.
 EOF
 fi
 
