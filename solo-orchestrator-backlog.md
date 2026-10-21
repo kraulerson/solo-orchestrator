@@ -25675,7 +25675,7 @@ there would drop a case that passes today.
 **Logged:** 2026-10-08 (issue #484, filed 2026-09-30; decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** Medium
-**Status:** Closed — shipped 2026-10-21 (fix `2bd8f745`, `c6e855b3` and `382ff645`, suite `b03ad02f`, `7c9c6611` and `d302e9bd`)
+**Status:** Closed — shipped 2026-10-21 (fix `2bd8f745`, `c6e855b3`, `382ff645` and `04315eb5`, suite `b03ad02f`, `7c9c6611`, `d302e9bd` and `e2f45c5a`)
 
 **What.** `scripts/session-test-gate-check.sh`'s MCP notice tells the Orchestrator to add a server under
 `mcp_requirements.additional_required` in `.claude/tool-usage.json`, and `scripts/session-mcp-gate.sh` enforces
@@ -25697,7 +25697,8 @@ Startup still empties `calls[]` and leaves out `qdrant_find_succeeded` / `contex
 a carried entry is a requirement only: the first Write of a fresh session is refused until a matching tool returns
 successfully in that session (S6). Where the list cannot be carried — a ledger that is not valid JSON (it is
 rewritten, `# BL-335-UNREADABLE`), or a startup with jq or the ledger writer missing (the ledger is removed as BL-314
-does, `# BL-335-NOJQ`) — the hook finds the list's key (one grep over at most the first 16 MB, `# BL-335-SNAP-KEY`),
+does, `# BL-335-NOJQ`) — the hook finds the list's key as a key — `"additional_required"` followed by `:`, so a string value ending in that
+text (an error message) cannot stand in for it (T4) — with one grep over at most the first 16 MB (`# BL-335-SNAP-KEY`),
 keeps 64 KB from there (`# BL-335-SNAP-BOUND`), does the reset, and only then scans that text (`# BL-335-SCAN`): one
 awk pass that takes the list up to its closing `]` (not one inside quotes), cut at 300 bytes, and prints it in one
 note line; a list whose `]` is not in the window is named as cut off (`# BL-335-CUT-NOTE`). The hook exits 0. The
@@ -25708,8 +25709,8 @@ cancelled mid-scan has already dropped the last session's outcome flags (K1, K2)
 slow (L1, L2: 570 KB in under a second; the first cut of this fix sliced the whole file with bash patterns, quadratic
 in the list's offset, before the reset). The fallback does have jq — it runs when jq fails on the file — so the
 "cannot use jq" case is the invalid-JSON one, and text cut from a broken file is printed, never carried.
-`tests/test-bl335-additional-required-carry.sh`: 27 cases (S1–S13 with variants, R1, L1, L2, B1, K1, K2, T1, T3,
-F1) and 22 mutants, 49 checks.
+`tests/test-bl335-additional-required-carry.sh`: 28 cases (S1–S13 with variants, R1, L1, L2, B1, K1, K2, T1, T3,
+T4, F1) and 23 mutants, 51 checks.
 
 **Tracked or ignored.** `.claude/tool-usage.json` is git-ignored in generated projects (`# BL-236-LEDGER-IGNORE` in
 `templates/generated/gitignore-base.tmpl`, backfilled by `upgrade-project.sh`) and in adopted ones (the
