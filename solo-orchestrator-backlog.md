@@ -25427,7 +25427,12 @@ AWK-STDIN (T17, T41, T47), AWK-COMMENT (T45), AWK-HEREDOC to the first command (
   the roster for init, adoption and the `--sync-framework` gap of `## BL-353:`) would cover most of them; not built.
 - **A user's commit can be taken** when it lands in HEAD's reflog in the 30 s before an agent call one of whose
   `git commit` invocations supplies a message whose first line is exactly that commit's subject (the agent's commit
-  failed, or made the same subject). The replay found none.
+  failed, never ran — an uncalled function, `if false`, an unused `||` branch — or made the same subject). The
+  replay found none.
+- **Parser limits (review of `bf9d0f1d`):** `--author "-mwip <a@b>"` is read as a message (not reachable in
+  practice); bash 3.2 ends `$(cat <<'EOF'…)` at a `)` in the body while the parser follows bash 5.2, so such a commit
+  is missed (fail-safe); the parser's cost grows with the square of the command length (a 1.27 MB heredoc took 2-7 s);
+  BWK awk in an arm64 container sometimes printed nothing (the `## BL-260:` class; amd64 agrees across awks).
 - **Two commits in one call:** with no name from the host, every provable one is recorded (T23); with a name, only
   the named one (the reflog is not read then); which one the host names is not measured.
 - **`session_id` in each row is `${CLAUDE_SESSION_ID:-unknown}`.** The envelope's own `session_id` is not read, and
