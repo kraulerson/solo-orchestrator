@@ -430,7 +430,7 @@ classification, not a repo fact.
 | `build-progress.json` | `features_completed[]`, test-interval counters, `testing_required` | tracked | **Per-workstream** |
 | `intake-progress.json` | Resumable wizard doc (`last_section`, `completed_sections[]`, `answers{}`); `# BL-204-VISIBILITY-PERSIST` | tracked | Project-global (one intake); two concurrent wizard runs interleave badly |
 | `bypass-audit.json` | The enforcement ledger — a **pretty-printed JSON array** of rows; `bypass_audit_append` in `scripts/lib/bypass-audit.sh` | tracked (deliberately) | **Append-only ledger stored in the worst shape for merging** (§5.4) |
-| `claude-commits.jsonl` | `{sha,timestamp,session_id,gate}` per agent commit; `scripts/hooks/record-claude-commit.sh` | tracked | **Append-only ledger** — and the *input* to actor inference (§5.4) |
+| `claude-commits.jsonl` | `{sha,timestamp,session_id,gate}` per agent commit; `scripts/hooks/record-claude-commit.sh` | **gitignored** since `## BL-324:` (2026-10-20; tracked when this was written, and never actually written then) | **Append-only, per-clone** — a row is written after the commit it names, so tracked it would leave the tree modified after every agent commit; the *input* to actor inference (§5.4) |
 | `tdd-warn-ledger.jsonl` | TDD-ordering warnings; `scripts/pre-commit-gate.sh` | tracked | **Append-only ledger** |
 | `tool-usage.json` | `session_id`, `calls[]`, MCP counters; rewritten by `scripts/track-tool-usage.sh` on every PostToolUse | tracked | **Per-actor, and the highest-frequency collision** — it carries one session's truth and is rewritten every few seconds |
 | `tool-preferences.json` | `context{dev_os,platform,language,track}`, substitutions, installed sets; `write_tool_preferences()` | tracked | Project-global |
@@ -468,7 +468,7 @@ committed**, so every singleton is a merge surface. Three entries deserve separa
 | **Stay global** | `phase-state.json`, `manifest.json`, `tool-preferences.json`, `orchestrator-source.json`, `license-policy.json`, `dast-headers.json`, `test-command`, `settings.json`, `intake-progress.json` | Unchanged shape, unchanged path | Genuine conflicts. Correct: two people disagreeing about the project's phase or enforcement level **is** a conflict and should stop at review. |
 | **Branch-keyed** (per workstream) | `process-state.json`, `build-progress.json` | Move to `.claude/workstreams/<slug>/`, where `<slug>` derives from the branch name; readers resolve the current workstream from `git rev-parse --abbrev-ref HEAD` with a configured fallback | Conflict-free by construction — two branches never write the same path. Merging a workstream to `main` merges its directory. |
 | **Actor-keyed** | `tool-usage.json`, `settings.local.json` | Move to `.claude/actors/<actorId>/`, `<actorId>` resolved from the roster (§5.3) | Conflict-free by construction |
-| **Ledger, append-only** | `bypass-audit.json`, `claude-commits.jsonl`, `tdd-warn-ledger.jsonl` | See §5.4 | Union-merged |
+| **Ledger, append-only** | `bypass-audit.json`, `tdd-warn-ledger.jsonl` (and `claude-commits.jsonl` as designed here; it is gitignored since `## BL-324:`, so WP2b's union needs another way to share it) | See §5.4 | Union-merged |
 | **Per-clone detector state, made team-aware in its *reader*, not its location** | `last-checked-commit.txt` (gitignored baseline), `last-gate-pass.txt` (gitignored receipt) | **Both stay gitignored and per-clone — moving them would be the wrong fix.** A baseline is legitimately a property of *this clone's* last scan, and tracking it re-creates the BL-174 defect it was ignored to solve (the file can never point at its own commit, so tracking it leaves the tree permanently dirty). What changes is the **consumer**: `detect-out-of-band-commits.sh` must stop treating "absent from *my* ledger" as "unattributed" and instead take the union of the team's ledgers plus a roster lookup on the commit author (§5.4, WP2b) | No conflict — nothing is shared. The correctness fix is in the inference, not the storage |
 
 **Why phase is global and build-loops are not.** The phase gates are *project* assertions —
@@ -556,7 +556,8 @@ other ledger."*
 > **This breaks on contact with a second developer, and it breaks quietly.**
 >
 > **Be precise about why, because "per-clone" is not the same as "untracked" (§5.1 lists the
-> ledger as tracked, and it is).** `.claude/claude-commits.jsonl` is a committed file, but the
+> ledger as tracked, and it was; since `## BL-324:` it is gitignored, which makes it per-clone by
+> construction, like the baseline).** `.claude/claude-commits.jsonl` is a committed file, but the
 > hook that writes it is a **PostToolUse** hook: it appends the SHA of a commit that has already
 > been created, and it never stages the ledger (`>> "$LEDGER"`, no `git add`). A row therefore
 > **can never ride in its own commit**, and nothing makes anyone stage it afterwards — so in
