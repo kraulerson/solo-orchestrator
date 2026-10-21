@@ -108,20 +108,32 @@ fi
 # When the ledger is not valid JSON, or jq or the ledger writer is missing, the
 # list cannot be read as JSON, so its text is printed for the operator to add
 # again; text cut from a broken file is never written back as the list. The
-# order is the point: _add_snap keeps the last 64 KB of the ledger BEFORE the
-# reset (`tail -c` reads only that much), and _add_scan reads it AFTER, so a
-# session start cancelled mid-scan has already dropped the last session's
-# outcome flags. Every ledger the framework writes keeps mcp_requirements last,
-# so the window holds the list; one written further up is not looked for.
+# order is the point: _add_snap keeps 64 KB of the ledger, starting at the
+# list's key, BEFORE the reset, and _add_scan reads it AFTER, so a session
+# start cancelled mid-scan has already dropped the last session's outcome
+# flags. The window starts at the KEY, not at the end of the file: the tracker
+# writes `last_mcp_error` after mcp_requirements, at any length, and a
+# hand-edited ledger can put the list anywhere. Finding the key reads at most
+# the first 16 MB (one grep pass, about 0.1 s); a key past that is not found.
 ADD_NOTE=""; ADD_SNAP=""; ADD_WHY=""
 _add_snap() {   # FILE WHY
-  ADD_SNAP=$(tail -c 65536 "$1" 2>/dev/null) || ADD_SNAP=""   # BL-335-SNAP-BOUND
-  ADD_WHY="$2"
+  local off=""
+  ADD_SNAP=""; ADD_WHY="$2"
+  # A FIFO, a device or a link to one is no ledger, and reading it can block.
+  [ -f "$1" ] || return 0   # BL-335-SNAP-REGULAR
+  # pipefail off inside: grep -m1 and head -c stop early by design, and the
+  # writer they leave behind then dies of SIGPIPE.
+  off=$(set +o pipefail; head -c 16777216 "$1" 2>/dev/null | LC_ALL=C grep -boF -m1 '"additional_required"' 2>/dev/null) || off=""   # BL-335-SNAP-KEY
+  off=${off%%:*}
+  case "$off" in ''|*[!0-9]*) return 0 ;; esac
+  ADD_SNAP=$(set +o pipefail; tail -c +"$((off + 1))" "$1" 2>/dev/null | head -c 65536) || ADD_SNAP=""   # BL-335-SNAP-BOUND
 }
 # _add_scan — one pass over ADD_SNAP (awk, byte locale): the text inside the
 # first `"additional_required": [`, up to the `]` that closes it — a `]` inside
 # a quoted entry does not — with whitespace collapsed outside strings and the
-# output cut at 300 bytes. Sets ADD_NOTE when that text is not empty.
+# output cut at 300 bytes. A value that is not a list was never enforced and
+# is not named. A list with no closing `]` in the window is named as cut off,
+# never dropped in silence. Sets ADD_NOTE.
 _add_scan() {
   local raw=""
   [ -n "$ADD_SNAP" ] || return 0
@@ -136,22 +148,29 @@ _add_scan() {
       while (p <= n && substr(s, p, 1) ~ /[ \t\r\n]/) p++
       if (substr(s, p, 1) != "[") exit
       p++
-      out = ""; instr = 0; esc = 0; sp = 0
+      out = ""; instr = 0; esc = 0; sp = 0; closed = 0
       for (; p <= n && length(out) < 300; p++) {
         c = substr(s, p, 1)
         if (c ~ /[\t\r\n]/) c = " "
         if (instr) { out = out c; if (esc) esc = 0; else if (c == "\\") esc = 1; else if (c == "\"") instr = 0; continue }
-        if (c == "]") break
+        if (c == "]") { closed = 1; break }
         if (c == " ") { if (out != "" && !sp) { out = out " "; sp = 1 }; continue }
         sp = 0
         if (c == "\"") instr = 1
         out = out c
       }
       sub(/ +$/, "", out)
-      if (length(out) >= 300) out = out " ..."
-      if (out != "") print out
+      if (length(out) >= 300) { closed = 1; out = out " ..." }
+      if (!closed) print "CUT " out
+      else if (out != "") print "ALL " out
     }') || raw=""   # BL-335-SCAN-AWK
-  [ -n "$raw" ] || return 0
+  case "$raw" in
+    "CUT "*)
+      ADD_NOTE="MCP REQUIREMENTS NOTE: $TOOL_USAGE has an mcp_requirements.additional_required list that this session start could not read to its closing ] (it begins: ${raw#CUT }), and it was not carried over because $ADD_WHY. Add the whole list again."   # BL-335-CUT-NOTE
+      return 0 ;;
+    "ALL "*) raw=${raw#ALL } ;;
+    *) return 0 ;;
+  esac
   ADD_NOTE="MCP REQUIREMENTS NOTE: $TOOL_USAGE listed extra required MCP tools under mcp_requirements.additional_required ($raw), and this session start could not carry them over because $ADD_WHY. Add them to that list again."
 }
 
