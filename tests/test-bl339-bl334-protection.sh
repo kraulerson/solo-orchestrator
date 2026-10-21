@@ -29,9 +29,13 @@
 #      B1 develop protected, main not: both callers pass       (red before)
 #      B2 develop not protected, main is: both callers fail    (red before)
 #      B3 key absent, or empty: main is checked, as before     (control)
-#      B4 push check, develop on the remote: pushed            (red before)
-#      B5 push check, key absent, master only: pushed          (control)
-#      B6 push check, develop keyed, main only on the remote: not pushed
+#      Push check (supervisor decision 2026-10-20): key absent → main or master
+#      on the remote, as before; key set → that branch only, no fallback.
+#      B4 develop keyed, develop on the remote: pushed          (red before)
+#      B5 key absent, master only: pushed                       (control)
+#      B5m key absent, main only: pushed                        (control)
+#      B6 develop keyed, main only on the remote: not pushed    (red before)
+#      B8 develop keyed, master only on the remote: not pushed
 #      B7 a key that is not a branch name (`dev*`) is refused by both callers,
 #         and the push check does not let it match develop as a glob
 #   S  the single-authority attestation (BL-339), org mode, count 0
@@ -240,6 +244,18 @@ case_B5() {   # CONTROL: key absent, master only on the remote
   mk_proj "$1" github personal - none; remote_with master || { WHY="remote setup"; return 3; }
   run_gate "$1"; local v; v=$(push_verdict)
   [ "$v" = O ] && return 0
+  WHY="push gate=$v: $(lines "$OUT" 'push gate')"; return 1
+}
+case_B5m() {   # CONTROL: key absent, main only on the remote
+  mk_proj "$1" github personal - none; remote_with main || { WHY="remote setup"; return 3; }
+  run_gate "$1"; local v; v=$(push_verdict)
+  [ "$v" = O ] && return 0
+  WHY="push gate=$v: $(lines "$OUT" 'push gate')"; return 1
+}
+case_B8() {   # develop keyed, master only on the remote: no fallback once the key is set
+  mk_proj "$1" github personal develop none; remote_with master || { WHY="remote setup"; return 3; }
+  run_gate "$1"; local v; v=$(push_verdict)
+  [ "$v" = F ] && return 0
   WHY="push gate=$v: $(lines "$OUT" 'push gate')"; return 1
 }
 case_B6() {   # develop keyed, main only on the remote
@@ -539,7 +555,9 @@ run_case B2 case_B2 "develop keyed, unprotected; main protected: both fail"
 run_case B3 case_B3 "CONTROL — key absent or empty: main is checked"
 run_case B4 case_B4 "push check: develop keyed and on the remote"
 run_case B5 case_B5 "CONTROL — push check: key absent, master only on the remote"
+run_case B5m case_B5m "CONTROL — push check: key absent, main only on the remote"
 run_case B6 case_B6 "push check: develop keyed, only main on the remote"
+run_case B8 case_B8 "push check: develop keyed, only master on the remote — no fallback once keyed"
 run_case B7 case_B7 "a key that is not a branch name is refused, and never matched as a glob"
 echo "S — the single-authority attestation (BL-339)"
 run_case S1  case_S1  "org, count 0, attested: both callers accept and record it"
@@ -623,8 +641,11 @@ mutant M3  B7 case_B7 "$H" '# BL-334-REFNAME' 0 'git check-ref-format "refs/head
 # BL-334: the three places
 mutant M4  B2 case_B2 "$G" '# BL-334-BACKSTOP-BRANCH' 4 '"$backstop_branch" "$mode"' '"main" "$mode"'
 mutant M5  B7 case_B7 "$G" '# BL-334-BACKSTOP-BRANCH' 2 'issues=$((issues + 1))' ':'
-mutant M6  B4 case_B4 "$G" '# BL-334-PUSH-BRANCH' 3 'for _bl084_br in "$bl084_ib" master' 'for _bl084_br in main master'
-mutant M7  B5 case_B5 "$G" '# BL-334-PUSH-BRANCH' 3 'for _bl084_br in "$bl084_ib" master' 'for _bl084_br in "$bl084_ib"'
+mutant M6  B4 case_B4 "$G" '# BL-334-PUSH-KEYED' 0 '_bl084_brs="$bl084_ib"' ':'
+mutant M7  B5 case_B5 "$G" '# BL-334-PUSH-KEYLESS' 0 '_bl084_brs="main master"' '_bl084_brs="main"'
+mutant M41 B5m case_B5m "$G" '# BL-334-PUSH-KEYLESS' 0 '_bl084_brs="main master"' '_bl084_brs="master"'
+mutant M39 B8 case_B8 "$G" '# BL-334-PUSH-KEYED' 0 '_bl084_brs="$bl084_ib"' '_bl084_brs="$bl084_ib master"'
+mutant M40 B6 case_B6 "$G" '# BL-334-PUSH-KEYED' 0 '_bl084_brs="$bl084_ib"' '_bl084_brs="$bl084_ib main"'
 mutant M8  B7 case_B7 "$G" '# BL-334-PUSH-BRANCH' 1 'is not a branch name' 'is fine'
 mutant M9  B2 case_B2 "$C" '# BL-334-VERIFY-INIT-BRANCH' 5 '"$bp_branch" "$mode"' '"main" "$mode"'
 mutant M10 B7 case_B7 "$C" '# BL-334-VERIFY-INIT-BRANCH' 1 'is not a branch name' 'is fine'
