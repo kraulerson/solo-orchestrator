@@ -30,6 +30,18 @@
 #       line names the entries; S12b an empty list and S12d a value that is
 #       not a list print nothing; S12c a long list is cut short.
 #   S13 the ledger writer missing at startup: the same, naming the writer.
+#   R1  entries jq's test() cannot compile (`*sentry*`, `[unclosed`) are dropped
+#       with the same note: carried, they would refuse every Write of every
+#       session.
+#   L1  a 600 KB ledger, lib-less, list cut off with no `]`: the start ends in
+#       bounded time, the ledger is removed, the gate denies.
+#   L2  a 600 KB ledger with one stray `}` (jq then reads only the first
+#       document): bounded time, reset, gate denies, and the note names both
+#       entries although one holds a `]` inside its quotes.
+#   B1  the scan reads at most the last 64 KB of the ledger.
+#   K1  the scan is cancelled mid-run (lib-less): the ledger was already
+#       removed, so the gate denies. K2: the same on the stray-`}` ledger with
+#       jq: it was already reset.
 #   M*  mutation proofs, each killed by the case it names.
 set -uo pipefail
 
@@ -58,7 +70,7 @@ trap 'rm -rf "$TOPTMP"' EXIT
 # macOS, so dropping a directory from PATH is not enough.
 NOJQ_BIN="$TOPTMP/nojq-bin"
 mkdir -p "$NOJQ_BIN"
-for c in cat date mkdir rm rmdir mv mktemp stat sleep sort grep tr dirname; do
+for c in cat date mkdir rm rmdir mv mktemp stat sleep sort grep tr dirname tail awk; do
   p="$(type -P "$c")"
   if [ -z "$p" ]; then echo "fixture: $c not found"; exit 1; fi
   ln -s "$p" "$NOJQ_BIN/$c"
@@ -73,6 +85,16 @@ case "\$*" in *'.session_id = \$sid'*) exit 5 ;; esac
 exec "$REAL_JQ" "\$@"
 EOF
 chmod +x "$SHIM_BIN/jq"
+
+# An awk that records its pid and then hangs (K1, K2): the hook is cancelled
+# while it waits on the scan. And one that keeps a copy of what it is fed (B1).
+REAL_AWK="$(type -P awk)"
+HANG_BIN="$TOPTMP/hang-bin"; mkdir -p "$HANG_BIN"
+printf '#!/bin/sh\necho $$ > "$HANG_MARK"\nexec sleep 30\n' > "$HANG_BIN/awk"
+chmod +x "$HANG_BIN/awk"
+TEE_BIN="$TOPTMP/tee-bin"; mkdir -p "$TEE_BIN"
+printf '#!/bin/sh\ntee "$AWK_IN" | "$REAL_AWK" "$@"\n' > "$TEE_BIN/awk"
+chmod +x "$TEE_BIN/awk"
 
 N=0
 # mkp LEDGER-JSON-OR-TEXT — a project whose ledger is the argument, and a
@@ -226,6 +248,111 @@ c_S13() {
   [ "$HOOK_RC" = 0 ] && [ "$(notes)" = 1 ] && [ "$says" = yes ]
 }
 
+c_R1() {
+  mkp "$(LEDGER '["*sentry*", "[unclosed", "mcp__ok"]')"; run_hook "$1" startup
+  local says=no d=""; note | grep -qF '2 value(s)' && says=yes
+  track_success mcp__ok; gate_run; d=$GATE_DEC
+  DETAIL="rc=$HOOK_RC list=$(LIST) notes=$(notes) says_2=$says after_call=$d (want 0 [\"mcp__ok\"] 1 yes allow)"
+  [ "$HOOK_RC" = 0 ] && [ "$(LIST)" = '["mcp__ok"]' ] && [ "$(notes)" = 1 ] && [ "$says" = yes ] && [ "$d" = allow ]
+}
+
+# big_ledger FILE — a SATISFIED ledger of about 600 KB: both outcome flags
+# true, and calls[] holding successes that match both list entries, so left
+# as it is the gate ALLOWS. The list is LAST (where every ledger the framework
+# writes keeps it), and the project registers qdrant and context7, so a reset
+# ledger requires them and the gate denies.
+big_ledger() {
+  "$REAL_JQ" -n '{session_id:"x", qdrant_find_succeeded:true, context7_query_docs_succeeded:true, mcp_gate_satisfied:true,
+    calls:[range(5000) | {tool:"mcp__foo__bar", outcome:"success", timestamp:"2026-01-01T00:00:00Z"}],
+    mcp_requirements:{qdrant_required:true, context7_required:true, additional_required:["mcp__[a-z]+__bar", "mcp__foo__"]}}' > "$1"
+  printf '{"mcpServers": {"qdrant": {"command": "uvx"}, "context7": {"command": "npx"}}}\n' > "$P/.claude/settings.local.json"
+}
+# run_bounded HOOK SECS [ENV=VAL…] — a startup, killed if it runs past SECS.
+# Sets BND (done | overran) and HOOK_OUT. No `timeout` on macOS (CLAUDE.md).
+run_bounded() {
+  local h="$1" secs="$2" pid="" t0=""; shift 2
+  printf '{"source":"startup"}' > "$T/env.json"
+  ( cd "$P" && exec env -i HOME="$T/home" PATH="$PATH" "$@" "$BASH_BIN" "$h" < "$T/env.json" > "$T/out" 2>/dev/null ) &
+  pid=$!; t0=$SECONDS; BND=done
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ $((SECONDS - t0)) -ge "$secs" ]; then BND=overran; kill -TERM "$pid" 2>/dev/null; break; fi
+    sleep 0.2
+  done
+  wait "$pid" 2>/dev/null
+  HOOK_OUT=$(cat "$T/out" 2>/dev/null)
+}
+nolib_copy() {   # HOOK — a copy with no lib beside it; echoes its path
+  mkdir -p "$T/nolib/scripts"; cp "$1" "$T/nolib/scripts/session-test-gate-check.sh"
+  printf '%s' "$T/nolib/scripts/session-test-gate-check.sh"
+}
+c_L1() {
+  mkp '{}'; big_ledger "$T/full.json"
+  head -c 600000 "$T/full.json" > "$P/.claude/tool-usage.json"   # cut inside calls[]: no list, no `]` after it
+  "$REAL_JQ" -r '.mcp_requirements.additional_required | "  \"additional_required\": [ \"\(.[0])\",\n" ' "$T/full.json" >> "$P/.claude/tool-usage.json"
+  local sz; sz=$(wc -c < "$P/.claude/tool-usage.json" | tr -d ' ')
+  run_bounded "$(nolib_copy "$1")" 20
+  local gone=no named=no; [ -e "$P/.claude/tool-usage.json" ] || gone=yes
+  note | grep -qF '"mcp__[a-z]+__bar"' && named=yes
+  gate_run
+  DETAIL="size=$sz run=$BND removed=$gone gate=$GATE_DEC named=$named (want >=500000 done yes deny yes)"
+  [ "$sz" -ge 500000 ] && [ "$BND" = done ] && [ "$gone" = yes ] && [ "$GATE_DEC" = deny ] && [ "$named" = yes ]
+}
+c_L2() {
+  mkp '{}'; big_ledger "$T/full.json"
+  { cat "$T/full.json"; echo '}'; } > "$P/.claude/tool-usage.json"
+  local sz; sz=$(wc -c < "$P/.claude/tool-usage.json" | tr -d ' ')
+  run_bounded "$1" 20
+  local ok; ok=$("$REAL_JQ" -c '[(.qdrant_find_succeeded // false), (.calls | length)]' "$P/.claude/tool-usage.json" 2>/dev/null)
+  local named=no; note | grep -qF '("mcp__[a-z]+__bar", "mcp__foo__"), and this session start could not carry them over because the file is not valid JSON' && named=yes
+  gate_run
+  DETAIL="size=$sz run=$BND [qdrant_ok,calls]=$ok gate=$GATE_DEC named=$named (want >=500000 done [false,0] deny yes)"
+  [ "$sz" -ge 500000 ] && [ "$BND" = done ] && [ "$ok" = '[false,0]' ] && [ "$GATE_DEC" = deny ] && [ "$named" = yes ]
+}
+c_B1() {
+  mkp '{}'; big_ledger "$T/full.json"
+  { cat "$T/full.json"; echo '}'; } > "$P/.claude/tool-usage.json"
+  : > "$T/awk.in"
+  run_bounded "$1" 20 AWK_IN="$T/awk.in" REAL_AWK="$REAL_AWK" PATH="$TEE_BIN:$PATH"
+  local fed; fed=$(wc -c < "$T/awk.in" | tr -d ' ')
+  DETAIL="run=$BND bytes_fed_to_the_scan=$fed notes=$(notes) (want done, 1..65537, 1)"
+  [ "$BND" = done ] && [ "$fed" -gt 0 ] && [ "$fed" -le 65537 ] && [ "$(notes)" = 1 ]
+}
+# cancel_mid_scan HOOK — start the hook with the hanging awk, wait until the
+# scan has begun, then cancel the hook (TERM, as Claude Code does) and the scan.
+cancel_mid_scan() {
+  local h="$1" pid="" i=0
+  printf '{"source":"startup"}' > "$T/env.json"; : > "$T/hang.pid"
+  ( cd "$P" && exec env -i HOME="$T/home" PATH="$HANG_BIN:$PATH" HANG_MARK="$T/hang.pid" "$BASH_BIN" "$h" < "$T/env.json" > /dev/null 2>&1 ) &
+  pid=$!; SCAN_STARTED=no
+  while [ "$i" -lt 100 ]; do
+    if [ -s "$T/hang.pid" ]; then SCAN_STARTED=yes; break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1; i=$((i + 1))
+  done
+  # TERM first. With the ledger lib's EXIT trap set, bash holds the TERM until
+  # the scan's child returns, so the child is ended too; the hook then dies on
+  # the held TERM before any line after the scan runs.
+  kill -TERM "$pid" 2>/dev/null
+  [ -s "$T/hang.pid" ] && kill "$(cat "$T/hang.pid")" 2>/dev/null
+  wait "$pid" 2>/dev/null; HOOK_RC=$?
+  return 0
+}
+c_K1() {
+  mkp '{}'; big_ledger "$P/.claude/tool-usage.json"
+  cancel_mid_scan "$(nolib_copy "$1")"
+  gate_run
+  DETAIL="scan_started=$SCAN_STARTED hook_rc=$HOOK_RC gate=$GATE_DEC (want yes 143 deny: the ledger was removed before the scan)"
+  [ "$SCAN_STARTED" = yes ] && [ "$HOOK_RC" = 143 ] && [ "$GATE_DEC" = deny ]
+}
+c_K2() {
+  mkp '{}'; big_ledger "$T/full.json"
+  { cat "$T/full.json"; echo '}'; } > "$P/.claude/tool-usage.json"
+  cancel_mid_scan "$1"
+  gate_run
+  DETAIL="scan_started=$SCAN_STARTED hook_rc=$HOOK_RC gate=$GATE_DEC (want yes 143 deny: the ledger was reset before the scan)"
+  [ "$SCAN_STARTED" = yes ] && [ "$HOOK_RC" = 143 ] && [ "$GATE_DEC" = deny ]
+}
+
 c_S2() { c_merge "$1" resume; }
 c_S3() { c_merge "$1" compact; }
 c_S4() { c_merge "$1" clear; }
@@ -253,6 +380,12 @@ check S12b "jq missing with an empty list: no note"
 check S12d "jq missing with a value that is not a list: no note"
 check S12c "jq missing with a long list: the note is cut short"
 check S13 "ledger writer missing at startup: one line names the entries and the writer"
+check R1  "entries jq's test() cannot compile are dropped with the note; a successful call for the valid one allows"
+check L1  "a 600 KB lib-less ledger with no closing ] starts in bounded time, is removed, and the gate denies"
+check L2  "a 600 KB ledger with a stray } starts in bounded time, is reset, the gate denies, and a ] inside quotes does not cut the note"
+check B1  "the scan is fed at most the last 64 KB of the ledger"
+check K1  "a scan cancelled mid-run (lib-less) leaves the ledger already removed: the gate denies"
+check K2  "a scan cancelled mid-run (stray }, with jq) leaves the ledger already reset: the gate denies"
 
 # ── Mutation proofs ─────────────────────────────────────────────────────────
 # A copy of the hook with one change, the change asserted to have landed and to
@@ -309,18 +442,26 @@ mk_mut '# BL-335-NOJQ' '  :   # BL-335-NOJQ' 1
 killed_by "MU8: the jq-missing note silenced (# BL-335-NOJQ)" S12
 mk_mut '# BL-335-NOTE' '  :   # BL-335-NOTE' 1
 killed_by "MU9: the note never printed (# BL-335-NOTE)" S8
-mk_mut "case \"\$s\" in ':['*)" '  :' 1
-killed_by "MU10: _add_raw takes a value that is not a list for one" S12d
-mk_mut 'r=${r%%]*}' '  :' 1
-killed_by "MU11: _add_raw does not stop at the list's end" S12
-mk_mut 'r=${r#*\[}' '  :' 1
-killed_by "MU12: _add_raw keeps the text before the list's [" S12
-mk_mut "tr -s '[:space:]' ' '" '  :' 1
-killed_by "MU13: _add_raw keeps the list's newlines (the note breaks over lines)" S12
-mk_mut '"${#r}" -gt 300' '  :' 1
-killed_by "MU14: _add_raw does not cut a long list short" S12c
+mk_sub 'if (substr(s, p, 1) != "[") exit' 'exit' 'p = p'
+killed_by "MU10: the scan takes a value that is not a list for one" S12d
+mk_mut '# BL-335-SNAP-BOUND' '  ADD_SNAP=$(cat "$1" 2>/dev/null) || ADD_SNAP=""   # BL-335-SNAP-BOUND' 1
+killed_by "MU11: the snapshot is the whole ledger, not its last 64 KB (# BL-335-SNAP-BOUND)" B1
+mk_mut '# BL-335-NOJQ' '  _add_snap "$TOOL_USAGE" "$ADD_WHY"; _add_scan   # BL-335-NOJQ' 1
+killed_by "MU12: lib-less, the scan runs BEFORE the ledger is removed" K1
+mk_mut '# BL-335-UNREADABLE' '      _add_snap "$TOOL_USAGE" "the file is not valid JSON, so it was rewritten"; _add_scan   # BL-335-UNREADABLE' 1
+killed_by "MU13: with jq, the scan runs BEFORE the ledger is reset" K2
+mk_sub 'if (instr) { out = out c' 'if (instr) {' 'if (c == "]") break; if (instr) {'
+killed_by "MU14: a ] inside quotes ends the scan" L2
+mk_sub 'for (; p <= n && length(out) < 300; p++)' '< 300' '< 300000'
+killed_by "MU15: the scan's output is not cut at 300 bytes" S12c
+mk_sub 'if (c ~ /[\t\r\n]/) c = " "' 'if (c ~ /[\t\r\n]/)' 'if (0)'
+killed_by "MU16: newlines reach the note (it breaks over lines)" S12
+mk_mut '_add_scan   # BL-335-SCAN' '_add_scan_never=1   # BL-335-SCAN' 1
+killed_by "MU17: the scan never runs (# BL-335-SCAN)" S12
+mk_sub '# BL-335-READ' ' | select(. as $p | (try ("" | test($p)) catch null) != null)' ''
+killed_by "MU18: entries test() cannot compile are carried" R1
 mk_sub 'ADD_WHY="jq is not installed' 'if [ "$LW_READY" = "1" ]' 'if [ "$LW_READY" != "1" ]'
-killed_by "MU15: the two reasons swapped (jq missing reported as the writer)" S12
+killed_by "MU19: the two reasons swapped (jq missing reported as the writer)" S12
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
