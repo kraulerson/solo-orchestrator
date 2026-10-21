@@ -344,7 +344,7 @@ host_single_authority_reason() {
   local _r=""
   [ "${SOLO_SINGLE_AUTHORITY_ATTESTED:-}" = "1" ] || return 2   # BL-339-SA-OFFERED
   _r=$(printf '%s' "${SOLO_SINGLE_AUTHORITY_ATTESTED_REASON:-}" | LC_ALL=C tr -d '\000-\037\\')   # BL-339-SA-SANITISE
-  _r=$(printf '%s' "$_r" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  _r=$(printf '%s' "$_r" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')   # BL-339-SA-TRIM
   [ -n "$_r" ] || return 1   # BL-339-SA-REASON
   printf '%s\n' "$_r"
 }
@@ -368,10 +368,10 @@ _host_record_single_authority() {
     HOST_SA_RECORD_ERR="$_f cannot be written (read-only, or not a regular file)."; return 1
   fi
   if [ ! -f "$_f" ]; then
-    printf '{}\n' > "$_f" 2>/dev/null || { HOST_SA_RECORD_ERR=".claude/ refuses writes."; return 1; }
+    printf '{}\n' > "$_f" 2>/dev/null || { HOST_SA_RECORD_ERR=".claude/ refuses writes."; return 1; }   # BL-339-RECORD-CREATE
   fi
   _cur=$(jq -r '.phase2_init.attestations.branch_protection | if . == null then "" else (.reason // "<none>") end' "$_f" 2>/dev/null) \
-    || { HOST_SA_RECORD_ERR="$_f is not a JSON object the record can be added to."; return 1; }
+    || { HOST_SA_RECORD_ERR="$_f is not a JSON object the record can be added to."; return 1; }   # BL-339-RECORD-READ
   case "$_cur" in
     ""|single_authority_approvals) ;;
     *) HOST_SA_RECORD_ERR="phase2_init.attestations.branch_protection already holds another attestation (reason: $(printf '%s' "$_cur" | LC_ALL=C tr -d '\000-\037\\')); it is not overwritten."
@@ -416,7 +416,7 @@ host_verify_protection_attested() {
   fi
   # The driver sets HOST_VERIFY_APPROVALS_ZERO in org mode when the count is 0.
   # Unset, there was nothing to excuse, and the answer is the driver's.
-  [ -n "$HOST_VERIFY_APPROVALS_ZERO" ] || return "$_rc"
+  [ -n "$HOST_VERIFY_APPROVALS_ZERO" ] || return "$_rc"   # BL-339-SA-NOTHING-TO-EXCUSE
   if [ "$_src" -eq 1 ]; then
     HOST_SA_STATE="refused"   # BL-339-SA-REFUSED
     printf '%b[BLOCKED]%b %s: required approving reviews on %s is 0, and SOLO_SINGLE_AUTHORITY_ATTESTED=1 was set with no reason, so it is not accepted.\n' "${RED:-}" "${NC:-}" "$_label" "'$_b'"
@@ -430,7 +430,7 @@ host_verify_protection_attested() {
     printf '%b[FAIL]%b %s: a single-authority attestation was supplied but COULD NOT BE RECORDED to .claude/process-state.json — refusing it. %s\n' "${RED:-}" "${NC:-}" "$_label" "$HOST_SA_RECORD_ERR"
     return 3   # BL-339-SA-UNRECORDED
   fi
-  HOST_SA_STATE="accepted"
+  HOST_SA_STATE="accepted"   # BL-339-SA-ACCEPTED
   # printf '%s' for the reason, never echo -e: it is operator-supplied. The word
   # "verified" is absent from this block in every form, as in BL-274's: an
   # accepted exception must not read like a finished check.

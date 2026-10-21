@@ -44,6 +44,8 @@
 #      S7 personal mode, count 0, attested: nothing to excuse, nothing recorded
 #      S8 attested, the state file read-only: refused, file unchanged
 #      S9 attested, the slot holds another attestation: refused, not overwritten
+#      S9b the same when the slot holds something that is not an object
+#      S15 attested with no state file yet: the record creates it
 #      S10 the backstop and --verify-init reach the same verdict on S1-S4
 #      S11 the record is never read back: a later unattested run fails
 #      S12 the record is idempotent at one HEAD and re-pinned at a new one
@@ -348,12 +350,12 @@ case_S8() {   # attested, the state file read-only: refused, unchanged
   run_gate "$1" SOLO_SINGLE_AUTHORITY_ATTESTED=1 "SOLO_SINGLE_AUTHORITY_ATTESTED_REASON=$REASON"; b=$(bs_verdict)
   [ "$RC" -ne 0 ] && [ "$(cksum_state)" = "$before" ] \
     && printf '%s\n' "$OUT" | grep -q '\[FAIL\] Phase 1→2 backstop: a single-authority attestation was supplied but COULD NOT BE RECORDED' \
-    && ! printf '%s\n' "$OUT" | grep -qE '\[ATTESTED\]|backstop: repo protection verified' \
+    && ! printf '%s\n' "$OUT" | grep -qE '\[ATTESTED\]|backstop: repo protection verified|backstop: protection verification failed' \
     || { WHY="backstop=$b rc=$RC changed=$([ "$(cksum_state)" = "$before" ] && echo no || echo yes): $(lines "$OUT" 'backstop|ATTESTED|RECORDED')"; return 1; }
   run_vi "$1" SOLO_SINGLE_AUTHORITY_ATTESTED=1 "SOLO_SINGLE_AUTHORITY_ATTESTED_REASON=$REASON"; v=$(vi_verdict)
   [ "$(cksum_state)" = "$before" ] && ! step_marked \
     && printf '%s\n' "$VOUT" | grep -q 'branch_protection_configured: a single-authority attestation was supplied but COULD NOT BE RECORDED' \
-    && ! printf '%s\n' "$VOUT" | grep -q '\[ATTESTED\]' \
+    && ! printf '%s\n' "$VOUT" | grep -qE '\[ATTESTED\]|protection verification failed' \
     || { WHY="verify-init=$v: $(lines "$VOUT" 'branch_protection|RECORDED')"; return 1; }
   return 0
 }
@@ -367,6 +369,23 @@ case_S9() {   # attested, the slot holds another attestation: refused, not overw
   [ "$RC" -ne 0 ] && [ "$(cksum_state)" = "$before" ] \
     && printf '%s\n' "$OUT" | grep -q 'COULD NOT BE RECORDED.*already holds another attestation' && return 0
   WHY="rc=$RC changed=$([ "$(cksum_state)" = "$before" ] && echo no || echo yes): $(lines "$OUT" 'backstop|RECORDED')"; return 1
+}
+case_S9b() {   # attested, the slot holds something that is not an object: refused, not overwritten
+  local before
+  org_zero "$1"
+  jq "$BP = \"hand-written\"" "$P/.claude/process-state.json" > "$P/s.tmp" && mv "$P/s.tmp" "$P/.claude/process-state.json"
+  before=$(cksum_state)
+  run_gate "$1" SOLO_SINGLE_AUTHORITY_ATTESTED=1 "SOLO_SINGLE_AUTHORITY_ATTESTED_REASON=$REASON"
+  [ "$RC" -ne 0 ] && [ "$(cksum_state)" = "$before" ] \
+    && printf '%s\n' "$OUT" | grep -q 'COULD NOT BE RECORDED.*not a JSON object' && return 0
+  WHY="rc=$RC changed=$([ "$(cksum_state)" = "$before" ] && echo no || echo yes): $(lines "$OUT" 'backstop|RECORDED')"; return 1
+}
+case_S15() {   # attested, no state file yet: the record creates it
+  local b
+  org_zero "$1"; rm -f "$P/.claude/process-state.json"
+  run_gate "$1" SOLO_SINGLE_AUTHORITY_ATTESTED=1 "SOLO_SINGLE_AUTHORITY_ATTESTED_REASON=$REASON"; b=$(bs_verdict)
+  [ "$b" = A ] && [ "$(state "$BP.reason")" = single_authority_approvals ] && return 0
+  WHY="backstop=$b record='$(state "$BP.reason")': $(lines "$OUT" 'backstop|RECORDED')"; return 1
 }
 case_S10() {   # the two callers agree
   local e b v got=""
@@ -532,6 +551,8 @@ run_case S6  case_S6  "count 1, attested: verified, nothing recorded"
 run_case S7  case_S7  "personal, count 0, attested: nothing to excuse"
 run_case S8  case_S8  "attested, read-only state file: refused, unchanged"
 run_case S9  case_S9  "attested, the slot holds another attestation: refused, unchanged"
+run_case S9b case_S9b "attested, the slot holds a non-object: refused, unchanged"
+run_case S15 case_S15 "attested, no state file yet: the record creates it"
 run_case S10 case_S10 "the backstop and --verify-init agree on attested/blank/yes/none"
 run_case S11 case_S11 "the record is never read back"
 run_case S12 case_S12 "idempotent at one HEAD, re-pinned at the next"
@@ -612,12 +633,17 @@ mutant M11 S4 case_S4 "$L" '# BL-339-SA-OFFERED'  0 '= "1" ]' '!= "" ]'
 TRLIT="| LC_ALL=C tr -d '\\000-\\037\\\\'"
 mutant M12 S13 case_S13 "$L" '# BL-339-SA-SANITISE' 0 "$TRLIT" ''
 mutant M13 S3 case_S3 "$L" '# BL-339-SA-REASON'   0 '[ -n "$_r" ] || return 1' 'true'
+mutant M32 S3 case_S3 "$L" '# BL-339-SA-TRIM'      0 "| sed 's/^[[:space:]]*//;s/[[:space:]]*\$//'" '| cat'
 # BL-339: the wrapper
 mutant M14 S2 case_S2 "$L" '# BL-339-SA-ONLY-WHEN-STANDS' 0 'if [ "$_src" -eq 0 ]; then' 'if true; then'
 mutant M15 S3 case_S3 "$L" '# BL-339-SA-REFUSED' 0 'HOST_SA_STATE="refused"' 'return "$_rc"'
 mutant M16 S8 case_S8 "$L" '# BL-339-SA-UNRECORDED' 0 'return 3' 'return 0'
 mutant M17 S5 case_S5 "$L" '# BL-339-SA-ACCEPT-ONLY-ON-PASS' 0 '[ "$_rc" -eq 0 ] || return "$_rc"' 'true'
+mutant M35 S6 case_S6 "$L" '# BL-339-SA-NOTHING-TO-EXCUSE' 0 '[ -n "$HOST_VERIFY_APPROVALS_ZERO" ] || return "$_rc"' 'true'
+mutant M36 S14 case_S14 "$L" '# BL-339-SA-ACCEPTED' 0 'HOST_SA_STATE="accepted"' 'HOST_SA_STATE=""'
 # BL-339: the recorder
+mutant M33 S15 case_S15 "$L" '# BL-339-RECORD-CREATE' 0 "printf '{}\\n' > \"\$_f\" 2>/dev/null" 'false'
+mutant M34 S9b case_S9b "$L" '# BL-339-RECORD-READ' 0 'return 1; }' ': ; }'
 mutant M18 S8 case_S8 "$L" '# BL-339-RECORD-WRITABLE' 0 '[ ! -w "$_f" ]' 'false'
 mutant M19 S9 case_S9 "$L" '# BL-339-RECORD-FOREIGN'  -1 '*)' '*-never-)'
 mutant M20 S12 case_S12 "$L" '# BL-339-RECORD-SAME'   0 'return 0' ':'
@@ -627,6 +653,8 @@ mutant M22 S14 case_S14 "$G" '# BL-339-NOT-VERIFIED' -1 '[ "$HOST_SA_STATE" = "a
 mutant M23 S8 case_S8 "$G" '# BL-339-UNRECORDED' 0 'issues=$((issues + 1))' ':'
 mutant M24 S8 case_S8 "$C" '# BL-339-VI-UNRECORDED' 0 '[ "$bp_rc" -eq 0 ]' '[ "$bp_rc" -eq 0 ] || [ "$bp_rc" -eq 3 ]'
 mutant M25 S1 case_S1 "$C" '# BL-339-VI-NOT-VERIFIED' -1 '[ "$HOST_SA_STATE" = "accepted" ] \' 'false \'
+mutant M37 S8 case_S8 "$G" '# BL-339-UNRECORDED' -1 'elif [ "$backstop_rc" -eq 3 ]; then' 'elif false; then'
+mutant M38 S8 case_S8 "$C" '# BL-339-VI-NOT-VERIFIED' 1 'elif [ "$bp_rc" -ne 3 ]; then' 'elif true; then'
 # BL-339: the drivers
 mutant M26 S1 case_S1 host-drivers/github.sh '# BL-339-APPROVALS-ZERO' 0 'HOST_VERIFY_APPROVALS_ZERO=1' ':'
 mutant M27 S2 case_S2 host-drivers/github.sh '# BL-339-WAIVE' -1 '[ "${3:-}" = "single-authority" ]' 'true'
