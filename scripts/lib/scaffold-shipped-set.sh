@@ -136,6 +136,32 @@ soif_parse_shipped_templates() {
       done | sort -u
 }
 
+# soif_parse_shipped_tool_matrix <init_file> <framework_dir>
+#   Prints one shipped tool-matrix file per line ("templates/tool-matrix/<base>"),
+#   LC-sorted & deduped. Derived MECHANICALLY from init.sh's
+#   `cp "$SCRIPT_DIR/templates/tool-matrix/"*.json templates/tool-matrix/` line:
+#   the quoted path plus whatever glob follows the closing quote is expanded
+#   against <framework_dir>, exactly as init.sh's own cp expands it.
+#
+#   `## BL-333:` --sync-framework copies this set. Before it, the matrix was in
+#   no sync set at all, so a floor raised upstream never reached an existing
+#   project. tests/test-bl333-sync-tool-matrix.sh::P2 runs init.sh's own lines
+#   and asserts they land exactly this set. bash-3.2 safe.
+soif_parse_shipped_tool_matrix() {
+  local init_file="$1" fw_dir="$2"
+  local line rel suffix f
+  grep -E 'cp[[:space:]]+"\$SCRIPT_DIR/templates/tool-matrix/[^"]*"[^[:space:]]*[[:space:]]+templates/tool-matrix/' "$init_file" \
+    | while IFS= read -r line; do
+        rel="$(printf '%s\n' "$line" | sed -n 's#.*cp[[:space:]]*"\$SCRIPT_DIR/\(templates/tool-matrix/[^"]*\)".*#\1#p')"
+        suffix="$(printf '%s\n' "$line" | sed -n 's#.*cp[[:space:]]*"\$SCRIPT_DIR/templates/tool-matrix/[^"]*"\([^[:space:]]*\).*#\1#p')"
+        [ -n "$rel" ] || continue
+        # $rel$suffix is deliberately unquoted: it is init.sh's glob.
+        for f in "$fw_dir"/$rel$suffix; do   # BL-333-MATRIX-PARSER
+          if [ -f "$f" ]; then printf 'templates/tool-matrix/%s\n' "${f##*/}"; fi
+        done
+      done | sort -u
+}
+
 # soif_parse_shipped_skills <init_file> <skills_src_dir>
 #   Prints one shipped vendored-skill file per line (".claude/skills/<name>/SKILL.md"
 #   and, when the source ships one, ".claude/skills/<name>/NOTICE"), LC-sorted &

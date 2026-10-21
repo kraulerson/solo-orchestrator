@@ -97,8 +97,9 @@ BACKFILL_ONLY=false
 #                                                  consent that `overwrite` needs
 # A bare non-interactive --sync-framework applies NOTHING (notice only). Both
 # flags are valid ONLY with --sync-framework, apply ONLY to the verbatim
-# docs/reference/*.md set, and NEVER to the sed-rendered CLAUDE.md /
-# PROJECT_INTAKE.md (see # BL-099-DOC-GUARD). Interactive runs always prompt.
+# docs/reference/*.md set and (`## BL-333:`) templates/tool-matrix/*.json, and
+# NEVER to the sed-rendered CLAUDE.md / PROJECT_INTAKE.md
+# (see # BL-099-DOC-GUARD). Interactive runs always prompt.
 #
 # Review round 2:
 #   • Every mutating doc write is status-checked (# BL-099-APPLY-STATUS). A write
@@ -430,8 +431,10 @@ if [ "$SHOW_HELP" = true ]; then
   echo "                          Review UPDATE-PLAN.md, tick items, then apply (a later slice)."
   echo ""
   echo -e "${BOLD}Same-tier framework sync (BL-099):${NC}"
-  echo "  --sync-framework        Refresh vendored gate scripts, helper libs, hooks, and framework"
-  echo "                          docs from the FRAMEWORK checkout being run — NO track/deployment"
+  echo "  --sync-framework        Refresh vendored gate scripts, helper libs, hooks, framework docs"
+  echo "                          and the tool matrix (templates/tool-matrix/: a missing file is"
+  echo "                          copied, a drifted one is treated like a reference doc) from the"
+  echo "                          FRAMEWORK checkout being run — NO track/deployment"
   echo "                          change. Run it from inside your project via the framework clone's"
   echo "                          copy: cd <project> && bash <framework>/scripts/upgrade-project.sh --sync-framework"
   echo "  --dry-run               (with --sync-framework) Preview every action and write NOTHING."
@@ -439,7 +442,8 @@ if [ "$SHOW_HELP" = true ]; then
   echo "                          non-interactive contexts (interactive runs always prompt)."
   echo "  --apply-doc-updates <skip|sidecar|overwrite>"
   echo "                          (with --sync-framework) DECLARE what a non-interactive run does"
-  echo "                          with a drifted framework reference doc (docs/reference/*.md)."
+  echo "                          with a drifted framework reference doc (docs/reference/*.md)"
+  echo "                          or tool-matrix file (templates/tool-matrix/*.json)."
   echo "                          Omit it and a non-interactive sync applies NOTHING — it only"
   echo "                          prints the drift notice. Interactive runs always ask instead."
   echo "                            skip      — notice only (explicit form of the default)"
@@ -1031,6 +1035,7 @@ fi
 #   (e) script sync (mechanical shipped-set from init.sh)   # BL-099-SYNC
 #   (f) hooks (ask-first): commit-msg TDD gate + pre-commit fallback
 #   + doc drift (7 verbatim reference docs; CLAUDE.md/PROJECT_INTAKE notice-only)
+#   + tool matrix (templates/tool-matrix/*.json, the doc treatment; BL-333)
 #   + pin manifest.soloFrameworkCommit (non-dry only)
 # DRY_RUN is threaded through EVERYTHING: every step prints what it WOULD do and
 # writes nothing (no tmp files, no CDF side effects, no manifest writes).
@@ -1634,6 +1639,47 @@ _bl099_doc_drift() {
   _bl099_process_doc "PROJECT_INTAKE.md" "PROJECT_INTAKE.md" "$ORCHESTRATOR_ROOT/templates/project-intake.md" true || DOC_APPLY_FAILED=true
 }
 
+# TOOL MATRIX — `## BL-333:`. init.sh copies templates/tool-matrix/*.json into the
+# project, and check-versions.sh, the phase gate's tool block and verify-install
+# all read that copy. Nothing refreshed it, so a floor raised upstream never
+# reached an existing project.
+#
+# A drifted file gets the reference documents' treatment, through the same
+# processor: a diff, then nothing unless the run declares --apply-doc-updates
+# (overwrite also needs --confirm-doc-overwrite and keeps a dated .bak). The sync
+# cannot tell an old upstream copy from one the project edited — the currency
+# inventory carries no matrix hashes — and a project may have added a tool, so
+# drift is never applied silently. A file MISSING from a vendored matrix is copied:
+# there is nothing of the project's to lose. A project with NO templates/tool-matrix/
+# (an adopted one) is left without one: check-versions.sh falls back to the
+# framework's own copy through .claude/orchestrator-source.json, which is current
+# by construction, and creating a copy here would freeze it.
+_bl333_sync_tool_matrix() {
+  local shipped rel src dst rc
+  print_step "Tool matrix (templates/tool-matrix/) — drift from framework"
+  shipped="$(soif_parse_shipped_tool_matrix "$ORCHESTRATOR_ROOT/init.sh" "$ORCHESTRATOR_ROOT")" || shipped=""   # BL-333-MATRIX-EMPTY-SET
+  if [ -z "$shipped" ]; then print_warn "  the framework's init.sh ships no tool matrix that this sync can read — nothing compared."; return 0; fi
+  if [ ! -d "$PROJECT_ROOT/templates/tool-matrix" ]; then print_info "  no templates/tool-matrix/ in this project — check-versions.sh reads the framework's own copy (.claude/orchestrator-source.json); none is created."; return 0; fi   # BL-333-MATRIX-VENDORED
+  # The list is read on fd 3, never stdin: an interactive apply prompts inside
+  # this loop, and on stdin it would read the next file NAME as the answer.
+  while IFS= read -r rel <&3; do   # BL-333-MATRIX-OWN-FD
+    [ -n "$rel" ] || continue
+    src="$ORCHESTRATOR_ROOT/$rel"
+    dst="$PROJECT_ROOT/$rel"
+    if [ ! -e "$dst" ]; then
+      if [ "$DRY_RUN" = true ]; then print_info "  [would copy] $rel (missing)"; continue; fi   # BL-333-MATRIX-DRYRUN
+      rc=0; cp "$src" "$dst" 2>/dev/null || rc=$?
+      if ! _bl099_write_ok "$rc" "$src" "$dst"; then print_fail "  FAILED to copy $rel (cp exit $rc) — the project has no copy of it."; DOC_APPLY_FAILED=true; continue; fi   # BL-333-MATRIX-WRITE-STATUS
+      print_ok "  $rel: copied (missing in project)"
+      continue
+    fi
+    _bl099_process_doc "$rel" "$rel" "$src" false || DOC_APPLY_FAILED=true   # BL-333-MATRIX-DRIFT
+    if ! cmp -s "$src" "$dst"; then print_info "    until it is applied, check-versions.sh and the phase gate keep reading your copy's floors and install commands."; fi   # BL-333-MATRIX-KEPT-NOTE
+  done 3<<EOF
+$shipped
+EOF
+}
+
 # ── THE POST-MVP POLICY NOTICE — NOTICE-ONLY, the # BL-099-DOC-GUARD form ────
 # SPEC: docs/designs/2026-08-02-delta-track-v1.md §3.2 (the DECIDED sync
 # semantics for the post-MVP track's project-owned policy file) and §3.1.
@@ -1764,6 +1810,7 @@ _run_sync_framework() {
   _bl099_sync_precommit_hook
   _bl099_sync_prepush_notice   # BL-243-SYNC-SKIP-LOUD
   _bl099_doc_drift
+  _bl333_sync_tool_matrix   # BL-333-MATRIX-SYNC
   _postmvp_policy_notice
   if [ "$DRY_RUN" = true ]; then
     print_info "[dry-run] would stamp .claude/manifest.json.soloFrameworkCommit to the framework HEAD."
@@ -1779,7 +1826,7 @@ _run_sync_framework() {
   # and the summary says which way it failed. An operator must never be told a doc
   # was updated when it was not.
   if [ "$DOC_APPLY_FAILED" = true ]; then
-    print_fail "Framework sync finished, but one or more reference docs could NOT be applied — the backup or the write itself failed (see the REFUSING / FAILED lines above). Those files still hold their original bytes; nothing upstream was applied to them."
+    print_fail "Framework sync finished, but one or more reference docs or tool-matrix files could NOT be applied — the backup or the write itself failed (see the REFUSING / FAILED lines above). Those files still hold their original bytes; nothing upstream was applied to them."
     exit 1
   fi
   if [ "$DRY_RUN" = true ]; then

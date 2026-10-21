@@ -1629,9 +1629,11 @@ create_project() {
   mkdir -p templates/intake-suggestions
   cp "$SCRIPT_DIR/templates/intake-suggestions/"*.json templates/intake-suggestions/
 
-  # Copy tool matrix files (for phase gate and track upgrade resolution)
+  # Copy tool matrix files (for phase gate and track upgrade resolution). `## BL-333:`
+  # --sync-framework derives its matrix set from THIS line
+  # (soif_parse_shipped_tool_matrix); test-bl333-sync-tool-matrix.sh::P2 runs it.
   mkdir -p templates/tool-matrix
-  cp "$SCRIPT_DIR/templates/tool-matrix/"*.json templates/tool-matrix/
+  cp "$SCRIPT_DIR/templates/tool-matrix/"*.json templates/tool-matrix/   # BL-333-MATRIX-SHIP
 
   # BL-131-DOM-SINKS: ship the project-owned DOM-XSS sink ruleset. The emitted
   # pre-commit hook (scripts/lib/hook-templates.sh) and the generated CI both
