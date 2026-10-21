@@ -25675,7 +25675,7 @@ there would drop a case that passes today.
 **Logged:** 2026-10-08 (issue #484, filed 2026-09-30; decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** Medium
-**Status:** Closed — shipped 2026-10-21 (fix `2bd8f745`, suite `b03ad02f`)
+**Status:** Closed — shipped 2026-10-21 (fix `2bd8f745` and `c6e855b3`, suite `b03ad02f` and `7c9c6611`)
 
 **What.** `scripts/session-test-gate-check.sh`'s MCP notice tells the Orchestrator to add a server under
 `mcp_requirements.additional_required` in `.claude/tool-usage.json`, and `scripts/session-mcp-gate.sh` enforces
@@ -25689,15 +25689,23 @@ a clone's first session) applies to satisfaction, not to the list of requirement
 
 **What shipped.** `scripts/session-test-gate-check.sh` reads the list once (`# BL-335-READ`) and writes it back on all
 three paths: the merge (`# BL-335-MERGE`), the jq-failure fallback heredoc and the startup heredoc. Only non-empty
-strings are kept; anything else is dropped with one note line (`# BL-335-DROP-NOTE`), so the next start is silent.
+strings that jq's `test` can compile are kept (the gate matches with `test`, so an entry like `*sentry*` would refuse
+every Write of every session); anything else is dropped with one note line (`# BL-335-DROP-NOTE`), so the next start
+is silent. This changes resume too: a non-string entry such as `5` or `null`, which the old merge carried and the gate
+then enforced as the pattern `"5"` / `"null"`, is now dropped with the note.
 Startup still empties `calls[]` and leaves out `qdrant_find_succeeded` / `context7_query_docs_succeeded` (BL-236), so
 a carried entry is a requirement only: the first Write of a fresh session is refused until a matching tool returns
-successfully in that session (S6). Where the list cannot be carried, the hook says so in one line naming the entries
-it found as text, and still exits 0: a ledger that is not valid JSON (it is rewritten, `# BL-335-UNREADABLE`), and a
-startup with jq or the ledger writer missing (the ledger is removed as BL-314 does, `# BL-335-NOJQ`). The
-fallback does have jq — it runs when jq fails on the file — so the "cannot use jq" case is the invalid-JSON one, and
-text cut from a broken file is printed, never carried. `tests/test-bl335-additional-required-carry.sh`: 17 cases,
-15 mutants.
+successfully in that session (S6). Where the list cannot be carried — a ledger that is not valid JSON (it is
+rewritten, `# BL-335-UNREADABLE`), or a startup with jq or the ledger writer missing (the ledger is removed as BL-314
+does, `# BL-335-NOJQ`) — the hook keeps the last 64 KB of the old ledger (`# BL-335-SNAP-BOUND`), does the reset, and
+only then scans that text (`# BL-335-SCAN`): one awk pass that takes the list up to its closing `]` (not one inside
+quotes), cut at 300 bytes, and prints it in one note line; the hook exits 0. The order matters: a session start
+cancelled mid-scan has already dropped the last session's outcome flags (K1, K2), and no ledger size makes the scan
+slow (L1, L2: 570 KB in under a second; the first cut of this fix sliced the whole file with bash patterns, quadratic
+in the list's offset, before the reset). The fallback does have jq — it runs when jq fails on the file — so the
+"cannot use jq" case is the invalid-JSON one, and text cut from a broken file is printed, never carried.
+`tests/test-bl335-additional-required-carry.sh`: 24 cases (S1–S13 with variants, R1, L1, L2, B1, K1, K2) and 19
+mutants, 43 checks.
 
 **Tracked or ignored.** `.claude/tool-usage.json` is git-ignored in generated projects (`# BL-236-LEDGER-IGNORE` in
 `templates/generated/gitignore-base.tmpl`, backfilled by `upgrade-project.sh`) and in adopted ones (the
@@ -25705,8 +25713,10 @@ text cut from a broken file is printed, never carried. `tests/test-bl335-additio
 session does not see it. The notice and `docs/cli-setup-addendum.md` say so.
 
 **Residuals (not fixed here).**
-- An entry that is not a valid regex is carried. The gate's `test($pat)` then errors, which reads as "not
-  succeeded", so every Write is refused with a message that names the entry but not the cause. Fail-closed.
+- An entry that compiles but can never match a tool name (`"mcp__sentry__ "`, trailing space) is carried and
+  refuses every Write of each fresh session; the gate's message names it.
+- The scan looks only at the last 64 KB of a broken ledger. Every ledger the framework writes keeps
+  `mcp_requirements` last; a hand-edited one with the list further up is reset without a note.
 - When the startup write cannot land (`# BL-314-RESET-FAIL-CLOSED`), the ledger is emptied and the list goes with it;
   that path's stderr line does not mention the list.
 - `track-tool-usage.sh` reseeds an unparseable ledger mid-session with no `mcp_requirements` (`# BL-233-NO-REQ-RESEED`),
