@@ -158,14 +158,21 @@ case_P1() {
   [ -n "$got" ] && [ "$got" = "$want" ]
 }
 
+# init_matrix_lines <framework-dir> — init.sh's mkdir + cp lines for the matrix,
+# as written there. (Takes the directory: lint-no-live-remote-in-tests.sh reads
+# a variable assigned an init.sh path as an init.sh run once it reaches bash -c.)
+init_matrix_lines() {
+  command grep -E '^[[:space:]]*(mkdir -p templates/tool-matrix|cp "\$SCRIPT_DIR/templates/tool-matrix/)' "$1/init.sh"
+}
+
 # ── P2: running init.sh's own matrix lines lands exactly the parser's set ────
 case_P2() {
   local fw="$1" d lines got want
   d="$(newtmp)"
-  lines="$(command grep -E '^[[:space:]]*(mkdir -p templates/tool-matrix|cp "\$SCRIPT_DIR/templates/tool-matrix/)' "$fw/init.sh")"
+  lines="$(init_matrix_lines "$fw")"
   [ "$(printf '%s\n' "$lines" | command grep -c '^[[:space:]]*cp ')" -ge 1 ] \
     || { CASE_DETAIL="init.sh has no tool-matrix cp line to execute"; return 1; }
-  ( cd "$d" && SCRIPT_DIR="$fw" bash -c "$lines" ) >/dev/null 2>&1 || { CASE_DETAIL="init.sh's matrix lines failed"; return 1; }
+  ( cd "$d" && SCRIPT_DIR="$fw" bash -c "$lines" ) >/dev/null 2>&1 || { CASE_DETAIL="the extracted matrix lines failed"; return 1; }
   got="$( cd "$d" && find templates/tool-matrix -type f | LC_ALL=C sort )"
   . "$fw/scripts/lib/scaffold-shipped-set.sh"
   want="$(soif_parse_shipped_tool_matrix "$fw/init.sh" "$fw")"
