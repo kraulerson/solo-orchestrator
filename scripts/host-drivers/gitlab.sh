@@ -374,7 +374,10 @@ host_verify_protection() {
       aresp=$(glab api "projects/$project/approval_rules" 2>/dev/null || echo '[]')
       val=$(echo "$aresp" | jq -r '[.[]?.approvals_required // 0] | max // 0')
       if [ "$val" = "0" ] || [ "$val" = "null" ]; then
-        failures="${failures}no approval rule requires >= 1 approval (org mode requires at least 1)\n"
+        # BL-339: the same excuse as the github driver's, on the same terms.
+        HOST_VERIFY_APPROVALS_ZERO=1   # BL-339-APPROVALS-ZERO
+        [ "${3:-}" = "single-authority" ] \
+          || failures="${failures}no approval rule requires >= 1 approval (org mode requires at least 1)\n"   # BL-339-WAIVE
       fi
     fi
 

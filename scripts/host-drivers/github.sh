@@ -202,9 +202,21 @@ host_verify_protection() {
 
   # Org-only rules
   if [ "$mode" = "org" ]; then
-    val=$(echo "$resp" | jq -r '.required_pull_request_reviews.required_approving_review_count // 0')
-    if [ "$val" = "0" ] || [ "$val" = "null" ]; then
-      failures="${failures}required_approving_review_count is 0 (org mode requires at least 1)\n"
+    # BL-339: no required_pull_request_reviews object means pull requests are not
+    # required at all, so anyone can push to the branch. That is not a review
+    # count of 0, and no attestation excuses it: only a pull-request rule that
+    # is present and requires 0 approvals can be waived below.
+    val=$(echo "$resp" | jq -r '.required_pull_request_reviews | if type == "object" then (.required_approving_review_count // 0 | tostring) else "absent" end')
+    if [ "$val" = "absent" ]; then
+      failures="${failures}pull requests are not required on $branch (org mode requires a pull-request rule)\n"   # BL-339-PR-RULE
+    elif [ "$val" = "0" ] || [ "$val" = "null" ]; then
+      # BL-339: excused only when the caller passes "single-authority", which
+      # host_verify_protection_attested (scripts/lib/host.sh) does only while
+      # `## BL-274:`'s attestation stands, and records it. The flag tells that
+      # caller there was a count to excuse.
+      HOST_VERIFY_APPROVALS_ZERO=1   # BL-339-APPROVALS-ZERO
+      [ "${3:-}" = "single-authority" ] \
+        || failures="${failures}required_approving_review_count is 0 (org mode requires at least 1)\n"   # BL-339-WAIVE
     fi
     val=$(echo "$resp" | jq -r '.required_status_checks // empty')
     [ -z "$val" ] && failures="${failures}no status checks enforced (org mode requires CI status check)\n"
