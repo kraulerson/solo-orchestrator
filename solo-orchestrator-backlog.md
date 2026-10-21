@@ -25513,7 +25513,7 @@ documents get.
 **Logged:** 2026-10-08 (issue #486, filed 2026-09-30; decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** Medium — a protected `main` passes the backstop while an unprotected integration branch goes unchecked
-**Status:** Closed — shipped 2026-10-20 (fix `8b6bd83`, with `## BL-339:`)
+**Status:** Closed — shipped 2026-10-20 (fix `8b6bd83`, with `## BL-339:`; push-check fallback narrowed in fix `7d632cc`)
 
 **What.** `verify_init` in `scripts/process-checklist.sh` and the Phase 1 → Phase 2 backstop in
 `scripts/check-phase-gate.sh` call `host_verify_protection "main"`, and the push check (`# BL-084-PUSH-VERIFY`)
