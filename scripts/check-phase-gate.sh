@@ -2374,7 +2374,9 @@ if [ "$current_phase" -ge 2 ]; then
     elif git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git remote get-url origin >/dev/null 2>&1; then
       [ -z "$bl084_ib" ] || _bl084_brs="$bl084_ib"   # BL-334-PUSH-KEYED
       for _bl084_br in $_bl084_brs; do
-        if git ls-remote --heads origin "$_bl084_br" 2>/dev/null | grep -q .; then
+        # The full ref name: a bare `main` is matched against each ref's tail,
+        # so `refs/heads/feature/main` alone used to count as `main`.
+        if git ls-remote --heads origin "refs/heads/$_bl084_br" 2>/dev/null | grep -q .; then   # BL-334-PUSH-EXACT
           bl084_remote_verified=true
           break
         fi

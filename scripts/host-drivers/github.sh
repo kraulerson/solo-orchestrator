@@ -202,8 +202,14 @@ host_verify_protection() {
 
   # Org-only rules
   if [ "$mode" = "org" ]; then
-    val=$(echo "$resp" | jq -r '.required_pull_request_reviews.required_approving_review_count // 0')
-    if [ "$val" = "0" ] || [ "$val" = "null" ]; then
+    # BL-339: no required_pull_request_reviews object means pull requests are not
+    # required at all, so anyone can push to the branch. That is not a review
+    # count of 0, and no attestation excuses it: only a pull-request rule that
+    # is present and requires 0 approvals can be waived below.
+    val=$(echo "$resp" | jq -r '.required_pull_request_reviews | if type == "object" then (.required_approving_review_count // 0 | tostring) else "absent" end')
+    if [ "$val" = "absent" ]; then
+      failures="${failures}pull requests are not required on $branch (org mode requires a pull-request rule)\n"   # BL-339-PR-RULE
+    elif [ "$val" = "0" ] || [ "$val" = "null" ]; then
       # BL-339: excused only when the caller passes "single-authority", which
       # host_verify_protection_attested (scripts/lib/host.sh) does only while
       # `## BL-274:`'s attestation stands, and records it. The flag tells that
