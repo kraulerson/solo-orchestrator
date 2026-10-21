@@ -30,22 +30,29 @@
 # 382 agent commits measured for BL-324). For those the commits are proved from
 # HEAD's reflog (_reflog_commits): a `commit`, `commit (amend)` or
 # `commit (initial)` entry written in the last REFLOG_WINDOW seconds whose
-# subject is in the command's own text, when the command gives its message
-# inline (-m / --message, or -F - with a heredoc) and not from a file. A commit
-# that failed writes no entry, so `git commit -q -m x; true` leaves only older
-# entries, which are outside the window or carry another subject.
+# subject stands alone in the command's text (a quote or a newline on both
+# sides: `-m '<subject>'`, a heredoc line), when the command gives its message
+# inline (-m / --message, or -F - with a heredoc), not from a file, and is not a
+# --dry-run. A commit that failed writes no entry. What that does NOT prove: a
+# commit someone else made in the same window whose subject is exactly the
+# message the agent's failed command supplied is taken for the agent's.
 #
 # No-op conditions:
 #   - .claude/ doesn't exist (project not initialized)
-#   - tool_input.command isn't a `git commit` invocation
+#   - the event is not PostToolUse
+#   - tool_input.command isn't a `git commit` invocation (`git -C <dir> commit`
+#     and `git -c k=v commit` are not, so they are never recorded)
 #   - the call was interrupted
 #   - tool_response.exit_code is present and not 0 (a host that sends one)
 #   - the host names something that is not a commit in this repository
 #   - the host names no commit, and HEAD's reflog proves none (above): a message
-#     from -F <file> or an editor, a subject the command does not contain, a
-#     commit more than REFLOG_WINDOW seconds before the hook runs, or a commit in
-#     another worktree or repository. The detector reports such a commit as out
-#     of band, as it reported every commit before BL-324.
+#     from -F <file> (any `-F <word>`) or an editor, a --dry-run, a subject that
+#     does not stand alone in the command (`-m subject` unquoted, a `<<-`
+#     heredoc's tab, leading spaces, `printf '...\n' |`, a double space or tab,
+#     which git's reflog squeezes), a commit more than REFLOG_WINDOW seconds
+#     before the hook runs (or dated back with GIT_COMMITTER_DATE), or a commit
+#     in another worktree or repository. The detector reports such a commit as
+#     out of band, as it reported every commit before BL-324.
 #   - jq isn't installed (silent — never block Claude on missing infrastructure)
 
 set -uo pipefail
@@ -61,6 +68,10 @@ INPUT=$(cat)
 [ -z "$INPUT" ] && exit 0
 
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
+# `## BL-324:` only a call that succeeded; this hook is registered on
+# PostToolUse alone, and an envelope that says otherwise is not taken.
+EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""' 2>/dev/null)
+[ "$EVENT" = "PostToolUse" ] || exit 0   # BL-324-EVENT
 
 # Filter: must be a `git commit` (not `git commit-tree`, etc.) and must have succeeded.
 #
@@ -102,16 +113,23 @@ EXIT=$(echo "$INPUT" | jq -r '.tool_response.exit_code // 0' 2>/dev/null)
 # over 173 agent commits in Claude Code transcripts (BL-324): the result came
 # 2.4 s after the entry at the median, 10.7 s at the 95th percentile, and within
 # 30 s for 167 of them; the rest ran a long command after the commit.
-REFLOG_WINDOW=30
+REFLOG_WINDOW=30   # BL-324-WINDOW-SECONDS
+
+# A subject stands alone between two of these: a quote, a double quote, a newline.
+_RC_NL='
+'
+_RC_DELIM="'\"$_RC_NL"
 
 # _reflog_commits — the commits this call made, proved from HEAD's reflog, one
 # SHA per line (see the header). Nothing when the message is not inline.
 _reflog_commits() {
-  local now="" h="" sel="" gs="" t="" subj=""
+  local now="" log="" h="" sel="" gs="" t="" subj=""
+  echo "$CMD" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && return 0   # BL-324-REFLOG-DRYRUN
   echo "$CMD" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*F|--file)[[:space:]=]*[^-=[:space:]]' && return 0   # BL-324-REFLOG-NOFILE
   echo "$CMD" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*m|--message)([[:space:]=]|["'\'']|$)|(^|[[:space:]])(-[a-zA-Z]*F[[:space:]]*-|--file[=[:space:]]-)([[:space:]]|$)' || return 0   # BL-324-REFLOG-INLINE
   now=$(date +%s)
-  (cd "$PROJECT_ROOT" && git log -g -n 50 --format='%H%x09%gd%x09%gs' --date=unix HEAD 2>/dev/null) \
+  log=$(cd "$PROJECT_ROOT" && git log -g -n 50 --no-show-signature --format='%H%x09%gd%x09%gs' --date=unix HEAD 2>/dev/null)   # BL-324-NO-SHOW-SIGNATURE
+  printf '%s\n' "$log" \
     | while IFS=$'\t' read -r h sel gs; do
         t="${sel##*@\{}"; t="${t%\}}"
         case "$t" in ''|*[!0-9]*) break ;; esac
@@ -123,7 +141,7 @@ _reflog_commits() {
           *) continue ;;   # BL-324-REFLOG-ACTION
         esac
         [ -n "$subj" ] || continue
-        case "$CMD" in *"$subj"*) printf '%s\n' "$h" ;; esac   # BL-324-REFLOG-SUBJECT
+        case "$CMD" in *[$_RC_DELIM]"$subj"[$_RC_DELIM]*) printf '%s\n' "$h" ;; esac   # BL-324-REFLOG-SUBJECT
       done
 }
 
