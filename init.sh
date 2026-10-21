@@ -1360,6 +1360,14 @@ create_project() {
 
   print_step "Creating project at $PROJECT_DIR..."
 
+  # BL-323-SCAFFOLD-FRESH: only a directory init creates, or finds empty, yields a
+  # scaffold commit that is init's alone. --allow-existing-dir can point at files
+  # or history the operator already had; those are never recorded as the scaffold.
+  SCAFFOLD_DIR_FRESH=false
+  if [ ! -e "$PROJECT_DIR" ] || [ -z "$(ls -A "$PROJECT_DIR" 2>/dev/null)" ]; then
+    SCAFFOLD_DIR_FRESH=true
+  fi
+
   mkdir -p "$PROJECT_DIR"
   cd "$PROJECT_DIR"
 
@@ -2250,6 +2258,18 @@ Framework: Solo Orchestrator v1.0"
   # post-commit does NOT dirty the working tree.
   ( git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt ) || true
 
+  # BL-323-SCAFFOLD-RECORD: record the scaffold commit, so the scaffold push (here
+  # or by check-gate.sh --repair) can take the review check's attested escape for
+  # it and for nothing else (`# BL-323-SCAFFOLD-ONLY`, scripts/lib/phase2-state.sh).
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/scripts/lib/phase2-state.sh"
+  if [ "$SCAFFOLD_DIR_FRESH" = true ]; then
+    _phase2_record_scaffold \
+      || print_warn "Could not record the scaffold commit — its push will need a review on record, like any other push."
+  else
+    print_info "The project directory already held files or history, so the first push is treated as ordinary work: the pre-push review check will want a review on record."
+  fi
+
   # --- Host-aware repo creation (spec 2026-04-21 host-aware repo gate) ---
   # Reads git_host + repo_visibility from intake-progress.json (set by
   # intake-wizard.sh). If absent, prompts inline. Creates remote, registers
@@ -2422,7 +2442,11 @@ create_and_protect_remote() {
     # flips the Sponsored/Production hard-fail tests RED; reverting
     # _bl084_tier_bypassable to trust `track` flips the sponsored/production
     # `--track light` bypass tests RED.
-    if ! git push -u origin main 2>/dev/null && ! git push -u origin master 2>/dev/null; then
+    #
+    # BL-323: the push goes through _phase2_push_scaffold — the pre-push review
+    # gate is already installed, so the scaffold takes its attested escape, and
+    # neither attempt's error is discarded (`# BL-323-SCAFFOLD-ATTEST`).
+    if ! _phase2_push_scaffold git push -u origin; then
       if ! _bl084_tier_bypassable; then  # BL-084-TIER-GATE
         # NON-bypassable tier (POC-Sponsored / Production).
         print_fail "Push failed — a working remote is MANDATORY for POC-Sponsored / Production (organizational or sponsored_poc) projects. Local-only and deferred-push are NOT permitted for this tier."  # lint-fail-emit-exit-status: allow BL-084 sponsored/production hard-fail — the `return 1` below (after 2 remediation-hint lines) propagates to record_init_failure + non-zero exit
@@ -2440,7 +2464,9 @@ create_and_protect_remote() {
         elif [ "${DEFER_REMOTE_PUSH:-false}" = true ]; then
           print_warn "Push failed — DEFERRING the push at your explicit request (--defer-remote-push)."
           print_warn "You MUST push before advancing Phase 1→2 — the gate WILL block you until the remote has the branch."
-          print_info "  git push -u origin main            # then verify with:"
+          # BL-323-REMEDY-DEFER: a plain `git push` meets the pre-push review check
+          # with no review on record; --repair pushes the scaffold the way init does.
+          print_info "  scripts/check-gate.sh --repair     # pushes the scaffold, then verify with:"
           print_info "  scripts/check-gate.sh --preflight"
           _record_remote_ack "push_deferred_acknowledged" "initial push to '$remote_url' failed; operator will push manually before Phase 1→2"
           # Deferral is on the record — init may exit 0, but the Phase 1→2
@@ -2497,8 +2523,9 @@ create_and_protect_remote() {
     _record_phase2_step "remote_repo_created"
 
     print_info "Pushing initial commit..."
-    # Try main first, fall back to master
-    host_push_initial main 2>/dev/null || host_push_initial master || { print_fail "Push failed — $remote_url exists but empty"; return 1; } # lint-diag-ok: BL-197 — first-attempt noise only; the DECISIVE second attempt (master) is unsilenced, so the failing path still reaches the operator with the host's own words
+    # main, then master; through the review gate's attested escape, with neither
+    # attempt silenced (`# BL-323-SCAFFOLD-ATTEST`, scripts/lib/phase2-state.sh).
+    _phase2_push_scaffold host_push_initial || { print_fail "Push failed — $remote_url exists but empty"; return 1; }
     _record_phase2_step "pushed_initial"
 
     print_info "Configuring branch protection ($mode mode)..."
