@@ -38,7 +38,14 @@
 #   L2  a 600 KB ledger with one stray `}` (jq then reads only the first
 #       document): bounded time, reset, gate denies, and the note names both
 #       entries although one holds a `]` inside its quotes.
-#   B1  the scan reads at most the last 64 KB of the ledger.
+#   B1  the list FIRST in a 570 KB broken ledger: still named, and the scan
+#       is fed at most 64 KB, starting at the list's key.
+#   T1  the real tracker writes a 70 KB last_mcp_error AFTER the list: a valid
+#       ledger carries the list; broken by a stray `}` (with jq) or read
+#       lib-less, the note still names both entries.
+#   T3  a list whose closing `]` lies past the 64 KB window: the note says it
+#       was cut off and must be added again — never silence.
+#   F1  a FIFO at the ledger path: the lib-less start does not block on it.
 #   K1  the scan is cancelled mid-run (lib-less): the ledger was already
 #       removed, so the gate denies. K2: the same on the stray-`}` ledger with
 #       jq: it was already reset.
@@ -70,7 +77,7 @@ trap 'rm -rf "$TOPTMP"' EXIT
 # macOS, so dropping a directory from PATH is not enough.
 NOJQ_BIN="$TOPTMP/nojq-bin"
 mkdir -p "$NOJQ_BIN"
-for c in cat date mkdir rm rmdir mv mktemp stat sleep sort grep tr dirname tail awk; do
+for c in cat date mkdir rm rmdir mv mktemp stat sleep sort grep tr dirname tail head awk; do
   p="$(type -P "$c")"
   if [ -z "$p" ]; then echo "fixture: $c not found"; exit 1; fi
   ln -s "$p" "$NOJQ_BIN/$c"
@@ -310,12 +317,51 @@ c_L2() {
 }
 c_B1() {
   mkp '{}'; big_ledger "$T/full.json"
-  { cat "$T/full.json"; echo '}'; } > "$P/.claude/tool-usage.json"
+  "$REAL_JQ" '{mcp_requirements: .mcp_requirements} + .' "$T/full.json" > "$T/first.json"
+  { cat "$T/first.json"; echo '}'; } > "$P/.claude/tool-usage.json"
   : > "$T/awk.in"
   run_bounded "$1" 20 AWK_IN="$T/awk.in" REAL_AWK="$REAL_AWK" PATH="$TEE_BIN:$PATH"
   local fed; fed=$(wc -c < "$T/awk.in" | tr -d ' ')
-  DETAIL="run=$BND bytes_fed_to_the_scan=$fed notes=$(notes) (want done, 1..65537, 1)"
-  [ "$BND" = done ] && [ "$fed" -gt 0 ] && [ "$fed" -le 65537 ] && [ "$(notes)" = 1 ]
+  local named=no; note | grep -qF '("mcp__[a-z]+__bar", "mcp__foo__")' && named=yes
+  DETAIL="run=$BND bytes_fed_to_the_scan=$fed notes=$(notes) named=$named (want done, 1..65537, 1, yes)"
+  [ "$BND" = done ] && [ "$fed" -gt 0 ] && [ "$fed" -le 65537 ] && [ "$(notes)" = 1 ] && [ "$named" = yes ]
+}
+# tracker_error_ledger — big_ledger, then the REAL tracker records a failed
+# call whose error is 70 KB: last_mcp_error lands after mcp_requirements.
+tracker_error_ledger() {
+  big_ledger "$P/.claude/tool-usage.json"
+  "$REAL_JQ" -n --arg e "$(head -c 70000 /dev/zero | tr '\0' 'e')" '{hook_event_name:"PostToolUseFailure", tool_name:"mcp__qdrant__qdrant-find", tool_input:{}, error:$e, is_interrupt:false}' > "$T/fail.json"
+  ( cd "$P" && env -i HOME="$T/home" PATH="$PATH" "$BASH_BIN" "$TRACKER" --event PostToolUseFailure < "$T/fail.json" >/dev/null 2>&1 )
+}
+c_T1() {
+  mkp '{}'; tracker_error_ledger
+  local tail_ok; tail_ok=$("$REAL_JQ" -r '(keys_unsorted | index("last_mcp_error")) > (keys_unsorted | index("mcp_requirements")) and (.last_mcp_error | length) >= 70000' "$P/.claude/tool-usage.json" 2>/dev/null)
+  cp "$P/.claude/tool-usage.json" "$T/err.json"
+  run_hook "$1" startup; local carried; carried=$(LIST)
+  { cat "$T/err.json"; echo '}'; } > "$P/.claude/tool-usage.json"; run_hook "$1" startup
+  local n_jq=no; note | grep -qF '("mcp__[a-z]+__bar", "mcp__foo__")' && n_jq=yes
+  cp "$T/err.json" "$P/.claude/tool-usage.json"; run_hook "$(nolib_copy "$1")" startup
+  local n_nolib=no; note | grep -qF '("mcp__[a-z]+__bar", "mcp__foo__")' && n_nolib=yes
+  DETAIL="error_after_list_70KB=$tail_ok carried=$carried named_stray_brace=$n_jq named_nolib=$n_nolib (want true [\"mcp__[a-z]+__bar\",\"mcp__foo__\"] yes yes)"
+  [ "$tail_ok" = true ] && [ "$carried" = '["mcp__[a-z]+__bar","mcp__foo__"]' ] && [ "$n_jq" = yes ] && [ "$n_nolib" = yes ]
+}
+c_T3() {
+  mkp '{}'
+  { printf '{"mcp_requirements": {"additional_required": ["mcp__a",'; head -c 70000 /dev/zero | tr '\0' ' '; printf '"mcp__b"]}, "calls": []}}'; } > "$P/.claude/tool-usage.json"
+  run_hook "$1" startup
+  local cut=no; note | grep -qF 'could not read to its closing ] (it begins: "mcp__a",), and it was not carried over because the file is not valid JSON' && cut=yes
+  DETAIL="rc=$HOOK_RC notes=$(notes) says_cut=$cut note=[$(note | cut -c1-200)] (want 0 1 yes)"
+  [ "$HOOK_RC" = 0 ] && [ "$(notes)" = 1 ] && [ "$cut" = yes ]
+}
+c_F1() {
+  mkp '{}'; rm -f "$P/.claude/tool-usage.json"; mkfifo "$P/.claude/tool-usage.json"
+  run_bounded "$(nolib_copy "$1")" 5
+  local left=no; [ -e "$P/.claude/tool-usage.json" ] && left=yes
+  if [ "$BND" = overran ]; then   # release a reader the mutant left blocked on it
+    ( printf x > "$P/.claude/tool-usage.json" ) 2>/dev/null & local w=$!; sleep 0.3; kill "$w" 2>/dev/null
+  fi
+  DETAIL="run=$BND fifo_left=$left (want done no)"
+  [ "$BND" = done ] && [ "$left" = no ]
 }
 # cancel_mid_scan HOOK — start the hook with the hanging awk, wait until the
 # scan has begun, then cancel the hook (TERM, as Claude Code does) and the scan.
@@ -383,7 +429,10 @@ check S13 "ledger writer missing at startup: one line names the entries and the 
 check R1  "entries jq's test() cannot compile are dropped with the note; a successful call for the valid one allows"
 check L1  "a 600 KB lib-less ledger with no closing ] starts in bounded time, is removed, and the gate denies"
 check L2  "a 600 KB ledger with a stray } starts in bounded time, is reset, the gate denies, and a ] inside quotes does not cut the note"
-check B1  "the scan is fed at most the last 64 KB of the ledger"
+check B1  "the list FIRST in a 570 KB broken ledger is named, and the scan is fed at most 64 KB from its key"
+check T1  "a 70 KB last_mcp_error after the list: carried when valid, named when broken (stray } with jq, and lib-less)"
+check T3  "a list whose ] lies past the window: the note says it was cut off and must be added again"
+check F1  "a FIFO at the ledger path does not block the lib-less start"
 check K1  "a scan cancelled mid-run (lib-less) leaves the ledger already removed: the gate denies"
 check K2  "a scan cancelled mid-run (stray }, with jq) leaves the ledger already reset: the gate denies"
 
@@ -444,8 +493,14 @@ mk_mut '# BL-335-NOTE' '  :   # BL-335-NOTE' 1
 killed_by "MU9: the note never printed (# BL-335-NOTE)" S8
 mk_sub 'if (substr(s, p, 1) != "[") exit' 'exit' 'p = p'
 killed_by "MU10: the scan takes a value that is not a list for one" S12d
-mk_mut '# BL-335-SNAP-BOUND' '  ADD_SNAP=$(cat "$1" 2>/dev/null) || ADD_SNAP=""   # BL-335-SNAP-BOUND' 1
-killed_by "MU11: the snapshot is the whole ledger, not its last 64 KB (# BL-335-SNAP-BOUND)" B1
+mk_sub '# BL-335-SNAP-BOUND' ' | head -c 65536' ''
+killed_by "MU11: the window from the key is not cut at 64 KB (# BL-335-SNAP-BOUND)" B1
+mk_mut '# BL-335-SNAP-KEY' '  off=0   # BL-335-SNAP-KEY' 1
+killed_by "MU20: the window starts at the file's start, not the key (# BL-335-SNAP-KEY)" T1
+mk_mut '# BL-335-SNAP-REGULAR' '  :   # BL-335-SNAP-REGULAR' 1
+killed_by "MU21: no regular-file check before reading the ledger (# BL-335-SNAP-REGULAR)" F1
+mk_mut '# BL-335-CUT-NOTE' '      ADD_NOTE=""   # BL-335-CUT-NOTE' 1
+killed_by "MU22: a list cut off by the window is dropped in silence (# BL-335-CUT-NOTE)" T3
 mk_mut '# BL-335-NOJQ' '  _add_snap "$TOOL_USAGE" "$ADD_WHY"; _add_scan   # BL-335-NOJQ' 1
 killed_by "MU12: lib-less, the scan runs BEFORE the ledger is removed" K1
 mk_mut '# BL-335-UNREADABLE' '      _add_snap "$TOOL_USAGE" "the file is not valid JSON, so it was rewritten"; _add_scan   # BL-335-UNREADABLE' 1
