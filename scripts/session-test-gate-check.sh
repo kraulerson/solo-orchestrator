@@ -115,6 +115,9 @@ fi
 # writes `last_mcp_error` after mcp_requirements, at any length, and a
 # hand-edited ledger can put the list anywhere. Finding the key reads at most
 # the first 16 MB (one grep pass, about 0.1 s); a key past that is not found.
+# It is matched AS A KEY, followed by `:`: a string value may END in the text
+# `"additional_required` (an error message), and its closing quote then makes
+# the bare text match ahead of the real key.
 ADD_NOTE=""; ADD_SNAP=""; ADD_WHY=""
 _add_snap() {   # FILE WHY
   local off=""
@@ -123,7 +126,7 @@ _add_snap() {   # FILE WHY
   [ -f "$1" ] || return 0   # BL-335-SNAP-REGULAR
   # pipefail off inside: grep -m1 and head -c stop early by design, and the
   # writer they leave behind then dies of SIGPIPE.
-  off=$(set +o pipefail; head -c 16777216 "$1" 2>/dev/null | LC_ALL=C grep -boF -m1 '"additional_required"' 2>/dev/null) || off=""   # BL-335-SNAP-KEY
+  off=$(set +o pipefail; head -c 16777216 "$1" 2>/dev/null | LC_ALL=C grep -boE -m1 '"additional_required"[[:space:]]*:' 2>/dev/null) || off=""   # BL-335-SNAP-KEY
   off=${off%%:*}
   case "$off" in ''|*[!0-9]*) return 0 ;; esac
   ADD_SNAP=$(set +o pipefail; tail -c +"$((off + 1))" "$1" 2>/dev/null | head -c 65536) || ADD_SNAP=""   # BL-335-SNAP-BOUND
