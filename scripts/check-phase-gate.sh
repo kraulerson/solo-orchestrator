@@ -2182,9 +2182,21 @@ if [ "$current_phase" -ge 2 ]; then
       # shellcheck disable=SC1090
       source "$host_dispatcher"
       mode=$(jq -r '.mode // "personal"' .claude/manifest.json 2>/dev/null || echo "personal")
-      if host_load_driver 2>/dev/null; then
-        if host_verify_protection "main" "$mode" 2>/dev/null; then
-          echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: repo protection verified for $mode mode"
+      # BL-334: the project's integration branch, not a literal main
+      # (soif_integration_branch, scripts/lib/helpers-core.sh). BL-339: through
+      # host_verify_protection_attested, the predicate verify_init shares.
+      backstop_branch=""
+      backstop_rc=0
+      if ! backstop_branch=$(soif_integration_branch); then   # BL-334-BACKSTOP-BRANCH
+        echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: .integration_branch in .claude/manifest.json is not a branch name (git check-ref-format), so protection was not checked."
+        issues=$((issues + 1))
+      elif host_load_driver 2>/dev/null; then
+        host_verify_protection_attested "Phase 1→2 backstop" "$backstop_branch" "$mode" check-phase-gate 2>/dev/null || backstop_rc=$?
+        if [ "$backstop_rc" -eq 0 ]; then
+          [ "$HOST_SA_STATE" = "accepted" ] \
+            || echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: repo protection verified for $mode mode on '$backstop_branch'"   # BL-339-NOT-VERIFIED
+        elif [ "$backstop_rc" -eq 3 ]; then
+          issues=$((issues + 1))   # BL-339-UNRECORDED
         else
           # WALK-ISSUE-006-CI-PROTECTION-SCOPE-BEGIN
           # Walk 2026-08-02, ISSUE-006 (Major): this arm made the generated
@@ -2252,7 +2264,7 @@ if [ "$current_phase" -ge 2 ]; then
             echo ""
             echo "        Verify locally any time: scripts/check-gate.sh --preflight"
           else
-            echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: protection verification failed"
+            echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: protection verification failed on '$backstop_branch'"
             echo "        Remediate: scripts/check-gate.sh --repair"
             echo "        Preflight: scripts/check-gate.sh --preflight"
             issues=$((issues + 1))
@@ -2348,9 +2360,23 @@ if [ "$current_phase" -ge 2 ]; then
     fi
 
     bl084_remote_verified=false  # BL-084-PUSH-VERIFY
-    if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git remote get-url origin >/dev/null 2>&1; then
-      for _bl084_br in main master; do
-        if git ls-remote --heads origin "$_bl084_br" 2>/dev/null | grep -q .; then
+    # BL-334: with no .integration_branch, `main` or `master`, as before: nothing
+    # writes the key, and init.sh falls back to pushing `master` when `main`
+    # fails. With the key set, that branch and no other: the project has named
+    # its trunk, so neither fallback stands for it (supervisor, 2026-10-20). A
+    # key that is not a branch name is looked for nowhere, and the arms below
+    # decide as for an unpushed remote: a non-blocking WARN, no second issue.
+    # `_bl084_brs` is split on purpose: check-ref-format admits no space or glob.
+    bl084_ib=""
+    _bl084_brs="main master"   # BL-334-PUSH-KEYLESS
+    if ! bl084_ib=$(soif_integration_branch_key); then   # BL-334-PUSH-BRANCH
+      echo -e "${YELLOW}[WARN]${NC} Phase 1→2 push gate: .integration_branch in .claude/manifest.json is not a branch name (git check-ref-format), so no remote branch was looked for (BL-334)."
+    elif git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git remote get-url origin >/dev/null 2>&1; then
+      [ -z "$bl084_ib" ] || _bl084_brs="$bl084_ib"   # BL-334-PUSH-KEYED
+      for _bl084_br in $_bl084_brs; do
+        # The full ref name: a bare `main` is matched against each ref's tail,
+        # so `refs/heads/feature/main` alone used to count as `main`.
+        if git ls-remote --heads origin "refs/heads/$_bl084_br" 2>/dev/null | grep -q .; then   # BL-334-PUSH-EXACT
           bl084_remote_verified=true
           break
         fi

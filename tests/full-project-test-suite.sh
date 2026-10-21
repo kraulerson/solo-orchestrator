@@ -1175,6 +1175,9 @@ run_child_suite "tests/test-bl275-selfapproval-remedy.sh" \
 run_child_suite "tests/test-bl274-single-authority-attestation.sh" \
   "BL-274: the single-authority attestation is recorded per gate, blocks when refused, and says every time that §XIV item 5 REMAINS UNMET" \
   "BL-274 single-authority attestation tests FAILED (run tests/test-bl274-single-authority-attestation.sh for details)"
+run_child_suite "tests/test-bl339-bl334-protection.sh" \
+  "BL-339/BL-334: the protection backstop and --verify-init check the integration branch, and accept a review count of 0 only under the single-authority attestation" \
+  "BL-339/BL-334 protection tests FAILED (run tests/test-bl339-bl334-protection.sh for details)"
 # BL-287: reconfigure-project.sh's CI regeneration had no host awareness — a
 # template path missing the per-host directory (so it never resolved, and the
 # warn arm ran under an [OK] banner at rc 0) and a hardcoded GitHub
