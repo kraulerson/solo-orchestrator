@@ -2182,6 +2182,11 @@ run_child_suite "tests/test-record-claude-commit.sh" "tests/test-record-claude-c
 run_child_suite "tests/test-unrecord-feature.sh" "tests/test-unrecord-feature.sh (7/7)"
 run_child_suite "tests/test-session-test-gate-check-merge.sh" \
   "tests/test-session-test-gate-check-merge.sh (20/20)"
+# BL-335: the operator's mcp_requirements.additional_required survives the
+# SessionStart rewrite; outcome flags are still reset, so it cannot pre-satisfy.
+run_child_suite "tests/test-bl335-additional-required-carry.sh" \
+  "tests/test-bl335-additional-required-carry.sh: additional_required carried across SessionStart, never pre-satisfied" \
+  "BL-335 additional_required carry tests FAILED (run tests/test-bl335-additional-required-carry.sh for details)"
 
 # ----------------------------------------------------------------
 # Process-checklist / pending-approval / poc-modes (BL-035 C)

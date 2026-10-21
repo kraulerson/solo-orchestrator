@@ -25712,7 +25712,7 @@ M39-M41, M45 and M46.
 **Logged:** 2026-10-08 (issue #484, filed 2026-09-30; decided by Karl 2026-10-08)
 **Category:** Bug (correctness)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-10-21 (fix `2bd8f745`, `c6e855b3`, `382ff645` and `04315eb5`, suite `b03ad02f`, `7c9c6611`, `d302e9bd` and `e2f45c5a`)
 
 **What.** `scripts/session-test-gate-check.sh`'s MCP notice tells the Orchestrator to add a server under
 `mcp_requirements.additional_required` in `.claude/tool-usage.json`, and `scripts/session-mcp-gate.sh` enforces
@@ -25723,6 +25723,47 @@ An entry added as advised lasts until the next fresh session, then disappears wi
 **Decision (Karl, 2026-10-08).** Carry `additional_required` across the startup rewrite, as the merge path already
 does. The startup path's reason for not carrying outcome flags (a committed ledger must not pre-satisfy the check in
 a clone's first session) applies to satisfaction, not to the list of requirements.
+
+**What shipped.** `scripts/session-test-gate-check.sh` reads the list once (`# BL-335-READ`) and writes it back on all
+three paths: the merge (`# BL-335-MERGE`), the jq-failure fallback heredoc and the startup heredoc. Only non-empty
+strings that jq's `test` can compile are kept (the gate matches with `test`, so an entry like `*sentry*` would refuse
+every Write of every session); anything else is dropped with one note line (`# BL-335-DROP-NOTE`), so the next start
+is silent. This changes resume too: a non-string entry such as `5` or `null`, which the old merge carried and the gate
+then enforced as the pattern `"5"` / `"null"`, is now dropped with the note.
+Startup still empties `calls[]` and leaves out `qdrant_find_succeeded` / `context7_query_docs_succeeded` (BL-236), so
+a carried entry is a requirement only: the first Write of a fresh session is refused until a matching tool returns
+successfully in that session (S6). Where the list cannot be carried — a ledger that is not valid JSON (it is
+rewritten, `# BL-335-UNREADABLE`), or a startup with jq or the ledger writer missing (the ledger is removed as BL-314
+does, `# BL-335-NOJQ`) — the hook finds the list's key as a key — `"additional_required"` followed by `:`, so a string value ending in that
+text (an error message) cannot stand in for it (T4) — with one grep over at most the first 16 MB (`# BL-335-SNAP-KEY`),
+keeps 64 KB from there (`# BL-335-SNAP-BOUND`), does the reset, and only then scans that text (`# BL-335-SCAN`): one
+awk pass that takes the list up to its closing `]` (not one inside quotes), cut at 300 bytes, and prints it in one
+note line; a list whose `]` is not in the window is named as cut off (`# BL-335-CUT-NOTE`). The hook exits 0. The
+window starts at the key, not at the end of the file: the tracker writes `last_mcp_error` after `mcp_requirements`,
+untruncated, and a hand-edit can put the list first (T1, B1; a window over the file's tail lost both). A ledger path
+that is not a regular file (a FIFO, a link to a device) is not read (`# BL-335-SNAP-REGULAR`, F1). The order matters: a session start
+cancelled mid-scan has already dropped the last session's outcome flags (K1, K2), and no ledger size makes the scan
+slow (L1, L2: 570 KB in under a second; the first cut of this fix sliced the whole file with bash patterns, quadratic
+in the list's offset, before the reset). The fallback does have jq — it runs when jq fails on the file — so the
+"cannot use jq" case is the invalid-JSON one, and text cut from a broken file is printed, never carried.
+`tests/test-bl335-additional-required-carry.sh`: 28 cases (S1–S13 with variants, R1, L1, L2, B1, K1, K2, T1, T3,
+T4, F1) and 23 mutants, 51 checks.
+
+**Tracked or ignored.** `.claude/tool-usage.json` is git-ignored in generated projects (`# BL-236-LEDGER-IGNORE` in
+`templates/generated/gitignore-base.tmpl`, backfilled by `upgrade-project.sh`) and in adopted ones (the
+`.claude/.gitignore` adoption writes, unless the project has its own). So the list is per checkout: a clone's first
+session does not see it. The notice and `docs/cli-setup-addendum.md` say so.
+
+**Residuals (not fixed here).**
+- An entry that compiles but can never match a tool name (`"mcp__sentry__ "`, trailing space) is carried and
+  refuses every Write of each fresh session; the gate's message names it.
+- In a broken ledger, a list key past the first 16 MB is not found, and that ledger is reset without a note.
+- When the startup write cannot land (`# BL-314-RESET-FAIL-CLOSED`), the ledger is emptied and the list goes with it;
+  that path's stderr line does not mention the list.
+- `track-tool-usage.sh` reseeds an unparseable ledger mid-session with no `mcp_requirements` (`# BL-233-NO-REQ-RESEED`),
+  so a list in a ledger corrupted mid-session is lost before the next SessionStart could name it.
+- The issue's second shape — the list in committed config, seeded into the ledger at SessionStart so every clone
+  gets it — is not built. Karl chose the first shape.
 
 ## BL-336: the bypass detector does not scan text the agent writes with Edit or MultiEdit
 
