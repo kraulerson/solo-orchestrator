@@ -397,6 +397,24 @@ The CLAUDE.md template (Section 6) instructs the agent on when to use Qdrant. Ke
 - **When debugging:** Retrieve prior issues with similar symptoms.
 - **During Context Health Checks:** Retrieve the list of features built and their implementation summaries to verify against the Bible.
 
+### Requiring Another MCP Server at Session Start
+
+Qdrant and Context7 are required automatically when they are registered: the MCP check (`scripts/session-mcp-gate.sh`) blocks Write and Edit until each has returned a successful call since the session last started fresh. To hold a session to another server the same way, add it to `mcp_requirements.additional_required` in `.claude/tool-usage.json`. Each entry is a regular expression (jq's `test`), matched against tool names:
+
+```json
+"mcp_requirements": {
+  "qdrant_required": true,
+  "context7_required": true,
+  "additional_required": ["mcp__sentry__"]
+}
+```
+
+The session start prints this route when it sees a server it does not recognize. Three things to know:
+
+- **The list carries over.** Every session start keeps it. What does not carry over is whether a matching tool succeeded: that is reset at each fresh session (a resume, `/compact` or `/clear` keeps it), so the first Write of each fresh session waits for a successful call again.
+- **It is per checkout.** `.claude/tool-usage.json` is git-ignored in generated and adopted projects, so the list is not committed and a fresh clone starts without it.
+- **Bad entries are dropped, with one line saying so.** An entry that is not a non-empty string, or that jq cannot compile as a regular expression (`*sentry*`, `[unclosed`), is removed at the next session start; carried, it would block every Write. If the file is not valid JSON, or jq or the ledger writer is missing, the list cannot be carried: the ledger is reset (or removed) first, and the session start then prints the text of the list — its key is looked for in the first 16 MB of the old file only, and the text is read from at most 64 KB starting at that key, up to its closing `]` (ignoring one inside quotes), and cut at 300 bytes — so you can add the entries again. A list too long to close inside that window is reported as cut off, and must be added again in full.
+
 ---
 
 ## 6. CLAUDE.md (Project-Level Agent Instructions)
