@@ -27295,3 +27295,49 @@ CLAUDE.md's ENVIRONMENT TRAPS, which say the runners run bash 5.2: 26.04 ships b
 images in CI. It is needed even after Ubuntu picks up uutils 0.11.0, because generated projects run on hosts still on
 0.10.0; separately, asking Canonical to backport PR #13986 to 26.04's rust-coreutils would let the CI pin come off
 sooner. Decide whether `_lw_lock || :` should fail loudly instead.
+
+**A second suite fails on 26.04 (2026-10-26).** PR #525's run 40382063836 still ran on `Image: ubuntu-26.04` (its
+merge ref predated the pin) and failed two legs: `approval` with `Failed: tests/test-bl314-tool-usage-concurrent.sh`
+(`[FAIL] C9 — N=80: parses=1 calls=78/80`) and `rest` with `Failed: tests/test-bypass-audit-lib.sh`.
+`scripts/lib/bypass-audit.sh` takes the same `while ! mkdir "$lock_dir"` lock, so this is the audit-log exposure the
+Severity line names; the failing case was not isolated.
+
+## BL-359: BL-333 review residuals — writes through a linked backup or matrix folder, shard time, dry-run wording, a vacuous-killer gap, host backfill
+
+**Logged:** 2026-10-26 (pr-reviewer on `6d488fc9`/`ae32e499`, PR #525, verdict `minor_concerns`; merged as `367d83fe`)
+**Category:** Bug (security, CI time, wording, test robustness) — follow-ups to `## BL-333:`
+**Severity:** Low to minor — each needs a planted symlink, a slow CI run, a dry run, a future typo, or an exported
+`GIT_DIR`
+**Status:** Open
+
+**R-BL333-21 — writes through a planted link (minor, security).** `_bl333_matrix_refuse_link` refuses a matrix FILE that
+is a link, but measured on `6d488fc9`:
+- a symlink planted at `templates/tool-matrix/common.json.bak.<UTC date>`, pointing outside the project, is written
+  through by the update's backup (`sync rc=0`, `[OK] … updated (backup: …)`, the outside file overwritten);
+- a `templates/tool-matrix` FOLDER that is a link sends every write outside (`common.json.bak.<date> desktop.json
+  mobile.json web.json` appeared in the outside folder, `sync rc=0`).
+So the header comment above `_bl333_matrix_refuse_link` in `scripts/upgrade-project.sh` — "Neither the missing-file copy
+nor the update ever writes through a symbolic link" — overclaims. The scripts sync has the wider form already: it
+overwrites through a LIVE link (`[OK] synced scripts/check-versions.sh`, the outside file replaced); BL-333's residual 3
+measured the scripts sync only with a dangling link, and the live case only on `cp` alone. Fix: refuse `[ -L "$bak" ]`; refuse a matrix folder whose physical path is
+not inside the project; correct the comment; give the scripts sync the same refusal (`## BL-351:` guards adoption only).
+
+**R-BL333-22 — shard time (minor, CI).** The two BL-333 suites were pinned from one run's leg times (run 39629060444).
+Measured on PR #525's run 40385604661 (ubuntu-24.04): `adopt` 590 s (it carries `tests/test-bl333-sync-tool-matrix.sh`),
+`adopt-c` 576 s, `approval` 568 s, `slow-misc` 556 s, `rest` 545 s, `mcp-mutants` 527 s; `lint-scan` (which carries
+the mutants file) under 527 s. `adopt` is over `## BL-350:`'s 576 s line and under the 720 s cap. Fix: re-pin from
+several runs' maxima, or split further.
+
+**R-BL333-23 — dry-run wording (low).** A `--dry-run` that meets a linked matrix file exits 1 and writes nothing, but
+prints the real run's summary (`Framework sync finished, but … could NOT be applied — the backup or the write itself
+failed`) and never `dry-run complete — nothing was written`. Fix: say a real run would refuse these files; name a link
+refusal as one.
+
+**R-BL333-24 — a killer that does not exist counts as a kill (low, latent).** In
+`tests/test-bl333-sync-tool-matrix-mutants.sh`, `judge` treats a misspelled killer (`case_S13x: command not found`,
+rc 127) as killed. All 31 killers named today exist. Fix: `declare -F "$2" >/dev/null || fail …` before running it.
+
+**R-BL333-25 — host backfill under an exported `GIT_DIR` (low).** `# BL-333-SYNC-GIT-ENV` unsets `GIT_DIR` for the whole
+sync, so a project reached only through an exported `GIT_DIR`, with an old manifest that has no `.host` and an origin on
+github.com, now backfills `host` as `other` (it was `github` at `5d2bded4`); its pin is now correct. Linked worktrees
+are unaffected. Fix: read the host before the unset, or from the project's own `.git`.
