@@ -26860,3 +26860,67 @@ accumulation's state-file arm matches `.claude/*.jsonl` as well as `.json` and k
 `data/events.jsonl` is still source work there). A `.jsonl` staged beside a source file still blocks. Suite:
 `tests/test-bl354-state-jsonl-exempt.sh` (13 cases, 5 mutants; J4 stages a non-source, non-exempt file so it reaches
 the exemption loop).
+
+## BL-355: an MCP refusal delivered as an ordinary result is recorded as a success, so a quota-refused Context7 read satisfies the MCP session check
+
+**Logged:** 2026-10-25 (found resuming BL-333, while Context7 refused every call for quota)
+**Category:** Bug (enforcement — a false pass)
+**Severity:** Medium — needs a server that reports a refusal inside its result; Context7 does when its monthly quota is spent
+**Status:** Open
+
+**What.** `scripts/track-tool-usage.sh` takes a call's outcome from the hook event alone: `PostToolUse` is success,
+`PostToolUseFailure` is failure. Its header records why (measured 2026-08-13): MCP's `isError` reaches neither event.
+A server that answers a refused call with an ordinary text result therefore fires `PostToolUse`, and the row is scored
+`success`. Context7 does exactly that when the monthly quota is spent. On Claude Code 2.1.304, `resolve-library-id`
+returned `Monthly quota exceeded. Create a free API key at https://context7.com/dashboard for more requests.` and the
+ledger recorded `{"tool":"mcp__context7__resolve-library-id",…,"event":"PostToolUse","outcome":"success","empty_result":false}`.
+
+That call is logged and not counted (`# BL-233-C7-QUERYDOCS`), so it did not satisfy the check. The same answer to
+`query-docs` does. Measured on origin/main `f6661694`: feeding the tracker a `PostToolUse` payload for
+`mcp__context7__query-docs` whose only content block is that refusal text gives rc 0, a row with `"outcome":"success"`
+and `"empty_result":false`, and `"context7_query_docs_succeeded": true` — the field `scripts/session-mcp-gate.sh` reads
+to allow Write and Edit. The emptiness test cannot catch it: it reads shape only (`# BL-234-EMPTY-SHAPE-ONLY`), and the
+refusal text is not empty. Qdrant's arm (`# BL-233-QDRANT-SUCCESS`) has the same shape.
+
+**Not measured:** whether the live server returns its quota refusal for `query-docs` the same way (only
+`resolve-library-id` was observed refusing), and whether Claude Code 2.1.304 now carries `isError` anywhere in the hook
+payload.
+
+**How it surfaced.** The quota itself was environmental: a keyless local-scope `context7` entry in `~/.claude.json`
+overrode the user-scope entry that carries an API key, so every call ran anonymously.
+
+**Direction (Karl's call).** (a) Re-measure whether the current Claude Code hook payload carries `isError`, and score
+on it when present. (b) A narrow known-refusal signature per server — the prose matching `## BL-234:` retired for
+emptiness, so it needs a reason that does not apply there. (c) Record it as a residual of `## BL-233:` and document
+that a server-side refusal reads as success. (a) is the measurement the other two depend on.
+
+## BL-356: the MCP session check refuses every Write and Edit while the session's working directory is a linked worktree
+
+**Logged:** 2026-10-25 (found resuming BL-333 in `.claude/worktrees/bl333`)
+**Category:** Bug (enforcement — a false block)
+**Severity:** Medium — fails closed, but blocks the worktree-per-fix flow this repo uses, and the refusal's remedies do not fit
+**Status:** Open
+
+**What.** All three hooks that touch the session ledger name it relative to the hook's working directory:
+`TOOL_USAGE=".claude/tool-usage.json"` in `scripts/session-mcp-gate.sh`, `scripts/track-tool-usage.sh` and
+`scripts/session-test-gate-check.sh`. The file is gitignored, so a linked worktree under `.claude/worktrees/<name>` has
+none. When the session's working directory moves into a worktree — Claude Code moves it when a Bash `cd` lands there —
+every Write and Edit is refused with `# BL-233-FAILCLOSED-NOFILE`'s text, `MCP SESSION GATE — CANNOT VERIFY: the
+tracking ledger .claude/tool-usage.json is ABSENT…`, although the session's ledger in the main checkout holds the
+required successful calls.
+
+Measured 2026-10-25 on this repo (Claude Code 2.1.304): an Edit of `.claude/worktrees/bl333/.github/workflows/tests.yml`
+was refused with that text while the working directory was the worktree; the same Edit of the same file was accepted
+once the working directory was back at the main checkout. The refusal's remedies do not fit the case: the session has
+started, and the hooks are installed. And the check is wired on `PreToolUse` for `Write` and `Edit` only, so an edit
+made through Bash is not checked at all — the refusal invites exactly the route around it that the check exists to
+close.
+
+**Not measured:** where an MCP call made while the working directory is a worktree gets recorded, and whether
+generated projects hit this (`init.sh` ships both `session-mcp-gate.sh` and `track-tool-usage.sh`, so they likely do).
+
+**Same class as `## BL-176:`** — a literal path that is right in the main checkout and wrong in a linked worktree.
+
+**Direction.** Resolve the ledger once, from the project root rather than the working directory — the hooks are
+already invoked as `bash "$CLAUDE_PROJECT_DIR"/scripts/…`, or from `git rev-parse --git-common-dir` — in all three
+scripts together, and pin it with a case that runs the check with the working directory inside a linked worktree.
