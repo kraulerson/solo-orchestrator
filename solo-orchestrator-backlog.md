@@ -26898,10 +26898,11 @@ invalid token` satisfies the operator's pattern.
 `query-docs` and 4.4.3 on a failed `resolve-library-id`; per its code, every non-OK response — a quota or rate-limit
 response included — takes that error path. The 4.4.4 now in this machine's npx cache (installed 2026-10-19) sets it in
 both handlers (`dist/index.js`); a 4.1.1 cache (2026-09-28) does not. The process that refused was started at
-2026-10-07T00:27Z, before that cache was updated.
+2026-10-07T00:27Z, before that cache was updated, and its MCP log reports `Context7 Documentation MCP Server v4.1.1
+running on stdio`.
 
 **Not measured:** whether that process answered a quota-limited `query-docs` the same way (only `resolve-library-id`
-was observed refusing), and which Context7 version it ran.
+was observed refusing).
 
 **How it surfaced.** The quota itself was environmental: a keyless local-scope `context7` entry in `~/.claude.json`
 overrode the user-scope entry that carries an API key, so every call ran anonymously while that entry was in effect.
@@ -26995,8 +26996,8 @@ Pin it with cases for a linked worktree, a subdirectory, a stale worktree ledger
 category the Siblings paragraph uses to set `## BL-278:` apart — and both of its readers, `_cpg_accum_last_store` in
 `scripts/check-phase-gate.sh` and `pre-commit-gate.sh`'s commit-time accumulation warning (beside
 `# BL-233-WPB-ACCPREV-ONELINE`), read it from their own working directory. Moving only the writer would split writer
-from readers. The MCP check's attestation records (`mcp_attestations[]` there, plus `.claude/mcp-attestations.jsonl`,
-both appended on every attestation) have no reader; where they belong is a question of which checkout's audit trail
+from readers. The MCP check's attestation records (`.claude/mcp-attestations.jsonl`, appended on every attestation, and
+`mcp_attestations[]` there, appended whenever jq can rewrite the file) have no reader; where they belong is a question of which checkout's audit trail
 they join.
 
 ## BL-357: adoption should gitignore `.claude/approvals.jsonl` in public repositories only
@@ -27008,7 +27009,7 @@ question and option text
 **Status:** Open
 
 **Ruling.** `.claude/approvals.jsonl` stays tracked in private repositories as the audit trail. In public repositories
-it is gitignored, because of what its records carry. Three Development Guardrails hooks append to it: each pick record
+it is gitignored, because of what its records carry. Three Development Guardrails scripts append to it: each pick record
 (`record-approval.sh`) carries `session_id`, `prompt_id` and the full question and option text; override records
 (`mark-evaluated.sh`) carry the operator's free-text `reason`; commit records (`marker-tracker.sh`) carry SHAs and
 trees. Solo's adoptee ignore rules add `.claude/approvals.jsonl` only when the repository is public. The Guardrails ship
