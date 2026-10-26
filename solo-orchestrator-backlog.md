@@ -26866,8 +26866,9 @@ the exemption loop).
 **Logged:** 2026-10-25 (found resuming BL-333, while Context7 refused calls for quota, before the session reconnected
 to a server carrying an API key)
 **Category:** Bug (enforcement — fail open)
-**Severity:** Medium — needs a server that reports a refusal inside an ordinary result; Context7 did when its monthly
-quota was spent
+**Severity:** Medium — needs a server that reports a refusal inside an ordinary result; the Context7 process this session
+had started on 2026-10-06 did when its monthly quota was spent (Context7 4.2.1 and later mark a failed `query-docs`
+`isError`, 4.4.3 and later a failed `resolve-library-id`)
 **Status:** Open
 
 **What.** `scripts/track-tool-usage.sh` takes a call's outcome from the hook event alone: `PostToolUse` is success,
@@ -26893,28 +26894,34 @@ payloads): Qdrant's (`# BL-233-QDRANT-SUCCESS`), where `All connection attempts 
 true`, and the `## BL-335:` `additional_required` arm (`# BL-233-ADDITIONAL-OUTCOME`), where `Error: 401 Unauthorized -
 invalid token` satisfies the operator's pattern.
 
-**Not measured:** whether the live server answers a quota-limited `query-docs` the same way (only `resolve-library-id`
-was observed refusing), and whether Context7 sets `isError` on any of its refusal results. Its refusal wording also
-varies: the review reports a rate-limit text, `Rate limited or quota exceeded. Upgrade your plan…`, from Context7's
-source (not checked here).
+**Context7 already flags its errors upstream.** Per its changelog (read in review), 4.2.1 sets `isError` on a failed
+`query-docs` and 4.4.3 on a failed `resolve-library-id`, a quota or rate-limit response included. The 4.4.4 now in this
+machine's npx cache (installed 2026-10-19) sets it in both handlers (`dist/index.js`); a 4.1.1 cache (2026-09-28) does
+not. The process that refused was started on 2026-10-06, before that cache was updated.
+
+**Not measured:** whether that process answered a quota-limited `query-docs` the same way (only `resolve-library-id`
+was observed refusing), and which Context7 version it ran.
 
 **How it surfaced.** The quota itself was environmental: a keyless local-scope `context7` entry in `~/.claude.json`
-overrode the user-scope entry that carries an API key, so every call ran anonymously.
+overrode the user-scope entry that carries an API key, so every call ran anonymously while that entry was in effect.
 
-**Direction (Karl's call).** (a) Upstream: ask Context7 to set `isError` on its quota and rate-limit results; they
-would then fire `PostToolUseFailure`, which the tracker already scores as failure. That fixes one server, not the
-class. (b) Make the three satisfaction arms read `empty_result`, so an empty result no longer satisfies a requirement.
-That closes the `[]` case and leaves a refusal with text open. (c) A narrow known-refusal signature per server — the
-prose matching `## BL-234:` retired for emptiness, and Context7's own wording already varies, so it needs a reason that
-does not apply there. (d) Record the text case as a residual of `## BL-233:` (WP-A item 2) and document that a
-server-side refusal delivered as an ordinary result reads as success.
+**Direction (Karl's call).** (a) For Context7: a version floor (4.4.3 or later) and a way to see which version a
+session runs — upstream already marks these results `isError`, which fires `PostToolUseFailure`, which the tracker
+already scores as failure. That fixes one server, not the class. (b) Make the `query-docs` and `additional_required`
+arms read `empty_result`, so an empty result no longer satisfies those requirements. That closes the `[]` case and
+leaves a refusal with text open. Qdrant's arm stays as it is: an empty find satisfying the requirement is Karl's
+decision 1 in `scripts/track-tool-usage.sh`, pinned by E1 and E2 in `tests/test-bl233-mcp-outcome-enforcement.sh`.
+(c) A narrow known-refusal signature per server — the prose matching `## BL-234:` retired for emptiness, so it needs a
+reason that does not apply there. (d) Record the text case as a residual of `## BL-233:` (its "What the redesign has to
+do" list, item 2) and document that a server-side refusal delivered as an ordinary result reads as success.
 
 ## BL-356: the MCP session check reads the ledger in the hook's working directory, so a linked worktree or a subdirectory gets a different ledger — a false block, or a pass on an earlier session's record
 
 **Logged:** 2026-10-25 (found resuming BL-333 in `.claude/worktrees/bl333`)
 **Category:** Bug (enforcement — fail open, and a false block)
-**Severity:** High — fails open: a worktree's ledger is never reset when a session starts, so a later session working
-there passes the check without one MCP call, and one such ledger is on this machine now
+**Severity:** High — fails open: a worktree's ledger is not reset by a session that starts in another directory, so a
+later session working there passes the check without one MCP call; one such ledger was on this machine when this was
+logged
 **Status:** Open
 
 **What.** Five hooks name the session ledger relative to the hook's working directory, as
@@ -26922,10 +26929,11 @@ there passes the check without one MCP call, and one such ledger is on this mach
 `scripts/session-test-gate-check.sh`, `scripts/pre-commit-gate.sh` and `scripts/session-end-qdrant-reminder.sh` (the
 last two are wired into generated projects by `scripts/lib/claude-settings.sh`, as `PreToolUse` on `Bash` and as
 `Stop`). Two lasting records are named the same way: `_tt_record_accumulation`'s `.claude/process-state.json`, and the
-check's own attestation records. Hooks run in Claude's current directory, and per code.claude.com/docs/en/hooks "`cwd`
-follows Claude" — into the worktree after `EnterWorktree`, into the new directory after a Bash `cd` — while
-`${CLAUDE_PROJECT_DIR}` "stays put: it still points at the project root where the session started". The ledger is
-gitignored, so a linked worktree under `.claude/worktrees/<name>` starts with none.
+check's own attestation records. Per code.claude.com/docs/en/hooks, "Handlers run in the current directory with Claude
+Code's environment", and the current directory follows Claude — "`cwd` follows Claude": into the worktree after
+`EnterWorktree`, into the new directory after a Bash `cd` — while `${CLAUDE_PROJECT_DIR}` "stays put: it still points at
+the project root where the session started". The ledger is gitignored, so a linked worktree under
+`.claude/worktrees/<name>` starts with none.
 
 **Measured** (the review of `0fec4fb8`, in scratch repos; items 1, 3, 4 and 7 also checked here):
 
@@ -26937,23 +26945,26 @@ gitignored, so a linked worktree under `.claude/worktrees/<name>` starts with no
    worktree, and accepted once it was back at the main checkout.
 2. The first MCP call made from the worktree seeds a ledger there with no `mcp_requirements` (`session_id: null`);
    once the required calls are made from there, the check allows. Where Qdrant is not configured, the seeded ledger
-   treats Qdrant as required and the check there can never allow.
-3. **Fail open.** A session start resets only the ledger in its own working directory. After a startup in the main
+   treats Qdrant as required, so no MCP call made there can satisfy the check; only a session started with the
+   attestation gets through.
+3. **Fail open.** A session start resets only the ledger in its own working directory (one started inside the worktree
+   does reset the worktree's). After a startup in the main
    checkout, the main ledger is empty and the check there denies, but the worktree's ledger keeps
    `"context7_query_docs_succeeded":true,"qdrant_find_succeeded":true`, and the check run from the worktree allows with
    no MCP call made: `N1-main rc=0 deny: MCP SESSION GATE — REQUIREMENTS NOT MET…`, `N2-worktree rc=0 ALLOW (no
    output)`. This reopens `## BL-236:`'s class — inherited `true` flags satisfying the check — through the working
    directory.
-4. **Live instance.** `.claude/worktrees/bl333/.claude/tool-usage.json` carries `session_id: null`,
-   `context7_query_docs_succeeded: true`, `qdrant_find_succeeded: true`, `mcp_gate_satisfied: true`, no
-   `mcp_requirements`, 4 calls, the last at `2026-10-25T20:52:15Z`. The check run on a byte copy of it allows. Any later
-   session whose working directory lands in that worktree passes the MCP check without an MCP call.
+4. **Live instance (removed 2026-10-25 on Karl's go).** `.claude/worktrees/bl333/.claude/tool-usage.json` carried
+   `session_id: null`, `context7_query_docs_succeeded: true`, `qdrant_find_succeeded: true`, `mcp_gate_satisfied: true`,
+   no `mcp_requirements`, 4 calls, the last at `2026-10-25T20:52:15Z`. The check run on a byte copy of it allows. Until
+   it was removed, any later session whose working directory landed in that worktree would have passed the MCP check
+   without an MCP call.
 5. **The operator's list is dropped.** With `## BL-335:`'s `additional_required: ["mcp__sentry__"]` in the main
    ledger, the check denies from the main checkout and allows from the worktree.
 6. **Lasting records land in the worktree.** A `qdrant-store` made while the working directory was bl333 wrote
    `"mcp_accumulation": {"store_success_count": 1, "last_store_at": "2026-10-25T20:38:11Z", …}` into bl333's tracked
-   `.claude/process-state.json` (uncommitted), while the main checkout's record still reads `"last_store_at":
-   "2026-10-20T21:25:06Z"`. A recorded MCP attestation lands in the worktree's state the same way.
+   `.claude/process-state.json` (uncommitted), while the main checkout's record still read `"last_store_at":
+   "2026-10-20T21:25:06Z"` on 2026-10-25. A recorded MCP attestation lands in the worktree's state the same way.
 7. **Not specific to worktrees.** From a subdirectory (`scripts/`) the check blocks the same way, and the tracker
    seeds `scripts/.claude/tool-usage.json`, which `.gitignore` does not cover (`git check-ignore` rc 1).
 
@@ -26969,8 +26980,43 @@ checkout's root.
 session, which is what `CLAUDE_PROJECT_DIR` names. Also `## BL-236:` (inherited flags), `## BL-176:` (worktree-blind
 literal paths) and `## BL-335:` (the operator's list).
 
-**Direction.** Resolve the ledger, the accumulation record and the attestation records from `$CLAUDE_PROJECT_DIR` —
-the hooks are already invoked as `bash "$CLAUDE_PROJECT_DIR"/scripts/…` — in all five scripts at once. Pin it with
-cases for a linked worktree, a subdirectory, a stale worktree ledger after a new session starts, `additional_required`,
-the store path and the attestation path. The live bl333 ledger needs removing on its own; it is gitignored runtime
-state.
+**Direction.** Resolve the ledger from `$CLAUDE_PROJECT_DIR` — the hooks are already invoked as
+`bash "$CLAUDE_PROJECT_DIR"/scripts/…` — in all five scripts and in the sixth reader, `scripts/lib/accumulation.sh`'s
+`# BL-233-WPB-LEDGER-EPHEMERAL` (sourced by `pre-commit-gate.sh`), at once. Pin it with cases for a linked worktree, a
+subdirectory, a stale worktree ledger after a new session starts, and `additional_required`.
+
+**Open question.** The accumulation record and the attestation records live in the tracked
+`.claude/process-state.json`, a per-checkout file — the category the Siblings paragraph uses to set `## BL-278:` apart —
+and their reader, `_cpg_accum_last_store` in `scripts/check-phase-gate.sh`, reads that file from its own working
+directory. Moving only the writers would split writer from reader, so where those records belong is decided with their
+reader, not here.
+
+## BL-357: adoption should gitignore `.claude/approvals.jsonl` in public repositories only
+
+**Logged:** 2026-10-25 (Karl's ruling, relayed by the cdf session and confirmed by Karl in the Solo session the same day)
+**Category:** Feature (adoption — repository hygiene)
+**Severity:** Medium — in a public repository every record publishes a `session_id`, a `prompt_id` and the full question
+and option text
+**Status:** Open
+
+**Ruling.** `.claude/approvals.jsonl`, written by the Development Guardrails' `record-approval.sh`, stays tracked in
+private repositories as the audit trail. In public repositories it is gitignored, because each record carries
+`session_id`, `prompt_id` and the full question and option text. Solo's adoptee `.gitignore` adds
+`.claude/approvals.jsonl` only when the repository is public. The Guardrails ship no ignore rule for it; per the cdf
+session nothing in them depends on the file being tracked (`.jsonl` counts as data, and approval reads its `/tmp`
+marker).
+
+**Today.** Solo writes no ignore rule for the file: `templates/generated/gitignore-base.tmpl` does not name it, and no
+module under `scripts/lib/adopt/` does. Solo reads it from disk only — `scripts/detect-out-of-band-commits.sh`
+(`APPROVALS="$PROJECT_ROOT/.claude/approvals.jsonl"`, `## BL-320:`) and `scripts/pending-approval.sh` — so ignoring it
+changes no local read. `## BL-354:` already treats a `.claude/*.jsonl` as state rather than source.
+
+**Open.**
+1. How adoption learns the repository's visibility. A generated project records `answers.repo_visibility` in
+   `.claude/intake-progress.json` (read by `scripts/check-gate.sh` when it creates the repository; default `private`).
+   An adopted repository has no intake answer, so the visibility has to come from its host or from a question, and an
+   unknown answer (offline, no host) must be reported as unknown, never defaulted in silence.
+2. Whether generated projects get the same rule, and whether `--sync-framework` applies it to projects adopted before
+   it lands.
+3. A repository that is already public with the file tracked: ignoring it does not remove the history. Say so; do not
+   rewrite history.
