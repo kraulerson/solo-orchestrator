@@ -27059,3 +27059,61 @@ accumulation's state-file arm matches `.claude/*.jsonl` as well as `.json` and k
 `data/events.jsonl` is still source work there). A `.jsonl` staged beside a source file still blocks. Suite:
 `tests/test-bl354-state-jsonl-exempt.sh` (13 cases, 5 mutants; J4 stages a non-source, non-exempt file so it reaches
 the exemption loop).
+
+## BL-358: the tool-usage ledger loses writes under the Rust coreutils (uutils `mkdir`) that ubuntu-26.04 ships — every PR's `unit` check is red
+
+**Logged:** 2026-10-26 (found on PR #524, a docs-only change)
+**Category:** Bug (enforcement — lost writes; CI)
+**Severity:** High — the `unit` required check is red for every PR, main included, and `scripts/lib/ledger-write.sh` ships
+to generated projects (`init.sh` copies it), so any machine on uutils before 0.11.0 can lose MCP ledger records; the same
+primitive guards the phase-gate attestation writers, the Phase 3 attestation writers and the bypass audit log (all
+shipped by `init.sh`), so a concurrent write there can drop an audit record
+**Status:** Open — CI pinned to `ubuntu-24.04` as a stopgap (`# BL-358-RUNNER-PIN`); the writer is not fixed
+
+**What.** GitHub's `ubuntu-latest` moved from `Image: ubuntu-24.04` (run 39629060444 attempt 1, 2026-10-21, main's last
+green run) to `Image: ubuntu-26.04`. On 26.04 `tests/test-bl314-tool-usage-concurrent.sh` loses writes in one to four of
+its concurrent cases per run — one write per failing round on CI, and C3 in all three 26.04 runs: PR #524's run 40336249134
+attempt 2 gave `[FAIL] C3 — … commits=11/12`, `[FAIL] C5 — … calls=11/12`, `[FAIL] C9 — N=80: parses=1 calls=79/80` and
+`[FAIL] C18 — row: seen=1 calls=1/2`; main's own `f6661694`, re-run as attempt 2 of 39629060444 on 2026-10-26, gave
+`[FAIL] C3 — round 2: parses=1 commits=11/12`. In containers the losses are larger (e.g. `C9 … calls=39/80`).
+
+**Measured locally, at `f6661694`, in containers (aarch64; `apt-get install -y jq git perl`, run as a non-root user —
+without `git` and `perl` the suite adds two unrelated failures, C22 and MN):**
+
+| image | bash | jq | coreutils | result |
+|---|---|---|---|---|
+| ubuntu:24.04 | 5.2.21 | 1.7 | GNU 9.4 | `Results: 65 passed, 0 failed, 0 skipped` |
+| ubuntu:26.04 | 5.3.9 | 1.8.1 | uutils 0.10.0 (`mv` is GNU 9.7) | `63 passed, 2 failed` (`C9 … calls=39/80`) |
+| ubuntu:26.04, all GNU 9.7 tools first on PATH | 5.3.9 | 1.8.1 | GNU 9.7 | `Results: 65 passed, 0 failed, 0 skipped` |
+| ubuntu:26.04, only GNU `mkdir` first on PATH | 5.3.9 | 1.8.1 | uutils except `mkdir` | `Results: 65 passed, 0 failed, 0 skipped` |
+
+Swapping in GNU `mktemp`, `rmdir`, `stat`, `date`, `sleep`, `rm` or `cat` alone still fails (60–63 passed, 2–5 failed).
+So the defect is uutils `mkdir` as the lock primitive (`# BL-314-LOCK`). The mechanism is uutils `mkdir` itself: without
+`-p` it stats the name, calls mkdir(2), and on any error returns success if the name is now a directory
+(`Err(_) if path.is_dir()` in `src/uu/mkdir/src/mkdir.rs` at 0.10.0), so a loser whose mkdir(2) got EEXIST exits 0 and
+two writers hold the lock at once. No `rmdir` is needed: in review, 40 contenders on a fresh name gave more than one
+winner in 14 of 200 rounds (GNU `mkdir`: 0 of 200), and with `mkdirat` delayed under strace and the name created inside
+the delay, uutils exits 0 where GNU exits 1 (3 of 3 each). Upstream: uutils issue #13970, fixed by PR #13986 (merged
+2026-08-28; in 0.11.0 and later, not in 0.10.0). The image's `rust-coreutils 0.10.0-1ubuntu2~26.04.1` changelog carries
+no fix for #13970.
+
+**Made worse by design.** `_lw_update` and `_lw_put` take the lock as `_lw_lock || :`, so a lock that is not acquired
+lets the write proceed unlocked instead of failing loudly.
+
+**Same primitive elsewhere (not measured):** `while ! mkdir "$lock_dir"` in `scripts/check-phase-gate.sh` (four sites),
+`scripts/track-tool-usage.sh` (`_tt_record_accumulation`), `scripts/run-phase3-validation.sh` (two) and
+`scripts/lib/bypass-audit.sh` (four).
+
+**Stopgap.** Every `runs-on` in `.github/workflows/tests.yml` and `lint.yml` names `ubuntu-24.04` (`# BL-358-RUNNER-PIN`).
+That hides the defect from CI only; remove the pin when the fix lands, and run the suite on 26.04 in the same PR. The 14
+`lint.yml` jobs passed on 26.04 (run 40336248981) and are pinned for uniformity only. GitHub moves `ubuntu-latest` to
+26.04 between 2026-10-19 and 2026-11-19 (actions/runner-images#14748, which names `ubuntu-24.04` as the mitigation). The
+pin can also come off once the 26.04 image's rust-coreutils carries uutils PR #13986. The unpin PR must also re-check
+CLAUDE.md's ENVIRONMENT TRAPS, which say the runners run bash 5.2: 26.04 ships bash 5.3.9 and jq 1.8.1.
+
+**Direction.** A lock primitive that does not depend on the coreutils implementation — for example bash's own `set -C`
+(`noclobber`, an `O_EXCL` open) on a lock file, which in review gave exactly one winner in every round of the same race
+(100 rounds on bash 3.2.57, 200 on 5.3.9) — applied to every site above at once, with the BL-314 suite run on both
+images in CI. It is needed even after Ubuntu picks up uutils 0.11.0, because generated projects run on hosts still on
+0.10.0; separately, asking Canonical to backport PR #13986 to 26.04's rust-coreutils would let the CI pin come off
+sooner. Decide whether `_lw_lock || :` should fail loudly instead.
