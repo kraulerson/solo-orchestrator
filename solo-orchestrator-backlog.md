@@ -26867,7 +26867,7 @@ the exemption loop).
 to a server carrying an API key)
 **Category:** Bug (enforcement — fail open)
 **Severity:** Medium — needs a server that reports a refusal inside an ordinary result; the Context7 process this session
-had started on 2026-10-06 did when its monthly quota was spent (Context7 4.2.1 and later mark a failed `query-docs`
+had started at 2026-10-07T00:27Z did when its monthly quota was spent (Context7 4.2.1 and later mark a failed `query-docs`
 `isError`, 4.4.3 and later a failed `resolve-library-id`)
 **Status:** Open
 
@@ -26895,9 +26895,10 @@ true`, and the `## BL-335:` `additional_required` arm (`# BL-233-ADDITIONAL-OUTC
 invalid token` satisfies the operator's pattern.
 
 **Context7 already flags its errors upstream.** Per its changelog (read in review), 4.2.1 sets `isError` on a failed
-`query-docs` and 4.4.3 on a failed `resolve-library-id`, a quota or rate-limit response included. The 4.4.4 now in this
-machine's npx cache (installed 2026-10-19) sets it in both handlers (`dist/index.js`); a 4.1.1 cache (2026-09-28) does
-not. The process that refused was started on 2026-10-06, before that cache was updated.
+`query-docs` and 4.4.3 on a failed `resolve-library-id`; per its code, every non-OK response — a quota or rate-limit
+response included — takes that error path. The 4.4.4 now in this machine's npx cache (installed 2026-10-19) sets it in
+both handlers (`dist/index.js`); a 4.1.1 cache (2026-09-28) does not. The process that refused was started at
+2026-10-07T00:27Z, before that cache was updated.
 
 **Not measured:** whether that process answered a quota-limited `query-docs` the same way (only `resolve-library-id`
 was observed refusing), and which Context7 version it ran.
@@ -26945,11 +26946,13 @@ the project root where the session started". The ledger is gitignored, so a link
    worktree, and accepted once it was back at the main checkout.
 2. The first MCP call made from the worktree seeds a ledger there with no `mcp_requirements` (`session_id: null`);
    once the required calls are made from there, the check allows. Where Qdrant is not configured, the seeded ledger
-   treats Qdrant as required, so no MCP call made there can satisfy the check; only a session started with the
-   attestation gets through.
-3. **Fail open.** A session start resets only the ledger in its own working directory (one started inside the worktree
-   does reset the worktree's). After a startup in the main
-   checkout, the main ledger is empty and the check there denies, but the worktree's ledger keeps
+   treats Qdrant as required, so the check denies there until a SessionStart in that directory rewrites
+   `mcp_requirements`. A startup writes a fresh ledger, after which one `query-docs` made there allows; a resume,
+   `/compact` or `/clear` re-derives the requirements and keeps the seeded flags, so it allows with no further call
+   (`# BL-335-MERGE`). Short of that, only the attestation gets through.
+3. **Fail open.** A session start resets only the ledger in its own working directory (a startup inside the worktree
+   does reset it; a resume, compact or clear there merges and keeps its flags). After a startup in the main checkout,
+   the main ledger is empty and the check there denies, but the worktree's ledger keeps
    `"context7_query_docs_succeeded":true,"qdrant_find_succeeded":true`, and the check run from the worktree allows with
    no MCP call made: `N1-main rc=0 deny: MCP SESSION GATE — REQUIREMENTS NOT MET…`, `N2-worktree rc=0 ALLOW (no
    output)`. This reopens `## BL-236:`'s class — inherited `true` flags satisfying the check — through the working
@@ -26982,41 +26985,55 @@ literal paths) and `## BL-335:` (the operator's list).
 
 **Direction.** Resolve the ledger from `$CLAUDE_PROJECT_DIR` — the hooks are already invoked as
 `bash "$CLAUDE_PROJECT_DIR"/scripts/…` — in all five scripts and in the sixth reader, `scripts/lib/accumulation.sh`'s
-`# BL-233-WPB-LEDGER-EPHEMERAL` (sourced by `pre-commit-gate.sh`), at once. Pin it with cases for a linked worktree, a
-subdirectory, a stale worktree ledger after a new session starts, and `additional_required`.
+`# BL-233-WPB-LEDGER-EPHEMERAL`, at once. That reader's function, `accum_requirement_state`, is called by both
+`pre-commit-gate.sh` and `check-phase-gate.sh`; the phase gate runs outside a hook, where `$CLAUDE_PROJECT_DIR` is
+unset, so it needs a working-directory fallback, as does `_cpg_check_accumulation`'s own parse check of the ledger.
+Pin it with cases for a linked worktree, a subdirectory, a stale worktree ledger after a new session starts, and
+`additional_required`.
 
-**Open question.** The accumulation record and the attestation records live in the tracked
-`.claude/process-state.json`, a per-checkout file — the category the Siblings paragraph uses to set `## BL-278:` apart —
-and their reader, `_cpg_accum_last_store` in `scripts/check-phase-gate.sh`, reads that file from its own working
-directory. Moving only the writers would split writer from reader, so where those records belong is decided with their
-reader, not here.
+**Open question.** The accumulation record lives in the tracked `.claude/process-state.json`, a per-checkout file — the
+category the Siblings paragraph uses to set `## BL-278:` apart — and both of its readers, `_cpg_accum_last_store` in
+`scripts/check-phase-gate.sh` and `pre-commit-gate.sh`'s commit-time accumulation warning (beside
+`# BL-233-WPB-ACCPREV-ONELINE`), read it from their own working directory. Moving only the writer would split writer
+from readers. The MCP check's attestation records (`mcp_attestations[]` there, plus `.claude/mcp-attestations.jsonl`,
+both appended on every attestation) have no reader; where they belong is a question of which checkout's audit trail
+they join.
 
 ## BL-357: adoption should gitignore `.claude/approvals.jsonl` in public repositories only
 
 **Logged:** 2026-10-25 (Karl's ruling, relayed by the cdf session and confirmed by Karl in the Solo session the same day)
 **Category:** Feature (adoption — repository hygiene)
-**Severity:** Medium — in a public repository every record publishes a `session_id`, a `prompt_id` and the full question
-and option text
+**Severity:** Medium — in a public repository every pick record publishes a `session_id`, a `prompt_id` and the full
+question and option text
 **Status:** Open
 
-**Ruling.** `.claude/approvals.jsonl`, written by the Development Guardrails' `record-approval.sh`, stays tracked in
-private repositories as the audit trail. In public repositories it is gitignored, because each record carries
-`session_id`, `prompt_id` and the full question and option text. Solo's adoptee `.gitignore` adds
-`.claude/approvals.jsonl` only when the repository is public. The Guardrails ship no ignore rule for it; per the cdf
-session nothing in them depends on the file being tracked (`.jsonl` counts as data, and approval reads its `/tmp`
-marker).
+**Ruling.** `.claude/approvals.jsonl` stays tracked in private repositories as the audit trail. In public repositories
+it is gitignored, because of what its records carry. Three Development Guardrails hooks append to it: each pick record
+(`record-approval.sh`) carries `session_id`, `prompt_id` and the full question and option text; override records
+(`mark-evaluated.sh`) carry the operator's free-text `reason`; commit records (`marker-tracker.sh`) carry SHAs and
+trees. Solo's adoptee ignore rules add `.claude/approvals.jsonl` only when the repository is public. The Guardrails ship
+no ignore rule for it; per the cdf session nothing in them depends on the file being tracked (`.jsonl` counts as data,
+and approval reads its `/tmp` marker).
 
-**Today.** Solo writes no ignore rule for the file: `templates/generated/gitignore-base.tmpl` does not name it, and no
-module under `scripts/lib/adopt/` does. Solo reads it from disk only — `scripts/detect-out-of-band-commits.sh`
+**Today.** Solo writes no ignore rule for the file: `templates/generated/gitignore-base.tmpl` does not name it.
+Adoption writes its ignore rules to `.claude/.gitignore`, never the project's own (`# BL-322-ADOPT-IGNORE-WRITE`; an
+existing one is left alone, `# BL-322-ADOPT-IGNORE-KEEP`), and its comment in `scripts/lib/adopt/adopt-session.sh`
+records that `.claude/approvals.jsonl` is deliberately not ignored — the decision this entry reverses for public
+repositories. Solo reads the file from disk only — `scripts/detect-out-of-band-commits.sh`
 (`APPROVALS="$PROJECT_ROOT/.claude/approvals.jsonl"`, `## BL-320:`) and `scripts/pending-approval.sh` — so ignoring it
 changes no local read. `## BL-354:` already treats a `.claude/*.jsonl` as state rather than source.
 
 **Open.**
 1. How adoption learns the repository's visibility. A generated project records `answers.repo_visibility` in
    `.claude/intake-progress.json` (read by `scripts/check-gate.sh` when it creates the repository; default `private`).
-   An adopted repository has no intake answer, so the visibility has to come from its host or from a question, and an
-   unknown answer (offline, no host) must be reported as unknown, never defaulted in silence.
-2. Whether generated projects get the same rule, and whether `--sync-framework` applies it to projects adopted before
+   Adoption's Act 4 prefills answers but deliberately leaves `repo_visibility` out (`scripts/lib/adopt/adopt-act4.sh`),
+   because `check-gate.sh` creates the remote from it; so the visibility has to come from the host or from a question,
+   stored where `check-gate.sh` will not act on it, and an unknown answer (offline, no host) must be reported as
+   unknown, never defaulted in silence.
+2. Which file the rule goes in — adoption's `.claude/.gitignore`, which matches how adoption works today, or the
+   project's `.gitignore`, which adoption never touches — and what happens when the adoptee already has a
+   `.claude/.gitignore` of its own.
+3. Whether generated projects get the same rule, and whether `--sync-framework` applies it to projects adopted before
    it lands.
-3. A repository that is already public with the file tracked: ignoring it does not remove the history. Say so; do not
+4. A repository that is already public with the file tracked: ignoring it does not remove the history. Say so; do not
    rewrite history.
