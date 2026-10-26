@@ -26860,3 +26860,45 @@ accumulation's state-file arm matches `.claude/*.jsonl` as well as `.json` and k
 `data/events.jsonl` is still source work there). A `.jsonl` staged beside a source file still blocks. Suite:
 `tests/test-bl354-state-jsonl-exempt.sh` (13 cases, 5 mutants; J4 stages a non-source, non-exempt file so it reaches
 the exemption loop).
+
+## BL-358: the tool-usage ledger loses writes under the Rust coreutils (uutils `mkdir`) that ubuntu-26.04 ships — every PR's `unit` check is red
+
+**Logged:** 2026-10-26 (found on PR #524, a docs-only change)
+**Category:** Bug (enforcement — lost writes; CI)
+**Severity:** High — the `unit` required check is red for every PR, main included, and `scripts/lib/ledger-write.sh` ships
+to generated projects (`init.sh` copies it), so any Ubuntu 25.10+ machine on uutils can lose MCP ledger records
+**Status:** Open — CI pinned to `ubuntu-24.04` as a stopgap (`# BL-358-RUNNER-PIN`); the writer is not fixed
+
+**What.** GitHub's `ubuntu-latest` moved from `Image: ubuntu-24.04` (main's last green run, 39629060444, 2026-10-21) to
+`Image: ubuntu-26.04`. On 26.04 `tests/test-bl314-tool-usage-concurrent.sh` loses one write in most concurrent cases:
+PR #524's run 40336249134 gave `[FAIL] C3 — … commits=11/12`, `[FAIL] C5 — … calls=11/12`, `[FAIL] C9 — N=80: parses=1
+calls=79/80` and `[FAIL] C18 — row: seen=1 calls=1/2`; main's own `f6661694`, re-run on 26.04 the same day, gave
+`[FAIL] C3 — round 2: parses=1 commits=11/12`.
+
+**Measured locally, at `f6661694`, in containers (aarch64):**
+
+| image | bash | jq | coreutils | result |
+|---|---|---|---|---|
+| ubuntu:24.04 | 5.2.21 | 1.7 | GNU 9.4 | `Results: 65 passed, 0 failed, 0 skipped` |
+| ubuntu:26.04 | 5.3.9 | 1.8.1 | uutils 0.10.0 (`mv` is GNU 9.7) | `63 passed, 2 failed` (`C9 … calls=39/80`) |
+| ubuntu:26.04, all GNU 9.7 tools first on PATH | 5.3.9 | 1.8.1 | GNU 9.7 | `Results: 65 passed, 0 failed, 0 skipped` |
+| ubuntu:26.04, only GNU `mkdir` first on PATH | 5.3.9 | 1.8.1 | uutils except `mkdir` | `Results: 65 passed, 0 failed, 0 skipped` |
+
+Swapping in GNU `mktemp`, `rmdir`, `stat`, `date`, `sleep`, `rm` or `cat` alone still fails (60–63 passed, 2–5 failed).
+So the defect is uutils `mkdir` as the lock primitive (`# BL-314-LOCK`). A plain probe — 40 simultaneous `mkdir L` on a
+fresh name — shows 1 of 40 succeeding in three rounds on both images, so the failure needs the lock's acquire/release
+cycle (another process's `rmdir` interleaved with `mkdir`); the exact mechanism is not isolated.
+
+**Made worse by design.** `_lw_update` and `_lw_put` take the lock as `_lw_lock || :`, so a lock that is not acquired
+lets the write proceed unlocked instead of failing loudly.
+
+**Same primitive elsewhere (not measured):** `while ! mkdir "$lock_dir"` in `scripts/check-phase-gate.sh` (four sites),
+`scripts/track-tool-usage.sh` (`_tt_record_accumulation`), `scripts/run-phase3-validation.sh` (two) and
+`scripts/lib/bypass-audit.sh` (four).
+
+**Stopgap.** Every `runs-on` in `.github/workflows/tests.yml` and `lint.yml` names `ubuntu-24.04` (`# BL-358-RUNNER-PIN`).
+That hides the defect from CI only; remove the pin when the fix lands, and run the suite on 26.04 in the same PR.
+
+**Direction.** Confirm the mechanism, then a lock primitive that does not depend on the coreutils implementation — for
+example bash's own `set -C` (`noclobber`, an `O_EXCL` open) on a lock file — applied to every site above at once,
+with the BL-314 suite run on both images in CI. Decide whether `_lw_lock || :` should fail loudly instead.
