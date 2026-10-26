@@ -1097,6 +1097,15 @@ run_child_suite "tests/test-bl354-state-jsonl-exempt.sh" \
 run_child_suite "tests/test-bl344-home-clone-guard.sh" \
   "BL-344: the unit lane fails a suite that touches the Guardrails clone in HOME; the check plants, checks and replants" \
   "BL-344 home-clone-guard tests FAILED (run tests/test-bl344-home-clone-guard.sh for details)"
+# BL-333: --sync-framework never refreshed templates/tool-matrix/, so a floor
+# raised upstream never reached an existing project. The cases and their mutation
+# proofs are two files, one CI leg each (`# BL-333-MUTANTS-SPLIT`).
+run_child_suite "tests/test-bl333-sync-tool-matrix.sh" \
+  "BL-333: the sync copies a missing matrix file, replaces one whose bytes equal any version the framework shipped (dated .bak), reports one whose bytes match none and applies it only when declared, and never writes through a link; dry-run writes nothing" \
+  "BL-333 sync-tool-matrix tests FAILED (run tests/test-bl333-sync-tool-matrix.sh for details)"
+run_child_suite "tests/test-bl333-sync-tool-matrix-mutants.sh" \
+  "BL-333: every marked line of the matrix sync is mutation-proven against a framework mirror" \
+  "BL-333 sync-tool-matrix mutation proofs FAILED (run tests/test-bl333-sync-tool-matrix-mutants.sh for details)"
 # BL-323: init.sh installed the pre-push review gate and then pushed the scaffold
 # into it; with no review on record the gate refused, the remote stayed empty,
 # and the first attempt's error was discarded. --repair failed the same way.

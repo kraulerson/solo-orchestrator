@@ -12188,7 +12188,11 @@ to do":**
    human-facing surface. A distinct BUCKET in `scripts/resolve-tools.sh`'s JSON
    is a schema change with many consumers and was not attempted.
 3. **`templates/tool-matrix/*.json` is in no sync set** — see below. Recorded,
-   not fixed; the ordering is safe and the entry says why.
+   not fixed; the ordering is safe and the entry says why. **Since `## BL-333:`
+   (fixes `b02da93` and `40619cc`, first cut `e49d1d7`) it is:** the sync copies a
+   missing matrix file, replaces one whose bytes equal any version the framework
+   shipped (keeping a dated `.bak`), and reports one whose bytes match none,
+   applying it only when the run declares `--apply-doc-updates`.
 
 **What the five review rounds were actually evidence of.** The verdicts ran
 `block` → `block` → `minor_concerns` → `block` → `block` → `approve`, and **four
@@ -12457,6 +12461,13 @@ and **the review blocked it.** Everything below is that round.
   probe — cannot occur, because the rows only ever arrive via `init.sh`, which
   copies both. The consequence is that an existing project keeps the old
   declaration behaviour until it is re-initialised, not that it breaks.
+  *(`## BL-333:` added the matrix to the sync, so "the rows only ever arrive via
+  `init.sh`" no longer holds. The sync refreshes the scripts, the probe included,
+  before it touches a matrix file in the same run, but the matrix step does not
+  wait on the scripts step: if the probe's copy fails, that run ends `[FAIL]` and
+  rc 1, yet its matrix update still lands, so rows that call the probe can meet
+  the project's old probe until a sync succeeds. `S14` of
+  `tests/test-bl333-sync-tool-matrix.sh` pins that.)*
 - **Five rows now leave `check-versions.sh` entirely.** The rows with genuinely
   no version dropped `version_command`, and `CHECKABLE_TOOLS` filters on a
   non-empty one — so `Android Studio`, both Apple Developer Program rows, the
@@ -23760,6 +23771,9 @@ Group E and `tests/test-brownfield-wp10a-tool-resolution.sh` X5 now name the new
   never writes (it writes `install_cmd`), so its "Install now?" runs nothing. Same family, own defect.
 - Existing scaffolded projects keep their own copy of the matrix: `--sync-framework` copies the shipped
   scripts, not `templates/tool-matrix/`, and `fix_tool_matrix` replaces only a missing or invalid one.
+  *(Closed by `## BL-333:`, fixes `b02da93` and `40619cc` (first cut `e49d1d7`): the sync now replaces a matrix file
+  whose bytes equal any version the framework shipped, keeping a dated `.bak`, and reports one whose bytes match none,
+  applying it only when declared.)*
 - Superpowers has no `linux_dnf` key, so a dnf-only host gets the manual text. Neither the row nor the
   fixer adds the official marketplace first, which the docs say a machine that has never opened an
   interactive session needs.
@@ -25642,7 +25656,7 @@ file cannot be read.
 **Logged:** 2026-10-08 (issue #469, filed 2026-09-30; also a residual on `## BL-235:`)
 **Category:** Bug (correctness)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-10-26 (fixes `b02da93` and `40619cc`; first cut `e49d1d7`)
 
 **What.** init.sh copies the tool matrix into every project, and `scripts/check-versions.sh` reads the project's
 copy first. `--sync-framework` refreshes scripts, hooks and the verbatim reference documents but nothing under
@@ -25651,6 +25665,191 @@ copy first. `--sync-framework` refreshes scripts, hooks and the verbatim referen
 
 **Direction.** Add the matrix to the sync's shipped set as a verbatim copy with the same drift report the reference
 documents get.
+
+**Reproduced** on `539eac4` with a project whose `common.json` is the file as it stood before `7578fb9`
+(`git show 7578fb9^:templates/tool-matrix/common.json`): `--sync-framework` exits 0, names no matrix, leaves
+`min_version` at 8.18.0, and `check-versions.sh` with a stub gitleaks 8.18.5 prints `[OK] gitleaks: 8.18.5 (min:
+8.18.0)`.
+
+**Karl's rulings.**
+- **2026-10-25, option A.** `--sync-framework` replaces a project's `templates/tool-matrix/<file>` when the project's
+  copy is byte-identical to a version the framework itself shipped — a match in the framework's git history of that
+  file — keeping a dated `.bak` and saying so. Any other copy keeps the report-and-keep path (overwritten only with
+  `--apply-doc-updates overwrite --confirm-doc-overwrite`). A framework root with no git history falls back to
+  report-and-keep and says that is why.
+- **2026-10-26, on R-BL333-10, option A: keep the behaviour, fix the promise.** The bytes decide, not how the copy
+  came to hold them. A copy whose bytes equal ANY version the framework shipped is replaced on every sync, a copy
+  the project deliberately restored or reverted to an older shipped version included — its own `.bak`, say. The way
+  to keep an older floor is to change the file so its bytes match no shipped version. `--help`, the script header,
+  the user guide, this entry and the `[OK]` line say exactly that; "never edited" and "one you edited is kept" are
+  gone. Option B — record per file the blob the sync last wrote, and treat any other bytes as the project's own — is
+  residual 6, not built.
+
+**Fix.**
+- **The set is derived, not listed.** `soif_parse_shipped_tool_matrix` (`scripts/lib/scaffold-shipped-set.sh`,
+  `# BL-333-MATRIX-PARSER`) reads init.sh's own `cp "$SCRIPT_DIR/templates/tool-matrix/"*.json` line
+  (`# BL-333-MATRIX-SHIP`) and expands its glob against the framework. `P2` of the suite runs init.sh's two matrix
+  lines in a scratch directory and asserts they land exactly the parser's set, so init's copy and the sync's set
+  cannot drift apart unnoticed. `P2` also fails on any other executed init.sh line that names
+  `templates/tool-matrix` — only the `mkdir`, the `# BL-333-MATRIX-SHIP` copy and the `--matrix-dir` reads may — so
+  a second copy line the parser never reads (`cp -p`, a `cp` with its path unquoted, `install -m`) is caught. Each
+  of those three passed `049a3c6b`'s suite, 23/0.
+- **A copy whose bytes equal a shipped version is replaced on every sync (fixes `b02da93`, `40619cc`).**
+  `_bl333_matrix_in_history` hashes the project's file with `git hash-object --no-filters` and asks
+  `git log --reverse --find-object=<blob> -- <path>` whether the framework's own history of THAT path holds those
+  bytes (`# BL-333-MATRIX-LOOKUP`, `# BL-333-MATRIX-HISTORY-READ`); the same bytes shipped as another file are no
+  match. Measured on this repository: `7578fb9^`'s `common.json` is found, and the same file with a hand-added
+  required tool is not. The line names the OLDEST commit listed, the one that committed those bytes (`5524d21a` for
+  that file), not the one that later replaced them (`7578fb92`, which the first cut named). A copy that is found is
+  replaced by `_bl333_matrix_update` (`# BL-333-MATRIX-SHIPPED`) with the doc overwrite's write discipline: a dated
+  `.bak` written and re-read before the original is touched (`# BL-333-UPDATE-VERIFY-BAK`), the write re-read after
+  it (`# BL-333-UPDATE-VERIFY-NEW`), the copy put back from the `.bak` when the write lands short
+  (`# BL-333-UPDATE-PUT-BACK`), each failure a `[FAIL]` and rc 1 (`# BL-333-UPDATE-SAY-FAIL`); a backup that does not
+  verify is left in place, never deleted. No consent is asked, interactive or not, and `--apply-doc-updates` does
+  not govern it (its `--help` says so since `97e5c36`): the bytes are the framework's, as a vendored script's are.
+  `--dry-run` prints `[would update]` and writes nothing (`# BL-333-UPDATE-DRYRUN`). Measured on `40619cc` with the
+  project above: `[OK] templates/tool-matrix/common.json: updated (backup: …common.json.bak.<date>) — its bytes
+  matched a version the framework shipped (committed in 5524d21a), and every sync replaces such a copy, even one
+  restored on purpose. To keep an older floor, change the file so its bytes match no shipped version.`, then
+  `[WARN] gitleaks: 8.18.5 (min: 8.19.0) — BELOW MINIMUM`; the `.bak` holds the old bytes.
+- **A copy whose bytes match no shipped version is the project's own, and keeps the reference documents'
+  treatment through their own processor** (`# BL-333-MATRIX-DRIFT`, `_bl099_process_doc`): a bare non-interactive
+  run prints the drift and a capped diff and writes nothing ("notice only"); `--apply-doc-updates sidecar` writes
+  `<file>.new`; `overwrite` needs `--confirm-doc-overwrite` and keeps a dated `.bak` of the project's bytes; an
+  interactive run asks per file (default skip, overwrite default N); `--dry-run` writes nothing. A line before the
+  notice says why the file was not updated (`# BL-333-MATRIX-WHY`), and one after it says `check-versions.sh` and
+  the phase gate keep reading the project's floors until it is applied (`# BL-333-MATRIX-KEPT-NOTE`).
+- **No history, no verdict.** A framework that is not a git checkout of its own — an unpacked archive, or a
+  directory inside some other repository (`rev-parse --show-toplevel` must be the framework root,
+  `# BL-333-MATRIX-HISTORY-ROOT`) — or one whose log git cannot read (no commits, `# BL-333-MATRIX-HISTORY-READ`)
+  cannot decide whether the bytes are a shipped version: the copy takes the project's-own path, and its line says
+  why. So does a copy that a SHALLOW clone's history does not hold (`# BL-333-MATRIX-HISTORY-MISS`): that history
+  may stop before the copy's version. Measured: a `--depth 1` clone does not find a blob its full clone finds. Its
+  line names `git fetch --unshallow`. Both kinds of framework reach the sync on an ordinary path: a CI job's
+  `actions/checkout` fetches one commit by default, and downloads an archive with no `.git` when git is older than
+  2.18 (its README and action inputs, read via Context7). `scripts/lib/plan-staging.sh` already says "shallow clone"
+  for the same reason.
+- **Never through a link (`40619cc`, R-BL333-15).** The missing-file copy (`# BL-333-MATRIX-NO-LINK-NEW`) and the
+  update (`# BL-333-UPDATE-NO-LINK`) refuse a matrix file that is a symbolic link, dangling or live, with a `[FAIL]`
+  naming its target (`# BL-333-MATRIX-LINK-SAY`) and rc 1. Measured on macOS at `40619cc`: neither outside target was
+  written; on `5d2bded4` BSD `cp` wrote both (`L1`, `L2`).
+- **No fragment (`40619cc`, R-BL333-13).** A missing-file copy that lands short is removed
+  (`# BL-333-MATRIX-WRITE-STATUS`), as the doc sidecar's is. On `5d2bded4` a copy that wrote 5 bytes and failed left
+  them (`S13`), and, measured, the next sync kept them as the project's own with rc 0 while `check-versions.sh` then
+  stopped with `jq: Bad JSON in --slurpfile p templates/tool-matrix/web.json`, rc 2.
+- **The framework's history, whatever GIT_DIR says (`40619cc`, R-BL333-12).** `_run_sync_framework` unsets
+  `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY` and
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES` (`# BL-333-SYNC-GIT-ENV`). A git hook exports `GIT_DIR`, and in a linked
+  worktree it names the project's git directory: measured on `5d2bded4`, the lookup then read the project's history
+  and replaced a copy the project had edited ("found … at d62ba8f", the project's own commit), and the pin recorded
+  the project's HEAD (`G1`). A project with no `.git` of its own, reached only through an exported `GIT_DIR`, loses
+  that `GIT_DIR` inside the sync (read from the change, not measured).
+- **Two departures from the doc precedent, both deliberate.** A file MISSING from a vendored matrix is copied
+  (the doc path skips a missing doc): there is nothing of the project's to lose, and an absent file is an absent
+  floor. A project with NO `templates/tool-matrix/` gets none (`# BL-333-MATRIX-VENDORED`): that is an adopted
+  project, and a copy made there would freeze. The sync tells it which copy `check-versions.sh` reads instead, found
+  by check-versions' own test of `.claude/orchestrator-source.json`'s `source_dir` (`# BL-333-MATRIX-NONE-READ`):
+  this framework's own (`# BL-333-MATRIX-NONE-OWN`), another checkout's (a `[WARN]`, `# BL-333-MATRIX-NONE-OTHER`),
+  or none it can read (a `[WARN]`: check-versions stops with "Tool matrix not found", `# BL-333-MATRIX-NONE-UNREAD`).
+  The first cut printed "check-versions.sh reads the framework's own copy" without looking.
+- **The list is read on fd 3** (`# BL-333-MATRIX-OWN-FD`). The first cut fed it on stdin, and an interactive apply
+  prompts inside the loop: measured with the tty seam forced, `prompt_choice` read the next FILE NAME as the
+  operator's answer (`Invalid choice` per remaining file, then EOF, skip), and the files after the first drifted
+  one were never visited.
+- An init.sh with no matrix line is a warning, not a silent exit under `set -e` (`# BL-333-MATRIX-EMPTY-SET`).
+
+**Adoption.** Adoption does not install the matrix (`docs/designs/2026-08-23-brownfield-adoption-v2.md` §8.7a row
+7, "undispositioned"), and for THIS defect it needs no treatment: its `check-versions.sh` reads the copy
+`.claude/orchestrator-source.json` names — normally the framework clone's live one, and the sync now says which.
+The row itself stays open there: `check-phase-gate.sh`'s tool block and `verify-install.sh`'s resolver row name
+`templates/tool-matrix` in the project and get nothing on an adoptee.
+
+**Review of `049a3c6b` (adversarial; verdict: block), and what was done.**
+- R-BL333-1 (block): a plain sync left an old shipped matrix in force — the `7578fb9^` project kept `(min:
+  8.18.0)`. Fixed by `b02da93`, above; cases `U1`-`U7`.
+- R-BL333-2 (block): "the sync cannot tell an old copy from one you edited" stood in `_bl333_sync_tool_matrix`'s
+  header comment, the user guide and this entry. All three now say what the sync does, and the pointers from
+  `## BL-316:` and `## BL-235:` say it too.
+- R-BL333-3 (major): marker-keeping mutants survived — a status-only `# BL-333-MATRIX-WRITE-STATUS`, a
+  `# BL-333-MATRIX-DRIFT` without its `|| DOC_APPLY_FAILED=true` (under `set -e` the first failed apply ended the
+  run), an unconditional `# BL-333-MATRIX-KEPT-NOTE`. Each passes `049a3c6b`'s own suite, 23/0, and each is killed
+  now: by `S11` (a `cp` that exits 0 and writes nothing), `S12` (two files whose sidecars cannot be written: both
+  `[FAIL]` lines, the pin step and the summary, rc 1) and `S6`'s second run.
+- R-BL333-4 (minor): `P2`'s closure, above.
+- R-BL333-5 (minor): the no-matrix notice, above.
+- R-BL333-6: subsumed by R-BL333-1.
+- R-BL333-7 (minor): the user guide's "Replace drifted docs in place" recipe now says it also replaces every
+  tool-matrix file whose bytes match no shipped version (a dated `.bak` kept) and points at `sidecar`. No new flag.
+- R-BL333-8 (low): residual 3 below.
+- R-BL333-9 (low): the user guide no longer says the matrix refreshes "as a side effect of a tier change". A tier
+  change reads the framework's matrix to pick tools (`MATRIX_DIR="$ORCHESTRATOR_ROOT/templates/tool-matrix"`) and
+  never copies it into the project.
+
+**Review of `5d2bded4` (adversarial; verdict: major concerns), and what was done** (`959eb25` tests, `40619cc` fix):
+- R-BL333-10: Karl's ruling, above. `U8` pins it: a copy restored on purpose to its own `.bak` is replaced again.
+- R-BL333-11 (major): X1, `# BL-333-MATRIX-HISTORY-READ` without its ` -- "$rel"` pathspec, passed `5d2bded4`'s
+  suite, 74/0. `U9` (a `common.json` holding `web.json`'s first-commit bytes is kept) kills it as `M48`.
+- R-BL333-12 (minor): the `GIT_DIR` unset, above; `G1`, `M52`.
+- R-BL333-13 (minor): the fragment, above; `S13`, `M49`.
+- R-BL333-14 (minor, CI): the 55 mutants are `tests/test-bl333-sync-tool-matrix-mutants.sh`, which sources the
+  cases file (`# BL-333-MUTANTS-SPLIT`) and fails if loading ran a case or if the mutants judged differ from those
+  declared. The cases file is pinned to `adopt` and the mutants to `lint-scan`. On main run 39629060444 those legs
+  ran 484s and 461s against a 576s line; the two files take 44s and 80s on this Mac.
+- R-BL333-15 (minor, security): the link refusal, above; `L1`, `L2`, `M53`-`M55`.
+- R-BL333-16: Y9, an `rm -f "$bak"` in `# BL-333-UPDATE-VERIFY-BAK`'s refusal, passed `5d2bded4`'s suite, 74/0. `U5`
+  now asserts the unverified (empty) `.bak` is still there and kills it as `M50`.
+- R-BL333-17: the commit named, above; `U1`, `M51`.
+- R-BL333-18: the matrix step does not wait on the scripts step. The pointer in `## BL-235:` is corrected to say so
+  rather than the step made to wait, which would take a new flag inside `## BL-099:`'s script sync for a run that
+  already ends `[FAIL]` and rc 1. `S14` pins it: a failed copy of `scripts/probe-tool.sh` fails the run, and the
+  matrix update still lands.
+- R-BL333-19: the reasoning for shallow frameworks, above. The first draft cited `scripts/check-updates.sh`'s
+  `--depth 1` clone, which is a temporary directory deleted before that script exits and never runs the sync.
+
+**Tests.** `tests/test-bl333-sync-tool-matrix.sh`, 34 cases, and `tests/test-bl333-sync-tool-matrix-mutants.sh`, 55
+mutants: 34 passed / 0 failed and 55 passed / 0 failed (55 of 55 declared judged) at `40619cc`. Against `5d2bded4`
+they were 24 / 10 (S2, S13, S14, U1, U2, U8, U9, G1, L1, L2) and 47 / 8 (eight mutants on markers that did not exist
+yet). One sub-mutant is equivalent and is not in the mutants file: dropping only the `[ -L "$dst" ] ||` guard inside
+`# BL-333-MATRIX-WRITE-STATUS`'s cleanup, which no link can reach while `# BL-333-MATRIX-NO-LINK-NEW` stands
+(measured once: the cases file stays 34 / 0 against it). The
+framework fixture builds its own two-commit history of the matrix, so no case needs this repository's history; the
+shallow case clones that fixture with `file://`. Round one: 74 passed / 0 failed at `b02da93` and `ab168e5`, also with
+`GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null` and on bash 5.2.21, git 2.43.0 and GNU coreutils 9.4 in
+`ubuntu:24.04`; the first cut had 12 cases and 11 mutants, 23 passed / 0 failed, 0 / 23 against `539eac4`. Both files
+drive the real `upgrade-project.sh` against a framework mirror whose matrix is one gitleaks row, and read the floor
+back out of `check-versions.sh`.
+
+**Merge note.** Merge this branch with a merge commit, not a squash or a rebase: the SHAs cited in this entry and in
+the pointers from `## BL-235:` and `## BL-316:` exist only on the branch.
+
+**Residuals, not fixed.**
+1. **`docs/reference/messaging-standard.md` is shipped and never drift-checked.** `soif_parse_shipped_reference_docs`
+   returns eight documents; `_bl099_doc_drift` loops over a hand-kept list of seven. Measured: a project with a
+   stale copy of it and of `user-guide.md` gets `user-guide.md: differs from framework` and no line naming
+   `messaging-standard` at all. The fix is the same as this entry's — loop over the parser.
+2. ~~**A bare unattended sync still leaves an old floor in force.**~~ *Fixed by `b02da93` (Karl's ruling, option A)
+   for a copy whose bytes equal a shipped version. By design it still holds for a copy whose bytes match none, until
+   a run declares an apply, and for every differing copy when the framework has no history the sync can read; the
+   file's line says so in both.*
+3. **Some consent-free writes still follow a symbolic link out of the project** (R-BL333-8). The matrix's
+   missing-file copy and update refuse a link since `40619cc` (above). Measured on macOS (BSD `cp`) at `40619cc`,
+   with `scripts/check-versions.sh` a dangling link to a path outside the project: the scripts sync wrote that
+   outside file. A declared `--apply-doc-updates overwrite --confirm-doc-overwrite` of a linked matrix file or
+   reference doc writes through the link too (read from `_bl099_doc_apply`, not measured). GNU coreutils 9.4 `cp`
+   refuses a dangling destination (`not writing through dangling symlink`, rc 1) and writes through a live one,
+   measured on the `cp` alone. `## BL-351:`'s guard (`## BL-310:` row 4) covers adoption, not the sync.
+4. **A second write of the same file on the same UTC day replaces that day's `.bak`**, in the shipped-copy update as
+   in the doc overwrite. What the update backs up is by construction a version the framework shipped, so it can be
+   fetched again; but a `.bak` that an `--apply-doc-updates overwrite` of a project's own copy wrote earlier the same
+   day would be replaced by a later update of the same file. Read from the code, not measured.
+5. **The pin step reads an enclosing repository as the framework's.** `_bl099_stamp_pin` tests
+   `git rev-parse --git-dir`, so a framework copy inside another repository (`H2`'s layout) pins that repository's
+   HEAD as `soloFrameworkCommit`. Measured: the outer repository's commit was pinned while the matrix step said "no
+   git history this sync can read". That is `## BL-099:`'s code, not changed here; the `GIT_DIR` unset does not
+   touch it.
+6. **Option B, not built (Karl, 2026-10-26).** Record per file the blob the sync last wrote, and treat any other
+   bytes — a restored `.bak` included — as the project's own. It would let a project keep an older shipped version on
+   purpose; under option A the only way to keep an older floor is bytes of the project's own.
 
 ## BL-334: the Phase 1 → Phase 2 protection backstop and `--verify-init` check `main`, not the project's integration branch
 

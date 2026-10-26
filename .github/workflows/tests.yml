@@ -683,6 +683,8 @@ jobs:
             tests/test-bl344-home-clone-guard.sh
             tests/test-bl323-scaffold-push.sh
             tests/test-bl335-additional-required-carry.sh
+            tests/test-bl333-sync-tool-matrix.sh
+            tests/test-bl333-sync-tool-matrix-mutants.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
@@ -1008,6 +1010,12 @@ jobs:
             tests/test-bl322-s1-audit-loop.sh            #  33.8s on PR #506 (adopt-b) — from `adopt-b`
             # f015-tamper-pin-allowlist WAS HERE until 2026-10-19 (BL-350, refit) and is in `pin_adopt_b`.
             tests/test-bl277-adopted-detector-on.sh                     # 114.6s, 111.3s, 138.7s and 159.9s on the four runs of the `adopt-c` note — from `rest`
+            # `## BL-333:` (R-BL333-14, 2026-10-26) — its cases and its mutation proofs
+            # are two files (`# BL-333-MUTANTS-SPLIT`), a light leg each: unpinned in
+            # `rest` the pair would take that leg (566s on main run 39629060444) past
+            # BL-350's 576s line. This leg ran 461s on that run, the lightest of the
+            # twelve; the cases are in `pin_adopt`.
+            tests/test-bl333-sync-tool-matrix-mutants.sh               # new — 80s local (Mac): 55 mutants, each a framework mirror and a sync
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
@@ -1125,6 +1133,9 @@ jobs:
             tests/test-bl282-set-answer.sh                    #  19.0s on PR #453's run 36634521340 (rest) — the wizard's --set-answer, 19 mutants on mirrors
             tests/test-bl301-adoption-recorded-keys.sh        #  20.2s on that run — adoption-recorded keys through --set-answer, 20 mutants on mirrors
             tests/test-bl318-g1-test-command.sh                         # 56.4s, 68.6s, 67.9s and 74.5s on the four runs of the `adopt-c` note — from `mcp`
+            # `## BL-333:` (R-BL333-14) — the cases; the mutation proofs are in
+            # `pin_lint_scan`. This leg ran 484s on main run 39629060444.
+            tests/test-bl333-sync-tool-matrix.sh                        # 44s local (Mac): 34 cases, each a framework mirror and a sync — from `rest`
           )
           # ── `adopt-b` — the tenth leg (2026-10-07, Karl's decision) ─────────
           # Re-pinning inside nine legs had stopped making room. Job times on
