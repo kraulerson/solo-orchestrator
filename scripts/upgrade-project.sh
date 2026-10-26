@@ -95,11 +95,13 @@ BACKFILL_ONLY=false
 #   --apply-doc-updates <skip|sidecar|overwrite>   what to do with a drifted doc
 #   --confirm-doc-overwrite                        the second, destructive-step
 #                                                  consent that `overwrite` needs
-# A bare non-interactive --sync-framework applies NOTHING (notice only). Both
+# A bare non-interactive --sync-framework applies NO doc drift (notice only). Both
 # flags are valid ONLY with --sync-framework, apply ONLY to the verbatim
-# docs/reference/*.md set and (`## BL-333:`) templates/tool-matrix/*.json, and
-# NEVER to the sed-rendered CLAUDE.md / PROJECT_INTAKE.md
-# (see # BL-099-DOC-GUARD). Interactive runs always prompt.
+# docs/reference/*.md set and (`## BL-333:`) a templates/tool-matrix/*.json file
+# the project edited, and NEVER to the sed-rendered CLAUDE.md / PROJECT_INTAKE.md
+# (see # BL-099-DOC-GUARD). Interactive runs always prompt. A matrix file still
+# byte-identical to a version in the framework's git history is not drift the
+# project owns: every run replaces it, keeping a dated .bak (_bl333_matrix_update).
 #
 # Review round 2:
 #   • Every mutating doc write is status-checked (# BL-099-APPLY-STATUS). A write
@@ -122,8 +124,9 @@ DRY_RUN=false
 INSTALL_HOOKS=false
 APPLY_DOC_UPDATES=""
 CONFIRM_DOC_OVERWRITE=false
-# Set when a reference doc could NOT be backed up and was therefore left
-# untouched — the sync exits non-zero so the refusal is never silent.
+# Set when a reference doc or a tool-matrix file could NOT be written (its
+# backup or the write itself failed) — the sync exits non-zero so the refusal
+# is never silent.
 DOC_APPLY_FAILED=false
 
 # BL-018: BL-016-style structured error helper (summary + reason + action + context).
@@ -433,7 +436,9 @@ if [ "$SHOW_HELP" = true ]; then
   echo -e "${BOLD}Same-tier framework sync (BL-099):${NC}"
   echo "  --sync-framework        Refresh vendored gate scripts, helper libs, hooks, framework docs"
   echo "                          and the tool matrix (templates/tool-matrix/: a missing file is"
-  echo "                          copied, a drifted one is treated like a reference doc) from the"
+  echo "                          copied; one still byte-identical to a version in the framework's"
+  echo "                          git history is replaced, keeping a dated .bak; one you edited is"
+  echo "                          treated like a reference doc) from the"
   echo "                          FRAMEWORK checkout being run — NO track/deployment"
   echo "                          change. Run it from inside your project via the framework clone's"
   echo "                          copy: cd <project> && bash <framework>/scripts/upgrade-project.sh --sync-framework"
@@ -443,7 +448,7 @@ if [ "$SHOW_HELP" = true ]; then
   echo "  --apply-doc-updates <skip|sidecar|overwrite>"
   echo "                          (with --sync-framework) DECLARE what a non-interactive run does"
   echo "                          with a drifted framework reference doc (docs/reference/*.md)"
-  echo "                          or tool-matrix file (templates/tool-matrix/*.json)."
+  echo "                          or a tool-matrix file you edited (templates/tool-matrix/*.json)."
   echo "                          Omit it and a non-interactive sync applies NOTHING — it only"
   echo "                          prints the drift notice. Interactive runs always ask instead."
   echo "                            skip      — notice only (explicit form of the default)"
@@ -1035,7 +1040,8 @@ fi
 #   (e) script sync (mechanical shipped-set from init.sh)   # BL-099-SYNC
 #   (f) hooks (ask-first): commit-msg TDD gate + pre-commit fallback
 #   + doc drift (7 verbatim reference docs; CLAUDE.md/PROJECT_INTAKE notice-only)
-#   + tool matrix (templates/tool-matrix/*.json, the doc treatment; BL-333)
+#   + tool matrix (templates/tool-matrix/*.json; BL-333): missing → copied, still the
+#     framework's own version → replaced with a dated .bak, edited → the doc treatment
 #   + pin manifest.soloFrameworkCommit (non-dry only)
 # DRY_RUN is threaded through EVERYTHING: every step prints what it WOULD do and
 # writes nothing (no tmp files, no CDF side effects, no manifest writes).
@@ -1644,22 +1650,79 @@ _bl099_doc_drift() {
 # all read that copy. Nothing refreshed it, so a floor raised upstream never
 # reached an existing project.
 #
-# A drifted file gets the reference documents' treatment, through the same
-# processor: a diff, then nothing unless the run declares --apply-doc-updates
-# (overwrite also needs --confirm-doc-overwrite and keeps a dated .bak). The sync
-# cannot tell an old upstream copy from one the project edited — the currency
-# inventory carries no matrix hashes — and a project may have added a tool, so
-# drift is never applied silently. A file MISSING from a vendored matrix is copied:
-# there is nothing of the project's to lose. A project with NO templates/tool-matrix/
-# (an adopted one) is left without one: check-versions.sh falls back to the
-# framework's own copy through .claude/orchestrator-source.json, which is current
-# by construction, and creating a copy here would freeze it.
+# Per file, as Karl ruled it (2026-10-25, option A):
+#   • MISSING from a vendored matrix → copied: there is nothing of the project's to
+#     lose, and an absent file is an absent floor.
+#   • differs, and its bytes are a version of that file in the framework's own git
+#     history (_bl333_matrix_in_history) → the framework's copy, untouched since it
+#     shipped: replaced after a verified dated .bak, and the sync says so
+#     (_bl333_matrix_update). That is what a vendored script gets.
+#   • differs, and the history holds no such version → a copy the project edited
+#     (it may have added a tool): the reference documents' treatment, through their
+#     own processor — a diff, then nothing unless the run declares
+#     --apply-doc-updates (overwrite also needs --confirm-doc-overwrite and keeps a
+#     dated .bak).
+#   • differs, and the framework has no history this sync can read (not a git
+#     checkout of its own, or one git cannot read), or the copy is not in a SHALLOW
+#     clone's history (which may stop before that version) → it cannot tell, so the
+#     copy is treated as edited, and the sync says that is why.
+# A project with NO templates/tool-matrix/ (an adopted one) is left without one —
+# a copy made here would freeze — and is told which copy check-versions.sh reads
+# instead (_bl333_matrix_none_notice).
+
+# _bl333_matrix_in_history <rel> <dst> — is <dst>, byte for byte, a version of <rel>
+# the framework itself shipped? 0, printing the commit `git log --find-object`
+# names: yes. 1: the framework's history of <rel> holds no such blob. 2: there is no
+# history to read — the framework is not a git checkout of its own (an unpacked
+# archive, or a directory inside some other repository) or git cannot read its log
+# (no commits). 3: no such blob, but the clone is shallow, so its history may stop
+# before that version. The blob is hashed with --no-filters: the project's raw bytes.
+_bl333_matrix_in_history() {
+  local rel="$1" dst="$2" top="" blob="" hit=""
+  top="$(git -C "$ORCHESTRATOR_ROOT" rev-parse --show-toplevel 2>/dev/null)" && [ "$top" -ef "$ORCHESTRATOR_ROOT" ] || return 2   # BL-333-MATRIX-HISTORY-ROOT
+  blob="$(git -C "$ORCHESTRATOR_ROOT" hash-object --no-filters -- "$dst" 2>/dev/null)" && hit="$(git -C "$ORCHESTRATOR_ROOT" log -1 --format=%h --find-object="$blob" -- "$rel" 2>/dev/null)" || return 2   # BL-333-MATRIX-HISTORY-READ
+  [ -n "$hit" ] || { [ "$(git -C "$ORCHESTRATOR_ROOT" rev-parse --is-shallow-repository 2>/dev/null)" = true ] && return 3; return 1; }   # BL-333-MATRIX-HISTORY-MISS
+  printf '%s\n' "$hit"   # BL-333-MATRIX-HISTORY-SAY
+}
+
+# _bl333_matrix_update <rel> <src> <dst> <commit> — replace an untouched upstream
+# copy. No consent is asked: its bytes are the framework's own, as a vendored
+# script's are. The write discipline is the doc overwrite's (# BL-099-APPLY-STATUS):
+# a backup re-read and verified BEFORE the original is touched, the write re-read
+# after it, and a failed write put back from the backup — each failure a [FAIL]
+# and a non-zero return the driver turns into DOC_APPLY_FAILED. A backup that did
+# not verify is left where it is, never deleted; its line says it is not one.
+_bl333_matrix_update() {
+  local rel="$1" src="$2" dst="$3" at="$4" bak="" rc=0 rrc=0
+  bak="$dst.bak.$(date -u +%Y-%m-%d)"   # BL-333-UPDATE-BAK
+  if [ "$DRY_RUN" = true ]; then print_info "  [would update] $rel — your copy was the framework's own version (found in its git history at $at); the current one would replace it, keeping a dated .bak of yours."; return 0; fi   # BL-333-UPDATE-DRYRUN
+  cp "$dst" "$bak" 2>/dev/null || rc=$?   # BL-333-UPDATE-COPY-OLD
+  if ! _bl099_write_ok "$rc" "$dst" "$bak"; then print_fail "  REFUSING to update $rel — could not write a verified backup at $bak. Your copy is untouched."; return 1; fi   # BL-333-UPDATE-VERIFY-BAK
+  cp "$src" "$dst" 2>/dev/null || rc=$?   # BL-333-UPDATE-COPY-NEW
+  if _bl099_write_ok "$rc" "$src" "$dst"; then print_ok "  $rel: updated — your copy was the framework's own version (found in its git history at $at), so the current one replaces it (backup: $bak)."; return 0; fi   # BL-333-UPDATE-VERIFY-NEW
+  cp "$bak" "$dst" 2>/dev/null || rrc=$?   # BL-333-UPDATE-PUT-BACK
+  if _bl099_write_ok "$rrc" "$bak" "$dst"; then print_fail "  FAILED to update $rel (cp exit $rc) — nothing upstream was applied; your copy is back as it was, and its backup $bak is kept."; else print_fail "  FAILED to update $rel (cp exit $rc), and putting your copy back failed too — its bytes are SAFE in $bak. Restore it by hand: cp \"$bak\" \"$dst\""; fi   # BL-333-UPDATE-SAY-FAIL
+  return 1
+}
+
+# _bl333_matrix_none_notice — for a project with no templates/tool-matrix/: the
+# copy check-versions.sh reads instead, found by check-versions' own test
+# (.claude/orchestrator-source.json's source_dir holding a templates/tool-matrix/),
+# run from the project root as check-versions is. Said as found, never assumed.
+_bl333_matrix_none_notice() {
+  local where=""
+  where="$(cd "$PROJECT_ROOT" && s="$(jq -r '.source_dir // empty' .claude/orchestrator-source.json 2>/dev/null)" && [ -d "$s/templates/tool-matrix" ] && cd "$s" && pwd)" || where=""   # BL-333-MATRIX-NONE-READ
+  if [ -z "$where" ]; then print_warn "  no templates/tool-matrix/ in this project, and none is created: .claude/orchestrator-source.json names no framework copy check-versions.sh can read, so check-versions.sh stops with \"Tool matrix not found\"."; return 0; fi   # BL-333-MATRIX-NONE-UNREAD
+  if [ "$where" -ef "$ORCHESTRATOR_ROOT" ]; then print_info "  no templates/tool-matrix/ in this project, and none is created: check-versions.sh reads this framework's own copy ($where/templates/tool-matrix/, named by .claude/orchestrator-source.json), the one this sync runs from."; return 0; fi   # BL-333-MATRIX-NONE-OWN
+  print_warn "  no templates/tool-matrix/ in this project, and none is created: check-versions.sh reads $where/templates/tool-matrix/ (.claude/orchestrator-source.json's source_dir), which is NOT the framework this sync runs from ($ORCHESTRATOR_ROOT), so the floors it enforces are that checkout's."   # BL-333-MATRIX-NONE-OTHER
+}
+
 _bl333_sync_tool_matrix() {
-  local shipped rel src dst rc
+  local shipped="" rel="" src="" dst="" rc=0 at="" hrc=0
   print_step "Tool matrix (templates/tool-matrix/) — drift from framework"
   shipped="$(soif_parse_shipped_tool_matrix "$ORCHESTRATOR_ROOT/init.sh" "$ORCHESTRATOR_ROOT")" || shipped=""   # BL-333-MATRIX-EMPTY-SET
   if [ -z "$shipped" ]; then print_warn "  the framework's init.sh ships no tool matrix that this sync can read — nothing compared."; return 0; fi
-  if [ ! -d "$PROJECT_ROOT/templates/tool-matrix" ]; then print_info "  no templates/tool-matrix/ in this project — check-versions.sh reads the framework's own copy (.claude/orchestrator-source.json); none is created."; return 0; fi   # BL-333-MATRIX-VENDORED
+  if [ ! -d "$PROJECT_ROOT/templates/tool-matrix" ]; then _bl333_matrix_none_notice; return 0; fi   # BL-333-MATRIX-VENDORED
   # The list is read on fd 3, never stdin: an interactive apply prompts inside
   # this loop, and on stdin it would read the next file NAME as the answer.
   while IFS= read -r rel <&3; do   # BL-333-MATRIX-OWN-FD
@@ -1672,6 +1735,11 @@ _bl333_sync_tool_matrix() {
       if ! _bl099_write_ok "$rc" "$src" "$dst"; then print_fail "  FAILED to copy $rel (cp exit $rc) — the project has no copy of it."; DOC_APPLY_FAILED=true; continue; fi   # BL-333-MATRIX-WRITE-STATUS
       print_ok "  $rel: copied (missing in project)"
       continue
+    fi
+    if ! cmp -s "$src" "$dst"; then   # BL-333-MATRIX-DIFFERS
+      hrc=0; at="$(_bl333_matrix_in_history "$rel" "$dst")" || hrc=$?   # BL-333-MATRIX-LOOKUP
+      if [ "$hrc" -eq 0 ]; then _bl333_matrix_update "$rel" "$src" "$dst" "$at" || DOC_APPLY_FAILED=true; continue; fi   # BL-333-MATRIX-UNTOUCHED
+      if [ "$hrc" -eq 1 ]; then print_info "  $rel: not a version the framework shipped (no copy with these bytes in its git history of the file), so it is treated as one you edited."; elif [ "$hrc" -eq 3 ]; then print_warn "  $rel: not in the framework clone's history, but that clone is shallow and its history may stop before your copy's version, so the sync cannot tell whether your copy is one it shipped — it is treated as one you edited (git -C \"$ORCHESTRATOR_ROOT\" fetch --unshallow lets the sync check)."; else print_warn "  $rel: the framework at $ORCHESTRATOR_ROOT has no git history this sync can read (it is not a git checkout of its own, or git cannot read its log), so the sync cannot tell whether your copy is one it shipped — it is treated as one you edited."; fi   # BL-333-MATRIX-WHY
     fi
     _bl099_process_doc "$rel" "$rel" "$src" false || DOC_APPLY_FAILED=true   # BL-333-MATRIX-DRIFT
     if ! cmp -s "$src" "$dst"; then print_info "    until it is applied, check-versions.sh and the phase gate keep reading your copy's floors and install commands."; fi   # BL-333-MATRIX-KEPT-NOTE
@@ -1826,7 +1894,7 @@ _run_sync_framework() {
   # and the summary says which way it failed. An operator must never be told a doc
   # was updated when it was not.
   if [ "$DOC_APPLY_FAILED" = true ]; then
-    print_fail "Framework sync finished, but one or more reference docs or tool-matrix files could NOT be applied — the backup or the write itself failed (see the REFUSING / FAILED lines above). Those files still hold their original bytes; nothing upstream was applied to them."
+    print_fail "Framework sync finished, but one or more reference docs or tool-matrix files could NOT be applied — the backup or the write itself failed (see the REFUSING / FAILED lines above). Nothing upstream was applied to them, and each still holds its original bytes unless its line above says to restore it from its backup."
     exit 1
   fi
   if [ "$DRY_RUN" = true ]; then
