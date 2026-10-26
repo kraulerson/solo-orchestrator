@@ -308,7 +308,7 @@ matrix_stray_lines() {
 # ── P2: running init.sh's own matrix lines lands exactly the parser's set, and
 #        init.sh has no other line that writes there ──────────────────────────
 case_P2() {
-  local fw="$1" d lines got want stray=""
+  local fw="$1" d="" lines="" got="" want="" stray=""
   stray="$(matrix_stray_lines "$fw")"
   [ -z "$stray" ] || { CASE_DETAIL="init.sh names templates/tool-matrix in a line this suite does not know: $(printf '%s' "$stray" | tr '\n' ' ')"; return 1; }
   d="$(newtmp)"
@@ -335,7 +335,7 @@ case_S1() {
 
 # ── S2: a locally edited matrix is reported and KEPT on a bare run ───────────
 case_S2() {
-  local fw="$1" p before fl
+  local fw="$1" p="" before="" fl=""
   p="$(newtmp)/p"; mk_project "$p" "$fw" edited
   before="$(fingerprint "$p/templates/tool-matrix")"
   run_sync "$p" "$fw"
@@ -395,7 +395,7 @@ case_S5() {
 
 # ── S6: a second run changes nothing, and no longer says a floor is kept ─────
 case_S6() {
-  local fw="$1" p after1
+  local fw="$1" p="" after1=""
   p="$(newtmp)/p"; mk_project "$p" "$fw" both
   run_sync "$p" "$fw" --apply-doc-updates overwrite --confirm-doc-overwrite
   [ "$RC" = 0 ] || { CASE_DETAIL="first run rc=$RC"; return 1; }
@@ -411,7 +411,7 @@ case_S6() {
 # ── S7: no vendored matrix (adopted) -> none is created; the sync names the
 #        framework's own copy, which is what check-versions enforces ─────────
 case_S7() {
-  local fw="$1" p fl
+  local fw="$1" p="" fl=""
   p="$(newtmp)/p"; mk_project "$p" "$fw" none
   run_sync "$p" "$fw"
   fl="$(floor_line "$p")"
