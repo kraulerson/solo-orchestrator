@@ -25687,7 +25687,7 @@ the project edited keeps the report-and-keep path (overwritten only with `--appl
   whether the framework's own history of that path holds those bytes (`# BL-333-MATRIX-LOOKUP`). Measured on this
   repository: `7578fb9^`'s `common.json` is found (at `7578fb92`, the commit that replaced it), and the same file
   with a hand-added required tool is not. A copy that is found is replaced by `_bl333_matrix_update`
-  (`# BL-333-MATRIX-UNTOUCHED`) with the doc overwrite's write discipline: a dated `.bak` written and re-read before
+  (`# BL-333-MATRIX-SHIPPED`) with the doc overwrite's write discipline: a dated `.bak` written and re-read before
   the original is touched (`# BL-333-UPDATE-VERIFY-BAK`), the write re-read after it
   (`# BL-333-UPDATE-VERIFY-NEW`), the copy put back from the `.bak` when the write lands short
   (`# BL-333-UPDATE-PUT-BACK`), each failure a `[FAIL]` and rc 1 (`# BL-333-UPDATE-SAY-FAIL`); a backup that does not
