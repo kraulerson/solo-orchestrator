@@ -7,34 +7,42 @@
 # upstream (gitleaks 8.18.0 -> 8.19.0, `7578fb9`) never reached a project that
 # already existed.
 #
-# The fix, as Karl ruled it (2026-10-25, option A):
+# The fix, as Karl ruled it (2026-10-25, option A, and 2026-10-26 on R-BL333-10):
 #   P  the sync's set is DERIVED from init.sh's own cp line
 #      (`soif_parse_shipped_tool_matrix`); P2 executes that line to prove the
 #      two agree, and fails on any other init.sh line that puts files there.
-#   U  a copy byte-identical to a version in the framework's own git history of
-#      that file is the framework's, untouched: a plain sync replaces it, keeps a
-#      dated .bak and says "your copy was the framework's own version", so
-#      check-versions enforces the new floor; `--dry-run` only previews it; a
-#      second run changes nothing; a backup or a write that does not land is a
-#      [FAIL] and a non-zero exit, with the project's bytes left in place.
+#   U  a copy whose bytes equal ANY version of that file in the framework's own
+#      git history is replaced on every sync — a copy the project restored on
+#      purpose, its own .bak included (U8) — with a dated .bak and a line naming
+#      the commit that has those bytes, so check-versions enforces the new floor;
+#      `--dry-run` only previews it; a second run changes nothing; bytes another
+#      shipped FILE had are not a match (U9); a backup or a write that does not
+#      land is a [FAIL] and a non-zero exit, with the project's bytes in place.
 #   H  a framework with no history this sync can read (not a git checkout of its
-#      own, or one with no commits) cannot tell an untouched copy from an edited
-#      one, so the copy is kept and the sync says that is why.
-#   S  a copy the project edited keeps the reference documents' treatment
-#      (`_bl099_process_doc`): reported with its diff and applied only when the
-#      run declares it (`--apply-doc-updates sidecar|overwrite`, overwrite also
-#      needing `--confirm-doc-overwrite` and keeping a dated .bak). A file missing
-#      from a vendored matrix is copied verbatim; `--dry-run` writes nothing; a
-#      second run changes nothing; a copy or an apply that does not land is a
-#      [FAIL] and a non-zero exit, and the files after it are still visited; an
-#      interactive apply reads the operator's answer, not the loop's list (S9); a
-#      framework that ships no matrix is a warning, not an exit under `set -e`.
+#      own, or one with no commits), or a shallow clone that does not reach the
+#      copy's version, cannot decide, so the copy is kept and the sync says why;
+#      an exported GIT_DIR does not swap the project's history in (G1).
+#   S  a copy whose bytes match no shipped version is the project's own, and keeps
+#      the reference documents' treatment (`_bl099_process_doc`): reported with
+#      its diff and applied only when the run declares it (`--apply-doc-updates
+#      sidecar|overwrite`, overwrite also needing `--confirm-doc-overwrite` and
+#      keeping a dated .bak). A file missing from a vendored matrix is copied
+#      verbatim; `--dry-run` writes nothing; a second run changes nothing; a copy
+#      or an apply that does not land is a [FAIL] and a non-zero exit, leaves no
+#      fragment (S13), and the files after it are still visited; an interactive
+#      apply reads the operator's answer, not the loop's list (S9); a framework
+#      that ships no matrix is a warning, not an exit under `set -e`; a failed
+#      script copy fails the run while the matrix step still runs (S14).
+#   L  a matrix file that is a symbolic link, dangling or live, is never written
+#      through: a [FAIL] naming it, rc 1, and nothing lands outside (L1, L2).
 #   V  a project with NO vendored matrix (an adopted one) gets none, and the sync
 #      names the copy check-versions reads through .claude/orchestrator-source.json:
 #      this framework's (S7), another checkout's (V1), or none it can read (V2).
-#   M  every BL-333 marker is mutation-proven against a mirror; the tree under
-#      test is never edited. Each mutant asserts it LANDED by literal text, and
-#      the marker-keeping ones (mutant_in / mutant_add) change one literal span.
+#
+# THE MUTATION PROOFS ARE tests/test-bl333-sync-tool-matrix-mutants.sh, which
+# sources this file for its fixtures and cases (`# BL-333-MUTANTS-SPLIT`), so the
+# two run on separate unit-shard legs (R-BL333-14). Run directly, this file runs
+# every case and no mutant.
 #
 # HERMETIC: the framework under test is a mirror with a two-file matrix written
 # here (gitleaks only) and committed twice in the mirror's own git history —
@@ -44,7 +52,7 @@
 # init.sh is READ (P2 runs its two matrix lines, nothing else) and never executed.
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PASSED=0
@@ -109,7 +117,7 @@ mk_fw() {   # mk_fw <dst> [source-tree]: a mirror carrying the suite's matrix an
 # mk_project <dir> <fw> <matrix-state> [source-dir]
 #   current    — the framework's matrix, byte-identical
 #   missing    — common.json current, web.json absent
-#   untouched  — both files as the framework's FIRST commit shipped them
+#   old-shipped — both files as the framework's FIRST commit shipped them
 #   edited     — common.json at OLD_FLOOR with a tool the project added; web.json current
 #   edited2    — edited, and web.json carries a key the project added
 #   both       — edited + missing
@@ -132,7 +140,7 @@ mk_project() {
             + [{"category":"lint","name":"acme-lint","required":false,"phase":2,"tracks":["light"],
                 "dev_os":["darwin","linux"],"platforms":["all"],"languages":["all"]}])' \
           "$fw/templates/tool-matrix/common.json" > "$m/common.json" ;;
-      untouched)
+      old-shipped)
         matrix_common "$OLD_FLOOR" > "$m/common.json" && printf '%s\n' "$OLD_WEB" > "$m/web.json" ;;
     esac
     case "$state" in edited2) printf '%s\n' '{"local": true, "tools": []}' > "$m/web.json" ;; esac
@@ -162,6 +170,7 @@ run_sync_path() {
 #   match a rule's globs gets that rule's action instead of a copy:
 #     silent  exit 0, write nothing       empty  write an empty file, exit 0
 #     fail    write nothing, exit 1       real   the real cp (an exemption)
+#     prefix  write the source's first 5 bytes, exit 1 (a disk that fills mid-copy)
 #   The first matching rule wins; anything unmatched is the real cp. Every action
 #   but `real` logs to <bin-dir>/.hits, and each case asserts it fired, so a stub
 #   that never matched cannot make a case pass. Globs, not absolute paths: the
@@ -181,6 +190,7 @@ mk_cp_stub() {
         silent) printf '%s\n' '    printf "%s\n" "$dst" >> "$HITS"; exit 0 ;;' ;;
         empty)  printf '%s\n' '    : > "$dst"; printf "%s\n" "$dst" >> "$HITS"; exit 0 ;;' ;;
         fail)   printf '%s\n' '    printf "%s\n" "$dst" >> "$HITS"; exit 1 ;;' ;;
+        prefix) printf '%s\n' '    head -c 5 "$src" > "$dst"; printf "%s\n" "$dst" >> "$HITS"; exit 1 ;;' ;;
         real)   printf '%s\n' '    exec "$REAL" "$@" ;;' ;;
       esac
       printf '%s\n' '  esac ;; esac'
@@ -212,8 +222,8 @@ has() { printf '%s\n' "$OUT" | command grep -F -- "$1" >/dev/null; }
 # Which of the sync's three verdicts on a differing matrix file the last run printed.
 verdicts() {
   local v=""
-  if has "your copy was the framework's own version"; then v="$v own-version"; fi
-  if has "not a version the framework shipped"; then v="$v edited"; fi
+  if has "a version the framework shipped (committed in"; then v="$v shipped"; fi
+  if has "match no version the framework shipped"; then v="$v own"; fi
   if has "has no git history this sync can read"; then v="$v no-history"; fi
   if has "but that clone is shallow"; then v="$v shallow"; fi
   printf '%s\n' "${v:- none}"
@@ -233,44 +243,6 @@ mutate() {
     "$f" > "$f.mut" && cat "$f.mut" > "$f" && rm -f "$f.mut"
   command grep -qF -- "$mark" "$f" && { echo "marker still present after the edit"; return 1; }
   [ "$(command grep -cxF -- "$repl" "$f")" -ge 1 ] || { echo "replacement did not land"; return 1; }
-  bash -n "$f" 2>/dev/null || { echo "mutant does not parse"; return 1; }
-  return 0
-}
-
-# mutate_in <file> <marker> <from> <to>: on the ONE line ending in <marker>,
-# replace the ONE occurrence of the literal <from> with <to>. The marker stays, so
-# this is the mutant a whole-line edit cannot express: the line keeps its job and
-# loses one part of it. Proves the new line landed, the old one is gone, and the
-# file still parses. Split, not ${var/pat/rep}: an `&` in <to> is literal here on
-# every bash.
-mutate_in() {
-  local f="$1" mark="$2" from="$3" to="$4" line="" new=""
-  [ -f "$f" ] || { echo "no such file: $f"; return 1; }
-  line="$(MARK="$mark" awk 'BEGIN{m=ENVIRON["MARK"]} length($0) >= length(m) && substr($0, length($0)-length(m)+1) == m' "$f")"
-  [ -n "$line" ] && [ "$(printf '%s\n' "$line" | wc -l | tr -d ' ')" = 1 ] \
-    || { echo "marker '$mark' does not end exactly one line of $f"; return 1; }
-  case "$line" in *"$from"*) ;; *) echo "'$from' is not on the marked line"; return 1 ;; esac
-  case "${line#*"$from"}" in *"$from"*) echo "'$from' occurs more than once on the marked line"; return 1 ;; esac
-  new="${line%%"$from"*}$to${line#*"$from"}"
-  LINE="$line" NEW="$new" awk '{ if ($0 == ENVIRON["LINE"]) print ENVIRON["NEW"]; else print }' "$f" > "$f.mut" \
-    && cat "$f.mut" > "$f" && rm -f "$f.mut"
-  [ "$(command grep -cxF -- "$new" "$f")" = 1 ] || { echo "the mutated line did not land"; return 1; }
-  ! command grep -qxF -- "$line" "$f" || { echo "the original line is still there"; return 1; }
-  bash -n "$f" 2>/dev/null || { echo "mutant does not parse"; return 1; }
-  return 0
-}
-
-# mutate_add <file> <marker> <line>: insert <line> after the ONE line ending in
-# <marker>, which stays. Proves the new line landed and the file still parses.
-mutate_add() {
-  local f="$1" mark="$2" add="$3" n=""
-  [ -f "$f" ] || { echo "no such file: $f"; return 1; }
-  n="$(MARK="$mark" awk 'BEGIN{c=0; m=ENVIRON["MARK"]} length($0) >= length(m) && substr($0, length($0)-length(m)+1) == m {c++} END{print c}' "$f")"
-  [ "$n" = "1" ] || { echo "marker '$mark' ends $n line(s) of $f (need 1)"; return 1; }
-  MARK="$mark" ADD="$add" awk '{ m=ENVIRON["MARK"]; print
-      if (length($0) >= length(m) && substr($0, length($0)-length(m)+1) == m) print ENVIRON["ADD"] }' \
-    "$f" > "$f.mut" && cat "$f.mut" > "$f" && rm -f "$f.mut"
-  [ "$(command grep -cxF -- "$add" "$f")" -ge 1 ] || { echo "the added line did not land"; return 1; }
   bash -n "$f" 2>/dev/null || { echo "mutant does not parse"; return 1; }
   return 0
 }
@@ -343,7 +315,7 @@ case_S2() {
   CASE_DETAIL="rc=$RC check-versions='$fl'"
   [ "$RC" = 0 ] || return 1
   [ "$(fingerprint "$p/templates/tool-matrix")" = "$before" ] || { CASE_DETAIL="$CASE_DETAIL; the project's matrix CHANGED"; return 1; }
-  has "templates/tool-matrix/common.json: not a version the framework shipped" || { CASE_DETAIL="$CASE_DETAIL; no line saying why it was kept"; return 1; }
+  has "templates/tool-matrix/common.json: its bytes match no version the framework shipped" || { CASE_DETAIL="$CASE_DETAIL; no line saying why it was kept"; return 1; }
   has "templates/tool-matrix/common.json: differs from framework" || { CASE_DETAIL="$CASE_DETAIL; no drift report"; return 1; }
   has "\"min_version\": \"$NEW_FLOOR\"" || { CASE_DETAIL="$CASE_DETAIL; the diff does not show the new floor"; return 1; }
   has "notice only — not applied" || { CASE_DETAIL="$CASE_DETAIL; no notice-only line"; return 1; }
@@ -528,13 +500,15 @@ case_S12() {
     || { CASE_DETAIL="$CASE_DETAIL; the sync stopped before its pin step or its summary"; return 1; }
 }
 
-# ── U1: an untouched old copy is replaced on a plain non-interactive sync: a
-#        dated .bak of it, the line saying why, and the new floor enforced ────
+# ── U1: an old shipped copy is replaced on a plain non-interactive sync: a
+#        dated .bak of it, the line saying why — naming the commit that HAS those
+#        bytes, the fixture's first, not the one that replaced them — how to keep
+#        an older floor, and the new floor enforced ────────────────────────────
 case_U1() {
   local fw="$1" p="" m="" old="" at="" fl=""
-  p="$(newtmp)/p"; mk_project "$p" "$fw" untouched; m="$p/templates/tool-matrix"
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped; m="$p/templates/tool-matrix"
   old="$(cksum < "$m/common.json")"
-  at="$(git -C "$fw" rev-parse --short HEAD 2>/dev/null)"
+  at="$(git -C "$fw" rev-parse --short HEAD~1 2>/dev/null)"
   run_sync "$p" "$fw"
   fl="$(floor_line "$p")"
   CASE_DETAIL="rc=$RC check-versions='$fl'"
@@ -543,9 +517,13 @@ case_U1() {
     || { CASE_DETAIL="$CASE_DETAIL; the matrix is not the framework's"; return 1; }
   [ -f "$m/common.json.bak.$TODAY" ] && [ "$(cksum < "$m/common.json.bak.$TODAY")" = "$old" ] \
     || { CASE_DETAIL="$CASE_DETAIL; no dated .bak holding the old bytes"; return 1; }
-  has "templates/tool-matrix/common.json: updated — your copy was the framework's own version (found in its git history at $at)" \
-    && has "templates/tool-matrix/web.json: updated — your copy was the framework's own version" \
-    || { CASE_DETAIL="$CASE_DETAIL; no 'framework's own version' line naming $at"; return 1; }
+  has "templates/tool-matrix/common.json: updated (backup: " \
+    && has "its bytes matched a version the framework shipped (committed in $at)" \
+    && has "templates/tool-matrix/web.json: updated (backup: " \
+    || { CASE_DETAIL="$CASE_DETAIL; no 'updated' line naming $at, the commit with those bytes"; return 1; }
+  has "every sync replaces such a copy, even one restored on purpose" \
+    && has "To keep an older floor, change the file so its bytes match no shipped version" \
+    || { CASE_DETAIL="$CASE_DETAIL; the line does not say every sync does this, or how to keep an older floor"; return 1; }
   ! has "until it is applied" || { CASE_DETAIL="$CASE_DETAIL; still says the old floor stays in force"; return 1; }
   printf '%s\n' "$fl" | command grep -F "(min: $NEW_FLOOR) — BELOW MINIMUM" >/dev/null
 }
@@ -553,20 +531,20 @@ case_U1() {
 # ── U2: --dry-run previews the update and writes nothing ─────────────────────
 case_U2() {
   local fw="$1" p="" before=""
-  p="$(newtmp)/p"; mk_project "$p" "$fw" untouched
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped
   before="$(fingerprint "$p/templates/tool-matrix")"
   run_sync "$p" "$fw" --dry-run
   CASE_DETAIL="rc=$RC"
   [ "$RC" = 0 ] || return 1
   [ "$(fingerprint "$p/templates/tool-matrix")" = "$before" ] || { CASE_DETAIL="$CASE_DETAIL; --dry-run WROTE into the matrix"; return 1; }
-  has "[would update] templates/tool-matrix/common.json — your copy was the framework's own version" \
+  has "[would update] templates/tool-matrix/common.json — its bytes match a version the framework shipped (committed in" \
     || { CASE_DETAIL="$CASE_DETAIL; no would-update line"; return 1; }
 }
 
 # ── U3: after the update, a second run changes nothing ───────────────────────
 case_U3() {
   local fw="$1" p="" after1=""
-  p="$(newtmp)/p"; mk_project "$p" "$fw" untouched
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped
   run_sync "$p" "$fw"
   [ "$RC" = 0 ] && has "templates/tool-matrix/common.json: updated" || { CASE_DETAIL="first run rc=$RC, no update"; return 1; }
   after1="$(fingerprint "$p/templates/tool-matrix")"
@@ -574,7 +552,7 @@ case_U3() {
   CASE_DETAIL="second run rc=$RC"
   [ "$RC" = 0 ] && [ "$(fingerprint "$p/templates/tool-matrix")" = "$after1" ] \
     && has "templates/tool-matrix/common.json: up to date" && has "templates/tool-matrix/web.json: up to date" \
-    && ! has "updated — your copy" && ! has "until it is applied"
+    && ! has ": updated (backup: " && ! has "until it is applied"
 }
 
 # ── U4: an unwritable matrix directory: no verified backup, so BOTH updates are
@@ -582,7 +560,7 @@ case_U3() {
 #        its summary, rc 1 ─────────────────────────────────────────────────────
 case_U4() {
   local fw="$1" p="" before=""
-  p="$(newtmp)/p"; mk_project "$p" "$fw" untouched
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped
   before="$(fingerprint "$p/templates/tool-matrix")"
   chmod 555 "$p/templates/tool-matrix"
   run_sync "$p" "$fw"
@@ -600,7 +578,7 @@ case_U4() {
 #        the update is refused and the copy untouched ─────────────────────────
 case_U5() {
   local fw="$1" p="" m="" old="" bin=""
-  p="$(newtmp)/p"; mk_project "$p" "$fw" untouched; m="$p/templates/tool-matrix"
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped; m="$p/templates/tool-matrix"
   old="$(cksum < "$m/common.json")"
   bin="$(newtmp)/bin"; mk_cp_stub "$bin" empty '*' '*/templates/tool-matrix/common.json.bak.*'
   run_sync_path "$bin" "$p" "$fw"
@@ -609,13 +587,16 @@ case_U5() {
   has "REFUSING to update templates/tool-matrix/common.json" || { CASE_DETAIL="$CASE_DETAIL; no REFUSING line"; return 1; }
   ! has "templates/tool-matrix/common.json: updated" || { CASE_DETAIL="$CASE_DETAIL; reported as updated"; return 1; }
   [ "$(cksum < "$m/common.json")" = "$old" ] || { CASE_DETAIL="$CASE_DETAIL; common.json was replaced with no verified backup"; return 1; }
+  # A backup that did not verify is left where it is, never deleted (R-BL333-16).
+  [ -e "$m/common.json.bak.$TODAY" ] && [ ! -s "$m/common.json.bak.$TODAY" ] \
+    || { CASE_DETAIL="$CASE_DETAIL; the unverified (empty) .bak is not where the stub left it"; return 1; }
 }
 
 # ── U6: an update cp reports as done but left the file empty: caught by
 #        re-reading it, the project's bytes put back, the backup kept ─────────
 case_U6() {
   local fw="$1" p="" m="" old="" bin=""
-  p="$(newtmp)/p"; mk_project "$p" "$fw" untouched; m="$p/templates/tool-matrix"
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped; m="$p/templates/tool-matrix"
   old="$(cksum < "$m/common.json")"
   bin="$(newtmp)/bin"
   mk_cp_stub "$bin" real '*.bak.*' '*/templates/tool-matrix/common.json' empty '*' '*/templates/tool-matrix/common.json'
@@ -632,7 +613,7 @@ case_U6() {
 #        NOT back, and where its bytes are ─────────────────────────────────────
 case_U7() {
   local fw="$1" p="" m="" old="" bin=""
-  p="$(newtmp)/p"; mk_project "$p" "$fw" untouched; m="$p/templates/tool-matrix"
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped; m="$p/templates/tool-matrix"
   old="$(cksum < "$m/common.json")"
   bin="$(newtmp)/bin"
   mk_cp_stub "$bin" fail '*.bak.*' '*/templates/tool-matrix/common.json' empty '*' '*/templates/tool-matrix/common.json'
@@ -649,7 +630,7 @@ case_U7() {
 case_H1() {
   local fw="$1" i="" p="" before="" fl=""
   i="$(newtmp)/fw"; mk_mirror "$fw" "$i" || { CASE_DETAIL="mirror"; return 1; }
-  p="$(newtmp)/p"; mk_project "$p" "$i" untouched
+  p="$(newtmp)/p"; mk_project "$p" "$i" old-shipped
   before="$(fingerprint "$p/templates/tool-matrix")"
   run_sync "$p" "$i"
   fl="$(floor_line "$p")"
@@ -658,7 +639,7 @@ case_H1() {
   [ "$(fingerprint "$p/templates/tool-matrix")" = "$before" ] || { CASE_DETAIL="$CASE_DETAIL; the matrix CHANGED"; return 1; }
   has "templates/tool-matrix/common.json: the framework at" && has "has no git history this sync can read" \
     || { CASE_DETAIL="$CASE_DETAIL; no line saying the history cannot be read"; return 1; }
-  ! has "your copy was the framework's own version" && ! has "not a version the framework shipped" \
+  ! has "a version the framework shipped (committed in" && ! has "match no version the framework shipped" \
     || { CASE_DETAIL="$CASE_DETAIL; a verdict the sync had no history to reach"; return 1; }
   has "until it is applied" && printf '%s\n' "$fl" | command grep -F "(min: $OLD_FLOOR)" >/dev/null
 }
@@ -672,11 +653,11 @@ case_H2() {
       && printf 'outer\n' > README && git add README && git commit -q -m outer ) >/dev/null 2>&1 \
     || { CASE_DETAIL="outer repository"; return 1; }
   i="$e/fw"; mk_mirror "$fw" "$i" || { CASE_DETAIL="mirror"; return 1; }
-  p="$(newtmp)/p"; mk_project "$p" "$i" untouched
+  p="$(newtmp)/p"; mk_project "$p" "$i" old-shipped
   run_sync "$p" "$i"
   CASE_DETAIL="rc=$RC verdicts:$(verdicts)"
-  [ "$RC" = 0 ] && has "has no git history this sync can read" && ! has "not a version the framework shipped" \
-    && ! has "your copy was the framework's own version"
+  [ "$RC" = 0 ] && has "has no git history this sync can read" && ! has "match no version the framework shipped" \
+    && ! has "a version the framework shipped (committed in"
 }
 
 # ── H3: a framework checkout with no commits: git cannot read its log, and
@@ -685,11 +666,11 @@ case_H3() {
   local fw="$1" i="" p=""
   i="$(newtmp)/fw"; mk_mirror "$fw" "$i" || { CASE_DETAIL="mirror"; return 1; }
   ( cd "$i" && git init -q ) >/dev/null 2>&1 || { CASE_DETAIL="git init"; return 1; }
-  p="$(newtmp)/p"; mk_project "$p" "$i" untouched
+  p="$(newtmp)/p"; mk_project "$p" "$i" old-shipped
   run_sync "$p" "$i"
   CASE_DETAIL="rc=$RC verdicts:$(verdicts)"
-  [ "$RC" = 0 ] && has "has no git history this sync can read" && ! has "not a version the framework shipped" \
-    && ! has "your copy was the framework's own version"
+  [ "$RC" = 0 ] && has "has no git history this sync can read" && ! has "match no version the framework shipped" \
+    && ! has "a version the framework shipped (committed in"
 }
 
 # ── H4: a SHALLOW clone whose history stops before the copy's version cannot
@@ -703,14 +684,135 @@ case_H4() {
   [ "$(git -C "$i" rev-parse --is-shallow-repository 2>/dev/null)" = true ] && [ -f "$i/templates/tool-matrix/common.json" ] \
     || { CASE_DETAIL="the clone is not a shallow checkout of the matrix"; return 1; }
   mk_mirror "$fw" "$i" || { CASE_DETAIL="mirror"; return 1; }
-  p="$(newtmp)/p"; mk_project "$p" "$i" untouched
+  p="$(newtmp)/p"; mk_project "$p" "$i" old-shipped
   before="$(fingerprint "$p/templates/tool-matrix")"
   run_sync "$p" "$i"
   CASE_DETAIL="rc=$RC verdicts:$(verdicts)"
   [ "$RC" = 0 ] && [ "$(fingerprint "$p/templates/tool-matrix")" = "$before" ] \
     && has "templates/tool-matrix/common.json: not in the framework clone's history, but that clone is shallow" \
-    && ! has "not a version the framework shipped" && ! has "your copy was the framework's own version"
+    && ! has "match no version the framework shipped" && ! has "a version the framework shipped (committed in"
 }
+
+# ── U8: a copy the project restored ON PURPOSE — its own .bak, an older shipped
+#        version — is replaced again on the next sync. Karl's ruling on
+#        R-BL333-10: the bytes decide, and the sync says so ──────────────────
+case_U8() {
+  local fw="$1" p="" m="" fl=""
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped; m="$p/templates/tool-matrix"
+  run_sync "$p" "$fw"
+  [ "$RC" = 0 ] && [ -f "$m/common.json.bak.$TODAY" ] || { CASE_DETAIL="first run rc=$RC, no .bak"; return 1; }
+  cp "$m/common.json.bak.$TODAY" "$m/common.json"
+  run_sync "$p" "$fw"
+  fl="$(floor_line "$p")"
+  CASE_DETAIL="second run rc=$RC check-versions='$fl'"
+  [ "$RC" = 0 ] && cmp -s "$fw/templates/tool-matrix/common.json" "$m/common.json" \
+    && has "templates/tool-matrix/common.json: updated (backup: " \
+    && printf '%s\n' "$fl" | command grep -F "(min: $NEW_FLOOR) — BELOW MINIMUM" >/dev/null
+}
+
+# ── U9: bytes the framework shipped as ANOTHER file are no match: common.json
+#        holding web.json's first-commit bytes is the project's own, and kept ──
+case_U9() {
+  local fw="$1" p="" before=""
+  p="$(newtmp)/p"; mk_project "$p" "$fw" current
+  printf '%s\n' "$OLD_WEB" > "$p/templates/tool-matrix/common.json"
+  before="$(fingerprint "$p/templates/tool-matrix")"
+  run_sync "$p" "$fw"
+  CASE_DETAIL="rc=$RC verdicts:$(verdicts)"
+  [ "$RC" = 0 ] && [ "$(fingerprint "$p/templates/tool-matrix")" = "$before" ] \
+    && has "templates/tool-matrix/common.json: its bytes match no version the framework shipped"
+}
+
+# ── G1: with GIT_DIR exported — a git hook exports it, and in a linked worktree
+#        it names the PROJECT's git directory — the history read and the commit
+#        pinned are still the framework's. The project's own history holds its
+#        edited copy, so reading it would replace that copy ──────────────────
+case_G1() {
+  local fw="$1" p="" before="" want="" pin=""
+  p="$(newtmp)/p"; mk_project "$p" "$fw" edited
+  before="$(fingerprint "$p/templates/tool-matrix")"
+  want="$(git -C "$fw" rev-parse HEAD 2>/dev/null)"
+  RC=0
+  OUT="$( cd "$p" && unset GITHUB_BASE_REF; GIT_DIR="$p/.git" HOME="$p/.home" CDF_HOME="$p/.no-such-cdf" SOIF_NONINTERACTIVE=1 \
+      bash "$fw/scripts/upgrade-project.sh" --sync-framework </dev/null 2>&1 )" || RC=$?
+  pin="$(jq -r '.soloFrameworkCommit // ""' "$p/.claude/manifest.json" 2>/dev/null)"
+  CASE_DETAIL="rc=$RC verdicts:$(verdicts) pinned=${pin:0:8} framework=${want:0:8}"
+  [ "$RC" = 0 ] && [ "$(fingerprint "$p/templates/tool-matrix")" = "$before" ] \
+    && has "templates/tool-matrix/common.json: its bytes match no version the framework shipped" \
+    && [ -n "$want" ] && [ "$pin" = "$want" ]
+}
+
+# ── L1: a DANGLING link where a matrix file is missing: no copy is written
+#        through it — a [FAIL] naming it, rc 1, nothing outside, the link kept ──
+case_L1() {
+  local fw="$1" p="" m="" out=""
+  p="$(newtmp)/p"; mk_project "$p" "$fw" missing; m="$p/templates/tool-matrix"
+  out="$(newtmp)"
+  ln -s "$out/web.json" "$m/web.json"
+  run_sync "$p" "$fw"
+  CASE_DETAIL="rc=$RC outside=$([ -e "$out/web.json" ] && echo WRITTEN || echo absent) link=$([ -L "$m/web.json" ] && echo kept || echo GONE)"
+  [ "$RC" = 1 ] && has "REFUSING to write templates/tool-matrix/web.json — it is a symbolic link" \
+    && [ ! -e "$out/web.json" ] && [ -L "$m/web.json" ]
+}
+
+# ── L2: a LIVE link to an outside file holding an old shipped version: it is
+#        not updated through the link — a [FAIL], rc 1, the outside file and the
+#        link unchanged, no .bak — and the regular file beside it still is ───
+case_L2() {
+  local fw="$1" p="" m="" out="" old=""
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped; m="$p/templates/tool-matrix"
+  out="$(newtmp)"
+  matrix_common "$OLD_FLOOR" > "$out/common.json" && ln -sf "$out/common.json" "$m/common.json" \
+    || { CASE_DETAIL="link setup"; return 1; }
+  old="$(cksum < "$out/common.json")"
+  run_sync "$p" "$fw"
+  CASE_DETAIL="rc=$RC outside=$([ "$(cksum < "$out/common.json")" = "$old" ] && echo unchanged || echo OVERWRITTEN)"
+  [ "$RC" = 1 ] && has "REFUSING to write templates/tool-matrix/common.json — it is a symbolic link" \
+    && [ "$(cksum < "$out/common.json")" = "$old" ] && [ -L "$m/common.json" ] \
+    && [ ! -e "$m/common.json.bak.$TODAY" ] && has "templates/tool-matrix/web.json: updated (backup: "
+}
+
+# ── S13: a missing-file copy that writes a prefix and then fails (a disk that
+#         fills): no fragment is left — else every later sync keeps it as the
+#         project's own, rc 0, while check-versions reads broken JSON — and the
+#         next sync copies the file ─────────────────────────────────────────
+case_S13() {
+  local fw="$1" p="" m="" bin=""
+  p="$(newtmp)/p"; mk_project "$p" "$fw" missing; m="$p/templates/tool-matrix"
+  bin="$(newtmp)/bin"; mk_cp_stub "$bin" prefix '*' '*/templates/tool-matrix/web.json'
+  run_sync_path "$bin" "$p" "$fw"
+  CASE_DETAIL="rc=$RC stub=$(stub_state "$bin") web.json=$([ -e "$m/web.json" ] && echo "LEFT, $(wc -c < "$m/web.json" | tr -d ' ') bytes" || echo absent)"
+  [ -s "$bin/.hits" ] && [ "$RC" = 1 ] && has "FAILED to copy templates/tool-matrix/web.json" && [ ! -e "$m/web.json" ] \
+    || return 1
+  run_sync "$p" "$fw"
+  CASE_DETAIL="$CASE_DETAIL; next sync rc=$RC"
+  [ "$RC" = 0 ] && cmp -s "$fw/templates/tool-matrix/web.json" "$m/web.json"
+}
+
+# ── S14: a failed script copy fails the run, and the matrix step still runs —
+#         it does not wait on the scripts step, so a row that calls the probe can
+#         meet the project's old probe until a sync succeeds. `## BL-235:`'s
+#         pointer says exactly this; the case holds it to that ───────────────
+case_S14() {
+  local fw="$1" p="" bin=""
+  p="$(newtmp)/p"; mk_project "$p" "$fw" old-shipped
+  bin="$(newtmp)/bin"; mk_cp_stub "$bin" fail '*' '*/scripts/probe-tool.sh'
+  run_sync_path "$bin" "$p" "$fw"
+  CASE_DETAIL="rc=$RC stub=$(stub_state "$bin") probe=$([ -e "$p/scripts/probe-tool.sh" ] && echo present || echo absent)"
+  [ -s "$bin/.hits" ] && [ "$RC" = 1 ] && has "FAILED to sync scripts/probe-tool.sh" && [ ! -e "$p/scripts/probe-tool.sh" ] \
+    && has "templates/tool-matrix/common.json: updated (backup: " \
+    && cmp -s "$fw/templates/tool-matrix/common.json" "$p/templates/tool-matrix/common.json"
+}
+
+# ── the split: SOURCED, this file only defines ──────────────────────────────
+# tests/test-bl333-sync-tool-matrix-mutants.sh sources this file for the
+# fixtures and cases above, so the cases and the mutants run on separate
+# unit-shard legs (R-BL333-14; the precedent is `# BL-311-MCP-SPLIT`). Sourced,
+# this file returns HERE, before any case runs; run directly, it runs every case
+# below and no mutant. BASH_SOURCE, not an environment variable, tells the two
+# apart, so a variable left exported cannot turn a direct run into an empty one.
+# The mutants file fails if loading this ran a case.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi   # BL-333-MUTANTS-SPLIT
 
 FW_REAL="$(newtmp)/fw"
 mk_fw "$FW_REAL" || { echo "  [FAIL] setup — could not build the framework mirror"; exit 1; }
@@ -731,7 +833,7 @@ run_case_unprivileged() {   # run_case_unprivileged <case> <framework> <label>
 run_case case_P1 "$REPO_ROOT" "the sync's matrix set is derived from init.sh and names every shipped file"
 run_case case_P2 "$REPO_ROOT" "running init.sh's own matrix lines lands exactly the sync's set, and no other line writes there"
 run_case case_S1 "$FW_REAL" "a file missing from a vendored matrix is copied verbatim"
-run_case case_S2 "$FW_REAL" "a locally edited matrix is reported with its diff and why, and kept on a bare run"
+run_case case_S2 "$FW_REAL" "a matrix whose bytes match no shipped version is reported with its diff and why, and kept on a bare run"
 run_case case_S3 "$FW_REAL" "a declared overwrite lands the framework's matrix (dated .bak) and check-versions enforces the new floor"
 run_case case_S4 "$FW_REAL" "a declared sidecar writes common.json.new and leaves the project's copy"
 run_case case_S5 "$FW_REAL" "--dry-run with every write-unlocking flag previews and writes nothing"
@@ -744,174 +846,24 @@ run_case case_S9 "$FW_REAL" "interactively, the apply prompt reads the operator'
 run_case case_S10 "$FW_REAL" "a framework whose init.sh ships no matrix: a warning, and the sync still finishes"
 run_case case_S11 "$FW_REAL" "a copy cp calls done but never wrote is a [FAIL] and a non-zero exit"
 run_case_unprivileged case_S12 "$FW_REAL" "two declared sidecars that cannot be written: both reported, the sync reaches its pin and summary, rc 1"
-run_case case_U1 "$FW_REAL" "an untouched old copy is replaced on a plain sync (dated .bak, says why) and check-versions enforces the new floor"
+run_case case_S13 "$FW_REAL" "a copy that writes a prefix and fails leaves no fragment, and the next sync copies the file"
+run_case case_S14 "$FW_REAL" "a failed script copy fails the run, and the matrix step still runs"
+run_case case_U1 "$FW_REAL" "an old shipped copy is replaced on a plain sync (dated .bak, the commit with those bytes, how to keep an older floor) and check-versions enforces the new floor"
 run_case case_U2 "$FW_REAL" "--dry-run previews the update and writes nothing"
 run_case case_U3 "$FW_REAL" "after the update, a second run changes nothing"
 run_case_unprivileged case_U4 "$FW_REAL" "no verified backup: both updates refused, nothing changed, the sync reaches its pin and summary, rc 1"
-run_case case_U5 "$FW_REAL" "a backup cp calls done but left empty: the update is refused, the copy untouched"
+run_case case_U5 "$FW_REAL" "a backup cp calls done but left empty: the update is refused, the copy unchanged, the empty .bak left in place"
 run_case case_U6 "$FW_REAL" "an update cp calls done but left empty: a [FAIL], the copy put back, the backup kept"
 run_case case_U7 "$FW_REAL" "the update and the putting-back both fail: the sync says the copy is not back, and where it is"
+run_case case_U8 "$FW_REAL" "a copy restored on purpose to an older shipped version (its own .bak) is replaced again"
+run_case case_U9 "$FW_REAL" "bytes the framework shipped as another file are no match: the copy is kept"
 run_case case_H1 "$FW_REAL" "a framework that is not a git checkout: the old copy is kept, and the sync says why"
 run_case case_H2 "$FW_REAL" "a framework inside another repository: that history is not the framework's"
 run_case case_H3 "$FW_REAL" "a framework checkout with no commits: its log cannot be read, so the copy is kept, and the sync says why"
 run_case case_H4 "$FW_REAL" "a shallow clone whose history stops before the copy's version: kept, and the sync says why"
-
-# ── Mutation proofs ─────────────────────────────────────────────────────────
-# Each builds a fresh mirror — the suite's matrix and history, or (real-matrix)
-# the repository's own templates — applies ONE mutant, and runs the case that
-# must now fail.
-mutant_mirror() {   # mutant_mirror <dst> [real-matrix]
-  if [ "${2:-}" = real-matrix ]; then mk_mirror "$REPO_ROOT" "$1"; else mk_fw "$1"; fi
-}
-judge() {   # judge <id> <killer-case> <mirror> <what>
-  CASE_DETAIL=""
-  if "$2" "$3"; then
-    fail_ "$1" "$4 — SURVIVED: ${2#case_} still passes against the mutant ($CASE_DETAIL)"
-  else
-    pass "$1 (MUTATION) — $4: killed by ${2#case_} ($CASE_DETAIL)"
-  fi
-}
-mutant() {   # mutant <id> <rel-file> <marker> <replacement> <killer-case> <what> [real-matrix]
-  local m="" why=""
-  m="$(newtmp)/mirror"
-  mutant_mirror "$m" "${7:-}" || { fail_ "$1" "could not build a mirror"; return; }
-  why="$(mutate "$m/$2" "$3" "$4")" || { fail_ "$1" "mutant did not land: $why"; return; }
-  judge "$1" "$5" "$m" "$6"
-}
-mutant_in() {   # mutant_in <id> <rel-file> <marker> <from> <to> <killer-case> <what> [real-matrix]
-  local m="" why=""
-  m="$(newtmp)/mirror"
-  mutant_mirror "$m" "${8:-}" || { fail_ "$1" "could not build a mirror"; return; }
-  why="$(mutate_in "$m/$2" "$3" "$4" "$5")" || { fail_ "$1" "mutant did not land: $why"; return; }
-  judge "$1" "$6" "$m" "$7"
-}
-mutant_add() {   # mutant_add <id> <rel-file> <marker> <line> <killer-case> <what> [real-matrix]
-  local m="" why=""
-  m="$(newtmp)/mirror"
-  mutant_mirror "$m" "${7:-}" || { fail_ "$1" "could not build a mirror"; return; }
-  why="$(mutate_add "$m/$2" "$3" "$4")" || { fail_ "$1" "mutant did not land: $why"; return; }
-  judge "$1" "$5" "$m" "$6"
-}
-
-U=scripts/upgrade-project.sh
-# The visit, the vendored check and the missing-file copy.
-mutant M1 "$U" '# BL-333-MATRIX-SYNC' ':' case_S1 \
-  "the sync never visits the tool matrix"
-mutant M2 "$U" '# BL-333-MATRIX-VENDORED' ':' case_S7 \
-  "a project with no vendored matrix is treated as one"
-mutant M3 "$U" '# BL-333-MATRIX-DRYRUN' ':' case_S5 \
-  "--dry-run copies a missing matrix file"
-mutant M4 "$U" '# BL-333-MATRIX-WRITE-STATUS' ':' case_S8 \
-  "a copy that did not land is reported as copied"
-mutant_in M12 "$U" '# BL-333-MATRIX-WRITE-STATUS' '_bl099_write_ok "$rc" "$src" "$dst"' '[ "$rc" -eq 0 ]' case_S11 \
-  "a copy is judged by cp's exit status alone, the bytes never re-read"
-mutant M11 "$U" '# BL-333-MATRIX-EMPTY-SET' \
-  '  shipped="$(soif_parse_shipped_tool_matrix "$ORCHESTRATOR_ROOT/init.sh" "$ORCHESTRATOR_ROOT")"' case_S10 \
-  "an empty matrix set ends the whole sync under set -e"
-# A copy the project edited: the reference documents' treatment.
-mutant M5 "$U" '# BL-333-MATRIX-DRIFT' '    cp "$src" "$dst"' case_S2 \
-  "a drifted matrix is overwritten silently, the project's edits lost"
-mutant M6 "$U" '# BL-333-MATRIX-DRIFT' ':' case_S3 \
-  "a drifted matrix is neither reported nor applied"
-mutant_in M13 "$U" '# BL-333-MATRIX-DRIFT' ' || DOC_APPLY_FAILED=true' '' case_S12 \
-  "a failed apply ends the sync under set -e, the files after it never visited"
-mutant M7 "$U" '# BL-333-MATRIX-KEPT-NOTE' ':' case_S2 \
-  "an unapplied drift no longer says which floors stay in force"
-mutant_in M14 "$U" '# BL-333-MATRIX-KEPT-NOTE' 'if ! cmp -s "$src" "$dst"; then ' 'if true; then ' case_S6 \
-  "an up-to-date matrix is still said to keep its old floors"
-# An untouched copy: found in the framework's history, and replaced.
-mutant M15 "$U" '# BL-333-MATRIX-DIFFERS' '    if true; then' case_U3 \
-  "the history is consulted for a file already up to date, and it is updated again"
-mutant M16 "$U" '# BL-333-MATRIX-LOOKUP' '      hrc=0; at=""' case_S2 \
-  "every drifted copy is taken for an untouched one, the project's edits replaced"
-mutant M17 "$U" '# BL-333-MATRIX-UNTOUCHED' ':' case_U1 \
-  "an untouched old copy is reported and kept, its old floor still in force"
-mutant_in M18 "$U" '# BL-333-MATRIX-UNTOUCHED' ' || DOC_APPLY_FAILED=true' '' case_U4 \
-  "a failed update ends the sync under set -e, the files after it never visited"
-mutant M19 "$U" '# BL-333-MATRIX-WHY' ':' case_S2 \
-  "a kept copy no longer says why it was not updated"
-mutant_in M20 "$U" '# BL-333-MATRIX-WHY' 'if [ "$hrc" -eq 1 ]; then' 'if [ "$hrc" -ne 1 ]; then' case_H1 \
-  "a framework with no history is reported as a copy you edited"
-mutant M21 "$U" '# BL-333-MATRIX-HISTORY-ROOT' ':' case_H2 \
-  "a framework inside some other repository reads that repository's history as its own"
-mutant_in M22 "$U" '# BL-333-MATRIX-HISTORY-ROOT' '[ "$top" -ef "$ORCHESTRATOR_ROOT" ]' 'true' case_H2 \
-  "any enclosing repository counts as the framework's history"
-mutant_in M23 "$U" '# BL-333-MATRIX-HISTORY-READ' ' || return 2' '' case_H3 \
-  "a log git cannot read is taken for a history with no such version"
-mutant M24 "$U" '# BL-333-MATRIX-HISTORY-MISS' ':' case_S2 \
-  "a copy with no match in the history is taken for an untouched one"
-mutant_in M46 "$U" '# BL-333-MATRIX-HISTORY-MISS' \
-  '[ "$(git -C "$ORCHESTRATOR_ROOT" rev-parse --is-shallow-repository 2>/dev/null)" = true ] && return 3; ' '' case_H4 \
-  "a shallow clone's missing history is taken for proof the copy was edited"
-mutant_in M47 "$U" '# BL-333-MATRIX-WHY' 'elif [ "$hrc" -eq 3 ]; then' 'elif false; then' case_H4 \
-  "a shallow clone is reported as no history at all, with no way to fix it named"
-mutant M25 "$U" '# BL-333-MATRIX-HISTORY-SAY' ':' case_U1 \
-  "the update no longer names the commit it matched"
-mutant M26 "$U" '# BL-333-UPDATE-BAK' '  bak="$dst.bak"' case_U1 \
-  "the backup loses its date"
-mutant M27 "$U" '# BL-333-UPDATE-DRYRUN' ':' case_U2 \
-  "--dry-run replaces an untouched copy"
-mutant M28 "$U" '# BL-333-UPDATE-COPY-OLD' ':' case_U1 \
-  "the backup is never written, so every update is refused"
-mutant M29 "$U" '# BL-333-UPDATE-VERIFY-BAK' ':' case_U4 \
-  "an untouched copy is replaced with no verified backup"
-mutant_in M30 "$U" '# BL-333-UPDATE-VERIFY-BAK' '_bl099_write_ok "$rc" "$dst" "$bak"' '[ "$rc" -eq 0 ]' case_U5 \
-  "a backup is judged by cp's exit status alone, the bytes never re-read"
-mutant M31 "$U" '# BL-333-UPDATE-COPY-NEW' ':' case_U1 \
-  "the framework's file is never written"
-mutant M32 "$U" '# BL-333-UPDATE-VERIFY-NEW' ':' case_U1 \
-  "a landed update is undone and reported as failed"
-mutant_in M33 "$U" '# BL-333-UPDATE-VERIFY-NEW' '_bl099_write_ok "$rc" "$src" "$dst"' '[ "$rc" -eq 0 ]' case_U6 \
-  "an update is judged by cp's exit status alone, the bytes never re-read"
-mutant M34 "$U" '# BL-333-UPDATE-PUT-BACK' ':' case_U6 \
-  "a failed update leaves the half-written file in place"
-mutant M35 "$U" '# BL-333-UPDATE-SAY-FAIL' ':' case_U6 \
-  "a failed update prints no [FAIL] line"
-mutant_in M36 "$U" '# BL-333-UPDATE-SAY-FAIL' 'if _bl099_write_ok "$rrc" "$bak" "$dst"; then' 'if true; then' case_U7 \
-  "a putting-back that failed is reported as done"
-# No vendored matrix: the copy check-versions reads, as found.
-mutant M37 "$U" '# BL-333-MATRIX-NONE-READ' '  where=""' case_S7 \
-  "the copy check-versions reads is never looked up"
-mutant_in M38 "$U" '# BL-333-MATRIX-NONE-READ' ' && [ -d "$s/templates/tool-matrix" ]' '' case_V2 \
-  "a source_dir with no matrix in it is named as the copy check-versions reads"
-mutant M39 "$U" '# BL-333-MATRIX-NONE-UNREAD' ':' case_V2 \
-  "a project whose check-versions has no matrix to read is not told so"
-mutant M40 "$U" '# BL-333-MATRIX-NONE-OWN' ':' case_S7 \
-  "the framework's own copy is reported as another checkout's"
-mutant_in M41 "$U" '# BL-333-MATRIX-NONE-OWN' '[ "$where" -ef "$ORCHESTRATOR_ROOT" ]' 'true' case_V1 \
-  "another checkout's copy is reported as this framework's own"
-mutant M42 "$U" '# BL-333-MATRIX-NONE-OTHER' ':' case_V1 \
-  "a project reading another checkout's floors is not told so"
-# The derived set, and init.sh's own lines.
-mutant M8 scripts/lib/scaffold-shipped-set.sh '# BL-333-MATRIX-PARSER' \
-  '        for f in "$fw_dir"/templates/tool-matrix/common.json; do' case_P1 \
-  "the parser becomes a hand-kept list" real-matrix
-mutant_in M9 init.sh '# BL-333-MATRIX-SHIP' '"$SCRIPT_DIR/templates/tool-matrix/"*.json' \
-  '"$SCRIPT_DIR/templates/tool-matrix/"common.json "$SCRIPT_DIR/templates/tool-matrix/"web.json' case_P2 \
-  "init.sh ships two files from one cp line the parser reads as one" real-matrix
-mutant_add M43 init.sh '# BL-333-MATRIX-SHIP' '  cp -p "$SCRIPT_DIR/templates/tool-matrix/"*.json templates/tool-matrix/' case_P2 \
-  "a second copy line, cp -p, that the parser never reads" real-matrix
-mutant_add M44 init.sh '# BL-333-MATRIX-SHIP' '  cp $SCRIPT_DIR/templates/tool-matrix/*.json templates/tool-matrix/' case_P2 \
-  "a second copy line with its path unquoted, that the parser never reads" real-matrix
-mutant_add M45 init.sh '# BL-333-MATRIX-SHIP' '  install -m 0644 "$SCRIPT_DIR/templates/tool-matrix/common.json" templates/tool-matrix/' case_P2 \
-  "a second copy line, install -m, that the parser never reads" real-matrix
-
-# M10 is TWO edits — the list back on stdin is the read AND the redirect — so it
-# is spelled out rather than routed through `mutant`.
-m10() {
-  local m why
-  m="$(newtmp)/mirror"
-  mk_fw "$m" || { fail_ M10 "could not build a mirror"; return; }
-  why="$(mutate "$m/$U" '# BL-333-MATRIX-OWN-FD' '  while IFS= read -r rel; do')" || { fail_ M10 "mutant did not land: $why"; return; }
-  why="$(mutate "$m/$U" '  done 3<<EOF' '  done <<EOF')" || { fail_ M10 "mutant did not land: $why"; return; }
-  CASE_DETAIL=""
-  if case_S9 "$m"; then
-    fail_ M10 "the matrix list is read on stdin again — SURVIVED: S9 still passes against the mutant ($CASE_DETAIL)"
-  else
-    pass "M10 (MUTATION) — the matrix list is read on stdin again: killed by S9 ($CASE_DETAIL)"
-  fi
-}
-m10
+run_case case_G1 "$FW_REAL" "with GIT_DIR exported, the history read and the commit pinned are still the framework's"
+run_case case_L1 "$FW_REAL" "a dangling link where a matrix file is missing is refused, rc 1, nothing written outside"
+run_case case_L2 "$FW_REAL" "a live link to an old shipped copy is refused, rc 1, the outside file unchanged"
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
