@@ -26866,14 +26866,14 @@ the exemption loop).
 **Logged:** 2026-10-26 (found on PR #524, a docs-only change)
 **Category:** Bug (enforcement — lost writes; CI)
 **Severity:** High — the `unit` required check is red for every PR, main included, and `scripts/lib/ledger-write.sh` ships
-to generated projects (`init.sh` copies it), so any machine on uutils 0.10.0 can lose MCP ledger records; the same
+to generated projects (`init.sh` copies it), so any machine on uutils before 0.11.0 can lose MCP ledger records; the same
 primitive guards the phase-gate attestation writers, the Phase 3 attestation writers and the bypass audit log (all
 shipped by `init.sh`), so a concurrent write there can drop an audit record
 **Status:** Open — CI pinned to `ubuntu-24.04` as a stopgap (`# BL-358-RUNNER-PIN`); the writer is not fixed
 
 **What.** GitHub's `ubuntu-latest` moved from `Image: ubuntu-24.04` (run 39629060444 attempt 1, 2026-10-21, main's last
 green run) to `Image: ubuntu-26.04`. On 26.04 `tests/test-bl314-tool-usage-concurrent.sh` loses writes in one to four of
-its concurrent cases per run — one write per case on CI, and C3 in all three 26.04 runs: PR #524's run 40336249134
+its concurrent cases per run — one write per failing round on CI, and C3 in all three 26.04 runs: PR #524's run 40336249134
 attempt 2 gave `[FAIL] C3 — … commits=11/12`, `[FAIL] C5 — … calls=11/12`, `[FAIL] C9 — N=80: parses=1 calls=79/80` and
 `[FAIL] C18 — row: seen=1 calls=1/2`; main's own `f6661694`, re-run as attempt 2 of 39629060444 on 2026-10-26, gave
 `[FAIL] C3 — round 2: parses=1 commits=11/12`. In containers the losses are larger (e.g. `C9 … calls=39/80`).
@@ -26896,7 +26896,7 @@ two writers hold the lock at once. No `rmdir` is needed: in review, 40 contender
 winner in 14 of 200 rounds (GNU `mkdir`: 0 of 200), and with `mkdirat` delayed under strace and the name created inside
 the delay, uutils exits 0 where GNU exits 1 (3 of 3 each). Upstream: uutils issue #13970, fixed by PR #13986 (merged
 2026-08-28; in 0.11.0 and later, not in 0.10.0). The image's `rust-coreutils 0.10.0-1ubuntu2~26.04.1` changelog carries
-no mkdir fix.
+no fix for #13970.
 
 **Made worse by design.** `_lw_update` and `_lw_put` take the lock as `_lw_lock || :`, so a lock that is not acquired
 lets the write proceed unlocked instead of failing loudly.
