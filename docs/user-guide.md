@@ -1401,19 +1401,26 @@ command yourself:
   no marker block is treated as entirely yours: it is never overwritten; a
   `<hook>.new` sidecar is written for you to diff and adopt.
 - **The tool matrix** (`templates/tool-matrix/*.json`). A file the framework
-  ships and your project lacks is copied in. A file that is still, byte for
-  byte, a version the framework itself shipped — one you never edited — is
-  replaced by the current one, and the sync keeps a dated
-  `<file>.bak.<YYYY-MM-DD>` of yours and says "your copy was the framework's own
-  version", naming the commit it matched. It knows the file is untouched by
-  finding those exact bytes in the framework clone's git history of that file.
-  This happens on every run, interactive or not, the way the scripts refresh:
-  when the framework raises a floor (gitleaks went from 8.18.0 to 8.19.0), a
-  plain sync is what brings it to you. `--dry-run` shows it as
-  `[would update]` and writes nothing. A backup or a write that does not land
-  is a `[FAIL]` and a non-zero exit, and your copy is left as it was — if even
-  putting it back fails, the line says so and where its bytes are. A file you
-  edited is handled as below.
+  ships and your project lacks is copied in. A file whose bytes equal **any**
+  version the framework ever shipped — the sync looks for those exact bytes in
+  the framework clone's git history of that file — is replaced by the current
+  one, with a dated `<file>.bak.<YYYY-MM-DD>` of yours kept and a line naming
+  the commit that has those bytes. The bytes alone decide. A copy you restored
+  or reverted to an older shipped version **on purpose** — your own `.bak`
+  included — is replaced again on the next sync. **To keep an older floor,
+  change the file so its bytes match no shipped version** (a value of your own,
+  or a tool you add): it is then yours, handled as below. This happens on every
+  run, interactive or not, the way the scripts refresh: when the framework
+  raises a floor (gitleaks went from 8.18.0 to 8.19.0), a plain sync is what
+  brings it to you. `--dry-run` shows it as `[would update]` and writes nothing.
+  A backup or a write that does not land is a `[FAIL]` and a non-zero exit, and
+  your copy is left as it was — if even putting it back fails, the line says so
+  and where its bytes are; a copy that fails halfway leaves no fragment behind.
+  The sync never copies or replaces a matrix file through a symbolic link on its
+  own: it names the link in a `[FAIL]` and exits non-zero, because the link
+  could point outside your project. Make it a regular file and sync again. (An
+  overwrite you declare with `--apply-doc-updates overwrite` still writes
+  through a link, as it does for a reference doc.)
 - It also runs the manifest/host **backfills** and the **CDF asset refresh**, and
   stamps `.claude/manifest.json`'s `soloFrameworkCommit` to the framework commit
   you synced from (distinct from CDF's `frameworkCommit`).
@@ -1430,21 +1437,22 @@ command yourself:
   Your customised `CLAUDE.md` is safe, under every flag below. Nothing is written
   *beside* them either: no `.new`, no `.bak`, no template copy — a sync leaves no
   new `CLAUDE.md*` / `PROJECT_INTAKE.md*` file of any kind on disk.
-- **Tool-matrix files you edited** (`templates/tool-matrix/*.json` whose bytes
-  are not a version the framework shipped — you added a tool, say) get exactly
-  the reference docs' treatment: a line saying why the file was not updated, a
-  drift notice with a capped diff, then skip / sidecar / overwrite. Until you
-  apply it, `check-versions.sh` and the phase checks keep enforcing **your
-  copy's** floors, and the sync prints a line saying so — when the framework
-  raises a floor, that is the line to act on.
+- **Tool-matrix files whose bytes match no shipped version** (you added a tool,
+  say, or set a floor of your own) get exactly the reference docs' treatment: a
+  line saying why the file was not updated, a drift notice with a capped diff,
+  then skip / sidecar / overwrite. Until you apply it, `check-versions.sh` and
+  the phase checks keep enforcing **your copy's** floors, and the sync prints a
+  line saying so — when the framework raises a floor, that is the line to act
+  on.
 - **If the framework clone is not a git checkout of its own** (an unpacked
   archive, say, or a folder inside some other repository), the sync has no
-  history to compare your copy against, so it cannot tell an untouched copy
-  from an edited one. It treats every differing matrix file as edited — kept,
-  reported, applied only when you say so — and its line for that file says
-  that is why. A shallow clone (`git clone --depth …`) whose history stops
-  before your copy's version is treated the same way, and its line names the
-  fix: `git -C <your clone> fetch --unshallow`, then sync again.
+  history to look your copy's bytes up in, so it cannot tell whether they are a
+  shipped version. It keeps every differing matrix file as if it were yours —
+  reported, applied only when you say so — and its line for that file says that
+  is why. A shallow clone (`git clone --depth …`, or a CI checkout, which
+  fetches one commit by default) whose history stops before your copy's version
+  is treated the same way, and its line names the fix:
+  `git -C <your clone> fetch --unshallow`, then sync again.
 - **A project with no `templates/tool-matrix/` at all** — an adopted one — is
   left without one. `check-versions.sh` there reads the copy named by
   `.claude/orchestrator-source.json`, and the sync says which one it found: the
@@ -1468,16 +1476,16 @@ bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
   --apply-doc-updates sidecar
 
 # Replace drifted docs in place — needs the second, destructive-step consent.
-# This ALSO replaces every tool-matrix file you edited (a dated .bak of yours
-# is kept); use sidecar instead to keep your edits in place:
+# This ALSO replaces every tool-matrix file whose bytes match no shipped version
+# (a dated .bak of yours is kept); use sidecar instead to keep your own values:
 bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
   --apply-doc-updates overwrite --confirm-doc-overwrite
 ```
 
 - `--apply-doc-updates <skip|sidecar|overwrite>` — what a **non-interactive** run
   does with a drifted `docs/reference/*.md` or a `templates/tool-matrix/*.json`
-  file you edited. A matrix file that is still the framework's own version is
-  replaced whatever you pass here. An unknown value is a hard usage
+  file whose bytes match no shipped version. A matrix file whose bytes equal a
+  shipped version is replaced whatever you pass here. An unknown value is a hard usage
   error. Interactive runs ignore it and ask you per doc, as before.
 - `--confirm-doc-overwrite` — the separate consent for the one destructive
   action. `--apply-doc-updates overwrite` **without** it is refused per doc
@@ -1501,7 +1509,7 @@ bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
   — no prompt is shown, and nothing is auto-answered `yes`.
 - Both flags are valid **only** with `--sync-framework`, and they apply **only**
   to the seven verbatim `docs/reference/*.md` files and the
-  `templates/tool-matrix/*.json` files you edited. `CLAUDE.md` and
+  `templates/tool-matrix/*.json` files whose bytes match no shipped version. `CLAUDE.md` and
   `PROJECT_INTAKE.md` stay notice-only no matter what you pass — including
   `--apply-doc-updates sidecar`, which writes nothing next to them.
 
