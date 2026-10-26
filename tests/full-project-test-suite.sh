@@ -1100,7 +1100,7 @@ run_child_suite "tests/test-bl344-home-clone-guard.sh" \
 # BL-333: --sync-framework never refreshed templates/tool-matrix/, so a floor
 # raised upstream never reached an existing project.
 run_child_suite "tests/test-bl333-sync-tool-matrix.sh" \
-  "BL-333: the sync copies a missing matrix file, reports a drifted one and applies it only when declared; dry-run writes nothing" \
+  "BL-333: the sync copies a missing matrix file, replaces one still byte-identical to a version in the framework's history (dated .bak), reports an edited one and applies it only when declared; dry-run writes nothing" \
   "BL-333 sync-tool-matrix tests FAILED (run tests/test-bl333-sync-tool-matrix.sh for details)"
 # BL-323: init.sh installed the pre-push review gate and then pushed the scaffold
 # into it; with no review on record the gate refused, the remote stayed empty,
