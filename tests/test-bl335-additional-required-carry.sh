@@ -460,7 +460,7 @@ MUT_N=0
 mk_mut() {   # NEEDLE REPLACEMENT NTH — replace the NTH line containing NEEDLE
   MUT_N=$((MUT_N + 1))
   MDIR="$TOPTMP/m$MUT_N/scripts"; mkdir -p "$MDIR/lib"
-  cp "$REPO_ROOT/scripts/lib/ledger-write.sh" "$MDIR/lib/"
+  cp "$REPO_ROOT/scripts/lib/ledger-write.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$MDIR/lib/"
   MUT="$MDIR/session-test-gate-check.sh"
   MUT_SITES=$(NEEDLE="$1" REPL="$2" NTH="$3" awk '
     index($0, ENVIRON["NEEDLE"]) { n++; if (n == ENVIRON["NTH"] + 0) { print ENVIRON["REPL"]; hit++; next } }
@@ -470,7 +470,7 @@ mk_mut() {   # NEEDLE REPLACEMENT NTH — replace the NTH line containing NEEDLE
 mk_sub() {   # NEEDLE OLD NEW — within the one line containing NEEDLE, replace OLD by NEW
   MUT_N=$((MUT_N + 1))
   MDIR="$TOPTMP/m$MUT_N/scripts"; mkdir -p "$MDIR/lib"
-  cp "$REPO_ROOT/scripts/lib/ledger-write.sh" "$MDIR/lib/"
+  cp "$REPO_ROOT/scripts/lib/ledger-write.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$MDIR/lib/"
   MUT="$MDIR/session-test-gate-check.sh"
   MUT_SITES=$(NEEDLE="$1" OLD="$2" NEW="$3" awk '
     index($0, ENVIRON["NEEDLE"]) && (i = index($0, ENVIRON["OLD"])) {

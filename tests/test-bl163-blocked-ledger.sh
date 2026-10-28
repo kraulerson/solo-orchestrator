@@ -44,6 +44,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FRAMEWORK="${BL163_REPO_OVERRIDE:-$REPO_ROOT}"
 HOOKLIB="$FRAMEWORK/scripts/lib/hook-templates.sh"
 AUDITLIB="$FRAMEWORK/scripts/lib/bypass-audit.sh"
+# `## BL-358:` the lock the audit lib refuses to write without, shipped beside it.
+LOCKLIB="$FRAMEWORK/scripts/lib/lock.sh"
 ONLY="${BL163_ONLY:-}"
 
 unset GITHUB_BASE_REF 2>/dev/null || true
@@ -130,6 +132,7 @@ mk_proj() {
   if [ "$with_lib" = "1" ]; then
     mkdir -p "$d/scripts/lib"
     cp "$AUDITLIB" "$d/scripts/lib/bypass-audit.sh"
+    cp "$LOCKLIB" "$d/scripts/lib/lock.sh"
   fi
   ( cd "$d" && git init -q && git config user.email t@t.invalid && git config user.name t \
       && echo x > seed && git add seed && git commit -q -m "chore: init" ) || return 1

@@ -189,7 +189,8 @@ ADOPT_SESSION_IGNORE_REL=".claude/.gitignore"
 # paths are in templates/generated/gitignore-base.tmpl (init.sh); the first two
 # are also in upgrade-project.sh's `# BL-174-GITIGNORE-BACKFILL`. The third is
 # the temps of scripts/lib/ledger-write.sh (`## BL-314:`), which a SIGKILLed
-# write leaves until the next write sweeps it.
+# write leaves until the next write sweeps it. The last two are the lock files
+# of scripts/lib/lock.sh (`## BL-358:`), which a SIGKILL can leave too.
 _adopt_session_ignore_rules() {
   printf '%s\n' \
     "# Solo Orchestrator's runtime files. The framework's session hooks rewrite them" \
@@ -197,5 +198,7 @@ _adopt_session_ignore_rules() {
     "/last-checked-commit.txt" \
     "/tool-usage.json.lw.*" \
     "/claude-commits.jsonl" \
-    "/tool-usage.json"
+    "/tool-usage.json" \
+    "/*.json.lock" \
+    "/tool-usage.json.lock.break"
 }

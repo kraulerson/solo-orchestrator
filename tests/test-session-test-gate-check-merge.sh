@@ -226,7 +226,7 @@ echo "T5c: MUTANT — put the two keys back into the startup heredoc, gate flips
 setup_inherited
 # The mutant sits in a mirror of scripts/ with the ledger lib beside it, since
 # the hook sources lib/ledger-write.sh from its own directory.
-mkdir -p "$TMP/m/scripts/lib" && cp "$REPO_ROOT/scripts/lib/ledger-write.sh" "$TMP/m/scripts/lib/"
+mkdir -p "$TMP/m/scripts/lib" && cp "$REPO_ROOT/scripts/lib/ledger-write.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$TMP/m/scripts/lib/"
 MUT="$TMP/m/scripts/session-test-gate-check.sh"
 # Structural discriminator for an ABSENCE: an omission cannot be greped for as
 # proof, so the two keys are spliced back INTO the startup heredoc (the SECOND

@@ -43,6 +43,22 @@ if [ -f "$SCRIPT_DIR/lib/adoption-stamp.sh" ]; then
   # shellcheck source=scripts/lib/adoption-stamp.sh
   source "$SCRIPT_DIR/lib/adoption-stamp.sh"
 fi
+# `## BL-358:` the four state writers below lock through lib/lock.sh. Loaded
+# through a trial in a subshell, keyed on what it defines: on bash 3.2 a lib
+# with a syntax error ends this `set -e` script at the `.` even inside an `if`.
+# Without it every check here still runs; only those writers refuse, loudly
+# (_cpg_need_lock), and never write without the lock.
+if ( . "$SCRIPT_DIR/lib/lock.sh" && command -v soif_lock_try && command -v soif_lock_release ) >/dev/null 2>&1; then
+  # shellcheck source=scripts/lib/lock.sh
+  . "$SCRIPT_DIR/lib/lock.sh"
+fi
+# _cpg_need_lock WHAT — 0 when lib/lock.sh is loaded; otherwise says on stderr
+# that WHAT was not written, and returns 1.
+_cpg_need_lock() {
+  command -v soif_lock_try >/dev/null 2>&1 && return 0
+  echo -e "${RED}[FAIL]${NC} $1 NOT written: $SCRIPT_DIR/lib/lock.sh is missing or cannot be loaded, and a write without its lock can lose a concurrent update. Restore it: bash scripts/verify-install.sh --auto-fix" >&2
+  return 1
+}
 
 # ── Argv parser (BL-060) ─────────────────────────────────────────
 # Adversarial cert re-walker-4 surfaced that scenarios invoke this
@@ -335,10 +351,11 @@ get_gate_date() {
 # sibling actor field, atomically and idempotently.
 #
 # Reuses the PR #97 / scripts/lib/bypass-audit.sh atomic-finalize
-# lineage: a portable mkdir-based advisory lock (flock isn't on macOS
-# bash-3.2), a temp file written ADJACENT to phase-state.json so the
-# `mv` is a same-filesystem atomic rename, and an EXIT/INT/TERM trap
-# contained in a subshell so it never clobbers a caller trap.
+# lineage: a portable advisory lock (flock isn't on macOS bash-3.2; since
+# `## BL-358:` an O_EXCL lock file from lib/lock.sh, not mkdir), a temp
+# file written ADJACENT to phase-state.json so the `mv` is a
+# same-filesystem atomic rename, and an EXIT/INT/TERM trap contained in a
+# subshell so it never clobbers a caller trap.
 #
 # GUARD (read-only invocations): this write only fires from the real
 # per-gate consistency path below, gated on genuine APPROVAL_LOG.md
@@ -437,25 +454,27 @@ _cpg_record_gate_date() {
   # want a pure read-only inspection should not run the gate at a phase past
   # a crossed-but-unrecorded gate — there is no state to synthesize once the
   # date is present (idempotent thereafter).
-  local today actor file lock_dir attempts rc
+  local today actor file lock_file attempts rc
   today=$(date +%Y-%m-%d)
   actor=$(_cpg_gate_actor)
   file="$PHASE_STATE"
-  lock_dir="$file.lockdir"
+  lock_file="$file.lock"
 
-  # Portable advisory lock via atomic mkdir (bypass-audit.sh lineage).
-  # Fail-safe stale-lock behavior: a SIGKILL between this mkdir and the
-  # subshell's EXIT trap can orphan "$lock_dir". The next run then spins
+  # Portable advisory lock (bypass-audit.sh lineage): an O_EXCL create of
+  # "$lock_file" through lib/lock.sh. It was `mkdir "$file.lockdir"`, whose
+  # exit status uutils coreutils 0.10.0 reports wrongly (`## BL-358:`).
+  # Fail-safe stale-lock behavior: a SIGKILL between taking it and the
+  # subshell's EXIT trap can orphan "$lock_file". The next run then spins
   # this loop for ~10s (100 × 0.1s) and returns 2 — degrading to the
   # historical "gate date not recorded" WARN (issues++), never a crash and
-  # never a corrupted state file. Recovery is `rmdir "$lock_dir"` (or it is
-  # swept with the project's temp state). This is an accepted trade for a
-  # dependency-free, macOS-bash-3.2-portable lock.
+  # never a corrupted state file. Recovery is `rm "$lock_file"`. This is an
+  # accepted trade for a dependency-free, macOS-bash-3.2-portable lock.
+  _cpg_need_lock "$label: the gate date" || return 2   # BL-358-CPG-NEEDS-LOCK-DATE
   attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while ! soif_lock_try "$lock_file"; do   # BL-358-CPG-LOCK-DATE
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
-      echo -e "${YELLOW}[WARN]${NC} $label: gate-date write lock timeout (>10s; possible stale $lock_dir from a killed run — remove it and retry) — record the date in $PHASE_STATE manually." >&2
+      echo -e "${YELLOW}[WARN]${NC} $label: gate-date write lock timeout (>10s; possible stale $lock_file from a killed run — remove it and retry) — record the date in $PHASE_STATE manually." >&2
       return 2
     fi
     sleep 0.1
@@ -464,7 +483,7 @@ _cpg_record_gate_date() {
   rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --arg k "$gate_key" --arg d "$today" --arg by "$actor" \
          '.gates = ((.gates // {}) + {($k): $d, ($k + "_by"): $by})' \
          "$file" > "$tmp" 2>/dev/null; then
@@ -478,9 +497,9 @@ _cpg_record_gate_date() {
     fi
   ) || rc=1
   # `|| true`: on a mv-failure path the subshell's EXIT trap already
-  # removed the lock dir, so this rmdir would fail — never let that trip
-  # `set -e` and abort the whole gate run.
-  rmdir "$lock_dir" 2>/dev/null || true
+  # released the lock — never let a failed release trip `set -e` and abort
+  # the whole gate run.
+  soif_lock_release "$lock_file" || true   # BL-358-CPG-RELEASE-DATE
 
   if [ "$rc" -eq 0 ]; then
     echo -e "${GREEN}  [OK]${NC} $label: gate date recorded ($today, by $actor) from APPROVAL_LOG.md evidence."
@@ -494,9 +513,9 @@ _cpg_record_gate_date() {
 # Records the SOLO_REVIEWERS_ATTESTED escape-hatch decision into
 # .claude/process-state.json::phase3.attestations.reviewers (BL-032
 # lineage — a block that is attested, not silenced). Reuses the same
-# atomic-finalize pattern as _cpg_record_gate_date: a portable mkdir
-# advisory lock, a temp file written ADJACENT to process-state.json so
-# `mv` is a same-filesystem atomic rename, and an EXIT/INT/TERM trap
+# atomic-finalize pattern as _cpg_record_gate_date: a portable advisory
+# lock (lib/lock.sh), a temp file written ADJACENT to process-state.json
+# so `mv` is a same-filesystem atomic rename, and an EXIT/INT/TERM trap
 # contained in a subshell.
 #
 # GUARD (read-only invocations): this writer fires ONLY from the review
@@ -528,13 +547,14 @@ _cpg_record_reviewer_attestation() {
     echo '{}' > "$file" 2>/dev/null || return 2
   fi
 
-  local today actor lock_dir attempts rc
+  local today actor lock_file attempts rc
   today=$(date +%Y-%m-%d)
   actor=$(_cpg_gate_actor)
-  lock_dir="$file.lockdir"
+  lock_file="$file.lock"
 
+  _cpg_need_lock "the reviewer attestation" || return 2   # BL-358-CPG-NEEDS-LOCK-REVIEW
   attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while ! soif_lock_try "$lock_file"; do   # BL-358-CPG-LOCK-REVIEW
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
       return 2
@@ -545,7 +565,7 @@ _cpg_record_reviewer_attestation() {
   rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --arg reason "$reason" --arg missing "$missing" \
           --arg date "$today" --arg by "$actor" \
           '.phase3 = ((.phase3 // {}) | .attestations = ((.attestations // {}) + {reviewers: {reason: $reason, missing: $missing, date: $date, by: $by}}))' \
@@ -559,7 +579,7 @@ _cpg_record_reviewer_attestation() {
       exit 1
     fi
   ) || rc=1
-  rmdir "$lock_dir" 2>/dev/null || true
+  soif_lock_release "$lock_file" || true   # BL-358-CPG-RELEASE-REVIEW
   return "$rc"
 }
 
@@ -961,7 +981,7 @@ _cpg_accum_source_since() {
 _cpg_record_accum_attestation() {
   local gate_key="$1" reason="$2"
   local file=".claude/process-state.json"
-  local today actor lock_dir attempts rc cur cur_head _att_head
+  local today actor lock_file attempts rc cur cur_head _att_head
 
   if ! command -v jq >/dev/null 2>&1; then return 2; fi
 
@@ -997,9 +1017,10 @@ _cpg_record_accum_attestation() {
 
   today=$(date +%Y-%m-%d)
   actor=$(_cpg_gate_actor)
-  lock_dir="$file.lockdir"
+  lock_file="$file.lock"
+  _cpg_need_lock "the accumulation attestation" || return 2   # BL-358-CPG-NEEDS-LOCK-ACCUM
   attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while ! soif_lock_try "$lock_file"; do   # BL-358-CPG-LOCK-ACCUM
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then return 2; fi
     sleep 0.1
@@ -1008,13 +1029,13 @@ _cpg_record_accum_attestation() {
   # Created INSIDE the lock. The tracker's writer already did this; this one
   # created it outside, so a concurrent writer could observe a half-built file.
   if [ ! -f "$file" ]; then
-    echo '{}' > "$file" 2>/dev/null || { rmdir "$lock_dir" 2>/dev/null; return 2; }
+    echo '{}' > "$file" 2>/dev/null || { soif_lock_release "$lock_file"; return 2; }
   fi
 
   rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --arg g "$gate_key" --arg reason "$reason" --arg date "$today" --arg by "$actor" --arg head "$_att_head" \
           '.mcp_accumulation = ((.mcp_accumulation // {})
              | .attestations = ((.attestations // {}) + {($g): {reason: $reason, date: $date, by: $by, head: $head}}))' \
@@ -1028,7 +1049,7 @@ _cpg_record_accum_attestation() {
       exit 1
     fi
   ) || rc=1
-  rmdir "$lock_dir" 2>/dev/null || true
+  soif_lock_release "$lock_file" || true   # BL-358-CPG-RELEASE-ACCUM
   if [ "$rc" -ne 0 ]; then return 2; fi
   return 0
 }
@@ -1452,14 +1473,16 @@ _cpg_warn_no_gate_section() {
 #   2 — jq is not installed
 #   3 — the state file cannot be written (read-only, not a regular file, or
 #       .claude/ refuses writes: the lock cannot be made and none exists)
-#   4 — the lock is held: another run, or a stale lockdir from a killed one
+#   4 — the lock is held: another run, or a stale lock from a killed one
 #   5 — jq could not merge the record (the state file is not valid JSON, or
 #       its .attestations is not an object)
+#   6 — lib/lock.sh is missing or cannot be loaded (`## BL-358:`), and the
+#       record is never written without the lock
 #   Any non-zero is a refusal; the code only selects the remedy printed.
 _cpg_record_single_authority_attestation() {
   local _sa_gate="$1" _sa_reason="$2"
   local file=".claude/process-state.json"
-  local _sa_head _sa_cur_reason _sa_cur_head today actor lock_dir attempts rc _sa_errf
+  local _sa_head _sa_cur_reason _sa_cur_head today actor lock_file attempts rc _sa_errf
 
   command -v jq >/dev/null 2>&1 || return 2
   # A read-only state file is refused up front. Without this, `mv` of the
@@ -1495,11 +1518,12 @@ _cpg_record_single_authority_attestation() {
 
   today=$(date +%Y-%m-%d)
   actor=$(_cpg_gate_actor)
-  lock_dir="$file.lockdir"
+  lock_file="$file.lock"
 
+  _cpg_need_lock "the single-authority attestation" || return 6   # BL-358-CPG-NEEDS-LOCK-SA
   attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    [ -e "$lock_dir" ] || return 3   # no lock to wait on: .claude/ itself refuses writes
+  while ! soif_lock_try "$lock_file"; do   # BL-358-CPG-LOCK-SA
+    [ -e "$lock_file" ] || return 3   # no lock to wait on: .claude/ itself refuses writes
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
       return 4
@@ -1510,13 +1534,13 @@ _cpg_record_single_authority_attestation() {
   # Created INSIDE the lock, as the sibling recorder's comment requires: a
   # concurrent writer must never observe a half-built file.
   if [ ! -f "$file" ]; then
-    printf '{}\n' > "$file" 2>/dev/null || { rmdir "$lock_dir" 2>/dev/null; return 3; }
+    printf '{}\n' > "$file" 2>/dev/null || { soif_lock_release "$lock_file"; return 3; }
   fi
 
   rc=0; _sa_jq_err=""; _sa_errf=$(mktemp "${TMPDIR:-/tmp}/soif-sa-jq.XXXXXX" 2>/dev/null) || _sa_errf=/dev/null
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 3
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --arg g "$_sa_gate" --arg reason "$_sa_reason" --arg head "$_sa_head" \
           --arg date "$today" --arg by "$actor" \
           '.attestations = ((.attestations // {}) | .single_authority = ((.single_authority // {}) + {($g): {reason: $reason, head: $head, gate: $g, date: $date, by: $by}}))' \
@@ -1530,7 +1554,7 @@ _cpg_record_single_authority_attestation() {
       exit 5
     fi
   ) || rc=$?
-  rmdir "$lock_dir" 2>/dev/null || true
+  soif_lock_release "$lock_file" || true   # BL-358-CPG-RELEASE-SA
   # jq's first stderr line for arm 5, with the `# BL-233-WPB-ONELINE` strip (C0 and `\`), into _cpg_single_authority_gate's local _sa_jq_err.
   _sa_jq_err=$(head -n 1 "$_sa_errf" 2>/dev/null | LC_ALL=C tr -d '\000-\037\\')
   [ "$_sa_errf" = /dev/null ] || rm -f "$_sa_errf"
@@ -1599,8 +1623,9 @@ _cpg_single_authority_gate() {
   case "$_sa_wrc" in
     2) echo "        jq is not on PATH, and the record is written with it: install jq, then re-run." ;;
     3) echo "        .claude/process-state.json cannot be written (read-only, not a regular file, or .claude/ refuses writes): make .claude/ writable and the state file a writable file, then re-run." ;;
-    4) echo "        .claude/process-state.json.lockdir is held. If no other gate run is in progress it is stale, left by a killed run: remove it and re-run." ;;
+    4) echo "        .claude/process-state.json.lock is held. If no other gate run is in progress it is stale, left by a killed run: remove it and re-run." ;;
     5) echo "        .claude/process-state.json is not a JSON object, or its .attestations or .attestations.single_authority is not an object, so jq could not add the record: repair the file, then re-run."; [ -z "${_sa_jq_err:-}" ] || printf '        jq said: %s\n' "$_sa_jq_err" ;;
+    6) echo "        scripts/lib/lock.sh is missing or cannot be loaded, and the record is never written without its lock: restore it with bash scripts/verify-install.sh --auto-fix, then re-run." ;;
     *) echo "        The recorder failed with an unexpected status ($_sa_wrc); nothing was written." ;;
   esac
   return 1

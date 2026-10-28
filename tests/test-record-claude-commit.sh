@@ -718,7 +718,7 @@ P=$(mktemp -d)
 mkdir -p "$P/.claude" "$P/scripts/hooks" "$P/scripts/lib"
 cp "$REPO_ROOT/scripts/hooks/record-claude-commit.sh" "$P/scripts/hooks/"
 cp "$REPO_ROOT/scripts/detect-out-of-band-commits.sh" "$P/scripts/"
-cp "$REPO_ROOT/scripts/lib/enforcement-level.sh" "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$P/scripts/lib/"
+cp "$REPO_ROOT/scripts/lib/enforcement-level.sh" "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$P/scripts/lib/"
 printf '{"enforcement_level":"light"}\n' > "$P/.claude/manifest.json"
 echo '{}' > "$P/.claude/settings.json"
 ( . "$REPO_ROOT/scripts/lib/claude-settings.sh" && soif_register_hook_roster "$P/.claude/settings.json" )

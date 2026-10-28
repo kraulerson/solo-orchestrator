@@ -970,6 +970,11 @@ run_child_suite "tests/test-bl311-mcp-add-order.sh" \
 run_child_suite "tests/test-bl314-tool-usage-concurrent.sh" \
   "BL-314: concurrent writers never truncate the tool-usage ledger or lose a call row" \
   "BL-314 concurrent ledger tests FAILED (run tests/test-bl314-tool-usage-concurrent.sh for details)"
+# BL-358: twelve writers trusted `mkdir`'s exit status as their mutex, and the
+# Rust coreutils (uutils 0.10.0) on ubuntu-26.04 reports a lost race as a win.
+run_child_suite "tests/test-bl358-lock-primitive.sh" \
+  "BL-358: the lock file primitive and the eleven state writers on it lose no update under a uutils-like mkdir" \
+  "BL-358 lock primitive tests FAILED (run tests/test-bl358-lock-primitive.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

@@ -27,8 +27,8 @@ set -uo pipefail
 #   (a reason AND a sign-off) recorded in
 #   `.claude/phase-state.json::phase3.attestations.<scanner>`. A non-attested
 #   SKIP counts as a gate FAIL. Mirrors the BL-032 escape-hatch pattern and
-#   reuses BL-071's atomic-finalize write pattern (mkdir-lock + adjacent
-#   mktemp + rename) so the state write is race-safe on macOS bash-3.2.
+#   reuses BL-071's atomic-finalize write pattern (lib/lock.sh's lock file +
+#   adjacent mktemp + rename) so the state write is race-safe on macOS bash-3.2.
 #
 # GATE INTEGRATION
 #   scripts/check-phase-gate.sh auto-invokes this driver on the Phase 3→4
@@ -84,6 +84,21 @@ if [ -t 1 ]; then
 else
   RED=''; GREEN=''; YELLOW=''; BLUE=''; BOLD=''; NC=''
 fi
+
+# `## BL-358:` the two phase-state.json writers lock through lib/lock.sh,
+# loaded through a trial keyed on what it defines. Without it the scanners
+# still run; only those writers refuse, loudly, and never write unlocked.
+if ( . "$SCRIPT_DIR/lib/lock.sh" && command -v soif_lock_try && command -v soif_lock_release ) >/dev/null 2>&1; then
+  # shellcheck source=scripts/lib/lock.sh
+  . "$SCRIPT_DIR/lib/lock.sh"
+fi
+# _p3_need_lock WHAT — 0 when lib/lock.sh is loaded; otherwise says on stderr
+# that WHAT was not written, and returns 1.
+_p3_need_lock() {
+  command -v soif_lock_try >/dev/null 2>&1 && return 0
+  echo -e "${RED}[FAIL]${NC} $1 NOT recorded: $SCRIPT_DIR/lib/lock.sh is missing or cannot be loaded, and a write without its lock can lose a concurrent update. Restore it: bash scripts/verify-install.sh --auto-fix" >&2
+  return 1
+}
 
 # ── SCANNER REGISTRY ─────────────────────────────────────────────────
 # The five documented Phase 3 checks. Order is stable (used by --list, the
@@ -423,9 +438,10 @@ _p3_is_attested() {
 # _p3_write_attestation <scanner> <reason> <signoff>
 # Atomically records phase3.attestations.<scanner> = {reason, signoff, at}
 # into phase-state.json. Reuses BL-071's atomic-finalize lineage: a portable
-# mkdir advisory lock (flock is unavailable on macOS bash-3.2), a temp file
-# written ADJACENT to the state file so `mv` is a same-filesystem atomic
-# rename, and an EXIT/INT/TERM trap contained in a subshell.
+# advisory lock (flock is unavailable on macOS bash-3.2; an O_EXCL lock file
+# from lib/lock.sh since `## BL-358:`, not mkdir), a temp file written
+# ADJACENT to the state file so `mv` is a same-filesystem atomic rename, and
+# an EXIT/INT/TERM trap contained in a subshell.
 # Returns 0 on success, 2 on failure (jq missing, lock timeout, jq error).
 _p3_write_attestation() {
   local name="$1" reason="$2" signoff="$3"
@@ -441,15 +457,16 @@ _p3_write_attestation() {
     echo '{"phase3":{"attestations":{}}}' > "$file"
   fi
 
-  local at lock_dir attempts rc
+  local at lock_file attempts rc
   at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  lock_dir="$file.lockdir"
+  lock_file="$file.lock"
 
+  _p3_need_lock "the $name attestation" || return 2   # BL-358-P3-NEEDS-LOCK-ATTEST
   attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while ! soif_lock_try "$lock_file"; do   # BL-358-P3-LOCK-ATTEST
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
-      echo -e "${YELLOW}[WARN]${NC} attestation write lock timeout (>10s; possible stale $lock_dir from a killed run — remove it and retry)." >&2
+      echo -e "${YELLOW}[WARN]${NC} attestation write lock timeout (>10s; possible stale $lock_file from a killed run — remove it and retry)." >&2
       return 2
     fi
     sleep 0.1
@@ -458,7 +475,7 @@ _p3_write_attestation() {
   rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --arg n "$name" --arg r "$reason" --arg s "$signoff" --arg at "$at" \
          '.phase3 = (.phase3 // {}) | .phase3.attestations = ((.phase3.attestations // {}) + {($n): {"reason":$r,"signoff":$s,"at":$at}})' \
          "$file" > "$tmp" 2>/dev/null; then
@@ -471,7 +488,7 @@ _p3_write_attestation() {
       exit 1
     fi
   ) || rc=1
-  rmdir "$lock_dir" 2>/dev/null || true
+  soif_lock_release "$lock_file" || true   # BL-358-P3-RELEASE-ATTEST
 
   if [ "$rc" -eq 0 ]; then
     return 0
@@ -785,14 +802,15 @@ _p3_write_license_exception() {
   fi
   rm -f "$file.wtest" 2>/dev/null || true
 
-  local at lock_dir attempts rc
+  local at lock_file attempts rc
   at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  lock_dir="$file.lockdir"
+  lock_file="$file.lock"
+  _p3_need_lock "the license exception" || return 1   # BL-358-P3-NEEDS-LOCK-LICENSE
   attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while ! soif_lock_try "$lock_file"; do   # BL-358-P3-LOCK-LICENSE
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
-      echo -e "${RED}[FAIL]${NC} license-exception write lock timeout (>10s; stale $lock_dir from a killed run?)." >&2
+      echo -e "${RED}[FAIL]${NC} license-exception write lock timeout (>10s; stale $lock_file from a killed run?)." >&2
       return 1
     fi
     sleep 0.1
@@ -801,7 +819,7 @@ _p3_write_license_exception() {
   rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --arg at "$at" --arg pkgs "$pkgs" --arg lics "$lics" --arg reason "$reason" \
          '.phase3 = (.phase3 // {}) | .phase3.license_exceptions = ((.phase3.license_exceptions // []) + [{"date":$at,"packages":($pkgs|split("\n")|map(select(length>0))),"licenses":($lics|split("\n")|map(select(length>0))),"reason":$reason}])' \
          "$file" > "$tmp" 2>/dev/null; then
@@ -814,7 +832,7 @@ _p3_write_license_exception() {
       exit 1
     fi
   ) || rc=1
-  rmdir "$lock_dir" 2>/dev/null || true
+  soif_lock_release "$lock_file" || true   # BL-358-P3-RELEASE-LICENSE
   return "$rc"
 }
 

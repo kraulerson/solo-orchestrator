@@ -26,8 +26,9 @@
 #
 # REGISTRATION: no init.sh, not an aggregator → BOTH tests/full-project-test-
 # suite.sh AND the tests.yml unit list. Hermetic (mktemp, local paths only).
-# bash-3.2 safe. run-phase3-validation.sh is self-contained (no scripts/lib
-# sourcing — verified 2026-07-17), so a bare copy is a runnable mutant (the
+# bash-3.2 safe. run-phase3-validation.sh sources one sibling, lib/lock.sh
+# (`## BL-358:`; it was self-contained until then), and refuses to record an
+# attestation without it, so the mutant runs from a folder that carries it (the
 # bl104 vacuous-mutant trap does not apply, and T-mutation asserts a POSITIVE
 # outcome — rc=0 + [OK] — so a crashed mutant cannot vacuously pass).
 
@@ -133,7 +134,8 @@ fi
 
 # ── T3: fence excision resurrects the bug → the guard is load-bearing ────────
 echo "=== T-mutation-fence-excision ==="
-MUT="$TOPTMP/mutant.sh"
+mkdir -p "$TOPTMP/mut/lib" && cp "$REPO_ROOT/scripts/lib/lock.sh" "$TOPTMP/mut/lib/"
+MUT="$TOPTMP/mut/mutant.sh"
 sed '/# BL-130-ATTEST-FAIL-GUARD-BEGIN/,/# BL-130-ATTEST-FAIL-GUARD-END/d' "$DRIVER" > "$MUT"
 if grep -q "BL-130-ATTEST-FAIL-GUARD" "$MUT"; then
   fail_ "T-mutation-fence-excision" "the fence excision did not remove the guard — BEGIN/END markers malformed"

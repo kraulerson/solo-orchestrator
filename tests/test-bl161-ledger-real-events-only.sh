@@ -50,6 +50,8 @@ FRAMEWORK="${BL161_REPO_OVERRIDE:-$REPO_ROOT}"
 INSTALLER="$FRAMEWORK/scripts/install-filesystem-gates.sh"
 HOOKLIB="$FRAMEWORK/scripts/lib/hook-templates.sh"
 AUDITLIB="$FRAMEWORK/scripts/lib/bypass-audit.sh"
+# `## BL-358:` the lock the audit lib refuses to write without, shipped beside it.
+LOCKLIB="$FRAMEWORK/scripts/lib/lock.sh"
 DETECTOR="$FRAMEWORK/scripts/detect-out-of-band-commits.sh"
 ONLY="${BL161_ONLY:-}"
 
@@ -220,6 +222,7 @@ mk_emit_proj() { # <dir> — emitted BL-163 fallback pre-commit hook + project a
   rm -rf "$d"; mkdir -p "$d/.claude" "$d/scripts/lib" "$d/src"
   printf '{"frameworkVersion":"test","enforcement_level":"strict"}\n' > "$d/.claude/manifest.json"
   cp "$AUDITLIB" "$d/scripts/lib/bypass-audit.sh"
+  cp "$LOCKLIB" "$d/scripts/lib/lock.sh"
   ( cd "$d" && git init -q && git config user.email t@t.invalid && git config user.name t \
       && echo x > seed && git add seed && git commit -q -m "chore: init" ) >/dev/null 2>&1 || return 1
   ( source "$HOOKLIB" && soif_write_precommit_hook "$d/.git/hooks/pre-commit" ) || return 1

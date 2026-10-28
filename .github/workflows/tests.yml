@@ -685,6 +685,7 @@ jobs:
             tests/test-bl335-additional-required-carry.sh
             tests/test-bl333-sync-tool-matrix.sh
             tests/test-bl333-sync-tool-matrix-mutants.sh
+            tests/test-bl358-lock-primitive.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

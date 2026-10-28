@@ -306,7 +306,7 @@ fi
 # write above was skipped: say so, on every source, rather than pass in silence.
 if [ "$LW_READY" != "1" ]; then
   echo ""
-  echo "MCP LEDGER WRITER MISSING: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded, so no MCP call this session can be recorded in $TOOL_USAGE, and the MCP check will refuse every Write and Edit. Restore it: bash scripts/verify-install.sh --auto-fix"   # BL-314-NOLIB-NOTE
+  echo "MCP LEDGER WRITER MISSING: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded (it needs lib/lock.sh beside it), so no MCP call this session can be recorded in $TOOL_USAGE, and the MCP check will refuse every Write and Edit. Restore it: bash scripts/verify-install.sh --auto-fix"   # BL-314-NOLIB-NOTE
 fi
 
 # ── Report Unknown MCP Servers ────────────────────────────────────
