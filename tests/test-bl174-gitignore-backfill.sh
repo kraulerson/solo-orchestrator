@@ -59,6 +59,12 @@ LINE_TU='.claude/tool-usage.json'
 # names, so a tracked copy would leave the tree modified after every commit.
 # Killer of a backfill that drops it: T1 (and T2, T4).
 LINE_CC='.claude/claude-commits.jsonl'
+# `## BL-358:` a FIFTH and SIXTH: the lock files of scripts/lib/lock.sh. A
+# committed one would hold every clone's writers. The first is a glob, so its
+# check-ignore probe is one of the files it covers.
+LINE_LK='.claude/*.json.lock'
+PROBE_LK='.claude/process-state.json.lock'
+LINE_LB='.claude/tool-usage.json.lock.break'
 
 # mk_proj <dir> <gitignore-mode> [project-mode=generated] — a hand-built strict
 # project WITHOUT init.sh. In `generated` mode a MODERN manifest (host +
@@ -69,8 +75,8 @@ LINE_CC='.claude/claude-commits.jsonl'
 # subshell's `cd "$PROJECT_ROOT"` no-ops — reproducing the framework-repo /
 # projectless invocation the BL-174 backfill MUST NOT write into.
 # <gitignore-mode>:
-#   custom — custom user lines, NONE of the managed lines (backfill adds all 4)
-#   both   — custom lines AND all four managed lines present (no-op case)
+#   custom — custom user lines, NONE of the managed lines (backfill adds all 6)
+#   both   — custom lines AND all six managed lines present (no-op case)
 #   none   — no .gitignore at all (create-if-missing case)
 mk_proj() {
   local d="$1" mode="$2" pmode="${3:-generated}"
@@ -87,7 +93,7 @@ mk_proj() {
   fi
   case "$mode" in
     custom) printf 'node_modules/\ndist/\n*.log\n.env\n' > "$d/.gitignore" ;;
-    both)   printf 'node_modules/\ndist/\n%s\n%s\n%s\n%s\n' "$LINE_LC" "$LINE_GP" "$LINE_TU" "$LINE_CC" > "$d/.gitignore" ;;
+    both)   printf 'node_modules/\ndist/\n%s\n%s\n%s\n%s\n%s\n%s\n' "$LINE_LC" "$LINE_GP" "$LINE_TU" "$LINE_CC" "$LINE_LK" "$LINE_LB" > "$d/.gitignore" ;;
     none)   : ;;  # no .gitignore
   esac
   ( cd "$d" && git init -q && git config user.email t@t.invalid && git config user.name t \
@@ -122,10 +128,12 @@ if mk_proj "$TOPTMP/t1" custom; then
   gp=no; ignored "$TOPTMP/t1" "$LINE_GP" && gp=yes
   tu=no; ignored "$TOPTMP/t1" "$LINE_TU" && tu=yes
   cc=no; ignored "$TOPTMP/t1" "$LINE_CC" && cc=yes
-  if [ "$lc" = yes ] && [ "$gp" = yes ] && [ "$tu" = yes ] && [ "$cc" = yes ]; then
-    pass "T1-backfill-adds-both-ignore-lines (check-ignore keeps last-checked-commit.txt + last-gate-pass.txt + the BL-236 tool-usage ledger + the BL-324 Claude-commit ledger out of git)"
+  lk=no; ignored "$TOPTMP/t1" "$PROBE_LK" && lk=yes
+  lb=no; ignored "$TOPTMP/t1" "$LINE_LB" && lb=yes
+  if [ "$lc" = yes ] && [ "$gp" = yes ] && [ "$tu" = yes ] && [ "$cc" = yes ] && [ "$lk" = yes ] && [ "$lb" = yes ]; then
+    pass "T1-backfill-adds-both-ignore-lines (check-ignore keeps last-checked-commit.txt + last-gate-pass.txt + the BL-236 tool-usage ledger + the BL-324 Claude-commit ledger + the BL-358 lock files out of git)"
   else
-    fail_ "T1-backfill-adds-both-ignore-lines" "last-checked-commit ignored=$lc last-gate-pass ignored=$gp tool-usage ignored=$tu claude-commits ignored=$cc (want yes/yes/yes/yes) — .gitignore: $(tr '\n' '|' < "$TOPTMP/t1/.gitignore" 2>/dev/null)"
+    fail_ "T1-backfill-adds-both-ignore-lines" "last-checked-commit ignored=$lc last-gate-pass ignored=$gp tool-usage ignored=$tu claude-commits ignored=$cc lock ignored=$lk break-guard ignored=$lb (want yes x6) — .gitignore: $(tr '\n' '|' < "$TOPTMP/t1/.gitignore" 2>/dev/null)"
   fi
 else
   fail_ "T1-backfill-adds-both-ignore-lines" "fixture build failed"
@@ -142,11 +150,13 @@ if mk_proj "$TOPTMP/t2" custom; then
   ngp=$(count_line "$TOPTMP/t2/.gitignore" "$LINE_GP")
   ntu=$(count_line "$TOPTMP/t2/.gitignore" "$LINE_TU")
   ncc=$(count_line "$TOPTMP/t2/.gitignore" "$LINE_CC")
+  nlk=$(count_line "$TOPTMP/t2/.gitignore" "$LINE_LK")
+  nlb=$(count_line "$TOPTMP/t2/.gitignore" "$LINE_LB")
   same=no; cmp -s "$TOPTMP/t2.after1" "$TOPTMP/t2/.gitignore" && same=yes
-  if [ "$nlc" -eq 1 ] && [ "$ngp" -eq 1 ] && [ "$ntu" -eq 1 ] && [ "$ncc" -eq 1 ] && [ "$same" = yes ]; then
-    pass "T2-idempotent-second-run-is-byte-noop (each of the 4 managed lines x1, .gitignore byte-identical across the 2nd run)"
+  if [ "$nlc" -eq 1 ] && [ "$ngp" -eq 1 ] && [ "$ntu" -eq 1 ] && [ "$ncc" -eq 1 ] && [ "$nlk" -eq 1 ] && [ "$nlb" -eq 1 ] && [ "$same" = yes ]; then
+    pass "T2-idempotent-second-run-is-byte-noop (each of the 6 managed lines x1, .gitignore byte-identical across the 2nd run)"
   else
-    fail_ "T2-idempotent-second-run-is-byte-noop" "count last-checked=$nlc last-gate-pass=$ngp tool-usage=$ntu claude-commits=$ncc (want 1/1/1/1) byte_identical_2nd_run=$same (want yes)"
+    fail_ "T2-idempotent-second-run-is-byte-noop" "count last-checked=$nlc last-gate-pass=$ngp tool-usage=$ntu claude-commits=$ncc lock=$nlk break-guard=$nlb (want 1 each) byte_identical_2nd_run=$same (want yes)"
   fi
 else
   fail_ "T2-idempotent-second-run-is-byte-noop" "fixture build failed"
@@ -182,15 +192,19 @@ if mk_proj "$TOPTMP/t4" both; then
   ngp=$(count_line "$TOPTMP/t4/.gitignore" "$LINE_GP")
   ntu=$(count_line "$TOPTMP/t4/.gitignore" "$LINE_TU")
   ncc=$(count_line "$TOPTMP/t4/.gitignore" "$LINE_CC")
+  nlk=$(count_line "$TOPTMP/t4/.gitignore" "$LINE_LK")
+  nlb=$(count_line "$TOPTMP/t4/.gitignore" "$LINE_LB")
   lc=no; ignored "$TOPTMP/t4" "$LINE_LC" && lc=yes
   gp=no; ignored "$TOPTMP/t4" "$LINE_GP" && gp=yes
   tu=no; ignored "$TOPTMP/t4" "$LINE_TU" && tu=yes
   cc=no; ignored "$TOPTMP/t4" "$LINE_CC" && cc=yes
-  if [ "$same" = yes ] && [ "$nlc" -eq 1 ] && [ "$ngp" -eq 1 ] && [ "$ntu" -eq 1 ] && [ "$ncc" -eq 1 ] \
-     && [ "$lc" = yes ] && [ "$gp" = yes ] && [ "$tu" = yes ] && [ "$cc" = yes ]; then
-    pass "T4-already-present-is-byte-noop (byte-identical, each of the 4 managed lines x1, all still ignored)"
+  lk=no; ignored "$TOPTMP/t4" "$PROBE_LK" && lk=yes
+  lb=no; ignored "$TOPTMP/t4" "$LINE_LB" && lb=yes
+  if [ "$same" = yes ] && [ "$nlc" -eq 1 ] && [ "$ngp" -eq 1 ] && [ "$ntu" -eq 1 ] && [ "$ncc" -eq 1 ] && [ "$nlk" -eq 1 ] && [ "$nlb" -eq 1 ] \
+     && [ "$lc" = yes ] && [ "$gp" = yes ] && [ "$tu" = yes ] && [ "$cc" = yes ] && [ "$lk" = yes ] && [ "$lb" = yes ]; then
+    pass "T4-already-present-is-byte-noop (byte-identical, each of the 6 managed lines x1, all still ignored)"
   else
-    fail_ "T4-already-present-is-byte-noop" "byte_identical=$same count last-checked=$nlc last-gate-pass=$ngp tool-usage=$ntu claude-commits=$ncc (want 1/1/1/1) ignored lc=$lc gp=$gp tu=$tu cc=$cc"
+    fail_ "T4-already-present-is-byte-noop" "byte_identical=$same count last-checked=$nlc last-gate-pass=$ngp tool-usage=$ntu claude-commits=$ncc lock=$nlk break-guard=$nlb (want 1 each) ignored lc=$lc gp=$gp tu=$tu cc=$cc lk=$lk lb=$lb"
   fi
 else
   fail_ "T4-already-present-is-byte-noop" "fixture build failed"
