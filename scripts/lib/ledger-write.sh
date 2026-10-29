@@ -23,9 +23,14 @@
 # waiter queued behind many short holders reached the count and broke a live
 # lock, losing call rows at 40 concurrent events. A stale lock is broken once,
 # under a second lock (the break guard), and only if it is still the lock that
-# was read stale: two waiters that both read it stale cannot both break it,
-# which would remove the lock the first had just taken. If the lock is still
-# stale after the one break it cannot be removed, and the write is skipped.
+# was read stale: of two waiters that both read it stale, the one holding the
+# guard breaks it and the other waits, so the lock the breaker takes stands.
+# That holds while the guard does. A guard one waiter has seen held for more
+# than a budget, on one stale lock, is taken for a killed breaker's and cleared,
+# so a breaker stalled or killed that long inside it, or a waiter stalled that
+# long across two stale locks, can still see one lock broken twice (`## BL-358:`
+# residual). If the lock is still stale after the one break it cannot be
+# removed, and the write is skipped.
 # The wait is bounded in every other shape too: a lock dated more than the
 # budget ahead of the clock is stale, a lock whose time cannot be read is given
 # up after one budget, and so is a guard that stays held after it is cleared.
@@ -91,6 +96,11 @@ _lw_take() {
         soif_lock_release "$TOOL_USAGE.lock.break" || :   # BL-358-GUARD-STALE
         gcleared=1   # BL-358-GUARD-ONCE
       fi
+    else
+      # Not stale: any guard met so far guarded an earlier stale lock, so the
+      # next guard starts its own clock. Carried over, the clock aged a guard
+      # taken a moment before and cleared it under its live breaker.
+      gwait=""   # BL-358-GUARD-EPISODE
     fi
     sleep 0.1
   done

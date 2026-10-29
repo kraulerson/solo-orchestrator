@@ -94,6 +94,7 @@ fi
 # then reports the ledger absent and points at verify-install.
 TOOL_USAGE=".claude/tool-usage.json"
 LW_READY=0
+LW_MERGE_NOTE=""
 # Loaded through a trial in a subshell, as track-tool-usage.sh does, keyed on
 # the functions it defines. An old or mismatched lib that loads but lacks
 # _lw_put would otherwise pass, and the startup write below would fail as if
@@ -213,6 +214,7 @@ if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
     # successor, re-derive the MCP requirements in case the user added
     # or removed servers between sessions, and write back the
     # operator's additional_required as read and checked above.
+    LW_MERGE_FAILED=0
     if ! _lw_update \
         --arg sid "$SESSION_ID" \
         --argjson qreq "$QDRANT_CONFIGURED" \
@@ -226,7 +228,7 @@ if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
          | .mcp_requirements.additional_required = $add'; then   # BL-335-MERGE
       # If jq fails (malformed prior file, etc.), fall through to a
       # fresh write so the gate is not left wedged.
-      _lw_put << TUEOF
+      _lw_put << TUEOF || LW_MERGE_FAILED=1   # BL-358-MERGE-PUT
 {
   "session_id": "$SESSION_ID",
   "calls": [],
@@ -242,6 +244,22 @@ if [ "$LW_READY" = "1" ] && command -v jq &>/dev/null; then
   }
 }
 TUEOF
+    fi
+    # `## BL-358:` neither the merge nor the fresh write landed: the ledger's
+    # lock could not be taken (stuck, its time unreadable, .claude refusing it)
+    # or the write failed. Under `set -e` that write used to end this hook
+    # there, before the report below, and leave the ledger as the last session
+    # left it, its outcome flags included (`## BL-236:`'s class). So it is
+    # emptied in place, as a failed startup reset is, the operator's extra
+    # requirements are kept to be named, and the hook goes on to its report.
+    if [ "$LW_MERGE_FAILED" = "1" ]; then
+      _add_snap "$TOOL_USAGE" "the ledger could not be written, so it was emptied"   # BL-358-MERGE-SNAP
+      if { : > "$TOOL_USAGE"; } 2>/dev/null; then   # BL-358-MERGE-FAIL-CLOSED
+        LW_MERGE_NOTE="this session start could not write $TOOL_USAGE (its lock $TOOL_USAGE.lock could not be taken, or .claude refuses writes, or the disk is full), so it was emptied: no MCP result carries over from the last session, and the MCP check refuses Write and Edit until the ledger can be written. A $TOOL_USAGE.lock that is a directory, or that cannot be removed, holds every write of the ledger until it is removed."
+      else
+        LW_MERGE_NOTE="this session start could not write $TOOL_USAGE, nor empty it, so it may still hold the last session's MCP results. Fix the permissions on .claude and start a new session."
+      fi
+      echo "session-test-gate-check.sh: $LW_MERGE_NOTE" >&2   # BL-358-MERGE-SAY
     fi
   else
     # startup (or missing envelope, or file absent) — fresh init.
@@ -307,6 +325,12 @@ fi
 if [ "$LW_READY" != "1" ]; then
   echo ""
   echo "MCP LEDGER WRITER MISSING: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded (it needs lib/lock.sh beside it), so no MCP call this session can be recorded in $TOOL_USAGE, and the MCP check will refuse every Write and Edit. Restore it: bash scripts/verify-install.sh --auto-fix"   # BL-314-NOLIB-NOTE
+fi
+# `## BL-358:` the failed merge, said to the session as well: a hook that exits
+# 0 shows its stderr to no one, and this one exits 0 so its report is read.
+if [ -n "$LW_MERGE_NOTE" ]; then
+  echo ""
+  echo "MCP LEDGER NOT WRITTEN: $LW_MERGE_NOTE"   # BL-358-MERGE-NOTE
 fi
 
 # ── Report Unknown MCP Servers ────────────────────────────────────
