@@ -1333,11 +1333,11 @@ jobs:
           # with BL-358 (98 cases), so at the same ratio it spans ~300s-325s on CI, and
           # `approval` would have run ~640s-710s of 720s. Without it `approval` projects
           # at 336s-385s on those six runs. This leg: setup (28s on 40574502629) plus
-          # both suites, ~410s-450s. The BL-358 suite is new (95s on this Mac); it was in
+          # both suites, ~440s-480s. The BL-358 suite is new (127s on this Mac); it was in
           # `rest`, which every new suite lands in.
           pin_ledger=(
             tests/test-bl314-tool-usage-concurrent.sh                         # 199.2s-216.3s on the six runs of the `ledger` note (65 cases); 349s on this Mac with BL-358 — from `approval`
-            tests/test-bl358-lock-primitive.sh                                # 95s on this Mac (81 cases) — from `rest`
+            tests/test-bl358-lock-primitive.sh                                # 127s on this Mac (81 cases; 95s before 23745ab0) — from `rest`
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the

@@ -27449,8 +27449,9 @@ new writers land at once and leave it alone.
 
 **Tests.** `tests/test-bl358-lock-primitive.sh` (new, unit lane, leg `ledger`): the primitive (L1 one winner per round
 under the uutils-like mkdir, L2 a taken name of every kind, L3 release and a refused create); the eleven non-ledger
-writers, each run as its script defines it (extracted, never copied), eight at once under that mkdir and a jq that
-answers 50 ms after it reads, without `lib/lock.sh`, and with TERM to its process group inside its write; the three
+writers, each run as its script defines it (extracted, never copied), in one burst under that mkdir — writer 1 held
+inside its write (after its jq read, before its `mv`) until exactly one second writer, the site's own or its partner's,
+has run, then the rest (since `23745ab0`) — without `lib/lock.sh`, and with TERM to its process group inside its write; the three
 refusals inside the lock; the single-authority remedy; each script's own load of the lib (E1, E2, and E3 for
 `lib/bypass-audit.sh`, sourced alone from a project folder); G1; the shipped set and the ignore rules (P1, P2).
 `tests/test-bl314-tool-usage-concurrent.sh` (leg `ledger`): C26 (above, with the resume arm), C27 (a stale lock
@@ -27466,7 +27467,7 @@ a project now copy `lib/lock.sh` beside it.
 |---|---|---|
 | `# BL-358-LOCK-NOCLOBBER` | MLN, `set -C` dropped | L1 (more than one winner in 20 of 20 rounds) |
 | `# BL-358-LOCK-PRESENT` | MLP, the test for something already there dropped | L2 (a link to /dev/null taken, a FIFO blocks) |
-| the eleven `# BL-358-*-LOCK*` takes | MA-<site>, the lock never taken | S-<site>, lost updates in round 1 |
+| the eleven `# BL-358-*-LOCK*` takes | MA-<site>, the lock never taken | S-<site>, the held write erases the second writer's row (one burst; fails if the hold never happened) |
 | the eleven `# BL-358-*-NEEDS-LOCK*` refusals | MN-<site> | S-<site>-nolock (still running after 2 s, or the lib not named) |
 | the eleven `# BL-358-*-RELEASE*` releases | MR-<site> | S-<site> (the lock left) |
 | the eleven traps' release | MT-<site> | S-<site>-term (TERM leaves the lock) |
@@ -27542,12 +27543,18 @@ finding was reproduced at `317a24c3` before it was fixed.
 - The review's nit, that the sync copy `lib/lock.sh` before its callers, was not taken: `_bl099_sync_scripts` copies in
   sorted order, so `scripts/check-phase-gate.sh`, `scripts/lib/bypass-audit.sh` and `scripts/lib/ledger-write.sh` land
   first, and a writer that runs in that window refuses, loudly, as it does without the lib.
+- **A timing-dependent kill, found on PR #528 (fixed in `23745ab0`).** Run 40943025582's `ledger` leg (ubuntu-24.04)
+  failed `[FAIL] MA-reviewer — reviewer without its lock lost nothing in 3 rounds`: each MA-<site> needed eight
+  concurrent writers to collide within three bursts, and in ubuntu:24.04 14 of 110 single bursts lost nothing. Now one
+  burst holds writer 1 inside its write while exactly one second writer runs, so an unlocked site always loses that
+  row and a locked one always keeps it; S-<site> and MA-<site> fail if the hold never happened. Measured by the
+  builder: 385 of 385 mutant bursts killed (Mac 220, ubuntu:24.04 110, ubuntu:26.04 55), every unmutated burst 8 of 8.
 
 Measured at `a9028dbb` (the containers: `git archive` streamed in, `jq git perl`, a non-root user, aarch64):
 
 | suite | this Mac (bash 3.2.57) | `ubuntu:24.04` (bash 5.2.21, GNU 9.4) | `ubuntu:26.04` (bash 5.3.9, uutils 0.10.0) |
 |---|---|---|---|
-| `tests/test-bl358-lock-primitive.sh` | `81 passed, 0 failed`, rc 0, 95 s | `81 passed, 0 failed`, rc 0, 79 s | `81 passed, 0 failed`, rc 0, 82 s |
+| `tests/test-bl358-lock-primitive.sh` | `81 passed, 0 failed`, rc 0, 95 s (127 s at `23745ab0`) | `81 passed, 0 failed`, rc 0, 79 s (108 s at `23745ab0`) | `81 passed, 0 failed`, rc 0, 82 s (111 s at `23745ab0`) |
 | `tests/test-bl314-tool-usage-concurrent.sh` | `98 passed, 0 failed`, rc 0, 346 s (349 s on the run before the commit) | `98 passed, 0 failed`, rc 0, 293 s | `98 passed, 0 failed`, rc 0, 300 s |
 | `tests/test-bypass-audit-lib.sh` | `11 passed, 0 failed`, rc 0 | `11 passed, 0 failed`, rc 0 | `11 passed, 0 failed`, rc 0 |
 | `tests/test-session-test-gate-check-merge.sh` | `20 passed, 0 failed`, rc 0 | `20 passed, 0 failed`, rc 0 | `20 passed, 0 failed`, rc 0 |
