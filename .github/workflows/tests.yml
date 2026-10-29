@@ -179,7 +179,7 @@ jobs:
       # PR author sees one failure and cannot tell what else is broken.
       fail-fast: false
       matrix:
-        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, adopt-b, adopt-c, commit-hooks, mcp, mcp-mutants, approval, rest]
+        shard: [lint-sweep, lint-scan, sast, slow-misc, adopt, adopt-b, adopt-c, commit-hooks, mcp, mcp-mutants, approval, ledger, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -361,7 +361,7 @@ jobs:
           # it. Delete a name here and its `pin_*` array is ORPHANED — it
           # no longer enters `pinned`, so those paths fall back into `rest`
           # and STILL RUN. Fail-safe, not silently dropped.
-          shard_names="lint-sweep lint-scan sast slow-misc adopt adopt-b adopt-c commit-hooks mcp mcp-mutants approval rest"
+          shard_names="lint-sweep lint-scan sast slow-misc adopt adopt-b adopt-c commit-hooks mcp mcp-mutants approval ledger rest"
 
           roster="|"
           shard_arms=0
@@ -1288,13 +1288,7 @@ jobs:
             tests/test-bl274-single-authority-attestation.sh  # 126.4s on main run 38953171960 (rest) — from `rest`
             tests/test-bl318-g4g6.sh                          #  81.3s — from `rest`
             tests/test-bl320-approval-schema2.sh              #  38.2s — from `rest`
-            # PR #481 (BL-314) proposed a twelfth leg, `ledger`, for this one
-            # suite; it lands here instead. It ran 221s on this Mac (bash
-            # 3.2.57, 56/0) on the merge of main cb4ec41 into that branch, and
-            # 223s (59/0) with the lib-less cases added after it. On CI it took
-            # 214s (its ::group:: span on run 36747960146, #481's own `ledger`
-            # leg at 401abe1, bash 5.2.21, 56/0), on top of the ~246s above.
-            tests/test-bl314-tool-usage-concurrent.sh         # 223s local — from #481's own leg
+            # bl314-tool-usage-concurrent WAS HERE until 2026-10-29 (BL-358) and is in `pin_ledger`.
             # BL-310 row 4 (2026-10-18): 124s and 134s local, 57s in ubuntu:24.04 (bash 5.2,
             # aarch64) after the review round — 17 real adoptions and a re-add, 17 more
             # adoptions and a re-add under mutants. Here, the steadiest light leg: 487s and
@@ -1330,6 +1324,21 @@ jobs:
             tests/test-brownfield-wp9c-session-layer.sh                       # 76.4s, 83.5s, 75.1s and 78.4s on the four runs of the `adopt-c` note — from `commit-hooks`
             tests/test-upgrade-sync-framework.sh                              # 59.9s, 62.4s, 60.2s and 42.8s on the four runs of the `adopt-c` note — from `slow-misc`
           )
+          # ── `ledger` — the thirteenth leg (2026-10-29, `## BL-358:` review R-358-5),
+          # the leg PR #481 first proposed for the BL-314 suite. Before BL-358 that suite
+          # spanned 201.1s, 209.5s, 203.2s, 204.6s, 199.2s and 216.3s (::group:: spans) on
+          # the last six green runs, 40574502629, 40389017155, 40388076247, 40385604661,
+          # 40385312862 and 40382597540, where `approval` took 545s, 580s, 543s, 568s,
+          # 535s and 601s. On this Mac it took 232s then (65 cases, d6564e17) and 349s
+          # with BL-358 (98 cases), so at the same ratio it spans ~300s-325s on CI, and
+          # `approval` would have run ~640s-710s of 720s. Without it `approval` projects
+          # at 336s-385s on those six runs. This leg: setup (28s on 40574502629) plus
+          # both suites, ~410s-450s. The BL-358 suite is new (95s on this Mac); it was in
+          # `rest`, which every new suite lands in.
+          pin_ledger=(
+            tests/test-bl314-tool-usage-concurrent.sh                         # 199.2s-216.3s on the six runs of the `ledger` note (65 cases); 349s on this Mac with BL-358 — from `approval`
+            tests/test-bl358-lock-primitive.sh                                # 95s on this Mac (81 cases) — from `rest`
+          )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
           # pinned-set build and the dispatch go through this function, so
@@ -1350,6 +1359,7 @@ jobs:
               mcp)        printf '%s\n' "${pin_mcp[@]}" ;;
               mcp-mutants) printf '%s\n' "${pin_mcp_mutants[@]}" ;;
               approval)   printf '%s\n' "${pin_approval[@]}" ;;
+              ledger)     printf '%s\n' "${pin_ledger[@]}" ;;
               rest)       : ;;
               *) echo "shard roster: '$1' is in the roster but has no arm in pins_for" >&2
                  return 1 ;;
