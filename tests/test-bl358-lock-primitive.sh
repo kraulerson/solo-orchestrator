@@ -44,6 +44,9 @@
 #   E1  check-phase-gate.sh records a gate date with lib/lock.sh beside it, and
 #       without it says so and records nothing (its own load of the lib).
 #   E2  run-phase3-validation.sh --attest: the same, for the driver's load.
+#   E3  lib/bypass-audit.sh sourced alone, from a project folder: it appends
+#       with lib/lock.sh beside it, and without it refuses naming the lib and
+#       writes nothing (its own load; the S driver loads lib/lock.sh first).
 #   G1  the transition gap, measured: a <file>.lockdir held by a script from
 #       before BL-358 neither blocks a new writer nor is touched by it.
 #   P1  init.sh ships lib/lock.sh, so --sync-framework and adoption, which
@@ -60,7 +63,8 @@
 #   release on a refusal inside the lock dropped: S-<site>-refuse. MS6 the
 #   status-6 remedy arm dropped: S-sa-remedy.
 #   ML1, ML2 check-phase-gate.sh's and run-phase3-validation.sh's load of the
-#   lib dropped: killed by E1, E2.
+#   lib dropped: killed by E1, E2. ML3 lib/bypass-audit.sh's trial load
+#   skipped, ML4 its folder read as `.`: killed by E3.
 #   MP1 the cp line dropped: P1. MP2 the backfill's lock line dropped: P2.
 #   MP3 adoption's lock rule dropped: P2.
 #
@@ -528,6 +532,25 @@ if [ "$e2_with" = "no model yet" ] && [ "$e2_without" = "none" ] && printf '%s' 
 else
   fail_ "E2" "with the lib: reason=[$e2_with]; without: reason=[$e2_without] (want none), names the lib=$(printf '%s' "$e2_out" | grep -c 'lib/lock.sh is missing')"
 fi
+# E3: lib/bypass-audit.sh's own load. The S driver sources lib/lock.sh before
+# it, so no S-ba-* case can see that load fail (review R-358-6). Here the lib is
+# sourced alone, in a clean shell whose working directory is the project, not
+# the lib's folder: with lib/lock.sh beside it an append lands; without it the
+# append is refused, naming the lib, and nothing is written.
+_e3() {  # LIBDIR — one append; sets R_RC R_ERR R_ROWS
+  local d=""; d="$(newtmp)"; _proj "$d"
+  ( cd "$d" && "$BASH" -c '. "$1/bypass-audit.sh"; bypass_audit_append "$2" "{\"i\":1}"' _ "$1" "$d" > /dev/null 2> "$d/.err" ); R_RC=$?
+  R_ERR=$(cat "$d/.err" 2>/dev/null)
+  R_ROWS=$(_num "$(jq 'length' "$d/.claude/bypass-audit.json" 2>/dev/null)")
+}
+_e3 "$E_FULL/scripts/lib"; e3_with="rc=$R_RC rows=$R_ROWS"; e3_with_err="$R_ERR"
+_e3 "$E_NOLOCK/scripts/lib"; e3_without="rc=$R_RC rows=$R_ROWS"; e3_names=no
+case "$R_ERR" in *"lib/lock.sh is missing"*) e3_names=yes ;; esac
+if [ "$e3_with" = "rc=0 rows=1" ] && [ "$e3_without" = "rc=1 rows=0" ] && [ "$e3_names" = "yes" ]; then
+  pass "E3: lib/bypass-audit.sh, sourced alone from a project, appends with lib/lock.sh beside it, and without it refuses naming the lib and writes nothing"
+else
+  fail_ "E3" "with the lib: $e3_with (want rc=0 rows=1) [$e3_with_err]; without: $e3_without (want rc=1 rows=0), names the lib=$e3_names"
+fi
 
 # ── G1: the transition gap, measured ────────────────────────────────────────
 # A writer from before BL-358 holds <file>.lockdir and nothing else. A new
@@ -778,6 +801,20 @@ if _mutate_line "$mdir/scripts/run-phase3-validation.sh" '  . "$SCRIPT_DIR/lib/l
   if [ "$R_REC" = "none" ]; then pass "ML2: run-phase3-validation.sh that does not load lib/lock.sh records no attestation (E2)"
   else fail_ "ML2" "the attestation was recorded without the load; E2 does not discriminate"; fi
 else fail_ "ML2" "$MUT_WHY"; fi
+# ML3, ML4 — lib/bypass-audit.sh's own load of the lib: its trial skipped, and
+# the lib's folder read as the working directory.
+for spec in 'ML3|if ( . "$BYPASS_AUDIT_DIR/lock.sh" && command -v soif_lock_try && command -v soif_lock_release ) >/dev/null 2>&1; then|if false; then' \
+            'ML4|BYPASS_AUDIT_DIR="${BASH_SOURCE[0]%/*}"|BYPASS_AUDIT_DIR=.'; do
+  IFS='|' read -r m_id m_find m_repl << EOF
+$spec
+EOF
+  mdir="$(newtmp)"; _mirror_full "$mdir"
+  if _mutate_line "$mdir/scripts/lib/bypass-audit.sh" "$m_find" "$m_repl"; then
+    _e3 "$mdir/scripts/lib"
+    if [ "rc=$R_RC rows=$R_ROWS" != "rc=0 rows=1" ]; then pass "$m_id: lib/bypass-audit.sh that does not load lib/lock.sh from its own folder appends nothing (rc=$R_RC rows=$R_ROWS; E3)"
+    else fail_ "$m_id" "the row still landed; E3 does not discriminate"; fi
+  else fail_ "$m_id" "$MUT_WHY"; fi
+done
 
 # MP1 — the cp line dropped.
 m="$(newtmp)/init.sh"; cp "$REPO_ROOT/init.sh" "$m"
