@@ -21,11 +21,16 @@
 #       and creates nothing.
 #   S   the eleven writers, each run by the function the script ships
 #       (extracted, never copied by hand), under the uutils-like mkdir and a
-#       jq that reads its input at once and answers 50 ms later, which holds
-#       every read-modify-write open long enough for a racing writer to land:
-#         S-<site>      eight at once (and, for a writer whose record is one
-#                       key, eight of a sibling writer of the same file):
-#                       every update lands, and no lock is left
+#       jq that reads its input at once and answers 50 ms later:
+#         S-<site>      eight writers (and, for a writer whose record is one
+#                       key, eight of a sibling writer of the same file). The
+#                       first is held inside its write — its jq has read the
+#                       file, which it has not yet replaced — until a second,
+#                       started then, is done (at most 15 polls of 0.1 s, 30
+#                       with a sibling); the rest start after both: every update
+#                       lands, and no lock is left. Without the lock (mutant A
+#                       below) the second lands inside the hold and the held
+#                       write erases it, so the loss is certain, not a race
 #         S-<site>-nolock  without lib/lock.sh: refused within 2 s, stderr names
 #                       lib/lock.sh, the state file byte for byte
 #         S-<site>-term TERM to the writer's process group inside its write:
@@ -129,10 +134,20 @@ exit "\$rc"
 EOF
 # A jq that reads its input at once and answers 50 ms later: a writer that
 # does not lock has read the file and not yet replaced it while others land.
+# With HOLD_ON set (only for the first writer of a _burst), the call whose
+# filter carries it, the write inside that writer's lock, also marks
+# HOLD_DIR/held and does not answer until HOLD_DIR/release appears or
+# HOLD_TRIES polls of 0.1 s pass.
 cat > "$UU/jq" << EOF
 #!/bin/sh
 out=\$("$REAL_JQ" "\$@"); rc=\$?
 sleep 0.05
+if [ -n "\${HOLD_ON:-}" ]; then
+  case "\$*" in *"\$HOLD_ON"*)
+    : > "\$HOLD_DIR/held"; i=0
+    while [ ! -e "\$HOLD_DIR/release" ] && [ "\$i" -lt "\$HOLD_TRIES" ]; do sleep 0.1; i=\$((i + 1)); done ;;
+  esac
+fi
 [ -n "\$out" ] && printf '%s\\n' "\$out"
 exit "\$rc"
 EOF
@@ -325,25 +340,43 @@ _state_file() {  # SITE
 }
 _locks_left() { ls -A "$1/.claude" 2>/dev/null | grep -e '\.lock' -e '\.json\.[A-Za-z0-9]\{6\}$' | tr '\n' ' '; }
 
-# _burst SITE SCRIPTS_DIR — NB writers of SITE at once (and NB of its partner);
-# sets R_GOT R_LEFT R_DIR.
+# _burst SITE SCRIPTS_DIR — NB writers of SITE (and NB of its partner) in
+# three steps. Writer 1 of SITE is held inside its write (the jq above). Once
+# it is held a second starts, writer 1 of the partner or writer 2 of SITE, and
+# the hold ends when the second ends, or after HOLD_TRIES polls. Once both
+# are done the rest start at once.
+#   With the lock the second waits, and the first is held for all its tries.
+#   Without it the second's write lands inside the hold and the first's write
+#   erases it. The rest wait until then: measured, a partner still inside its
+#   own write when the first's lands puts the erased update back. A second of
+#   SITE need only read inside the hold (if it writes later, the first's own
+#   update is lost instead); a partner must write, as SITE's record is one key
+#   and not counted.
+#   Tries: 15 where the second is SITE's own and waits within tt's 30 tries of
+#   its lock; 30 with a partner, whose lock allows 100.
+# Sets R_GOT R_LEFT R_DIR R_HELD.
 _burst() {
-  local site="$1" s="$2" d i pids="" partner
+  local site="$1" s="$2" d="" i=0 pids="" partner="" first="" second="" tries=15 w_site="" w_i=2
   partner=$(_partner "$site")
-  d="$(newtmp)"; _proj "$d"
-  i=1
+  w_site=$site
+  if [ -n "$partner" ]; then tries=30; w_site=$partner; w_i=1; fi
+  d="$(newtmp)"; _proj "$d"; mkdir "$d/.hold"
+  ( HOLD_ON=$(_write_filter "$site"); HOLD_DIR="$d/.hold"; HOLD_TRIES=$tries; export HOLD_ON HOLD_DIR HOLD_TRIES
+    PATH="$SITE_PATH" _call "$site" 1 "$s" "$d" ) > /dev/null 2>&1 &
+  first=$!
+  if _await "$d/.hold/held"; then R_HELD=1; else R_HELD=0; fi
+  ( PATH="$SITE_PATH" _call "$w_site" "$w_i" "$s" "$d"; : > "$d/.hold/release" ) > /dev/null 2>&1 &
+  second=$!
+  wait "$first" "$second"
+  i=2; [ -n "$partner" ] || i=3
   while [ "$i" -le "$NB" ]; do
-    if [ -n "$partner" ]; then
-      # The partner's writes are spread over most of a second by its own lock;
-      # writer i of SITE starts i tenths in, so its write falls among them.
-      ( sleep "0.$i"; PATH="$SITE_PATH" _call "$site" "$i" "$s" "$d" ) > /dev/null 2>&1 &
-      pids="$pids $!"
-      PATH="$SITE_PATH" _call "$partner" "$i" "$s" "$d" > /dev/null 2>&1 &
-    else
-      PATH="$SITE_PATH" _call "$site" "$i" "$s" "$d" > /dev/null 2>&1 &
-    fi
-    pids="$pids $!"
-    i=$((i + 1))
+    PATH="$SITE_PATH" _call "$site" "$i" "$s" "$d" > /dev/null 2>&1 &
+    pids="$pids $!"; i=$((i + 1))
+  done
+  i=2
+  while [ -n "$partner" ] && [ "$i" -le "$NB" ]; do
+    PATH="$SITE_PATH" _call "$partner" "$i" "$s" "$d" > /dev/null 2>&1 &
+    pids="$pids $!"; i=$((i + 1))
   done
   # shellcheck disable=SC2086
   wait $pids
@@ -423,10 +456,11 @@ export BASH
 # _site_checks SITE SCRIPTS_DIR NOLOCK_DIR — the three checks of one writer;
 # sets R_SITE to everything that did not hold (empty: all held).
 _site_checks() {
-  local want
+  local want=""
   R_SITE=""
   _burst "$1" "$2"
   want=$NB
+  [ "$R_HELD" = "1" ] || R_SITE="$R_SITE burst: writer 1 was never held inside its write (the burst proves nothing);"
   [ "$R_GOT" = "$want" ] || R_SITE="$R_SITE burst: $R_GOT of $want updates landed;"
   [ -z "$R_LEFT" ] || R_SITE="$R_SITE burst: left [$R_LEFT];"
   _nolock "$1" "$3"
@@ -446,7 +480,7 @@ else
   for site in $SITES; do
     _site_checks "$site" "$S_DIR/scripts" "$S_NOLOCK/scripts"
     if [ -z "$R_SITE" ]; then
-      pass "S-$site: $NB at once under the uutils-like mkdir land every update and leave no lock; without lib/lock.sh it refuses within 2 s naming the lib and writes nothing; TERM inside its write leaves no lock or temp"
+      pass "S-$site: $NB under the uutils-like mkdir, the first held inside its write while another starts, land every update and leave no lock; without lib/lock.sh it refuses within 2 s naming the lib and writes nothing; TERM inside its write leaves no lock or temp"
     else
       fail_ "S-$site" "$R_SITE"
     fi
@@ -714,7 +748,7 @@ _release_find() {
 # _site_mutant ID SITE KIND — build a mirror with the KIND mutation of SITE's
 # writer and run the check that must kill it. KIND: A N R T.
 _site_mutant() {
-  local id="$1" site="$2" kind="$3" w file fn mdir find repl rounds
+  local id="$1" site="$2" kind="$3" w="" file="" fn="" mdir="" find="" repl=""
   w=$(_where "$site"); file=${w%% *}; fn=${w#* }
   mdir="$(newtmp)"; _mirror "$mdir"
   case "$kind" in
@@ -728,14 +762,10 @@ _site_mutant() {
   if ! _mk_driver "$mdir/scripts"; then fail_ "$id" "the mutant's writers could not be extracted"; return; fi
   case "$kind" in
     A)
-      rounds=0
-      while [ "$rounds" -lt 3 ]; do
-        rounds=$((rounds + 1))
-        _burst "$site" "$mdir/scripts"
-        [ "$R_GOT" != "$NB" ] && break
-      done
-      if [ "$R_GOT" != "$NB" ]; then pass "$id: without its lock, $site loses updates ($R_GOT of $NB, round $rounds; S-$site)"
-      else fail_ "$id" "$site without its lock lost nothing in $rounds rounds; S-$site does not discriminate"; fi ;;
+      _burst "$site" "$mdir/scripts"
+      if [ "$R_HELD" != "1" ]; then fail_ "$id" "writer 1 of $site was never held inside its write; S-$site proves nothing"
+      elif [ "$R_GOT" != "$NB" ]; then pass "$id: without its lock, $site loses updates ($R_GOT of $NB, in one burst; S-$site)"
+      else fail_ "$id" "$site without its lock lost nothing; S-$site does not discriminate"; fi ;;
     N)
       _nolock "$site" "$mdir/scripts"
       case "$R_RC:$R_ERR" in
