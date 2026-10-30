@@ -882,7 +882,7 @@ jobs:
             #    when the tenth leg took two suites out of `adopt`. See the
             #    `pin_adopt_b` note.
             # wp4-driver WAS HERE until 2026-10-30 (BL-350, the 26.04 refit) and is in `pin_adopt_b`.
-            tests/test-bl311-d-relayed-escape.sh                        # 33.9s, 39.7s, 38.6s and 38.6s on the four runs of the `adopt-c` note — from `rest`
+            # bl311-d-relayed-escape WAS HERE during the 26.04 refit and is back in `rest` (2026-10-30): on PR #530's run 41133149117, the first all-26.04 run of fifteen legs, `lint-sweep` took 581s (over BL-350's 576s line) with it at 50.7s; `rest` took 467s.
             tests/test-bl318-g1-test-command.sh                         # 78.5s, 77.9s and 75.5s on the three 26.04 runs, 45.5s-77.3s on the twelve 24.04 runs of the `adopt-d` note — from `adopt`
             tests/test-brownfield-wp2-scout-sections.sh                 # 125.0s, 110.1s and 132.0s on the three 26.04 runs, 78.4s-112.3s on the twelve 24.04 runs of the `adopt-d` note — from `adopt-c`
             tests/test-brownfield-wp7b-commit-hook.sh                   # 128.7s, 110.6s and 107.5s on the three 26.04 runs, 89.8s-129.4s on the twelve 24.04 runs of the `adopt-d` note — from `commit-hooks`
