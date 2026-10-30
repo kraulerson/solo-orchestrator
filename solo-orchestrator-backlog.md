@@ -26865,7 +26865,8 @@ project"), before `44b3d13`.
 **Logged:** 2026-10-17
 **Category:** CI headroom
 **Severity:** Low — green today; the next slow suite on either leg reds it
-**Status:** Closed — 2026-10-19 (fix `382c80e`; refit to four runs in `ae00781`). Projected, not yet observed: the real proof is the pull request's own
+**Status:** Closed — 2026-10-19 (fix `382c80e`; refit to four runs in `ae00781`; `slow-misc` re-balanced 2026-10-30 in
+`ea9361a0`, "Re-measured 2026-10-29" below). Projected, not yet observed: the real proof is the pull request's own
 `unit-shard` run, whose per-leg times the supervisor adds below once it exists.
 
 **What.** On `main` run 39003021516 (push of `08e940f`, after the eleventh leg, PR #510), `unit-shard (adopt)`
@@ -26947,6 +26948,43 @@ lint-scan 527/599, approval 490/498, adopt-b 445/449, rest 436/406, commit-hooks
 projects at about 511s/497s on those two runs. Targets chosen on all six measured runs: the first pair tried (`adopt-b`,
 `commit-hooks`) was light only on the last two and projected 612s and 610s on runs 1–2; this pair's six-run maxima are
 596s and 592s. No leg nears 720s; the six-run worst stays slow-misc's 652s, a run-to-run swing (395s on the next run).
+
+**Re-measured 2026-10-29; `slow-misc` re-balanced 2026-10-30 in `ea9361a0` (Karl, 2026-10-29: note it now and re-balance
+on the BL-358 unpin branch).** `slow-misc` ran 690s and 701s of the 720s cap on runs 40382063836 and 40943025582,
+and 712s on 40379039740.
+Job seconds of the thirteen most recent completed `tests` runs on 2026-10-29 (`gh api …/actions/runs/<id>/jobs`),
+with the per-suite spans read from each leg's log, from the previous suite's end to the suite's own PASS/FAIL line
+(not from its own group line, which the runner can stamp late: run 40943025582 stamped `test-run-lints.sh`'s 158s
+after the suite before it ended). The last three ran thirteen legs; the other ten ran twelve, `approval` then
+carrying the BL-314 suite, whose span is taken out for the column after it. Two ran on `ubuntu-26.04` (before
+`## BL-358:`'s pin), the rest on 24.04.
+
+| run | image | `slow-misc` | `approval` | `approval` without bl314 | wp6-collision-archive | `slow-misc` after | `approval` after |
+|---|---|---|---|---|---|---|---|
+| 40984715494 (main, `0b5bc20d`) | 24.04 | 486 | 391 | 391 | 123.0 | 363 | 514 |
+| 40983484196 (PR #528) | 24.04 | 536 | 378 | 378 | 126.5 | 410 | 504 |
+| 40943025582 (PR #528) | 24.04 | 701 | 342 | 342 | 171.6 | 529 | 514 |
+| 40574502629 (main, `d6564e17`) | 24.04 | 616 | 545 | 343 | 144.5 | 472 | 488 |
+| 40389017155 (PR #527) | 24.04 | 641 | 580 | 370 | 148.6 | 492 | 519 |
+| 40388076247 (main) | 24.04 | 462 | 543 | 339 | 111.2 | 351 | 451 |
+| 40385604661 (PR #525) | 24.04 | 556 | 568 | 363 | 125.0 | 431 | 488 |
+| 40385312862 (main) | 24.04 | 459 | 535 | 335 | 109.8 | 349 | 446 |
+| 40382597540 (PR #524) | 24.04 | 507 | 601 | 384 | 118.7 | 388 | 503 |
+| 40382063836 (PR #525) | 26.04 | 690 | 590 | 357 | 164.1 | 526 | 522 |
+| 40381973525 (main) | 24.04 | 652 | 605 | 386 | 156.1 | 496 | 543 |
+| 40380066940 (PR #526) | 24.04 | 620 | 605 | 386 | 147.2 | 473 | 534 |
+| 40379039740 (PR #525) | 26.04 | 712 | 622 | 373 | 168.9 | 543 | 542 |
+
+`slow-misc`'s eleven suites are the same set on all thirteen runs. Its long pole is
+`tests/test-brownfield-wp6-collision-archive.sh`, 109.8s–171.6s, pinned at "~61s in CI" in 2026-08; the next,
+`tests/test-run-lints.sh`, 96.7s–158.3s. Moving wp6 to `approval`, the lightest leg since `pin_ledger` took the BL-314
+suite, projects `slow-misc` at 349s–543s and `approval` at 446s–543s on these runs (75% of 720s at worst; the line is
+576s), against 459s–712s before. Moving run-lints instead projects 561s and 536s. Done: wp6 is the last entry of
+`pin_approval`, with a `WAS HERE` note in `pin_slow_misc`. The job's own selection script, extracted and run for each
+of the 13 legs, puts all 268 canonical suites in exactly one leg (`slow-misc` 10, `approval` 6); with wp6 left in
+both arrays, with its new entry misspelled, and with the `approval` arm of `pins_for` removed, it fails by name each
+time. The projection is a sum of measured spans, not a forecast: the same suites swing a leg by up to 253s between
+runs (`slow-misc` 459s and 712s).
 
 ## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
 
@@ -27258,9 +27296,9 @@ changes no local read. `## BL-354:` already treats a `.claude/*.jsonl` as state 
 to generated projects (`init.sh` copies it), so any machine on uutils before 0.11.0 can lose MCP ledger records; the same
 primitive guards the phase-gate attestation writers, the Phase 3 attestation writers and the bypass audit log (all
 shipped by `init.sh`), so a concurrent write there can drop an audit record
-**Status:** Open — the writers are fixed (`f6a4eddb`, "The fix" below). Open until the CI runner pin
-(`# BL-358-RUNNER-PIN`) comes off, in a PR of its own that measures the whole unit lane on `ubuntu-26.04` (bash 5.3.9, <!-- lint-bl-markers: allow the pin was withdrawn on purpose when the unit lane was measured on ubuntu-26.04; this line records that it existed -->
-jq 1.8.1) first; this entry closes with that PR
+**Status:** Closed — 2026-10-30. The writers are fixed (`f6a4eddb`, "The fix" below; PR #528, merged as `0b5bc20d`),
+and the CI runner pin (`# BL-358-RUNNER-PIN`) came off in `06173443` once the whole unit lane had been measured on <!-- lint-bl-markers: allow the pin was withdrawn on purpose in 06173443; this line records that it existed -->
+`ubuntu:26.04` against `ubuntu:24.04` ("The unpin" below). The residuals stay open (Residuals)
 
 **What.** GitHub's `ubuntu-latest` moved from `Image: ubuntu-24.04` (run 39629060444 attempt 1, 2026-10-21, main's last
 green run) to `Image: ubuntu-26.04`. On 26.04 `tests/test-bl314-tool-usage-concurrent.sh` loses writes in one to four of
@@ -27302,7 +27340,8 @@ That hides the defect from CI only; remove the pin when the fix lands, and run t
 26.04 between 2026-10-19 and 2026-11-19 (actions/runner-images#14748, which names `ubuntu-24.04` as the mitigation). The
 pin can also come off once the 26.04 image's rust-coreutils carries uutils PR #13986. The unpin PR must also re-check
 CLAUDE.md's ENVIRONMENT TRAPS, which say the runners run bash 5.2: 26.04 ships bash 5.3.9 and jq 1.8.1.
-(2026-10-27: the pin stays past the fix, and the unpin is its own PR; see Status.)
+(2026-10-27: the pin stays past the fix, and the unpin is its own PR; see Status.) (2026-10-30: it came off in
+`06173443`; "The unpin", below.)
 
 **Direction.** A lock primitive that does not depend on the coreutils implementation — for example bash's own `set -C`
 (`noclobber`, an `O_EXCL` open) on a lock file, which in review gave exactly one winner in every round of the same race
@@ -27565,6 +27604,68 @@ Also on this Mac, each with an empty temp HOME and no `CDF_HOME`: `tests/test-bl
 40/0, `tests/test-bl099-guard-coverage.sh` `Total: 53 | Pinned: 53 | Failed: 0`, and `bash scripts/run-lints.sh` 16 of
 16, all rc 0. The Guardrails clone at `~/.claude-dev-framework` stayed at `3438484`.
 
+**The unpin (measured 2026-10-29 at `0b5bc20d`; the pins removed 2026-10-30 in `06173443`).** All 268 suites of the
+`tests.yml` unit list (CLAUDE.md's anchored, sliced recipe), each with `</dev/null`, as a non-root user, in
+`ubuntu:24.04` (bash 5.2.21, jq 1.7, GNU coreutils 9.4, git 2.43.0) and `ubuntu:26.04` (bash 5.3.9, jq 1.8.1, uutils
+coreutils 0.10.0 with GNU 9.7 `mv`, `cp` and `rm`, git 2.53.0), aarch64, the two images at once on this Mac's two-CPU
+VM, in two passes:
+- pass A, CLAUDE.md's recipe: `git archive` streamed in, `jq git perl python3 curl ca-certificates` and gitleaks
+  8.30.1. 13 suites red in 24.04 and 12 in 26.04; 3161 s and 3390 s of suites.
+- pass B, closer to a `unit-shard` leg: a clone with history (a bundle of `origin/main`), and also `nodejs npm`,
+  `jsdom`, semgrep 1.183.0 and the pinned Guardrails fixture (`cdf_fixture_fetch`), run with `CI=true`,
+  `LANG=C.UTF-8` and `umask 022`. 6 red in 24.04 and 4 in 26.04; 3522 s and 3727 s. Of pass A's ten suites red in
+  both images, seven are green in both here (bl132, bl263, bl277, bl278, bl311-mcp-add-order, wp7b-commit-hook and
+  upgrade-sync-framework), bl322-s2 in 26.04 only, and two stay red in both.
+
+No suite is red in 26.04 alone when re-run. Each one that was red there once:
+
+| suite | 24.04 | 26.04 | re-runs, arm64, each image | amd64, each image | cause |
+|---|---|---|---|---|---|
+| `tests/test-bl229-host-pipeline-paths.sh` | 17/0 in A and B | A 16/1 (T1), B 17/0 | 3 of 3 green | 2 of 2 green | the race below: T1's `printf '%s' "$out" \| grep -qi 'release pipeline'` failed on a capture that the case's next grep, `\[WARN\].*release pipeline (not found\|NOT CHECKED)`, matched |
+| `tests/test-tier-crosscheck-6-zdr-gate.sh` | 8/0 in A and B | A 7/1 (T2), B 8/0 | 3 of 3, then 8 of 8 | 2 of 2 | the race: T2's `echo "$out" \| grep -qiE "data_classification\|zdr"` failed on a capture whose printed tail names `data_classification` |
+| `tests/test-delta-wp4-close-rubric.sh` | 29/0 in A and B | A 29/0, B 28/1 (m3) | 3 of 3; with both images running, 15 of 15 in 24.04 and 14 of 15 in 26.04 (m2) | 2 of 2 | the race, in product code: a close blocked with rc 9, `scripts/delta.sh`'s unknown-name refusal (`# DELTA-CLOSE-VOCAB-GUARD`), whose `printf '%s\n' "$vocab" \| grep -qxF "$g"` runs under `set -euo pipefail`; the slot's four names are all framework-floor names |
+| `tests/test-phase3-validation-gate.sh` | 51/0 in A and B | A 51/0, B 50/1 (T-gate-blocks-fail-status) | 3 of 3; with both images running, 15 of 15 each | 2 of 2 | the race: `echo "$out" \| grep -qE "validation scans not clean.*FAIL"` failed on a capture whose printed lines include `[FAIL] Phase 3→4: validation scans not clean: 1 FAIL` |
+
+The race, measured. bash 5.2.21 and 5.3.9 write a multi-line `echo` or `printf` argument to a pipe one line per
+`write(2)`, the same calls in the same order (strace, both images), so `grep -q` can match a line and exit while the
+writer still has lines to write: the next write takes SIGPIPE and, under `pipefail`, the pipeline fails although grep
+matched. `scripts/delta.sh`'s name check alone, 12000 pipelines a round with both images running and two busy loops in
+each: 24.04 6, 6 and 14 false failures, 26.04 10, 9 and 11 (26 and 30 of 36000), the writer's status 141 and grep's 0
+every time; idle, 0 of 8000 in both, from a small shell and from one holding 64 MB. 24.04 had one in a suite too, in
+pass B: `tests/test-bl311-adopt-mcp.sh` S28, `printf '%s\n' "$sec" | grep -qF 'paste this block'` under `pipefail`,
+green in the other three full runs. So it is not a 26.04 defect. It is the class #435 fixed in three suites with `_gq`
+(`103081da`), and it reaches product code; not fixed here (Residuals). `scripts/` and `init.sh` hold 86 `echo` or
+`printf` pipelines into `grep -q` in 25 files that set `pipefail`: a population, not a count of defects.
+
+Red in 24.04 only, no bearing on the unpin: `tests/test-lint-backlog-references.sh` T9 and `tests/test-run-lints.sh`
+in both passes, and T9 on every 24.04 re-run (2 of 2 on arm64, 1 of 1 on amd64; green on each 26.04 one):
+24.04's mawk 1.3.4 20240123 matches `` `[0-9a-f]{7,40}` `` only at exactly seven characters (7, 8, 10 and 40
+characters: Y, N, N, N; 26.04's 20260129: Y, Y, Y, Y), so BL-335, BL-348 and BL-354, which cite longer SHAs, read as
+uncited. CI passes T9 on 24.04, so the runner's `awk` does not have that bug.
+`tests/test-bl322-s2-project-rules.sh` U1 and M3 in both passes (the import parser drops `AFTER_SHORT.md`,
+`AFTER_SHORT2.md` and `OMEGA.md`; not isolated);
+`tests/test-bl145-hook-symlink-hookspath.sh` T4 and `tests/test-brownfield-wp9b-preflight-approval.sh` P6f in pass A
+only (bl145 2 of 2 green on re-run); bl311-adopt-mcp's S28 (the race). Red in both images in pass B, the same case in
+each: wp9b's AM2 (the multibyte `.` under mawk, above) and `tests/test-specs-plans-host-aware-quartet.sh` T8
+(`## BL-260:`). Pass B still skipped cases in nine suites, the same ones in both images but for
+`tests/test-bl263-bl264-uat-template-dom.sh`, which skipped R1–R4 and B0–B3 in 24.04 only, "node + jsdom unavailable"
+(its node is 18.19.1, 26.04's 22.22.1).
+
+Under QEMU on this Mac, `ubuntu:26.04`'s amd64 GNU tar fails every `mkdir` below the top of the tree with ENOSYS
+(`Cannot mkdir: Function not implemented`); its amd64 runs unpacked the tree with python3's `tarfile` instead.
+
+The `lint.yml` jobs run lints that `bash scripts/run-lints.sh` runs too, and `tests/test-run-lints.sh` runs it over
+the real tree: 8/0 in 26.04 in both passes; `tests/test-lint-no-live-remote.sh`, the one suite a lint job runs, 80/0.
+CLAUDE.md's ENVIRONMENT TRAPS now say the runners run bash 5.3, give 5.3.9 and 5.3.20 beside 5.2 in the `&` table
+(byte for byte the same, and the `local` trap and its safe spellings the same in 5.3.9), point the recipe that
+reproduces the runner's bash at `ubuntu:26.04` (run once with it: `tests/test-bl255-sed-replacement-escape.sh` 24/0),
+and name GNU grep 3.12 for the multibyte `.` (the same answers as 3.11 under `C`, `POSIX`, the default locale and
+`C.UTF-8`).
+
+Time: the 26.04 suites ran 7% and 6% longer than 24.04's in the same passes, and on CI the two 26.04 runs before the
+pin, 40379039740 and 40382063836, took 7201 s and 6855 s of twelve-leg time, against 5968–6527 s on the eight 24.04
+twelve-leg runs measured for `## BL-350:`. That measurement moved `slow-misc`'s long pole to `approval` (`ea9361a0`).
+
 **Residuals.**
 - The transition gap above, which a tier change, `--backfill-only` or a plain upgrade leaves in place until the next
   `--sync-framework`.
@@ -27594,10 +27695,52 @@ Also on this Mac, each with an empty temp HOME and no `CDF_HOME`: `tests/test-bl
   0.10.0 checks the name first, so only a folder created inside its own race window is misreported, and the run id
   carries the pid and the time. Not one of the twelve.
 - A FIFO that appears at the lock's name between the test and the open would block the open.
-- Shard time: both suites are on the thirteenth leg, `ledger`, since the review (R-358-5). Its figure, ~410–450 s, and
-  `approval`'s, 336–385 s, are projections: the BL-314 suite's CI spans before this change scaled by its Mac time
-  after it, and the BL-358 suite's Mac time scaled the same way. Neither suite has run on CI yet; the first run of this
-  branch is the measurement, and `## BL-350:`'s doctrine (split further, never raise the cap) applies to what it shows.
+- Shard time: both suites are on the thirteenth leg, `ledger`, since the review (R-358-5). Measured (job seconds, and
+  each suite's span in the leg's log): run 40943025582 (PR #528 at `bea73beb`) `ledger` 411 s, the BL-314 suite
+  306.1 s and the BL-358 suite 81.7 s (red on MA-reviewer, fixed by `23745ab0`), and `approval` 342 s; run 40983484196
+  (at `a11bf3ae`) `ledger` 478 s (324.8 s and 112.9 s) and `approval` 378 s; main's push run 40984715494 (the merge,
+  `0b5bc20d`) `ledger` 457 s (320.0 s and 109.6 s) and `approval` 391 s. The review had projected ~410–450 s and
+  336–385 s; this item called its figures projections until 2026-10-30 (R-358-13). All thirteen legs of run
+  40983484196, in seconds: `lint-scan` 673, `adopt` 648, `adopt-b` 634, `commit-hooks` 609, `sast` 603, `adopt-c` 600,
+  `rest` 594, `slow-misc` 536, `mcp-mutants` 518, `mcp` 490, `ledger` 478, `lint-sweep` 457, `approval` 378.
+  `## BL-350:`'s doctrine (split further, never raise the cap) applies: on 2026-10-30 `approval`'s room took
+  `slow-misc`'s long pole (`## BL-350:`, `ea9361a0`).
+- The writer-SIGPIPE race under `pipefail` ("The unpin", above): an `echo` or `printf` piped into `grep -q` fails when
+  grep matches a line and exits before the writer has written its last one. `scripts/delta.sh`'s close-time name
+  check blocks a valid close with rc 9 that way. In the four full runs of the unit lane (two passes, two images) it
+  reddened five suites once each, four in 26.04 and one in 24.04, and one more in 120 looped re-runs; alone, it fails
+  at the same rate in both images (26 and 30 of 36000 under load). Not fixed here.
+
+**Review residuals of PR #528 (the pr-reviewer, 2026-10-29), open.** Each was checked at `0b5bc20d` before it was
+recorded here; R-358-13 is the one applied (the "Shard time" item above).
+- **R-358-8: the "cannot empty the ledger" arm of `# BL-358-MERGE-FAIL-CLOSED` is untested.** No suite names the note
+  of its `else` branch, where the merge, the fresh write and the truncation all fail ("…, nor empty it, so it may still
+  hold the last session's MCP results"), and the reviewer's mutant Y7, that note emptied, survives:
+  measured on this Mac, each with an empty temp HOME, the fourteen unit-lane suites that name
+  `session-test-gate-check.sh` under Y7 give thirteen green and `tests/test-bl277-adopted-detector-on.sh` 34/1, its N7,
+  which needs the repository's history and fails the same way unmutated in a tree with no `.git`.
+- **R-358-9: that arm says two opposite things.** `# BL-358-MERGE-SNAP` records the reason "the ledger could not be
+  written, so it was emptied" before the truncation is tried, so when the truncation fails too and the ledger lists
+  extra requirements, the session reads both. Measured: a resume behind a stuck lock with a read-only ledger (0444)
+  that lists `mcp__sentry__` ends rc 0, its stdout carries "nor empty it" (`# BL-358-MERGE-NOTE`) and "because the
+  ledger could not be written, so it was emptied" (the `MCP REQUIREMENTS NOTE`), and the ledger keeps its 234 bytes.
+- **R-358-10: after a failed merge the operator's `additional_required` list is gone for good.** The ledger is
+  emptied and nothing writes the list back; its one record is the `MCP REQUIREMENTS NOTE` on stdout, which asks for it
+  to be added again (the R-358-11 probe: the ledger emptied, the list named only in that note).
+- **R-358-11: the truncation follows a link out of `.claude`.** `: > "$TOOL_USAGE"` empties whatever a symbolic link at
+  `.claude/tool-usage.json` points to. Measured: a resume behind a stuck lock, the ledger a link to a file outside
+  `.claude`, ends rc 0 and leaves that file 0 bytes (234 before), the link in place. The startup arm,
+  `# BL-314-RESET-FAIL-CLOSED`, has done the same since before this entry (`d6564e17`).
+- **R-358-12: MGE and MGX count any non-empty result as a kill.** They pass when `R_C28C` or `R_C27B` is set, and the
+  cases' own "the case proves nothing" arms (W never read the lock; A never re-read it under the guard) set them too,
+  so a mutant run whose setup never happened reads as killed.
+- **R-358-13: the "Shard time" item called the `ledger` and `approval` times projections after CI had measured them.**
+  Applied: that item now gives the measured figures.
+- **R-358-14: "Tests." says writer 1 is held "until exactly one second writer … has run".** That is the unlocked
+  case only. With the lock the second writer waits on it, the hold ends when its tries run out (15 polls of 0.1 s, 30
+  with a partner), and the second writer runs after writer 1 releases, as `_burst`'s header in
+  `tests/test-bl358-lock-primitive.sh` says ("With the lock the second waits, and the first is held for all its
+  tries").
 
 ## BL-359: BL-333 review residuals — writes through a linked backup or matrix folder, shard time, dry-run wording, a vacuous-killer gap, host backfill
 
