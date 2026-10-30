@@ -69,7 +69,7 @@ jobs:
   # name should not.
   counter-antipattern-lint:
     name: counter-antipattern-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -88,7 +88,7 @@ jobs:
   # counter-antipattern job above — keep the name stable.
   backlog-references-lint:
     name: backlog-references-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -121,7 +121,7 @@ jobs:
   # established the precedent; this lint is the merge-time backstop.
   fix-functions-stderr-lint:
     name: fix-functions-stderr-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -142,7 +142,7 @@ jobs:
   # without operator confirmation).
   raw-read-prompt-lint:
     name: raw-read-prompt-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -162,7 +162,7 @@ jobs:
   # and tests/test-lint-tests-registered.sh for the behavior suite.
   tests-registered-lint:
     name: tests-registered-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -183,7 +183,7 @@ jobs:
   # tests/test-lint-doc-anchors.sh for the behavior suite.
   doc-anchors-lint:
     name: doc-anchors-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -205,7 +205,7 @@ jobs:
   # and tests/test-bl073-review-manifest-gate.sh for the behavior suite.
   review-manifest-lint:
     name: review-manifest-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -217,7 +217,7 @@ jobs:
   # in both directions (no phantom rows, no shipped top-level script unlisted).
   user-guide-scripts-lint:
     name: user-guide-scripts-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -240,7 +240,7 @@ jobs:
   # job-name-is-required-check convention as the jobs above — keep it stable.
   no-live-remote-in-tests-lint:
     name: no-live-remote-in-tests-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -269,7 +269,7 @@ jobs:
   # required is a separate branch-protection change.
   diagnostic-destruction-lint:
     name: diagnostic-destruction-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -293,7 +293,7 @@ jobs:
   # job-name-is-required-check convention as the jobs above — keep it stable.
   evalprompts-portability-lint:
     name: evalprompts-portability-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -323,7 +323,7 @@ jobs:
   # IS promoted, keep the name stable.
   bl-markers-lint:
     name: bl-markers-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -354,7 +354,7 @@ jobs:
   # keep the name stable.
   delta-boundary-lint:
     name: delta-boundary-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -387,7 +387,7 @@ jobs:
   # keep the name stable.
   module-dependencies-lint:
     name: module-dependencies-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)

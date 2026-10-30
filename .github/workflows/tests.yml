@@ -166,7 +166,7 @@ jobs:
   # repinning shards — do not derive from this table.
   unit-shard:
     name: unit-shard (${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     # Deliberately LOWER than the old 20. Slowest measured shard is ~5.5 min,
     # so this is ~2x headroom; if a shard ever approaches it, that is the
     # signal to re-pin, exactly as it was here.
@@ -1528,7 +1528,7 @@ jobs:
   # keep the required check name reporting at all.
   unit:
     name: unit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     timeout-minutes: 5
     needs: [unit-shard]
     if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
@@ -1560,7 +1560,7 @@ jobs:
   # Union of shards == the un-sharded suite. Manual dispatch only (no nightly).
   full:
     name: full (${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL
     # Manual-only comprehensive sweep. The full suite is a ~3h monolith
     # (200+ init.sh scaffolds); it is NOT scheduled. Sharded for parallelism +
     # failure isolation, but `core` is still the ~3h long pole. Making it
