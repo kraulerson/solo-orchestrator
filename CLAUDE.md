@@ -63,7 +63,10 @@ here.
   3.2.57, 5.0.18 and 5.1.16 and `one TWO three` on 5.2.37, and the `shopt`
   that governs it (`patsub_replacement`, on by default) does not exist before
   5.2. This Mac runs 3.2 and
-  the runners run 5.2, so a replacement carrying `&&` — which every shell
+  the runners run 5.3: `ubuntu-latest` is ubuntu-26.04 (bash 5.3.9) by
+  2026-11-19 (actions/runner-images#14748), and nothing pins ubuntu-24.04
+  (bash 5.2.21) since `## BL-358:`'s runner pin came off. 5.3 keeps 5.2's
+  rule (measured below), so a replacement carrying `&&` — which every shell
   guard does — produces the intended text locally and splices the match back
   in on CI. It is silent in the worst way: the line still changes, the
   changed-line count is still right, and `bash -n` is still clean, so a
@@ -78,14 +81,16 @@ here.
   spelling** — two drafts of this bullet reasoned about it and both were
   wrong. Measure it. Double-quoted, `t='R&D tools'`, `u='one TWO three'`:
   ```
-  replacement, as written   what it is        bash 3.2      bash 5.2
+  replacement, as written   what it is        bash 3.2      bash 5.2 and 5.3
   ${t//&/\\&}   <- REAL      two backslashes   R\&D tools    R\&D tools
   ${t//&/\&}                  one backslash     R\&D tools    R&D tools
   ${u//TWO/\\&}              two backslashes   one \& three  one \TWO three
   ${u//TWO/&}                 bare &            one & three   one TWO three
   ```
-  On 5.2, `\\` collapses at quote removal to a LITERAL backslash that does not
-  escape, so `\\&` is backslash-plus-*whole match*; a single `\&` is an escaped
+  The last column is 5.2.21, 5.3.9 and 5.3.20 byte for byte (measured
+  2026-10-29). On 5.2 and 5.3, `\\` collapses at quote removal to a LITERAL
+  backslash that does not escape, so `\\&` is backslash-plus-*whole match*; a
+  single `\&` is an escaped
   `&` and yields a literal `&` with the backslash consumed; a bare `&` is the
   whole match. On 3.2 all three are literal. So the real source line —
   `t="${t//&/\\&}"`, two backslashes — is byte-identical across versions ONLY
@@ -96,9 +101,10 @@ here.
   the helper's `\\&` to `\&` and that suite stays GREEN on this Mac and goes
   red only on the runner, which is this same trap one level up: a local run
   of the suite that guards the trap does not see the trap.
-  Reproduce the runner's bash on this host:
+  Reproduce the runner's bash on this host (`ubuntu:26.04`, bash 5.3.9;
+  `ubuntu:24.04` gives 5.2.21, the runners' bash while the pin was on):
   ```
-  docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash -c 'apt-get update -qq \
+  docker run --rm -v "$PWD:/repo:ro" ubuntu:26.04 bash -c 'apt-get update -qq \
     && apt-get install -y -qq jq git && useradd -m t && cp -r /repo /home/t/r \
     && chown -R t /home/t/r && su t -c "cd /home/t/r && bash tests/<file>.sh"'
   ```
@@ -132,7 +138,7 @@ here.
   wrote nothing, and printed no `[REFUSED]` line at all.
   `bash -n` is clean and every macOS suite is green.
 
-  Safe spellings, all measured identical on 3.2 and 5.2: `local t=""`;
+  Safe spellings, all measured identical on 3.2, 5.2 and 5.3.9: `local t=""`;
   `local t; t=$(…)` (assigning before the first read is enough); and `${t:-}`
   at the read site. The trap is not the `local` keyword — **`declare t` inside
   a function, `declare g` at top level, and `local -i n` all behave the same**
@@ -162,7 +168,8 @@ here.
   Mounting the script with `-v` into `bash:*` silently produces a DIRECTORY at
   the target path on this Docker Desktop (`/probe.sh: Is a directory`) — feed it
   on **stdin**.
-- **THE `ubuntu:24.04` RECIPE ABOVE — the one that runs a SUITE, not the
+- **THE `ubuntu:26.04` RECIPE ABOVE (`ubuntu:24.04` in every measurement below
+  that names no image) — the one that runs a SUITE, not the
   `bash:<v>` probe next to it — IS A bash/git VERSION EMULATOR AND NOT A CI
   EMULATOR.** It
   diverges from both this Mac and the runner far beyond anything one missing
@@ -244,7 +251,8 @@ here.
   residue is `wp9b`'s `AM2` at 102/1, where the gate blocks on `[WARN] Phase
   0→1: … gate date not recorded in phase-state.json`. **Cause not isolated —
   and NOT node/npm**, measured with `node`, `npm` and `python3` all installed.
-  Add `curl ca-certificates` to the apt line; `ubuntu:24.04` has neither, and
+  Add `curl ca-certificates` to the apt line; neither `ubuntu:24.04` nor
+  `ubuntu:26.04` has either, and
   the fetch below exits 127 without them. Runs as root, BEFORE `su t`. Note
   `-f`: without it curl writes a 9-byte `Not Found` body and the failure
   surfaces as `gzip: stdin: not in gzip format` two commands later.
@@ -293,7 +301,8 @@ here.
   ```
   A suite run with `bash tests/…` sees the real grep, which is why the pin for
   this (`A11` in `tests/test-brownfield-wp7-adoption-record.sh`) works at all.
-  `docker run --rm -i ubuntu:24.04` agrees (GNU grep 3.11), **and a bare
+  `docker run --rm -i ubuntu:26.04` agrees (GNU grep 3.12, and
+  `ubuntu:24.04`'s 3.11), **and a bare
   container's default locale is the failing one** — `LC_ALL=C.UTF-8` matches,
   `C`, `POSIX` and an ungenerated `en_US.UTF-8` do not. This is the third
   local-green/runner-red split on this host, alongside `${var/pat/rep}` (5.2)

@@ -27259,7 +27259,7 @@ to generated projects (`init.sh` copies it), so any machine on uutils before 0.1
 primitive guards the phase-gate attestation writers, the Phase 3 attestation writers and the bypass audit log (all
 shipped by `init.sh`), so a concurrent write there can drop an audit record
 **Status:** Open — the writers are fixed (`f6a4eddb`, "The fix" below). Open until the CI runner pin
-(`# BL-358-RUNNER-PIN`) comes off, in a PR of its own that measures the whole unit lane on `ubuntu-26.04` (bash 5.3.9,
+(`# BL-358-RUNNER-PIN`) comes off, in a PR of its own that measures the whole unit lane on `ubuntu-26.04` (bash 5.3.9, <!-- lint-bl-markers: allow the pin was withdrawn on purpose when the unit lane was measured on ubuntu-26.04; this line records that it existed -->
 jq 1.8.1) first; this entry closes with that PR
 
 **What.** GitHub's `ubuntu-latest` moved from `Image: ubuntu-24.04` (run 39629060444 attempt 1, 2026-10-21, main's last
@@ -27296,7 +27296,7 @@ lets the write proceed unlocked instead of failing loudly.
 `scripts/track-tool-usage.sh` (`_tt_record_accumulation`), `scripts/run-phase3-validation.sh` (two) and
 `scripts/lib/bypass-audit.sh` (four).
 
-**Stopgap.** Every `runs-on` in `.github/workflows/tests.yml` and `lint.yml` names `ubuntu-24.04` (`# BL-358-RUNNER-PIN`).
+**Stopgap.** Every `runs-on` in `.github/workflows/tests.yml` and `lint.yml` names `ubuntu-24.04` (`# BL-358-RUNNER-PIN`). <!-- lint-bl-markers: allow the pin was withdrawn on purpose when the unit lane was measured on ubuntu-26.04; this line records that it existed -->
 That hides the defect from CI only; remove the pin when the fix lands, and run the suite on 26.04 in the same PR. The 14
 `lint.yml` jobs passed on 26.04 (run 40336248981) and are pinned for uniformity only. GitHub moves `ubuntu-latest` to
 26.04 between 2026-10-19 and 2026-11-19 (actions/runner-images#14748, which names `ubuntu-24.04` as the mitigation). The
