@@ -5591,7 +5591,7 @@ own the class.
 
 - **Condition (a) above is too narrow.** "A `printf` of one line cannot SIGPIPE" holds, but a SMALL
   multi-line one can. A producer only needs more than one `write(2)`: `scripts/delta.sh`'s 13-line,
-  187-byte gate vocabulary goes out in 3 writes (119, 47 and 21 bytes) under strace on bash 5.2.21 and
+  187-byte gate-token vocabulary goes out in 3 writes (119, 47 and 21 bytes) under strace on bash 5.2.21 and
   5.3.9 alike (a shell that has not yet written to stdout made 11). Read (a) as "the producer can make
   more than one write" — any multi-line `echo`/`printf` qualifies, whatever its size.
 - **A product-code false refusal.** `scripts/delta.sh` (`set -euo pipefail`) checks each name a piece of
@@ -5599,9 +5599,9 @@ own the class.
   name in `unknown`, and `# DELTA-CLOSE-VOCAB-GUARD` then refuses a valid `--close` with rc 9 ("lists a
   check nothing here recognises"). Measured: that check alone, under load (two busy loops, both images
   running), gave 26 of 36000 false failures on ubuntu:24.04 and 30 of 36000 on ubuntu:26.04 (BL-358's
-  unpin run), and 58 and 52 of 12000 in its review; idle, 0 of 8000 on both. Every failure showed the
-  writer at 141 and grep at 0. Forced with a 144187-byte vocabulary and the match on its first line:
-  rc 9 in 10 of 10. `tests/test-delta-wp4-close-rubric.sh` caught it twice in 26.04 containers (m3 in
+  unpin run), and 58 and 52 of 12000 in the review of the first draft; idle, 0 of 8000 on both. Every
+  failure recorded one by one (110) showed the writer at 141 and grep at 0. Forced with a 144187-byte,
+  9013-line vocabulary, the four names on its lines 5, 6, 9 and 10: rc 9 in 10 of 10. `tests/test-delta-wp4-close-rubric.sh` caught it twice in 26.04 containers (m3 in
   one full pass, 28/1; m2 in one of 15 re-runs), each `MUTANT rc=9`.
 - **Not Ubuntu-specific.** On this Mac's bash 3.2.57 the small-producer case did not appear under load
   (0 of 12000) but did with the reader already waiting (2 of 200); the `bash:3.2` container (musl) gave
@@ -5610,14 +5610,16 @@ own the class.
 - **The population, re-counted on `0b5bc20d`.** 86 matching lines in 25 files that mention `pipefail`
   (the regex `(echo|printf)[^|]*\|[[:space:]]*(command )?grep -[a-zA-Z]*q`, recursive over `scripts/`
   and `init.sh`): 79 after dropping comments, and 3 of those files mention `pipefail` only in comments.
-  It misses 22 lines in 10 files that run under a CALLER's `pipefail` — `scripts/lib/adopt/{act4,docs,
-  mcp,record,state}` (sourced by `adopt-project.sh`, `set -uo pipefail`), `scripts/lib/host.sh`, the
-  `scripts/host-drivers/` GitHub and GitLab drivers, `scripts/lib/plan-staging.sh` and
-  `scripts/lib/bypass-patterns.sh` — two of them with `delta.sh`'s exact shape (`adopt-state.sh`'s
-  `printf '%s\n' "$inv" | grep -qxF -- "$rel" && continue`, and one in `plan-staging.sh`). Twelve
-  `| head -1` / `grep -m1` lines also stop reading early and are not triaged.
+  It misses 22 lines in 10 files that run under a CALLER's `pipefail` — `scripts/lib/adopt/adopt-act4.sh`,
+  `adopt-docs.sh`, `adopt-mcp.sh`, `adopt-record.sh` and `adopt-state.sh` (sourced by `adopt-project.sh`,
+  `set -uo pipefail`), `scripts/lib/host.sh`, the `scripts/host-drivers/` GitHub and GitLab drivers,
+  `scripts/lib/plan-staging.sh` and `scripts/lib/bypass-patterns.sh` — five of them with `delta.sh`'s
+  exact shape (`adopt-state.sh`'s `printf '%s\n' "$inv" | grep -qxF -- "$rel" && continue`, and four in
+  `plan-staging.sh`). Twelve `echo`/`printf` pipelines into `head -1` / `grep -m1` also stop reading
+  early and are not triaged.
 - **The fix shape, measured.** A here-string, `grep -qxF "$g" <<<"$vocab"`, gave 0 false failures under
-  load on bash 3.2.57, 5.2.21, 5.3.9 and 5.3.20 (bash 5.x backs it with a pipe, 3.2 with a file), 0 of
+  load on bash 3.2.57, 5.2.21, 5.3.9 and 5.3.20 (a pipe on bash 5.1 and later when the string fits in
+  the pipe, a file on 3.2 and 5.0 and for large strings), 0 of
   30 at 348881 bytes everywhere, and turned the forced `delta.sh` refusal from 10 of 10 to 0 of 10
   (rc 7, the fixture's own correct answer). `grep` without `-q` into `/dev/null`, and a `case` match,
   were also 0 of 30. Fix `scripts/delta.sh` first, with a test that forces the race with a producer
