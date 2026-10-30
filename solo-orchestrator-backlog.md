@@ -27631,9 +27631,11 @@ The race, measured. bash 5.2.21 and 5.3.9 write a multi-line `echo` or `printf` 
 writer still has lines to write: the next write takes SIGPIPE and, under `pipefail`, the pipeline fails although grep
 matched. `scripts/delta.sh`'s name check alone, 12000 pipelines a round with both images running and two busy loops in
 each: 24.04 6, 6 and 14 false failures, 26.04 10, 9 and 11 (26 and 30 of 36000), the writer's status 141 and grep's 0
-every time; idle, 0 of 8000 in both, from a small shell and from one holding 64 MB. 24.04 had one in a suite too, in
-pass B: `tests/test-bl311-adopt-mcp.sh` S28, `printf '%s\n' "$sec" | grep -qF 'paste this block'` under `pipefail`,
-green in the other three full runs. So it is not a 26.04 defect. It is the class #435 fixed in three suites with `_gq`
+every time; idle, 0 of 8000 in both, from a small shell and from one holding 64 MB. 24.04 had its own in suites too:
+in pass B `tests/test-bl311-adopt-mcp.sh` S28, `printf '%s\n' "$sec" | grep -qF 'paste this block'` under `pipefail`,
+green in the other three full runs, and at this branch's third commit (below) `tests/test-walk006-ci-protection-scope.sh`
+D9, `printf '%s' "$out" | grep -q "The next push enforces the check"`, 3 of 3 green on re-run. So it is not a
+26.04 defect. It is the class #435 fixed in three suites with `_gq`
 (`103081da`), and it reaches product code; not fixed here (Residuals). `scripts/` and `init.sh` hold 86 `echo` or
 `printf` pipelines into `grep -q` in 25 files that set `pipefail`: a population, not a count of defects.
 
@@ -27665,6 +27667,13 @@ and name GNU grep 3.12 for the multibyte `.` (the same answers as 3.11 under `C`
 Time: the 26.04 suites ran 7% and 6% longer than 24.04's in the same passes, and on CI the two 26.04 runs before the
 pin, 40379039740 and 40382063836, took 7201 s and 6855 s of twelve-leg time, against 5968–6527 s on the eight 24.04
 twelve-leg runs measured for `## BL-350:`. That measurement moved `slow-misc`'s long pole to `approval` (`ea9361a0`).
+
+At `94750852`, this branch's third commit (the code and workflows are the same at its head), the 93 unit-lane
+suites that name `tests.yml`, `lint.yml`, CLAUDE.md or this backlog: on this Mac (bash 3.2.57, six at a time, each
+with an empty temp HOME and no `CDF_HOME`) 93 green; in pass B's setup from a bundle of the branch, 26.04 92 green
+and wp9b's AM2, 24.04 89 green, wp9b's AM2, the two 24.04-only reds above (T9, bl322-s2's U1 and M3) and
+walk006's D9 (the race). `bash scripts/run-lints.sh` 16 of 16, rc 0. The Guardrails clone at `~/.claude-dev-framework`
+stayed at `3438484`.
 
 **Residuals.**
 - The transition gap above, which a tier change, `--backfill-only` or a plain upgrade leaves in place until the next
@@ -27708,8 +27717,9 @@ twelve-leg runs measured for `## BL-350:`. That measurement moved `slow-misc`'s 
 - The writer-SIGPIPE race under `pipefail` ("The unpin", above): an `echo` or `printf` piped into `grep -q` fails when
   grep matches a line and exits before the writer has written its last one. `scripts/delta.sh`'s close-time name
   check blocks a valid close with rc 9 that way. In the four full runs of the unit lane (two passes, two images) it
-  reddened five suites once each, four in 26.04 and one in 24.04, and one more in 120 looped re-runs; alone, it fails
-  at the same rate in both images (26 and 30 of 36000 under load). Not fixed here.
+  reddened five suites once each, four in 26.04 and one in 24.04, one more in 120 looped re-runs (26.04), and one
+  more in 24.04 in the 93-suite run at this branch's third commit; alone, it fails at the same rate in both images (26 and
+  30 of 36000 under load). Not fixed here.
 
 **Review residuals of PR #528 (the pr-reviewer, 2026-10-29), open.** Each was checked at `0b5bc20d` before it was
 recorded here; R-358-13 is the one applied (the "Shard time" item above).
