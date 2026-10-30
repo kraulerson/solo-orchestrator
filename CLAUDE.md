@@ -386,7 +386,7 @@ here.
   - **Adding a test is still a ONE-LINE edit** — append it to the canonical
     array. The lane is sharded (matrix `shard: [lint-sweep, lint-scan, sast,
     slow-misc, adopt, adopt-b, adopt-c, commit-hooks, mcp, mcp-mutants, approval,
-    rest]`, twelve legs since 2026-10-19), but only the
+    ledger, rest]`, thirteen legs since 2026-10-29), but only the
     measured long poles are pinned to a shard by the `pin_*` arrays; `rest`
     is the COMPLEMENT, so a new entry lands there automatically. Keep `rest`
     light: every new suite lands in it, so a suite pinned INTO it spends the

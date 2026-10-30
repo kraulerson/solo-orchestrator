@@ -3200,10 +3200,11 @@ else
     if ! mk_repo "$SPD" "$EMITTED" >/dev/null 2>&1; then
       fail_ "T-bl185-suppression-receipt" "fixture setup failed ($SP_DIR)"; SP_ALL=FAIL; rm -rf "$SPD"; continue
     fi
-    # Generated projects SHIP scripts/lib/bypass-audit.sh; the row half needs
-    # it in the fixture, exactly as BL-163's row tests do.
+    # Generated projects SHIP scripts/lib/bypass-audit.sh and the lib/lock.sh it
+    # writes under (`## BL-358:`); the row half needs both in the fixture,
+    # exactly as BL-163's row tests do.
     mkdir -p "$SPD/scripts/lib" "$SPD/.claude"
-    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$SPD/scripts/lib/" 2>/dev/null || true
+    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$SPD/scripts/lib/" 2>/dev/null || true
     printf 'export function render(pane, userText) {\n  %s\n  pane.innerHTML = userText;\n}\n' "$SP_DIR" > "$SPD/app.ts"
     ( cd "$SPD" && git add -- app.ts ) >/dev/null 2>&1
     if ( cd "$SPD" && git commit -m "feat: renderer with a suppression" ) >"$TOPTMP/sp1.log" 2>&1; then SP_V=COMMITTED; else SP_V=REFUSED; fi
@@ -3242,7 +3243,7 @@ else
     fail_ "T-bl185-blocked-path" "fixture setup failed"
   else
     mkdir -p "$BPD/scripts/lib" "$BPD/.claude"
-    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$BPD/scripts/lib/" 2>/dev/null || true
+    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$BPD/scripts/lib/" 2>/dev/null || true
     printf '%s\n' "$XSS_TS" > "$BPD/vuln.ts"
     printf 'export function safe(p, t) {\n  // nosemgrep\n  p.textContent = t;\n}\n' > "$BPD/other.ts"
     ( cd "$BPD" && git add -- vuln.ts other.ts ) >/dev/null 2>&1
@@ -3299,7 +3300,7 @@ else
     # xnosemgrepx) — semgrep ignores them and so must the detector (R-HP-1's
     # boundary pins).
     mkdir -p "$SCD/scripts/lib" "$SCD/.claude"
-    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$SCD/scripts/lib/" 2>/dev/null || true
+    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$SCD/scripts/lib/" 2>/dev/null || true
     printf '%s\n// the nosemantic xnosemgrepx neighbors must not trip the detector\n' "$SAFE_TS" > "$SCD/app.ts"
     ( cd "$SCD" && git add -- app.ts ) >/dev/null 2>&1
     if ( cd "$SCD" && git commit -m "feat: clean renderer" ) >"$TOPTMP/sc1.log" 2>&1; then SC_V=COMMITTED; else SC_V=REFUSED; fi
@@ -3368,7 +3369,7 @@ else
     fail_ "T-bl185-doc-mention" "fixture setup failed"
   else
     mkdir -p "$DMD/scripts/lib" "$DMD/.claude"
-    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$DMD/scripts/lib/" 2>/dev/null || true
+    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$DMD/scripts/lib/" 2>/dev/null || true
     cat > "$DMD/NOTES.md" <<'MD'
 # Walk report
 The pre-commit gate records every `nosemgrep` directive as an audited
@@ -3433,7 +3434,7 @@ else
       fail_ "T-bl185-doc-scope-mutation" "mutation fixture setup failed"
     else
       mkdir -p "$DSD/scripts/lib" "$DSD/.claude"
-      cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$DSD/scripts/lib/" 2>/dev/null || true
+      cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$REPO_ROOT/scripts/lib/lock.sh" "$DSD/scripts/lib/" 2>/dev/null || true
       printf '# Report\nThe gate logs every nosemgrep directive it sees.\n' > "$DSD/NOTES.md"
       ( cd "$DSD" && git add -- NOTES.md ) >/dev/null 2>&1
       ( cd "$DSD" && git commit -m "docs: walk report" ) >"$TOPTMP/ds185.log" 2>&1 || true

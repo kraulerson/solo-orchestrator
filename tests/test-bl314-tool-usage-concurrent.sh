@@ -23,9 +23,10 @@
 #       mcp_requirements object (BL-233's recovery-seed rule still holds).
 #   C6  a lock left behind by a killed writer (SIGKILL skips every trap) does
 #       not stop tracking, and the concurrent writes that follow it keep the
-#       ledger whole. It is run twice: a lock the one break removes, and a
-#       stuck one it cannot, where every writer goes ahead unlocked. Lost
-#       updates are accepted there; truncation is not.
+#       ledger whole. It is run twice: a lock the one break removes, where
+#       every call row lands, and a stuck one it cannot (a directory at the
+#       lock's name), where every write is SKIPPED and the ledger is left
+#       byte for byte — `## BL-358:`, no write goes ahead without the lock.
 #   C7  a single write past a stale lock records its call and clears the lock.
 #   C8  session-mcp-gate.sh writes the same ledger on every Write and Edit. A
 #       concurrent burst of gate checks, alone and mixed with tracker events,
@@ -45,16 +46,18 @@
 #   C13 an existing 0-byte or unparseable ledger is reseeded by the next MCP
 #       event, which records its call.
 #   C14 a failed write (the gate on an unparseable ledger) leaves no temp.
-#   C15 the sweep takes only its own `.lw.` temps: an aged .backup survives.
-#   C16 mkdir failing with EACCES or ENOTDIR is not contention: the gate
-#       answers and the tracker finishes within 3s.
+#   C15 the sweep takes only its own `.lw.` temps: an aged .backup survives,
+#       and a write never touches a neighbour named tool-usage.json.tmp.
+#   C16 a lock that cannot be created (EACCES or ENOTDIR) is not contention:
+#       the gate answers and the tracker finishes within 3s.
 #   C17 SessionStart writes the same ledger: concurrent resumes keep every
 #       tracker row, and concurrent startups are never seen half-written.
 #       C17c: a startup behind a tracker holding the lock lands last, so
 #       inherited successes stay erased (BL-236).
 #   C5b a tracker arriving while another lands the seed waits, and appends.
 #   C7a/f/u the lock wait is bounded: a lock aged past the 3 s budget, one
-#       dated an hour ahead, and one whose time cannot be read.
+#       dated an hour ahead, and one whose time cannot be read (its writes are
+#       then skipped, not made without the lock).
 #   C18 each of the fifteen locked write sites holds the lock mid-write.
 #   C19 return codes: an unlandable SessionStart ends non-zero, a failed mv
 #       returns 1, and the lib-less tracker fails loud on every write (stderr
@@ -68,20 +71,59 @@
 #   C24 a directory, or a symlink to one, at the ledger path is never written
 #       into: _lw_put refuses it (rc 1) and a tracker event leaves it empty.
 #   C25 a lib that is present but cannot be loaded (0 bytes, a syntax error,
-#       or one that loads but lacks _lw_put) is as loud as a missing one, in
-#       the tracker, SessionStart and the gate.
+#       one that loads but lacks _lw_put, or one whose lib/lock.sh is missing)
+#       is as loud as a missing one, in the tracker, SessionStart and the gate.
+#   C26 `## BL-358:` a lock that cannot be taken: every write is skipped and
+#       said so on stderr, the tracker exits 1 and its agent report says the
+#       call was not recorded, _lw_put lands nothing, and the MCP check denies
+#       the next Write (fail closed) after a find and a query-docs that worked.
+#       A resume behind it prints its report (rc 0), empties the last
+#       session's ledger and says so on stderr and stdout, names its extra
+#       requirement for adding again, and the next Write is denied.
+#   C27 a stale lock replaced while a waiter read it is not broken: under the
+#       break guard a lock is removed only if it is still the one read stale.
+#       C27b: a waiter held on its re-read under the guard keeps a second one
+#       out, so the stale lock stands until it goes on, and both rows land.
+#   C28 a break guard held by another waiter is waited for; one held past a
+#       budget is cleared once, and the stale lock is then broken. C28b: a
+#       guard that cannot be cleared gives the lock up; the write is skipped.
+#       C28c: the guard's clock belongs to one stale lock: a waiter that met a
+#       guard on an earlier one leaves alone the guard another waiter holds on
+#       the next, between its re-read and its remove, and both rows land.
+#   C29 C1's, C3's and C9's bursts under a mkdir that, like uutils coreutils
+#       0.10.0, reports success when its mkdir(2) fails on a directory: the
+#       lock no longer asks mkdir, so every row and every commit still lands.
 #
 # Mutants, run against a mirror of the three hooks and their lib. Each proves
 # its location: one marker site, and a diff of exactly that line.
-#   M1  unique temp -> shared "$TOOL_USAGE.tmp" name; killed by C6's stuck arm.
+#   M1  unique temp -> shared "$TOOL_USAGE.tmp" name; killed by C15's .tmp
+#       neighbour (every write is locked now, so no burst can collide on it).
 #   M2  lock never taken; killed by C1's call count and C3's commit count.
-#   M4  stale lock never broken; killed by C7 (lock left, every write stalls).
+#   M4  stale lock never broken; killed by C7 (lock left, the write skipped).
 #   MR  a held lock is broken whatever its age; killed by C9.
 #   ME  the EXIT trap removed; killed by C10. TERM is left at its default,
 #       which ends the hook with 143 and still runs the EXIT trap.
 #   MF  the failure path's temp cleanup removed; killed by C14.
 #   MG  the non-empty check removed; killed by C12.
-#   MN  a non-EEXIST mkdir failure read as contention; killed by C16.
+#   MN  a lock that cannot be created read as contention; killed by C16.
+#   MUL _lw_update back to `_lw_lock || :`, a write made without the lock;
+#       killed by C26 (the stuck lock's ledger changes and the gate allows).
+#   MUP _lw_put back to `_lw_lock || :`; killed by C26's put arm.
+#   MSK the skip message silenced; MTX the tracker's exit 1 dropped; MRN the
+#       report's not-recorded note dropped; MCL the commit write without the
+#       lock: each killed by C26.
+#   MBS the break without its same-lock check; killed by C27.
+#   MBG the break without its guard; MGS a stale guard never cleared; MGW the
+#   guard's wait restarted on every look; MGA any held guard cleared at once:
+#   C28. MGC no give-up after the one clear, MGO the clear never counted: C28b.
+#   MGE the guard's clock carried over to the next stale lock: C28c. MGX the
+#   guard released before the re-read and the remove (the two lines
+#   exchanged): C27b. MMP, MMF, MMS, MMY, MMN SessionStart's failed merge
+#   ending the hook again, the ledger not emptied, the extra requirements not
+#   named, the stderr and the stdout line silenced: C26's resume arm.
+#   MSF the skip not flagged (C26); MV03, MV04 verify-install's lock row and
+#   fixer (C21); MLL the lib loading without lib/lock.sh (C25's nolock shape);
+#   MGR the guard never released after a break (C11's shape).
 #   MX1 the gate's _lw_traps call removed; killed by C10c.
 #   MS  the sweep glob widened back to any six characters; killed by C15.
 #   MX2 the sweep's age check removed; killed as C11 would be.
@@ -116,8 +158,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TRACKER="$REPO_ROOT/scripts/track-tool-usage.sh"
 GATE="$REPO_ROOT/scripts/session-mcp-gate.sh"
 LIB="$REPO_ROOT/scripts/lib/ledger-write.sh"
+LOCKLIB="$REPO_ROOT/scripts/lib/lock.sh"
 SESSION="$REPO_ROOT/scripts/session-test-gate-check.sh"
 REAL_JQ="$(command -v jq)"
+REAL_MKDIR="$(command -v mkdir)"
+REAL_STAT="$(command -v stat)"
 
 PASSED=0
 FAILED=0
@@ -275,7 +320,7 @@ _signal_round() {
   kill "-$2" "$pid" 2>/dev/null
   { wait "$pid"; R_RC=$?; } 2>/dev/null
   _await "$sh/done"
-  if [ -d "$d/.claude/tool-usage.json.lockdir" ]; then R_LOCK=held; else R_LOCK=cleared; fi
+  if [ -e "$d/.claude/tool-usage.json.lock" ]; then R_LOCK=held; else R_LOCK=cleared; fi
   R_DEBRIS=$(_debris "$d")
   R_CALLS=$(_calls "$d")
   R_SAT=$(jq -r '.mcp_gate_satisfied' "$d/.claude/tool-usage.json" 2>/dev/null)
@@ -486,33 +531,39 @@ else
 fi
 
 # ── C6: a burst behind a stale lock ─────────────────────────────────────────
-# With STUCK=stuck the lock holds a file, so rmdir cannot remove it: the one
-# break fails and every writer goes ahead unlocked, all at once.
-_stale_round() {  # TRACKER [STUCK] — sets R_PARSES R_BAD R_CALLS
-  local d; d=$(newtmp); _seed "$d"
-  mkdir "$d/.claude/tool-usage.json.lockdir"
-  [ "${2:-}" = "stuck" ] && : > "$d/.claude/tool-usage.json.lockdir/pin"
-  _backdate "$d/.claude/tool-usage.json.lockdir"
+# With STUCK=stuck a DIRECTORY holds the lock's name, so `rm -f` cannot remove
+# it: the one break fails, and every write is then skipped (`## BL-358:`), so
+# the ledger stays byte for byte what it was. It used to go ahead unlocked.
+_stale_round() {  # TRACKER [STUCK] — sets R_PARSES R_BAD R_CALLS R_SAME
+  local d before; d=$(newtmp); _seed "$d"
+  if [ "${2:-}" = "stuck" ]; then mkdir "$d/.claude/tool-usage.json.lock"; else : > "$d/.claude/tool-usage.json.lock"; fi
+  _backdate "$d/.claude/tool-usage.json.lock"
+  before=$(cat "$d/.claude/tool-usage.json")
   _reader_start "$d"
   _burst "$d" "$1" "$FIND_PAYLOAD" "$N"
   _reader_stop "$d"
   if _parses "$d"; then R_PARSES=1; else R_PARSES=0; fi
   R_BAD=$(_bad "$d")
   R_CALLS=$(_calls "$d")
+  if [ "$(cat "$d/.claude/tool-usage.json")" = "$before" ]; then R_SAME=1; else R_SAME=0; fi
 }
 c6_fail=""
 for c6_mode in breakable stuck; do
   r=1
   while [ "$r" -le "$ROUNDS" ]; do
     _stale_round "$TRACKER" "$c6_mode"
-    if [ "$R_PARSES" != "1" ] || [ "$R_BAD" != "0" ] || [ "$R_CALLS" -lt 1 ]; then
-      c6_fail="$c6_fail $c6_mode round $r: parses=$R_PARSES bad=$R_BAD calls=$R_CALLS;"
+    if [ "$c6_mode" = "breakable" ]; then
+      if [ "$R_PARSES" != "1" ] || [ "$R_BAD" != "0" ] || [ "$R_CALLS" != "$N" ]; then
+        c6_fail="$c6_fail breakable round $r: parses=$R_PARSES bad=$R_BAD calls=$R_CALLS/$N;"
+      fi
+    elif [ "$R_PARSES" != "1" ] || [ "$R_BAD" != "0" ] || [ "$R_SAME" != "1" ]; then
+      c6_fail="$c6_fail stuck round $r: parses=$R_PARSES bad=$R_BAD unchanged=$R_SAME calls=$R_CALLS (want 0: nothing written without the lock);"
     fi
     r=$((r + 1))
   done
 done
 if [ -z "$c6_fail" ]; then
-  pass "C6: behind a stale lock, breakable or stuck, $ROUNDS rounds of $N concurrent events each keep the ledger parseable throughout and still record calls"
+  pass "C6: behind a stale lock the one break removes, $ROUNDS rounds of $N concurrent events each record all $N rows; behind one it cannot remove, every write is skipped and the ledger is left byte for byte, parseable throughout"
 else
   fail_ "C6" "$c6_fail"
 fi
@@ -520,10 +571,10 @@ fi
 # ── C7: one write past a stale lock ─────────────────────────────────────────
 _single_stale() {  # TRACKER — sets R_CALLS R_LOCK
   local d; d=$(newtmp); _seed "$d"
-  mkdir "$d/.claude/tool-usage.json.lockdir"
+  : > "$d/.claude/tool-usage.json.lock"
   _run_one "$d" "$1" "$FIND_PAYLOAD"
   R_CALLS=$(_calls "$d")
-  if [ -d "$d/.claude/tool-usage.json.lockdir" ]; then R_LOCK=held; else R_LOCK=cleared; fi
+  if [ -e "$d/.claude/tool-usage.json.lock" ]; then R_LOCK=held; else R_LOCK=cleared; fi
 }
 _single_stale "$TRACKER"
 if [ "$R_CALLS" = "1" ] && [ "$R_LOCK" = "cleared" ]; then
@@ -624,7 +675,7 @@ fi
 _signal_round "$TRACKER" KILL '.calls +='
 c11_left="lock=$R_LOCK debris=[$R_DEBRIS]"
 # shellcheck disable=SC2046
-_backdate "$R_DIR/.claude/tool-usage.json.lockdir" $(ls -d "$R_DIR"/.claude/tool-usage.json.* 2>/dev/null)
+_backdate "$R_DIR/.claude/tool-usage.json.lock" $(ls -d "$R_DIR"/.claude/tool-usage.json.* 2>/dev/null)
 : > "$R_DIR/.claude/tool-usage.json.lw.LIVE01"
 _run_one "$R_DIR" "$TRACKER" "$FIND_PAYLOAD"
 c11_calls=$(_calls "$R_DIR"); c11_debris=$(_debris "$R_DIR")
@@ -688,28 +739,33 @@ else
 fi
 
 # ── C15: the sweep takes only its own temps ─────────────────────────────────
+# A neighbour named tool-usage.json.tmp is the old shared temp name: a writer
+# that wrote through that name would land it as the ledger, or mv it away.
 _sweep_neighbours() {  # TRACKER — sets R_LEFT
   local d; d=$(newtmp); _seed "$d"
   : > "$d/.claude/tool-usage.json.backup"
   : > "$d/.claude/tool-usage.json.bak"
+  printf 'a user file\n' > "$d/.claude/tool-usage.json.tmp"
   : > "$d/.claude/tool-usage.json.lw.AGED01"
-  _backdate "$d/.claude/tool-usage.json.backup" "$d/.claude/tool-usage.json.bak" "$d/.claude/tool-usage.json.lw.AGED01"
+  _backdate "$d/.claude/tool-usage.json.backup" "$d/.claude/tool-usage.json.bak" "$d/.claude/tool-usage.json.tmp" "$d/.claude/tool-usage.json.lw.AGED01"
   _run_one "$d" "$1" "$FIND_PAYLOAD"
   R_LEFT=$(_debris "$d")
+  [ "$(cat "$d/.claude/tool-usage.json.tmp" 2>/dev/null)" = "a user file" ] || R_LEFT="$R_LEFT(the .tmp neighbour was written)"
 }
+C15_LEFT="tool-usage.json.backup tool-usage.json.bak tool-usage.json.tmp "
 _sweep_neighbours "$TRACKER"
-if [ "$R_LEFT" = "tool-usage.json.backup tool-usage.json.bak " ]; then
-  pass "C15: an aged tool-usage.json.backup and .bak survive the sweep, and an aged .lw. temp does not"
+if [ "$R_LEFT" = "$C15_LEFT" ]; then
+  pass "C15: an aged tool-usage.json.backup, .bak and .tmp survive the sweep untouched, and an aged .lw. temp does not"
 else
-  fail_ "C15" "left=[$R_LEFT] (want the .backup and .bak only)"
+  fail_ "C15" "left=[$R_LEFT] (want [$C15_LEFT])"
 fi
 
-# ── C16: mkdir fails for a reason other than EEXIST ─────────────────────────
-# POSIX mkdir() fails with EEXIST only when the lock is held. EACCES (a 0555
-# .claude) and ENOTDIR (.claude is a file) are not contention: the hook must
-# give up the lock at once and finish, the gate with its deny text. A read-only
-# mount (EROFS) and a full disk (ENOSPC) cannot be made in a test; they take
-# the same path as EACCES, since the lockdir never appears.
+# ── C16: the lock cannot be created at all ──────────────────────────────────
+# A failed take with nothing at the lock's name is not contention. EACCES (a
+# 0555 .claude) and ENOTDIR (.claude is a file): the hook must give up the lock
+# at once and finish, the gate with its deny text. A read-only mount (EROFS)
+# and a full disk (ENOSPC) cannot be made in a test; they take the same path as
+# EACCES, since the lock file never appears.
 c16_fail=""; c16_skip=""
 c16_shape() {  # LABEL WANT(deny|allow|exit) SCRIPT SEED(unsatisfied|satisfied|file) — adds to c16_fail
   local d; d=$(newtmp)
@@ -854,13 +910,13 @@ _one_bounded() {
   printf '%s' "$FIND_PAYLOAD" > "$1/.payload"
   _timed "$3" "$1" "$1/.payload" env PATH="${4:+$4:}$PATH" "$BASH" "$2" --event PostToolUse
   R_CALLS=$(_calls "$1")
-  if [ -d "$1/.claude/tool-usage.json.lockdir" ]; then R_LOCK=held; else R_LOCK=cleared; fi
+  if [ -e "$1/.claude/tool-usage.json.lock" ]; then R_LOCK=held; else R_LOCK=cleared; fi
 }
 
 # C7a: a lock 2 s past the 3 s budget is stale now, not in a minute.
 _budget_round() {  # TRACKER
   local d; d=$(newtmp); _seed "$d"
-  mkdir "$d/.claude/tool-usage.json.lockdir"; _age "$d/.claude/tool-usage.json.lockdir" 5
+  : > "$d/.claude/tool-usage.json.lock"; _age "$d/.claude/tool-usage.json.lock" 5
   _one_bounded "$d" "$1" 3
 }
 _budget_round "$TRACKER"
@@ -874,11 +930,11 @@ fi
 # lock) is stale too; the tracker and the gate each finish.
 _future_round() {  # TRACKER GATE
   local d; d=$(newtmp); _seed "$d"
-  mkdir "$d/.claude/tool-usage.json.lockdir"; _age "$d/.claude/tool-usage.json.lockdir" -3600
+  : > "$d/.claude/tool-usage.json.lock"; _age "$d/.claude/tool-usage.json.lock" -3600
   _one_bounded "$d" "$1" 10
   R_T_HUNG=$R_HUNG; R_T_CALLS=$R_CALLS
   d=$(newtmp); _seed "$d"
-  mkdir "$d/.claude/tool-usage.json.lockdir"; _age "$d/.claude/tool-usage.json.lockdir" -3600
+  : > "$d/.claude/tool-usage.json.lock"; _age "$d/.claude/tool-usage.json.lock" -3600
   _timed 10 "$d" /dev/null "$BASH" "$2"
   R_G_HUNG=$R_HUNG; R_G_OUT=$R_OUT
 }
@@ -891,18 +947,20 @@ else
 fi
 
 # C7u: a lock whose time cannot be read is waited on for one budget per write,
-# not for ever. A find event makes three locked writes, so 20 s bounds it.
+# not for ever. A find event makes three locked writes, so 20 s bounds it. Each
+# write is then skipped (`## BL-358:`), so no call lands; it used to go ahead
+# without the lock.
 _unreadable_round() {  # TRACKER
   local d sh; d=$(newtmp); _seed "$d"
-  mkdir "$d/.claude/tool-usage.json.lockdir"
+  : > "$d/.claude/tool-usage.json.lock"
   sh="$d/.shim"; mkdir -p "$sh"; _mk_stat_shim "$sh" broken
   _one_bounded "$d" "$1" 20 "$sh"
 }
 _unreadable_round "$TRACKER"
-if [ "$R_HUNG" = "0" ] && [ "$R_CALLS" = "1" ]; then
-  pass "C7u: behind a lock whose time cannot be read, the tracker goes ahead within 20 s and records its call"
+if [ "$R_HUNG" = "0" ] && [ "$R_CALLS" = "0" ] && [ "$R_LOCK" = "held" ]; then
+  pass "C7u: behind a lock whose time cannot be read, the tracker finishes within 20 s and writes nothing without the lock (calls=0, the lock untouched)"
 else
-  fail_ "C7u" "hung=$R_HUNG (want 0) calls=$R_CALLS (want 1)"
+  fail_ "C7u" "hung=$R_HUNG (want 0) calls=$R_CALLS (want 0) lock=$R_LOCK (want held)"
 fi
 
 # ── C18: every locked write site takes the lock ─────────────────────────────
@@ -953,16 +1011,18 @@ else
 fi
 
 # ── C19: the return codes the entry states ──────────────────────────────────
-# C19a/b: a SessionStart whose ledger write cannot land (.claude at 0555) ends
-# non-zero, on startup and on resume. The startup case carries last session's
-# successes and configured servers: the failed reset must empty the ledger, say
-# so on stderr, and leave the next Write DENIED. (A resume keeps the ledger's
-# flags by design, so it asserts only the exit.) C19c: the tracker without the lib fails
+# C19a/b: a SessionStart whose ledger write cannot land (.claude at 0555). The
+# startup ends non-zero, and carries last session's successes and configured
+# servers: the failed reset must empty the ledger, say so on stderr, and leave
+# the next Write DENIED. The resume (`## BL-358:`) finishes with rc 0 so its
+# report is read, and says on stderr that the ledger was emptied; C26's resume
+# arm pins its flags and the deny. C19c: the tracker without the lib fails
 # loud on every write: an MCP call with no ledger, an MCP call on a ledger,
 # and a commit on a ledger each exit 1 with a stderr line naming the lib and
 # `verify-install.sh --auto-fix`, and write nothing. A call that writes nothing
 # (Read) still exits 0 with no output: the hook fires after every tool call.
 # C19d: a failed mv is a failed write: rc 1, the ledger unchanged, no temp.
+# C19e: so is a failed mktemp under a lock that was taken: _lw_put returns 1.
 # _unlandable_round SESSION_HOOK — sets R_UNL_FAIL and R_UNL_SKIP.
 _unlandable_round() {
   local src d rc gate_out err
@@ -986,7 +1046,18 @@ _unlandable_round() {
     fi
     [ "$src" = "startup" ] && gate_out=$(_gate_one "$d" "$GATE")
     chmod 755 "$d/.claude"
-    if [ "$R_HUNG" = "1" ] || [ "$rc" = "0" ]; then R_UNL_FAIL="$R_UNL_FAIL $src: hung=$R_HUNG rc=$rc (want non-zero);"; fi
+    if [ "$src" = "startup" ]; then
+      if [ "$R_HUNG" = "1" ] || [ "$rc" = "0" ]; then R_UNL_FAIL="$R_UNL_FAIL $src: hung=$R_HUNG rc=$rc (want non-zero);"; fi
+    else
+      # `## BL-358:` a resume whose merge cannot land empties the ledger, says
+      # so, and finishes with rc 0, so the session still reads its report
+      # (C26's resume arm pins the rest).
+      if [ "$R_HUNG" = "1" ] || [ "$rc" != "0" ]; then R_UNL_FAIL="$R_UNL_FAIL $src: hung=$R_HUNG rc=$rc (want 0);"; fi
+      case "$err" in
+        *"so it was emptied"*) ;;
+        *) R_UNL_FAIL="$R_UNL_FAIL resume: stderr does not say the ledger was emptied [$err];" ;;
+      esac
+    fi
     if [ "$src" = "startup" ]; then
       case "$gate_out" in
         *'"permissionDecision": "deny"'*) ;;
@@ -1049,9 +1120,22 @@ _mv_fail_round() {  # LIB — sets R_RC R_SAME R_DEBRIS
 }
 _mv_fail_round "$LIB"
 [ "$R_RC" = "1" ] && [ "$R_SAME" = "1" ] && [ -z "$R_DEBRIS" ] || c19_fail="$c19_fail mv fails: rc=$R_RC unchanged=$R_SAME debris=[$R_DEBRIS] (want 1, 1, none);"
+# C19e: a mktemp that fails, under a lock that was taken, is a failed write.
+# `## BL-358:` an unwritable .claude now stops the write at the lock, before
+# mktemp, so C19a/b no longer reach this return code; a mktemp that fails does.
+_mktemp_fail_round() {  # LIB — _lw_put with a mktemp that fails; sets R_RC R_SAME
+  local d sh before; d=$(newtmp); _seed "$d"
+  sh="$d/.shim"; mkdir -p "$sh"; printf '#!/bin/sh\nexit 1\n' > "$sh/mktemp"; chmod +x "$sh/mktemp"
+  before=$(cat "$d/.claude/tool-usage.json")
+  ( cd "$d" && printf '{"a": 1}\n' | PATH="$sh:$PATH" LW_LIB="$1" "$BASH" -c 'TOOL_USAGE=.claude/tool-usage.json; . "$LW_LIB"; _lw_put' ) > /dev/null 2>&1
+  R_RC=$?
+  if [ "$(cat "$d/.claude/tool-usage.json")" = "$before" ]; then R_SAME=1; else R_SAME=0; fi
+}
+_mktemp_fail_round "$LIB"
+[ "$R_RC" = "1" ] && [ "$R_SAME" = "1" ] || c19_fail="$c19_fail mktemp fails: rc=$R_RC unchanged=$R_SAME (want 1, 1);"
 [ -n "$c19_skip" ] && skip_ "C19a/b" "a 0555 directory stays writable here (root?):$c19_skip"
 if [ -z "$c19_fail" ]; then
-  pass "C19: an unlandable SessionStart write ends non-zero (startup, resume), and a failed startup reset empties the ledger, says so, and leaves the next Write denied; the lib-less tracker exits 1 naming the lib and verify-install.sh --auto-fix on every write and writes nothing, and exits 0 in silence on a call that writes nothing; a failed mv returns 1 and leaves no temp"
+  pass "C19: an unlandable startup write ends non-zero, and the failed reset empties the ledger, says so, and leaves the next Write denied; an unlandable resume says it emptied the ledger and finishes rc 0; the lib-less tracker exits 1 naming the lib and verify-install.sh --auto-fix on every write and writes nothing, and exits 0 in silence on a call that writes nothing; a failed mv returns 1 and leaves no temp; a failed mktemp makes _lw_put return 1"
 else
   fail_ "C19" "$c19_fail"
 fi
@@ -1063,7 +1147,7 @@ fi
 _bsd_round() {  # TRACKER — sets R_OK R_MSG
   local d sh; d=$(newtmp); _seed "$d"
   sh="$d/.shim"; mkdir -p "$sh"; _mk_stat_shim "$sh" bsd
-  mkdir "$d/.claude/tool-usage.json.lockdir"; _age "$d/.claude/tool-usage.json.lockdir" 5
+  : > "$d/.claude/tool-usage.json.lock"; _age "$d/.claude/tool-usage.json.lock" 5
   : > "$d/.claude/tool-usage.json.lw.AGED01"; _age "$d/.claude/tool-usage.json.lw.AGED01" 60
   _one_bounded "$d" "$1" 3 "$sh"
   R_MSG="hung=$R_HUNG calls=$R_CALLS lock=$R_LOCK left=[$(_debris "$d")]"
@@ -1078,7 +1162,7 @@ else
 fi
 
 # ── C21: verify-install's row and fixer for the lib ─────────────────────────
-_vi_round() {  # VERIFY_INSTALL LIBSRC_ROOT — sets R_ROW R_FIXED
+_vi_round() {  # VERIFY_INSTALL LIBSRC_ROOT — sets R_ROW R_FIXED R_LROW R_LFIXED
   local d p h b fixer
   d=$(newtmp); p="$d/proj"; h="$d/home"; b="$d/bin"
   mkdir -p "$p/.claude" "$p/scripts/lib" "$h/.claude" "$h/.claude-dev-framework/.git" "$b"
@@ -1091,12 +1175,17 @@ _vi_round() {  # VERIFY_INSTALL LIBSRC_ROOT — sets R_ROW R_FIXED
   fixer=$(grep '^fix_lib_copy_ledger-write()' "$1")
   ( cd "$p" && FIXER="$fixer" SOURCE_DIR="$2" "$BASH" -c 'has_source() { return 0; }; eval "$FIXER"; fix_lib_copy_ledger-write' ) > /dev/null 2>&1
   if cmp -s "$p/scripts/lib/ledger-write.sh" "$2/scripts/lib/ledger-write.sh"; then R_FIXED=1; else R_FIXED=0; fi
+  # `## BL-358:` the lock the lib refuses to load without.
+  if grep -F 'lock lib missing (auto-fixable)' "$d/vi.txt" > /dev/null; then R_LROW=1; else R_LROW=0; fi
+  fixer=$(grep '^fix_lib_copy_lock()' "$1")
+  ( cd "$p" && FIXER="$fixer" SOURCE_DIR="$2" "$BASH" -c 'has_source() { return 0; }; eval "$FIXER"; fix_lib_copy_lock' ) > /dev/null 2>&1
+  if cmp -s "$p/scripts/lib/lock.sh" "$2/scripts/lib/lock.sh"; then R_LFIXED=1; else R_LFIXED=0; fi
 }
 _vi_round "$REPO_ROOT/scripts/verify-install.sh" "$REPO_ROOT"
-if [ "$R_ROW" = "1" ] && [ "$R_FIXED" = "1" ]; then
-  pass "C21: verify-install --check-only reports 'ledger-write lib missing (auto-fixable)', and fix_lib_copy_ledger-write restores the lib byte for byte"
+if [ "$R_ROW" = "1" ] && [ "$R_FIXED" = "1" ] && [ "$R_LROW" = "1" ] && [ "$R_LFIXED" = "1" ]; then
+  pass "C21: verify-install --check-only reports 'ledger-write lib missing (auto-fixable)' and 'lock lib missing (auto-fixable)', and fix_lib_copy_ledger-write and fix_lib_copy_lock restore each byte for byte"
 else
-  fail_ "C21" "row=$R_ROW fixed=$R_FIXED (want 1, 1)"
+  fail_ "C21" "ledger-write row=$R_ROW fixed=$R_FIXED, lock row=$R_LROW fixed=$R_LFIXED (want 1 each)"
 fi
 
 # ── C22: a temp a SIGKILL leaves is ignored ─────────────────────────────────
@@ -1111,9 +1200,14 @@ for gi in "$REPO_ROOT/.gitignore" "$REPO_ROOT/templates/generated/gitignore-base
   ( cd "$d" && git check-ignore -q .claude/tool-usage.json.lw.AbC123 ) || c22_fail="$c22_fail ${gi#"$REPO_ROOT"/}: temp not ignored;"
   ( cd "$d" && git check-ignore -q .claude/tool-usage.json ) || c22_fail="$c22_fail ${gi#"$REPO_ROOT"/}: ledger not ignored;"
   ( cd "$d" && git check-ignore -q .claude/tool-usage.json.backup ) && c22_fail="$c22_fail ${gi#"$REPO_ROOT"/}: a .backup is ignored too;"
+  # `## BL-358:` the lock files; the phase-gate and audit writers never break a
+  # stale one, so a committed lock would hold every clone's writers.
+  for lk in tool-usage.json.lock tool-usage.json.lock.break process-state.json.lock phase-state.json.lock bypass-audit.json.lock; do
+    ( cd "$d" && git check-ignore -q ".claude/$lk" ) || c22_fail="$c22_fail ${gi#"$REPO_ROOT"/}: $lk not ignored;"
+  done
 done
 if [ -z "$c22_fail" ]; then
-  pass "C22: .gitignore and the generated-project template ignore the lib's .lw. temps and the ledger, and not a user's .backup"
+  pass "C22: .gitignore and the generated-project template ignore the lib's .lw. temps, the ledger and lib/lock.sh's five lock files, and not a user's .backup"
 else
   fail_ "C22" "$c22_fail"
 fi
@@ -1175,16 +1269,20 @@ fi
 # the `.` on every version, and SessionStart's startup write then fails. Each
 # must be as loud as a missing lib: the tracker exits 1 naming it, SessionStart
 # says so and still erases inherited successes, the gate's deny names it. The
-# third shape is what makes MLS discriminate on bash 4.0 and later.
-_badlib_round() {  # SCRIPTS_DIR — sets R_BAD25 to every arm that did not hold
+# third shape is what makes MLS discriminate on bash 4.0 and later. The fourth,
+# `## BL-358:`, is a whole lib with no lib/lock.sh beside it: it defines
+# nothing rather than write without the lock.
+_badlib_round() {  # SCRIPTS_DIR [LIBFILE] — sets R_BAD25 to every arm that did not hold
   local shape m d before out rc
   R_BAD25=""
-  for shape in empty syntax incomplete; do
+  for shape in empty syntax incomplete nolock; do
     m="$(newtmp)/scripts"; mkdir -p "$m/lib"
     cp "$1/track-tool-usage.sh" "$1/session-mcp-gate.sh" "$1/session-test-gate-check.sh" "$m/"
+    [ "$shape" = "nolock" ] || cp "$LOCKLIB" "$m/lib/"
     case "$shape" in
       empty)  : > "$m/lib/ledger-write.sh" ;;
       syntax) { printf 'if then\n'; cat "$LIB"; } > "$m/lib/ledger-write.sh" ;;
+      nolock) cp "${2:-$LIB}" "$m/lib/ledger-write.sh" ;;
       incomplete)
         awk '/^_lw_put\(\) \{$/ { print "_lw_put_gone() {"; next } { print }' "$LIB" > "$m/lib/ledger-write.sh"
         if [ "$(_changed_lines "$LIB" "$m/lib/ledger-write.sh")" != "2" ] || ! "$BASH" -n "$m/lib/ledger-write.sh" 2>/dev/null; then
@@ -1209,9 +1307,383 @@ _badlib_round() {  # SCRIPTS_DIR — sets R_BAD25 to every arm that did not hold
 }
 _badlib_round "$REPO_ROOT/scripts"
 if [ -z "$R_BAD25" ]; then
-  pass "C25: a 0-byte lib, one with a syntax error and one without _lw_put are each as loud as a missing one: the tracker exits 1 naming it, SessionStart says so (rc 0) and erases inherited successes, the gate's deny names it"
+  pass "C25: a 0-byte lib, one with a syntax error, one without _lw_put and a whole one with no lib/lock.sh beside it are each as loud as a missing one: the tracker exits 1 naming it, SessionStart says so (rc 0) and erases inherited successes, the gate's deny names it"
 else
   fail_ "C25" "$R_BAD25"
+fi
+
+# ── C26: a lock that cannot be taken is never written past ─────────────────
+# `## BL-358:` a DIRECTORY at the lock's name, aged past the budget: the one
+# break cannot remove it, so the lock is given up and every write is SKIPPED,
+# never made without the lock (`_lw_lock || :` used to make it). The tracker
+# still finishes — it never blocks the agent — and ends with exit 1, a hook
+# error Claude Code shows the user; its agent report says the call was not
+# recorded; _lw_put lands nothing; and the MCP check, which reads only what
+# landed, denies the next Write after a find and a query-docs that both
+# worked. It fails CLOSED. The control is the same sequence behind a stale
+# lock the break CAN remove: there the next Write is allowed.
+_stuck_lock() { mkdir "$1/.claude/tool-usage.json.lock" && _backdate "$1/.claude/tool-usage.json.lock"; }
+_hook_io() {  # DIR SCRIPT PAYLOAD EVENT — one hook run; sets R_RC R_OUT R_ERR
+  ( cd "$1" && printf '%s' "$3" | "$BASH" "$2" --event "$4" > "$1/.out" 2> "$1/.err" )
+  R_RC=$?
+  R_OUT=$(cat "$1/.out" 2>/dev/null); R_ERR=$(cat "$1/.err" 2>/dev/null)
+}
+_c26_round() {  # SCRIPTS_DIR — sets R_C26 to every arm that did not hold
+  local d before out lk
+  R_C26=""
+  d=$(newtmp); _seed "$d"; _stuck_lock "$d"; before=$(cat "$d/.claude/tool-usage.json")
+  _hook_io "$d" "$1/track-tool-usage.sh" "$FIND_PAYLOAD" PostToolUse
+  [ "$R_RC" = "1" ] || R_C26="$R_C26 find: rc=$R_RC (want 1);"
+  case "$R_ERR" in *"was SKIPPED rather than made without the lock"*) ;; *) R_C26="$R_C26 find: stderr does not say the write was skipped [$R_ERR];" ;; esac
+  [ "$(cat "$d/.claude/tool-usage.json")" = "$before" ] || R_C26="$R_C26 find: the ledger changed without the lock;"
+  d=$(newtmp); _seed "$d"; _stuck_lock "$d"; before=$(cat "$d/.claude/tool-usage.json")
+  _hook_io "$d" "$1/track-tool-usage.sh" "$COMMIT_PAYLOAD" PostToolUse
+  [ "$R_RC" = "1" ] || R_C26="$R_C26 commit: rc=$R_RC (want 1);"
+  [ "$(cat "$d/.claude/tool-usage.json")" = "$before" ] || R_C26="$R_C26 commit: the ledger changed without the lock;"
+  d=$(newtmp); _seed "$d"; _stuck_lock "$d"
+  _hook_io "$d" "$1/track-tool-usage.sh" "$FAIL_PAYLOAD" PostToolUseFailure
+  case "$R_OUT" in *"NOT RECORDED"*) ;; *) R_C26="$R_C26 report: the agent is not told the call was not recorded [$R_OUT];" ;; esac
+  d=$(newtmp); _seed "$d"; _stuck_lock "$d"; before=$(cat "$d/.claude/tool-usage.json")
+  _put_at "$d" "$1/lib/ledger-write.sh"
+  [ "$R_RC" = "1" ] || R_C26="$R_C26 put: rc=$R_RC (want 1);"
+  [ "$(cat "$d/.claude/tool-usage.json")" = "$before" ] || R_C26="$R_C26 put: landed without the lock;"
+  for lk in stuck breakable; do
+    d=$(newtmp); _seed "$d"
+    if [ "$lk" = "stuck" ]; then _stuck_lock "$d"; else : > "$d/.claude/tool-usage.json.lock"; _backdate "$d/.claude/tool-usage.json.lock"; fi
+    _run_one "$d" "$1/track-tool-usage.sh" "$FIND_PAYLOAD"
+    _run_one "$d" "$1/track-tool-usage.sh" "$C7Q_PAYLOAD"
+    out=$(_gate_one "$d" "$1/session-mcp-gate.sh")
+    case "$lk:$out" in
+      'stuck:'*'"permissionDecision": "deny"'*) ;;
+      'breakable:') ;;
+      stuck:*) R_C26="$R_C26 MCP check behind the stuck lock: no deny (stdout bytes=${#out}), it did not fail closed;" ;;
+      *) R_C26="$R_C26 control (breakable lock): the next Write was not allowed (stdout bytes=${#out});" ;;
+    esac
+  done
+  # SessionStart's merge (resume) behind the stuck lock: the merge and its
+  # fallback write both fail. The ledger is the last session's, every
+  # requirement met (an extra one included), so the next Write would be allowed
+  # if it stayed. The hook goes on to its report (rc 0, the MCP check's lines
+  # printed), says on stderr and stdout that the ledger was emptied, names the
+  # extra requirement for adding again, and the next Write is denied.
+  d=$(newtmp); mkdir -p "$d/.claude" "$d/home"
+  printf '%s\n' '{"session_id":"last","calls":[{"tool":"mcp__sentry__search","outcome":"success"}],"qdrant_find_succeeded":true,"context7_query_docs_succeeded":true,"mcp_gate_satisfied":true,"mcp_requirements":{"qdrant_required":true,"context7_required":true,"additional_required":["mcp__sentry__"]}}' > "$d/.claude/tool-usage.json"
+  printf '%s\n' '{"mcpServers": {"qdrant": {"command": "uvx"}, "context7": {"command": "npx"}}}' > "$d/.claude/settings.local.json"
+  _stuck_lock "$d"
+  ( cd "$d" && printf '{"hook_event_name":"SessionStart","source":"resume"}' | env HOME="$d/home" "$BASH" "$1/session-test-gate-check.sh" > "$d/.out" 2> "$d/.err" )
+  R_RC=$?
+  R_OUT=$(cat "$d/.out" 2>/dev/null); R_ERR=$(cat "$d/.err" 2>/dev/null)
+  [ "$R_RC" = "0" ] || R_C26="$R_C26 resume: rc=$R_RC (want 0, the hook goes on to its report);"
+  case "$R_OUT" in *"MCP CHECK ACTIVE"*) ;; *) R_C26="$R_C26 resume: the report did not print (stdout bytes=${#R_OUT});" ;; esac
+  case "$R_OUT" in *"MCP LEDGER NOT WRITTEN"*"so it was emptied"*) ;; *) R_C26="$R_C26 resume: stdout does not say the ledger was emptied;" ;; esac
+  case "$R_ERR" in *"session-test-gate-check.sh: this session start could not write"*"so it was emptied"*) ;; *) R_C26="$R_C26 resume: stderr does not say the ledger was emptied;" ;; esac
+  case "$R_OUT" in *'additional_required ("mcp__sentry__")'*) ;; *) R_C26="$R_C26 resume: the extra requirement is not named for adding again;" ;; esac
+  [ -s "$d/.claude/tool-usage.json" ] && R_C26="$R_C26 resume: the ledger still holds the last session's outcome flags;"
+  out=$(_gate_one "$d" "$1/session-mcp-gate.sh")
+  case "$out" in *'"permissionDecision": "deny"'*) ;; *) R_C26="$R_C26 resume: the next Write was allowed (stdout bytes=${#out}) on the last session's flags;" ;; esac
+}
+_c26_round "$REPO_ROOT/scripts"
+if [ -z "$R_C26" ]; then
+  pass "C26: behind a lock that cannot be taken, a find and a commit each skip their writes (stderr says so, rc 1, the ledger byte for byte), a failed call's report says it was not recorded, _lw_put returns 1 and lands nothing, and the MCP check denies the next Write after a find and a query-docs that worked (the same calls behind a breakable lock are allowed); a resume behind it prints its report (rc 0), empties the last session's ledger and says so, names its extra requirement, and the next Write is denied"
+else
+  fail_ "C26" "$R_C26"
+fi
+
+# ── C27: a stale lock replaced while a waiter read it is not broken ────────
+# Waiter A reads a stale lock's time and is held right there, by a stat that
+# stalls on its first successful read of the lock. The test then replaces the
+# lock with a fresh one it holds, carrying a token. A takes the break guard and
+# re-reads: another time, so another lock, and A must wait for it, not remove
+# it. Without that same-lock check, A removes the lock the test holds: two
+# holders. The test releases its lock afterwards and A's call then lands.
+_mk_stall_stat() {  # DIR
+  cat > "$1/stat" << 'EOF'
+#!/bin/sh
+for a in "$@"; do last="$a"; done
+out=$("$REAL_STAT" "$@" 2>/dev/null); rc=$?
+case "$last" in
+  *tool-usage.json.lock)
+    if [ "$rc" = "0" ] && [ ! -e "$SHIM_DIR/started" ]; then
+      printf '%s\n' "$out"; : > "$SHIM_DIR/started"
+      i=0; while [ ! -e "$SHIM_DIR/go" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+      exit 0
+    fi
+    [ "$rc" = "0" ] && : > "$SHIM_DIR/rechecked" ;;
+esac
+[ "$rc" = "0" ] && printf '%s\n' "$out"
+exit "$rc"
+EOF
+  chmod +x "$1/stat"
+}
+_c27_round() {  # SCRIPTS_DIR — sets R_C27 to what did not hold
+  local d sh apid tok mid
+  R_C27=""
+  d=$(newtmp); _seed "$d"
+  : > "$d/.claude/tool-usage.json.lock"; _backdate "$d/.claude/tool-usage.json.lock"
+  sh="$d/.shim"; mkdir -p "$sh"; _mk_stall_stat "$sh"
+  printf '%s' "$FIND_PAYLOAD" > "$d/.payload"
+  ( cd "$d" && PATH="$sh:$PATH" SHIM_DIR="$sh" REAL_STAT="$REAL_STAT" "$BASH" "$1/track-tool-usage.sh" --event PostToolUse < "$d/.payload" > /dev/null 2>&1 ) &
+  apid=$!
+  if ! _await "$sh/started"; then
+    R_C27="A never read the stale lock (the case proves nothing);"
+    : > "$sh/go"; { wait "$apid"; } 2>/dev/null; return
+  fi
+  rm -f "$d/.claude/tool-usage.json.lock"; printf 'held by the test\n' > "$d/.claude/tool-usage.json.lock"
+  : > "$sh/go"
+  if ! _await "$sh/rechecked"; then R_C27="A never re-read the lock under the guard;"; fi
+  sleep 1
+  tok=$(cat "$d/.claude/tool-usage.json.lock" 2>/dev/null); mid=$(_calls "$d")
+  rm -f "$d/.claude/tool-usage.json.lock"
+  { wait "$apid"; } 2>/dev/null
+  [ "$tok" = "held by the test" ] || R_C27="$R_C27 the lock the test held was removed (it now holds [$tok]);"
+  [ "$mid" = "0" ] || R_C27="$R_C27 A wrote while the test held the lock (calls=$mid);"
+  [ "$(_calls "$d")" = "1" ] || R_C27="$R_C27 A's call did not land once the lock was released (calls=$(_calls "$d"));"
+}
+_c27_round "$REPO_ROOT/scripts"
+if [ -z "$R_C27" ]; then
+  pass "C27: a waiter that read a stale lock, which was then replaced by a held one, re-reads it under the break guard, leaves the held lock alone, waits, and lands its call once it is released"
+else
+  fail_ "C27" "$R_C27"
+fi
+
+# C27b: the guard is held through the re-read AND the remove (`## BL-358:`
+# R-358-2). Waiter A takes the break guard over a stale lock and is held on its
+# re-read, the answer taken first, as a process preempted there would be.
+# Waiter B arrives meanwhile and must wait on A's guard: the name still holds
+# the stale lock while A is held, and both rows land once A goes on. A guard
+# released before the re-read lets B break the lock and take it; A, resuming
+# with the time it read, then removes B's lock and writes beside it.
+_mk_reread_stat() {  # DIR — its second read of the lock that succeeds parks until DIR/go
+  cat > "$1/stat" << 'EOF'
+#!/bin/sh
+for a in "$@"; do last="$a"; done
+out=$("$REAL_STAT" "$@" 2>/dev/null); rc=$?
+case "$last" in
+  *tool-usage.json.lock)
+    if [ "$rc" = "0" ] && [ ! -e "$SHIM_DIR/parked" ]; then
+      n=$(cat "$SHIM_DIR/reads" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$SHIM_DIR/reads"
+      if [ "$n" -ge 2 ]; then
+        : > "$SHIM_DIR/parked"
+        i=0; while [ ! -e "$SHIM_DIR/go" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+      fi
+    fi ;;
+esac
+[ "$rc" = "0" ] && printf '%s\n' "$out"
+exit "$rc"
+EOF
+  chmod +x "$1/stat"
+}
+_mk_slow_jq() {  # DIR — a jq that reads its input at once and answers 2 s later
+  cat > "$1/jq" << 'EOF'
+#!/bin/sh
+out=$("$REAL_JQ" "$@"); rc=$?
+sleep 2
+[ -n "$out" ] && printf '%s\n' "$out"
+exit "$rc"
+EOF
+  chmod +x "$1/jq"
+}
+# _lw_add DIR LIB SHIM_DIR NAME — one _lw_update that appends NAME to calls[],
+# with SHIM_DIR first on PATH; prints rc=N.
+_lw_add() {
+  ( cd "$1" && PATH="$3:$PATH" SHIM_DIR="$3" REAL_STAT="$REAL_STAT" REAL_JQ="$REAL_JQ" LW_LIB="$2" \
+      "$BASH" -c 'TOOL_USAGE=.claude/tool-usage.json; . "$LW_LIB"; _lw_update --arg w "$1" ".calls += [\$w]"; echo "rc=$?"' _ "$4" )
+}
+_stale_at() {  # PATH — 0 when PATH is there and older than the 3 s budget
+  local m=""
+  [ -e "$1" ] || return 1
+  m=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || return 1
+  [ $(( $(date +%s) - m )) -gt 3 ]
+}
+_rows() { jq -r '.calls | sort | join(",")' "$1/.claude/tool-usage.json" 2>/dev/null; }
+_c27b_round() {  # LIB — sets R_C27B to what did not hold
+  local d="" sa="" sb="" pa="" pb="" held=0
+  R_C27B=""
+  d=$(newtmp); _seed "$d"
+  : > "$d/.claude/tool-usage.json.lock"; _backdate "$d/.claude/tool-usage.json.lock"
+  sa="$d/.sa"; sb="$d/.sb"; mkdir -p "$sa" "$sb"
+  _mk_reread_stat "$sa"; _mk_slow_jq "$sb"
+  _lw_add "$d" "$1" "$sa" A > "$d/.a" 2>&1 &
+  pa=$!
+  if ! _await "$sa/parked"; then
+    R_C27B="A never re-read the lock under the guard (the case proves nothing);"
+    : > "$sa/go"; { wait "$pa"; } 2>/dev/null; return
+  fi
+  _lw_add "$d" "$1" "$sb" B > "$d/.b" 2>&1 &
+  pb=$!
+  sleep 1
+  if _stale_at "$d/.claude/tool-usage.json.lock"; then held=1; else held=0; fi
+  : > "$sa/go"
+  { wait "$pa" "$pb"; } 2>/dev/null
+  [ "$held" = "1" ] || R_C27B="$R_C27B while A held the guard on its re-read, B broke the stale lock;"
+  [ "$(_rows "$d")" = "A,B" ] || R_C27B="$R_C27B rows kept [$(_rows "$d")] (want A,B);"
+  [ "$(cat "$d/.a" "$d/.b" 2>/dev/null | tr '\n' ' ')" = "rc=0 rc=0 " ] || R_C27B="$R_C27B $(cat "$d/.a" "$d/.b" 2>/dev/null | tr '\n' ' ')(want rc=0 rc=0);"
+}
+_c27b_round "$LIB"
+if [ -z "$R_C27B" ]; then
+  pass "C27b: a waiter held on its re-read under the break guard keeps a second waiter out: the stale lock stands until it goes on, and both rows land"
+else
+  fail_ "C27b" "$R_C27B"
+fi
+
+# ── C28: the break guard is honoured, and a stale one is cleared ───────────
+# A guard is planted beside a stale lock, as if another waiter were breaking
+# it. The event waits for that breaker instead of breaking the lock itself;
+# once the guard has been held for more than a budget it is taken for one a
+# killed breaker left, cleared, the lock broken, and the call lands — more
+# than one budget in, and well inside two.
+_c28_round() {  # SCRIPTS_DIR — sets R_HUNG R_SECS R_CALLS R_LOCK R_GUARD
+  local d; d=$(newtmp); _seed "$d"
+  : > "$d/.claude/tool-usage.json.lock"; _backdate "$d/.claude/tool-usage.json.lock"
+  : > "$d/.claude/tool-usage.json.lock.break"
+  _one_bounded "$d" "$1/track-tool-usage.sh" 12
+  if [ -e "$d/.claude/tool-usage.json.lock.break" ]; then R_GUARD=held; else R_GUARD=cleared; fi
+}
+_c28_round "$REPO_ROOT/scripts"
+if [ "$R_HUNG" = "0" ] && [ "$R_CALLS" = "1" ] && [ "$R_LOCK" = "cleared" ] && [ "$R_GUARD" = "cleared" ] \
+   && perl -e 'exit($ARGV[0] >= 3 ? 0 : 1)' "${R_SECS:-0}"; then
+  pass "C28: behind a stale lock whose break guard is held, the event waits ${R_SECS}s (not under the 3 s budget) for the guard, clears it, breaks the lock and lands its call"
+else
+  fail_ "C28" "hung=$R_HUNG secs=$R_SECS (want >= 3) calls=$R_CALLS (want 1) lock=$R_LOCK guard=$R_GUARD (want both cleared)"
+fi
+
+# C28b: a guard that cannot be cleared (a directory at its name) gives the lock
+# up after the one clear: the write is skipped and said so, in about a budget,
+# never waited on for ever. One _lw_put, so one wait.
+_stuck_guard_round() {  # LIB — sets R_HUNG R_SECS R_OUT R_SAME
+  local d before; d=$(newtmp); _seed "$d"
+  : > "$d/.claude/tool-usage.json.lock"; _backdate "$d/.claude/tool-usage.json.lock"
+  mkdir "$d/.claude/tool-usage.json.lock.break"
+  before=$(cat "$d/.claude/tool-usage.json")
+  printf '{"a": 1}\n' > "$d/.put"
+  _timed 8 "$d" "$d/.put" env LW_LIB="$1" "$BASH" -c 'TOOL_USAGE=.claude/tool-usage.json; . "$LW_LIB"; _lw_put; echo "rc=$?"'
+  if [ "$(cat "$d/.claude/tool-usage.json")" = "$before" ]; then R_SAME=1; else R_SAME=0; fi
+}
+_stuck_guard_round "$LIB"
+if [ "$R_HUNG" = "0" ] && [ "$R_OUT" = "rc=1" ] && [ "$R_SAME" = "1" ] \
+   && perl -e 'exit($ARGV[0] < 8 ? 0 : 1)' "${R_SECS:-99}"; then
+  pass "C28b: behind a stale lock whose break guard cannot be cleared, _lw_put gives the lock up after ${R_SECS}s and lands nothing (rc 1)"
+else
+  fail_ "C28b" "hung=$R_HUNG secs=$R_SECS out=[$R_OUT] (want rc=1 within 8 s) unchanged=$R_SAME"
+fi
+
+# C28c: the guard's clock belongs to one stale lock (`## BL-358:` R-358-1).
+# Waiter W meets a stale lock whose guard another waiter holds, so its guard
+# clock starts. That guard goes, and the lock is held fresh, re-taken every
+# half second for 4 s. W is held inside one read of the lock (its answer, a
+# fresh time, taken first); the lock is then left stale, as a killed holder
+# leaves it, and waiter Z takes the guard and is held on its re-read, between
+# that read and its remove. W goes on and meets the stale lock with Z's guard
+# held. Z's guard must survive it, Z breaks the lock alone, and both rows land.
+# A clock carried over from the first guard cleared Z's at once: W broke the
+# lock and took it, and Z, resuming, removed W's lock and wrote beside it.
+_mk_hold_stat() {  # DIR — notes DIR/seen on each read of the lock that succeeds; while DIR/hold exists, that read parks (its answer taken first)
+  cat > "$1/stat" << 'EOF'
+#!/bin/sh
+for a in "$@"; do last="$a"; done
+out=$("$REAL_STAT" "$@" 2>/dev/null); rc=$?
+case "$last" in
+  *tool-usage.json.lock)
+    if [ "$rc" = "0" ]; then
+      : > "$SHIM_DIR/seen"
+      if [ -e "$SHIM_DIR/hold" ]; then
+        : > "$SHIM_DIR/parked"
+        i=0; while [ -e "$SHIM_DIR/hold" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+      fi
+    fi ;;
+esac
+[ "$rc" = "0" ] && printf '%s\n' "$out"
+exit "$rc"
+EOF
+  chmod +x "$1/stat"
+}
+_c28c_round() {  # LIB — sets R_C28C to what did not hold
+  local d="" lk="" gd="" sw="" sz="" pw="" pz="" k=0 gz="" gw=""
+  R_C28C=""
+  d=$(newtmp); _seed "$d"
+  lk="$d/.claude/tool-usage.json.lock"; gd="$lk.break"
+  : > "$lk"; _backdate "$lk"; : > "$gd"
+  sw="$d/.sw"; sz="$d/.sz"; mkdir -p "$sw" "$sz"
+  _mk_hold_stat "$sw"; _mk_slow_jq "$sw"; _mk_reread_stat "$sz"; _mk_slow_jq "$sz"
+  _lw_add "$d" "$1" "$sw" W > "$d/.w" 2>&1 &
+  pw=$!
+  # W has read the stale lock; its look at the held guard follows at once.
+  if ! _await "$sw/seen"; then
+    R_C28C="W never read the lock (the case proves nothing);"
+    : > "$sz/go"; { wait "$pw"; } 2>/dev/null; return
+  fi
+  sleep 0.5
+  # That guard's breaker is done, and the lock is held fresh by short holders.
+  printf 'h\n' > "$d/.claude/nl"; mv -f "$d/.claude/nl" "$lk"; rm -f "$gd"
+  while [ "$k" -lt 8 ]; do sleep 0.5; printf 'h\n' > "$d/.claude/nl"; mv -f "$d/.claude/nl" "$lk"; k=$((k + 1)); done
+  : > "$sw/hold"
+  if ! _await "$sw/parked"; then
+    R_C28C="W was never held on a read of the fresh lock (the case proves nothing);"
+    rm -f "$sw/hold"; : > "$sz/go"; { wait "$pw"; } 2>/dev/null; return
+  fi
+  _backdate "$lk"
+  _lw_add "$d" "$1" "$sz" Z > "$d/.z" 2>&1 &
+  pz=$!
+  if ! _await "$sz/parked"; then
+    R_C28C="Z never re-read the lock under the guard (the case proves nothing);"
+    rm -f "$sw/hold"; : > "$sz/go"; { wait "$pw" "$pz"; } 2>/dev/null; return
+  fi
+  if [ -e "$gd" ]; then gz=held; else gz=absent; fi
+  rm -f "$sw/hold"
+  sleep 1
+  if [ -e "$gd" ]; then gw=held; else gw=cleared; fi
+  : > "$sz/go"
+  { wait "$pw" "$pz"; } 2>/dev/null
+  [ "$gz" = "held" ] || R_C28C="$R_C28C Z held no guard on its re-read (the case proves nothing);"
+  [ "$gw" = "held" ] || R_C28C="$R_C28C W cleared the guard Z held on its re-read;"
+  [ "$(_rows "$d")" = "W,Z" ] || R_C28C="$R_C28C rows kept [$(_rows "$d")] (want W,Z);"
+  [ "$(cat "$d/.w" "$d/.z" 2>/dev/null | tr '\n' ' ')" = "rc=0 rc=0 " ] || R_C28C="$R_C28C $(cat "$d/.w" "$d/.z" 2>/dev/null | tr '\n' ' ')(want rc=0 rc=0);"
+}
+_c28c_round "$LIB"
+if [ -z "$R_C28C" ]; then
+  pass "C28c: a waiter that met a guard on an earlier stale lock leaves alone the guard another waiter holds on the next one, between its re-read and its remove; both rows land"
+else
+  fail_ "C28c" "$R_C28C"
+fi
+
+# ── C29: the bursts under a mkdir like uutils coreutils 0.10.0 ─────────────
+# The defect `## BL-358:` records: uutils coreutils 0.10.0 (Ubuntu 26.04's
+# default) exits 0 when its mkdir(2) fails on a name that is a directory, so the
+# old `mkdir` lock let every waiter in. This mkdir does that on every call,
+# not only inside uutils' race window, so it shows on any host. The lock no
+# longer asks mkdir anything: C1's, C3's and C9's bursts lose nothing under it.
+_mk_uu_mkdir() {  # DIR
+  cat > "$1/mkdir" << EOF
+#!/bin/sh
+"$REAL_MKDIR" "\$@" 2>/dev/null && exit 0
+rc=\$?
+for t in "\$@"; do :; done
+[ -d "\$t" ] && exit 0
+exit "\$rc"
+EOF
+  chmod +x "$1/mkdir"
+}
+UU=$(newtmp); _mk_uu_mkdir "$UU"
+c29_probe=$(newtmp)
+( PATH="$UU:$PATH"; mkdir "$c29_probe/x" && mkdir "$c29_probe/x" ) 2>/dev/null; c29_shim_rc=$?
+if [ "$c29_shim_rc" != "0" ]; then
+  fail_ "C29 (meta)" "the uutils-0.10.0 mkdir does not report a second mkdir of one name as a success (rc=$c29_shim_rc); the case would prove nothing"
+else
+  C29_SAVED_PATH=$PATH
+  PATH="$UU:$PATH"
+  c29_fail=""
+  _concurrent_round "$TRACKER"
+  [ "$R_PARSES" = "1" ] && [ "$R_CALLS" = "$N" ] || c29_fail="$c29_fail C1: parses=$R_PARSES calls=$R_CALLS/$N;"
+  _commit_round "$TRACKER"
+  [ "$R_PARSES" = "1" ] && [ "$R_COMMITS" = "$N" ] || c29_fail="$c29_fail C3: parses=$R_PARSES commits=$R_COMMITS/$N;"
+  _wide_round "$TRACKER" 40
+  [ "$R_PARSES" = "1" ] && [ "$R_CALLS" = "40" ] || c29_fail="$c29_fail C9: parses=$R_PARSES calls=$R_CALLS/40;"
+  PATH=$C29_SAVED_PATH
+  if [ -z "$c29_fail" ]; then
+    pass "C29: under a mkdir that, like uutils coreutils 0.10.0, calls a lost race a win, $N concurrent finds keep $N rows, $N commits count $N, and 40 finds keep 40 rows"
+  else
+    fail_ "C29" "$c29_fail"
+  fi
 fi
 
 # ── Mutants ─────────────────────────────────────────────────────────────────
@@ -1224,7 +1696,7 @@ _mk_mutant() {
   MUT_DIR="$TOPTMP/mut-$1/scripts"
   mkdir -p "$MUT_DIR/lib"
   cp "$TRACKER" "$GATE" "$SESSION" "$MUT_DIR/"
-  cp "$LIB" "$MUT_DIR/lib/"
+  cp "$LIB" "$LOCKLIB" "$MUT_DIR/lib/"
   f="$MUT_DIR/$2"
   sites=$(_sites "$src" "$3")
   if [ "$sites" != "1" ]; then
@@ -1246,28 +1718,24 @@ _mk_mutant() {
   return 0
 }
 
-# M1: the shared temp name back. Only unlocked writes can collide on it, so
-# only C6's stuck arm, where every writer goes ahead unlocked, sees it.
+# M1: the shared temp name back. Since `## BL-358:` no write goes ahead without
+# the lock, so no burst can collide on it any more (C6's stuck arm, which used
+# to kill it, now skips every write). What the unique temp still guarantees is
+# that a write never touches a neighbour it did not create: C15's .tmp file.
 if _mk_mutant "M1" lib/ledger-write.sh "# BL-314-UNIQUE-TMP" \
      'tmp=$(mktemp "$TOOL_USAGE.lw.XXXXXX" 2>/dev/null) || tmp=""   # BL-314-UNIQUE-TMP' \
      'tmp="$TOOL_USAGE.tmp"   # BL-314-UNIQUE-TMP'; then
-  m1_killed=""
-  r=1
-  while [ "$r" -le 6 ] && [ -z "$m1_killed" ]; do
-    _stale_round "$MUT_DIR/track-tool-usage.sh" stuck
-    if [ "$R_PARSES" != "1" ] || [ "$R_BAD" != "0" ]; then m1_killed="round $r: parses=$R_PARSES bad=$R_BAD"; fi
-    r=$((r + 1))
-  done
-  if [ -n "$m1_killed" ]; then
-    pass "M1: the shared temp name is killed by C6's stuck arm ($m1_killed)"
+  _sweep_neighbours "$MUT_DIR/track-tool-usage.sh"
+  if [ "$R_LEFT" != "$C15_LEFT" ]; then
+    pass "M1: the shared temp name writes through a neighbour it did not create (C15 left=[$R_LEFT])"
   else
-    fail_ "M1" "shared temp name survived 6 stuck-lock rounds; C6 does not discriminate"
+    fail_ "M1" "the .tmp neighbour survived the shared temp name; C15 does not discriminate"
   fi
 fi
 
 # M2: the lock is never taken.
 if _mk_mutant "M2" lib/ledger-write.sh "# BL-314-LOCK" \
-     'while ! mkdir "$TOOL_USAGE.lockdir" 2>/dev/null; do   # BL-314-LOCK' \
+     'while ! soif_lock_try "$TOOL_USAGE.lock"; do   # BL-314-LOCK' \
      'while false; do   # BL-314-LOCK'; then
   m2_killed=""
   r=1
@@ -1289,11 +1757,11 @@ fi
 
 # M4: a stale lock is never broken.
 if _mk_mutant "M4" lib/ledger-write.sh "# BL-314-BREAK-STALE" \
-     'rmdir "$TOOL_USAGE.lockdir" 2>/dev/null || :   # BL-314-BREAK-STALE' \
+     '[ "$(_lw_mtime "$TOOL_USAGE.lock")" = "$mt" ] && soif_lock_release "$TOOL_USAGE.lock" || :   # BL-314-BREAK-STALE' \
      ':   # BL-314-BREAK-STALE'; then
   _single_stale "$MUT_DIR/track-tool-usage.sh"
   if [ "$R_LOCK" = "held" ]; then
-    pass "M4: without the breaker a stale lock outlives the write (calls=$R_CALLS, lock=$R_LOCK), so every later write waits out the budget"
+    pass "M4: without the breaker a stale lock outlives the write (calls=$R_CALLS, lock=$R_LOCK), so every later write is skipped"
   else
     fail_ "M4" "lock=$R_LOCK with the breaker removed; C7 does not discriminate"
   fi
@@ -1348,9 +1816,9 @@ if _mk_mutant "MG" lib/ledger-write.sh "# BL-314-NONEMPTY" \
   fi
 fi
 
-# MN: every mkdir failure read as contention again.
+# MN: every failed take read as contention again.
 if _mk_mutant "MN" lib/ledger-write.sh "# BL-314-NOT-EEXIST" \
-     '[ -e "$TOOL_USAGE.lockdir" ] || return 1   # BL-314-NOT-EEXIST' \
+     '[ -e "$TOOL_USAGE.lock" ] || return 1   # BL-314-NOT-EEXIST' \
      ':   # BL-314-NOT-EEXIST'; then
   c16_fail=""; c16_skip=""
   c16_shape "gate/EACCES/unsatisfied" deny "$MUT_DIR/session-mcp-gate.sh" unsatisfied
@@ -1380,7 +1848,7 @@ if _mk_mutant "MS" lib/ledger-write.sh "# BL-314-SWEEP-GLOB" \
      '"$TOOL_USAGE".lw.??????; do' \
      '"$TOOL_USAGE".??????; do'; then
   _sweep_neighbours "$MUT_DIR/track-tool-usage.sh"
-  if [ "$R_LEFT" != "tool-usage.json.backup tool-usage.json.bak " ]; then
+  if [ "$R_LEFT" != "$C15_LEFT" ]; then
     pass "MS: the wide glob deletes a neighbour or keeps an aged temp (left=[$R_LEFT])"
   else
     fail_ "MS" "the wide glob left the same files; C15 does not discriminate"
@@ -1420,7 +1888,7 @@ fi
 
 # MX5: SessionStart's whole-ledger write takes no lock.
 if _mk_mutant "MX5" lib/ledger-write.sh "# BL-314-PUT-LOCK" \
-     '_lw_lock || :   # BL-314-PUT-LOCK' \
+     '_lw_lock || return 1   # BL-314-PUT-LOCK' \
      ':   # BL-314-PUT-LOCK'; then
   _startup_race "$MUT_DIR/session-test-gate-check.sh" "$MUT_DIR/track-tool-usage.sh"
   if [ "$R_Q" = "true" ] || [ "$R_C" = "true" ]; then
@@ -1442,7 +1910,7 @@ _mk_mutant_line() {
   else
     mkdir -p "$MUT_DIR/lib"
     cp "$TRACKER" "$GATE" "$SESSION" "$MUT_DIR/"
-    cp "$LIB" "$MUT_DIR/lib/"
+    cp "$LIB" "$LOCKLIB" "$MUT_DIR/lib/"
   fi
   f="$MUT_DIR/$2"
   sites=$(_num "$(grep -c -F -- "$3" "$src")")
@@ -1467,8 +1935,8 @@ _mk_mutant_line() {
 
 # MSL: the seed written without the lock.
 if _mk_mutant "MSL" track-tool-usage.sh "# BL-314-SEED-LOCK" \
-     '_lw_lock   # BL-314-SEED-LOCK' \
-     ':   # BL-314-SEED-LOCK'; then
+     'if _lw_lock && _ledger_unusable; then   # BL-314-SEED-LOCK' \
+     'if _ledger_unusable; then   # BL-314-SEED-LOCK'; then
   msl_killed=""
   r=1
   while [ "$r" -le 3 ] && [ -z "$msl_killed" ]; do
@@ -1560,27 +2028,25 @@ $C18_MUTANTS
 EOF
 [ "$mw_killed" = "$mw_total" ] && pass "MW: each of $mw_total write sites, made to write without the lock, loses the racing row (C18, one arm each)"
 
-# ML38: _lw_put reports success on a failed write.
+# ML38: _lw_put reports success on a failed write. Since `## BL-358:` an
+# unwritable .claude stops the write at the lock, before _lw_land, so the
+# killer is C19e's failing mktemp under a lock that was taken.
 if _mk_mutant_line "ML38" lib/ledger-write.sh '_lw_land cat || rc=$?' '_lw_land cat || :'; then
-  _unlandable_round "$MUT_DIR/session-test-gate-check.sh"
-  if [ -n "$R_UNL_FAIL" ]; then
-    pass "ML38: a _lw_put that swallows its failure lets an unlandable SessionStart exit 0 ($R_UNL_FAIL)"
-  elif [ -n "$R_UNL_SKIP" ]; then
-    skip_ "ML38" "EACCES cannot be made here"
+  _mktemp_fail_round "$MUT_DIR/lib/ledger-write.sh"
+  if [ "$R_RC" != "1" ]; then
+    pass "ML38: a _lw_put that swallows its failure returns rc=$R_RC on a write that failed (C19e)"
   else
-    fail_ "ML38" "SessionStart still ended non-zero; C19 does not discriminate"
+    fail_ "ML38" "_lw_put still returned 1; C19e does not discriminate"
   fi
 fi
 
 # ML25: a mktemp failure read as success.
 if _mk_mutant_line "ML25" lib/ledger-write.sh '[ -n "$tmp" ] || return 1' '[ -n "$tmp" ] || return 0'; then
-  _unlandable_round "$MUT_DIR/session-test-gate-check.sh"
-  if [ -n "$R_UNL_FAIL" ]; then
-    pass "ML25: a mktemp failure read as success lets an unlandable SessionStart exit 0 ($R_UNL_FAIL)"
-  elif [ -n "$R_UNL_SKIP" ]; then
-    skip_ "ML25" "EACCES cannot be made here"
+  _mktemp_fail_round "$MUT_DIR/lib/ledger-write.sh"
+  if [ "$R_RC" != "1" ]; then
+    pass "ML25: a mktemp failure read as success makes _lw_put return rc=$R_RC (C19e)"
   else
-    fail_ "ML25" "SessionStart still ended non-zero; C19 does not discriminate"
+    fail_ "ML25" "_lw_put still returned 1; C19e does not discriminate"
   fi
 fi
 
@@ -1606,7 +2072,7 @@ if _mk_mutant "MT02" track-tool-usage.sh "# BL-314-NOLIB-LOUD" \
 fi
 
 # MT03: the lib-less tracker's message silenced.
-if _mk_mutant_line "MT03" track-tool-usage.sh '    echo "track-tool-usage.sh: ' '    : "track-tool-usage.sh: '; then
+if _mk_mutant_line "MT03" track-tool-usage.sh '    echo "track-tool-usage.sh: $SCRIPT_DIR/lib/ledger-write.sh' '    : "track-tool-usage.sh: $SCRIPT_DIR/lib/ledger-write.sh'; then
   _nolib_round "$MUT_DIR/track-tool-usage.sh"
   if [ -n "$R_NOLIB" ]; then
     pass "MT03: a lib-less tracker that says nothing is seen ($R_NOLIB)"
@@ -1657,6 +2123,29 @@ else
   fail_ "MGI" "$mgi_fail"
 fi
 
+# MGL: each ignore file without one of its two lock lines (`## BL-358:`,
+# exactly that line removed): the lock file it names becomes committable.
+mgl_fail=""
+for gi in "$REPO_ROOT/.gitignore" "$REPO_ROOT/templates/generated/gitignore-base.tmpl"; do
+  for mgl_pair in '.claude/*.json.lock|.claude/process-state.json.lock' '.claude/tool-usage.json.lock.break|.claude/tool-usage.json.lock.break'; do
+    mgl_line=${mgl_pair%%|*}; mgl_probe=${mgl_pair#*|}
+    d=$(newtmp)
+    ( cd "$d" && git init -q ) > /dev/null 2>&1
+    grep -v -x -F "$mgl_line" "$gi" > "$d/.gitignore"
+    mgl_removed=$(_changed_lines "$gi" "$d/.gitignore")
+    if [ "$mgl_removed" != "1" ]; then
+      mgl_fail="$mgl_fail ${gi#"$REPO_ROOT"/} without $mgl_line: removed $mgl_removed lines (want 1);"
+    elif ( cd "$d" && git check-ignore -q "$mgl_probe" ); then
+      mgl_fail="$mgl_fail ${gi#"$REPO_ROOT"/}: $mgl_probe still ignored without $mgl_line;"
+    fi
+  done
+done
+if [ -z "$mgl_fail" ]; then
+  pass "MGL: without either of its two lock lines, neither ignore file ignores the lock file that line names (C22 discriminates)"
+else
+  fail_ "MGL" "$mgl_fail"
+fi
+
 # MRF: a failed startup reset no longer empties the ledger.
 if _mk_mutant "MRF" session-test-gate-check.sh "# BL-314-RESET-FAIL-CLOSED" \
      'if { : > "$TOOL_USAGE"; } 2>/dev/null; then   # BL-314-RESET-FAIL-CLOSED' \
@@ -1701,6 +2190,280 @@ if _mk_mutant "MLS" session-test-gate-check.sh "# BL-314-SESSION-LIB-TRIAL" \
     *session*) pass "MLS: with a bare [ -f ], an unloadable lib breaks SessionStart before its note ($R_BAD25)" ;;
     *) fail_ "MLS" "SessionStart stayed loud with the trial removed; C25 does not discriminate" ;;
   esac
+fi
+
+# ── `## BL-358:` mutants ────────────────────────────────────────────────────
+# MLL: the lib loads without lib/lock.sh, as if the lock were optional.
+if _mk_mutant "MLL" lib/ledger-write.sh "# BL-358-LW-LOCK-LIB" \
+     '>/dev/null 2>&1 || return 1   # BL-358-LW-LOCK-LIB' \
+     '>/dev/null 2>&1 || :   # BL-358-LW-LOCK-LIB'; then
+  _badlib_round "$MUT_DIR" "$MUT_DIR/lib/ledger-write.sh"
+  case "$R_BAD25" in
+    *nolock/*) pass "MLL: a lib that loads without lib/lock.sh is no longer reported missing (C25's nolock shape:$R_BAD25)" ;;
+    *) fail_ "MLL" "the nolock shape stayed as loud as a missing lib with the requirement removed; C25 does not discriminate" ;;
+  esac
+fi
+
+# MUL: _lw_update back to `_lw_lock || :` — the write made without the lock.
+if _mk_mutant "MUL" lib/ledger-write.sh "# BL-358-NO-UNLOCKED-WRITE" \
+     '_lw_lock || return 1   # BL-358-NO-UNLOCKED-WRITE' \
+     '_lw_lock || :   # BL-358-NO-UNLOCKED-WRITE'; then
+  _c26_round "$MUT_DIR"
+  case "$R_C26" in
+    *"find: the ledger changed"*"did not fail closed"*) pass "MUL: with \`_lw_lock || :\` the stuck lock's writes land unlocked and the MCP check lets the next Write through (C26:$R_C26)" ;;
+    *) fail_ "MUL" "C26 did not see the unlocked write and the open check ($R_C26)" ;;
+  esac
+fi
+
+# MUP: _lw_put back to `_lw_lock || :`.
+if _mk_mutant "MUP" lib/ledger-write.sh "# BL-314-PUT-LOCK" \
+     '_lw_lock || return 1   # BL-314-PUT-LOCK' \
+     '_lw_lock || :   # BL-314-PUT-LOCK'; then
+  _c26_round "$MUT_DIR"
+  case "$R_C26" in
+    *"put: "*) pass "MUP: with \`_lw_lock || :\` a whole-ledger write lands behind a lock it never took (C26:$R_C26)" ;;
+    *) fail_ "MUP" "C26's put arm held with the lock optional; it does not discriminate" ;;
+  esac
+fi
+
+# MMP, MMF, MMS, MMY, MMN: SessionStart's failed merge (R-358-4) — its failed
+# fallback write ends the hook again under `set -e`; the ledger is not emptied;
+# the extra requirements are not kept to be named; the stderr line and the
+# stdout line silenced. Each is killed by C26's resume arm. The fields are split
+# on `@`, which none of them holds (the first holds `||`).
+for mm_spec in \
+  "MMP@# BL-358-MERGE-PUT@_lw_put << TUEOF || LW_MERGE_FAILED=1   # BL-358-MERGE-PUT@_lw_put << TUEOF   # BL-358-MERGE-PUT@resume: rc=" \
+  "MMF@# BL-358-MERGE-FAIL-CLOSED@if { : > \"\$TOOL_USAGE\"; } 2>/dev/null; then   # BL-358-MERGE-FAIL-CLOSED@if false; then   # BL-358-MERGE-FAIL-CLOSED@resume: the next Write was allowed" \
+  "MMS@# BL-358-MERGE-SNAP@_add_snap \"\$TOOL_USAGE\" \"the ledger could not be written@: \"\$TOOL_USAGE\" \"the ledger could not be written@resume: the extra requirement" \
+  "MMY@# BL-358-MERGE-SAY@echo \"session-test-gate-check.sh: \$LW_MERGE_NOTE\" >&2@: \"session-test-gate-check.sh: \$LW_MERGE_NOTE\" >&2@resume: stderr does not say" \
+  "MMN@# BL-358-MERGE-NOTE@echo \"MCP LEDGER NOT WRITTEN: \$LW_MERGE_NOTE\"@: \"MCP LEDGER NOT WRITTEN: \$LW_MERGE_NOTE\"@resume: stdout does not say"; do
+  IFS='@' read -r mm_id mm_marker mm_find mm_repl mm_want << EOF
+$mm_spec
+EOF
+  if _mk_mutant "$mm_id" session-test-gate-check.sh "$mm_marker" "$mm_find" "$mm_repl"; then
+    _c26_round "$MUT_DIR"
+    case "$R_C26" in
+      *"$mm_want"*) pass "$mm_id: C26's resume arm sees it ($R_C26)" ;;
+      *) fail_ "$mm_id" "C26's resume arm did not report [$mm_want] ($R_C26); it does not discriminate" ;;
+    esac
+  fi
+done
+
+# MSK: the skip message silenced.
+if _mk_mutant "MSK" lib/ledger-write.sh "# BL-358-SKIP-LOUD" \
+     '  echo "ledger-write.sh: could not take' \
+     '  : "ledger-write.sh: could not take'; then
+  _c26_round "$MUT_DIR"
+  case "$R_C26" in
+    *"does not say the write was skipped"*) pass "MSK: a silent skip is seen (C26)" ;;
+    *) fail_ "MSK" "C26 did not see the skip message go; it does not discriminate" ;;
+  esac
+fi
+
+# MTX: the tracker exits 0 after a skipped write.
+if _mk_mutant "MTX" track-tool-usage.sh "# BL-358-TRACKER-LOUD" \
+     '[ "${LW_SKIPPED:-0}" = "1" ] && exit 1   # BL-358-TRACKER-LOUD' \
+     ':   # BL-358-TRACKER-LOUD'; then
+  _c26_round "$MUT_DIR"
+  case "$R_C26" in
+    *"rc=0 (want 1)"*) pass "MTX: a tracker that exits 0 after skipping its write is seen (C26:$R_C26)" ;;
+    *) fail_ "MTX" "C26 did not see the exit code change; it does not discriminate" ;;
+  esac
+fi
+
+# MRN: the agent report no longer says the call was not recorded.
+if _mk_mutant "MRN" track-tool-usage.sh "# BL-358-REPORT-NOTE" \
+     '[ "${LW_SKIPPED:-0}" = "1" ] && TT_NOTE=' \
+     'false && TT_NOTE='; then
+  _c26_round "$MUT_DIR"
+  case "$R_C26" in
+    *"report: "*) pass "MRN: a report that still says RECORDED after a skipped write is seen (C26)" ;;
+    *) fail_ "MRN" "C26's report arm held with the note gone; it does not discriminate" ;;
+  esac
+fi
+
+# MCL: the commit counter written without the lock.
+if _mk_mutant "MCL" track-tool-usage.sh "# BL-358-COMMIT-LOCK" \
+     'if _lw_lock; then   # BL-358-COMMIT-LOCK' \
+     'if :; then   # BL-358-COMMIT-LOCK'; then
+  _c26_round "$MUT_DIR"
+  case "$R_C26" in
+    *"commit: "*) pass "MCL: a commit counted without the lock is seen (C26:$R_C26)" ;;
+    *) fail_ "MCL" "C26's commit arm held with the lock skipped; it does not discriminate" ;;
+  esac
+fi
+
+# MBS: the break removes whatever lock is there, not the one it read stale.
+if _mk_mutant "MBS" lib/ledger-write.sh "# BL-314-BREAK-STALE" \
+     '[ "$(_lw_mtime "$TOOL_USAGE.lock")" = "$mt" ] && soif_lock_release' \
+     'soif_lock_release'; then
+  _c27_round "$MUT_DIR"
+  if [ -n "$R_C27" ]; then
+    pass "MBS: without the same-lock check a waiter removes a lock another holder took after its read (C27:$R_C27)"
+  else
+    fail_ "MBS" "the held lock survived without the check; C27 does not discriminate"
+  fi
+fi
+
+# MBG: the break without its guard; MGS: a stale guard never cleared.
+if _mk_mutant "MBG" lib/ledger-write.sh "# BL-358-BREAK-GUARD" \
+     'if soif_lock_try "$TOOL_USAGE.lock.break"; then' \
+     'if true; then'; then
+  _c28_round "$MUT_DIR"
+  if [ "$R_HUNG" = "0" ] && perl -e 'exit($ARGV[0] < 3 ? 0 : 1)' "${R_SECS:-9}"; then
+    pass "MBG: without the guard a held break guard is ignored and the lock broken at once (${R_SECS}s; C28)"
+  else
+    fail_ "MBG" "hung=$R_HUNG secs=$R_SECS: the event still waited for the guard; C28 does not discriminate"
+  fi
+fi
+if _mk_mutant "MGS" lib/ledger-write.sh "# BL-358-GUARD-STALE" \
+     'soif_lock_release "$TOOL_USAGE.lock.break" || :   # BL-358-GUARD-STALE' \
+     ':   # BL-358-GUARD-STALE'; then
+  _c28_round "$MUT_DIR"
+  if [ "$R_CALLS" != "1" ] || [ "$R_GUARD" = "held" ]; then
+    pass "MGS: a guard a killed breaker left is never cleared, so the stale lock is never broken (calls=$R_CALLS guard=$R_GUARD; C28)"
+  else
+    fail_ "MGS" "the call landed with the clearing removed; C28 does not discriminate"
+  fi
+fi
+
+# MGR: the guard is never released after a break. C11's event breaks the lock a
+# SIGKILL left, so the guard it took is left beside the ledger.
+if _mk_mutant "MGR" lib/ledger-write.sh "# BL-358-GUARD-RELEASE" \
+     'soif_lock_release "$TOOL_USAGE.lock.break" || :   # BL-358-GUARD-RELEASE' \
+     ':   # BL-358-GUARD-RELEASE'; then
+  _signal_round "$MUT_DIR/track-tool-usage.sh" KILL '.calls +='
+  # shellcheck disable=SC2046
+  _backdate "$R_DIR/.claude/tool-usage.json.lock" $(ls -d "$R_DIR"/.claude/tool-usage.json.* 2>/dev/null)
+  _run_one "$R_DIR" "$MUT_DIR/track-tool-usage.sh" "$FIND_PAYLOAD"
+  mgr_debris=$(_debris "$R_DIR")
+  case "$mgr_debris" in
+    *tool-usage.json.lock.break*) pass "MGR: a guard never released after a break is left behind ([$mgr_debris]; C11)" ;;
+    *) fail_ "MGR" "no guard was left ([$mgr_debris]); C11 does not discriminate" ;;
+  esac
+fi
+
+# MGW: the guard's wait restarts on every look; MGA: any held guard is cleared at
+# once. Both are killed by C28 — one waits for ever, the other not at all.
+if _mk_mutant "MGW" lib/ledger-write.sh "# BL-358-GUARD-WAIT" \
+     '[ -n "$gwait" ] || gwait=$now   # BL-358-GUARD-WAIT' \
+     'gwait=$now   # BL-358-GUARD-WAIT'; then
+  _c28_round "$MUT_DIR"
+  if [ "$R_HUNG" = "1" ] || [ "$R_CALLS" != "1" ]; then
+    pass "MGW: a guard wait that restarts on every look never ends (hung=$R_HUNG calls=$R_CALLS; C28)"
+  else
+    fail_ "MGW" "the call landed with the wait restarting; C28 does not discriminate"
+  fi
+fi
+if _mk_mutant "MGA" lib/ledger-write.sh "# BL-358-GUARD-AGE" \
+     'if [ $((now - gwait)) -gt "$LW_BUDGET" ]; then   # BL-358-GUARD-AGE' \
+     'if true; then   # BL-358-GUARD-AGE'; then
+  _c28_round "$MUT_DIR"
+  if [ "$R_HUNG" = "0" ] && perl -e 'exit($ARGV[0] < 3 ? 0 : 1)' "${R_SECS:-9}"; then
+    pass "MGA: a held guard cleared on sight lets the lock break at once (${R_SECS}s; C28)"
+  else
+    fail_ "MGA" "hung=$R_HUNG secs=$R_SECS: the guard was still waited for; C28 does not discriminate"
+  fi
+fi
+
+# MGC: no give-up after the one clear; MGO: the clear never counted. Behind a
+# guard that cannot be cleared, both wait for ever: killed by C28b.
+if _mk_mutant "MGC" lib/ledger-write.sh "# BL-358-GUARD-GIVE-UP" \
+     '[ "$gcleared" = "1" ] && return 1   # BL-358-GUARD-GIVE-UP' \
+     ':   # BL-358-GUARD-GIVE-UP'; then
+  _stuck_guard_round "$MUT_DIR/lib/ledger-write.sh"
+  if [ "$R_HUNG" = "1" ]; then pass "MGC: without the give-up, a guard that cannot be cleared holds _lw_put past 8 s (C28b)"
+  else fail_ "MGC" "_lw_put finished (out=[$R_OUT]) with the give-up removed; C28b does not discriminate"; fi
+fi
+if _mk_mutant "MGO" lib/ledger-write.sh "# BL-358-GUARD-ONCE" \
+     'gcleared=1   # BL-358-GUARD-ONCE' \
+     ':   # BL-358-GUARD-ONCE'; then
+  _stuck_guard_round "$MUT_DIR/lib/ledger-write.sh"
+  if [ "$R_HUNG" = "1" ]; then pass "MGO: a clear that is never counted repeats for ever behind a guard that cannot be cleared (C28b)"
+  else fail_ "MGO" "_lw_put finished (out=[$R_OUT]) with the count removed; C28b does not discriminate"; fi
+fi
+
+# MGE: the guard's clock carried from one stale lock to the next (R-358-1).
+if _mk_mutant "MGE" lib/ledger-write.sh "# BL-358-GUARD-EPISODE" \
+     'gwait=""   # BL-358-GUARD-EPISODE' \
+     ':   # BL-358-GUARD-EPISODE'; then
+  _c28c_round "$MUT_DIR/lib/ledger-write.sh"
+  if [ -n "$R_C28C" ]; then
+    pass "MGE: a guard clock carried over from an earlier stale lock clears a live breaker's guard (C28c:$R_C28C)"
+  else
+    fail_ "MGE" "both rows landed and the guard survived with the clock carried over; C28c does not discriminate"
+  fi
+fi
+
+# _mk_mutant_swap NAME RELFILE MARKER_A MARKER_B — as _mk_mutant, for a mutant
+# that exchanges two lines: MARKER_A's and MARKER_B's, which must be the line
+# right after it. The mutant must be the file with exactly those two lines
+# exchanged, which is checked line by line: diff prints a swap as a delete and
+# an add, not as one changed hunk.
+_mk_mutant_swap() {
+  local src="$REPO_ROOT/scripts/$2" f="" la="" lb="" rest=""
+  MUT_DIR="$TOPTMP/mut-$1/scripts"
+  mkdir -p "$MUT_DIR/lib"
+  cp "$TRACKER" "$GATE" "$SESSION" "$MUT_DIR/"
+  cp "$LIB" "$LOCKLIB" "$MUT_DIR/lib/"
+  f="$MUT_DIR/$2"
+  if [ "$(_sites "$src" "$3")" != "1" ] || [ "$(_sites "$src" "$4")" != "1" ]; then
+    fail_ "$1" "'$3' and '$4' need one end-of-line site each in $2; the mutant cannot be placed"
+    return 1
+  fi
+  la=$(grep -n -- "$3\$" "$src" | cut -d: -f1)
+  lb=$(grep -n -- "$4\$" "$src" | cut -d: -f1)
+  if [ "$lb" != "$((la + 1))" ]; then
+    fail_ "$1" "'$4' is on line $lb, not on the line after '$3' ($la); the swap cannot be placed"
+    return 1
+  fi
+  MUT_LA="$la" perl -ne 'if ($. == $ENV{MUT_LA}) { $held = $_; next } print; if (defined $held) { print $held; undef $held }' "$src" > "$f"
+  rest=$(newtmp)
+  sed "${la}d;${lb}d" "$src" > "$rest/src"; sed "${la}d;${lb}d" "$f" > "$rest/mut"
+  if [ "$(sed -n "${la}p" "$src")" = "$(sed -n "${lb}p" "$src")" ] \
+     || [ "$(sed -n "${la}p" "$f")" != "$(sed -n "${lb}p" "$src")" ] || [ "$(sed -n "${lb}p" "$f")" != "$(sed -n "${la}p" "$src")" ] \
+     || [ "$(wc -l < "$f")" != "$(wc -l < "$src")" ] || ! cmp -s "$rest/src" "$rest/mut"; then
+    fail_ "$1" "the mutant is not $2 with lines $la and $lb exchanged; it did not land where claimed"
+    return 1
+  fi
+  if ! "$BASH" -n "$f" 2>/dev/null; then
+    fail_ "$1" "mutant does not parse"
+    return 1
+  fi
+  return 0
+}
+
+# MGX: the guard released before the re-read and the remove (R-358-2): the two
+# lines exchanged, so the guard covers neither.
+if _mk_mutant_swap "MGX" lib/ledger-write.sh "# BL-314-BREAK-STALE" "# BL-358-GUARD-RELEASE"; then
+  _c27b_round "$MUT_DIR/lib/ledger-write.sh"
+  if [ -n "$R_C27B" ]; then
+    pass "MGX: a guard released before the re-read lets a second waiter break the lock under the first (C27b:$R_C27B)"
+  else
+    fail_ "MGX" "the stale lock stood and both rows landed with the guard released first; C27b does not discriminate"
+  fi
+fi
+
+# MSF: the skip no longer flagged, so the tracker exits 0 and its report claims
+# the call was recorded.
+if _mk_mutant_line "MSF" lib/ledger-write.sh '  LW_SKIPPED=1' '  :'; then
+  _c26_round "$MUT_DIR"
+  case "$R_C26" in
+    *"rc=0 (want 1)"*"report: "*) pass "MSF: an unflagged skip exits 0 and reports the call as recorded (C26)" ;;
+    *) fail_ "MSF" "C26 did not see the flag go ($R_C26)" ;;
+  esac
+fi
+
+# MV03, MV04: verify-install's lock row pointed elsewhere, and its fixer disabled.
+if _mk_mutant_line "MV03" verify-install.sh '    "scripts/lib/lock.sh"' '    "scripts/lib/accumulation.sh"' full; then
+  _vi_round "$MUT_DIR/verify-install.sh" "$REPO_ROOT"
+  if [ "$R_LROW" = "0" ]; then pass "MV03: with the row pointed at another lib, a missing lib/lock.sh goes unreported (C21)"
+  else fail_ "MV03" "the lock row was still reported; C21 does not discriminate"; fi
+fi
+if _mk_mutant_line "MV04" verify-install.sh 'fix_lib_copy_lock()              { if has_source' 'fix_lib_copy_lock()              { if false' full; then
+  _vi_round "$MUT_DIR/verify-install.sh" "$REPO_ROOT"
+  if [ "$R_LFIXED" = "0" ]; then pass "MV04: with its fixer disabled, lib/lock.sh is not restored (C21)"
+  else fail_ "MV04" "lib/lock.sh was still restored; C21 does not discriminate"; fi
 fi
 
 echo ""

@@ -943,6 +943,19 @@ _run_idempotent_backfill() {
         printf '.claude/claude-commits.jsonl\n'
       } >> .gitignore && _bl174_added=1 || true
     fi
+    # `## BL-358:` the lock files of scripts/lib/lock.sh, which this sync
+    # brings. A SIGKILL can leave one, and a committed one holds every clone's
+    # writers: the phase-gate and audit writers never break a stale lock.
+    if ! grep -qxF '.claude/*.json.lock' .gitignore 2>/dev/null; then
+      {
+        printf '\n# BL-358: the lock files of scripts/lib/lock.sh. A SIGKILL can leave one;\n'
+        printf '# committed, it would hold every clone'"'"'s writers.\n'
+        printf '.claude/*.json.lock\n'
+      } >> .gitignore && _bl174_added=1 || true   # BL-358-GITIGNORE-BACKFILL
+    fi
+    if ! grep -qxF '.claude/tool-usage.json.lock.break' .gitignore 2>/dev/null; then
+      printf '.claude/tool-usage.json.lock.break\n' >> .gitignore && _bl174_added=1 || true
+    fi
     if [ "$_bl174_added" -eq 1 ]; then
       print_ok "gitignore sidecar ignore-lines backfilled (BL-174)"
     fi
@@ -1001,11 +1014,15 @@ _run_idempotent_backfill() {
   #     refuses every question, and a bypass-audit.sh from before BL-320 has no
   #     reader for the user's picks. A tier change refreshes the writer below,
   #     so the libs it needs ship here, for every path.
+  #   • scripts/lib/lock.sh — `## BL-358:` bypass-audit.sh and
+  #     run-phase3-validation.sh, both refreshed here, refuse every write
+  #     without the lock it defines.
   if [ -d scripts ]; then
     mkdir -p scripts/lib
     _bl088_list="lib/tdd-classify.sh lib/phase2-state.sh lib/cdf-refresh.sh run-phase3-validation.sh"
     _bl088_list="$_bl088_list lib/guardrails.sh"   # BL-320-UP-CLOSURE-GR
     _bl088_list="$_bl088_list lib/bypass-audit.sh lib/bypass-patterns.sh"   # BL-320-UP-CLOSURE-BA
+    _bl088_list="$_bl088_list lib/lock.sh"   # BL-358-UP-CLOSURE-LOCK
     for _bl088_rel in $_bl088_list; do
       _bl088_src="$SCRIPT_DIR/$_bl088_rel"
       _bl088_dst="scripts/$_bl088_rel"

@@ -84,6 +84,40 @@ setup_lib_or_skip "T5" && {
 }
 teardown
 
+# T5b: `## BL-358:` the same burst under a mkdir that, like uutils coreutils
+# 0.10.0 (Ubuntu 26.04's default coreutils), reports success when its mkdir(2)
+# fails on a name that is a directory. The old `mkdir "$file.lockdir"` lock let
+# every appender in at once there; the lock (scripts/lib/lock.sh) no longer
+# asks mkdir anything.
+echo "T5b: concurrent appends all land under a uutils-0.10.0-like mkdir"
+setup
+setup_lib_or_skip "T5b" && {
+  UU="$TMP/uu"; mkdir -p "$UU"
+  REAL_MKDIR=$(command -v mkdir)
+  cat > "$UU/mkdir" << EOF
+#!/bin/sh
+"$REAL_MKDIR" "\$@" 2>/dev/null && exit 0
+rc=\$?
+for t in "\$@"; do :; done
+[ -d "\$t" ] && exit 0
+exit "\$rc"
+EOF
+  chmod +x "$UU/mkdir"
+  if ! ( PATH="$UU:$PATH"; mkdir "$TMP/probe" && mkdir "$TMP/probe" ) 2>/dev/null; then
+    fail_ "T5b (meta)" "the uutils-like mkdir does not report a second mkdir of one name as a success; T5b would prove nothing"
+  else
+    bypass_audit_init "$TMP"
+    ROW='{"type":"claude_bypass_proposal","actor":"claude","timestamp":"2026-04-28T00:00:00Z","enforcement_level_at_event":"strict","details":{"i":0},"user_response":"PENDING","final_outcome":"recorded_only"}'
+    for i in $(seq 1 10); do
+      ( PATH="$UU:$PATH"; bypass_audit_append "$TMP" "$ROW" ) &
+    done
+    wait
+    count=$(jq 'length' "$TMP/.claude/bypass-audit.json")
+    if [ "$count" = "10" ]; then pass "T5b"; else fail_ "T5b" "expected 10, got $count under the uutils-like mkdir"; fi
+  fi
+}
+teardown
+
 # T6: bypass_audit_count_pending returns the number of rows whose user_response is "PENDING".
 echo "T6: bypass_audit_count_pending counts PENDING rows"
 setup

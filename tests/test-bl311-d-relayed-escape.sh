@@ -334,7 +334,7 @@ mutate() {
 derive() {
   local dd="" changed=""
   mkdir -p "$2/scripts/hooks" "$2/scripts/lib" || return 1
-  cp "$1/scripts/lib/bypass-patterns.sh" "$1/scripts/lib/bypass-audit.sh" "$2/scripts/lib/" || return 1
+  cp "$1/scripts/lib/bypass-patterns.sh" "$1/scripts/lib/bypass-audit.sh" "$1/scripts/lib/lock.sh" "$2/scripts/lib/" || return 1
   mutate "$1/$DETECTOR_REL" "$2/$DETECTOR_REL" "$3" "$4" "$5" "${6:-25}" || return 1
   dd=$(diff "$1/$DETECTOR_REL" "$2/$DETECTOR_REL" || true)
   changed=$(printf '%s\n' "$dd" | grep -c '^>' || true)
@@ -476,7 +476,7 @@ c_empty_table() {
   local t=""
   t=$(mktemp -d "$TMPROOT/et.XXXXXX") || return 1
   mkdir -p "$t/scripts/hooks" "$t/scripts/lib"
-  cp "$1/scripts/lib/bypass-patterns.sh" "$1/scripts/lib/bypass-audit.sh" "$t/scripts/lib/"
+  cp "$1/scripts/lib/bypass-patterns.sh" "$1/scripts/lib/bypass-audit.sh" "$1/scripts/lib/lock.sh" "$t/scripts/lib/"
   awk '/^SOIF_RELAY_ESCAPES=\(/ { print; on = 1; next } on && /^\)/ { on = 0 } !on { print }' \
     "$1/$DETECTOR_REL" > "$t/$DETECTOR_REL"
   if grep -qE "^[[:space:]]*'SOLO_[A-Z_]*ATTESTED\|" "$t/$DETECTOR_REL" || ! bash -n "$t/$DETECTOR_REL" 2>/dev/null; then

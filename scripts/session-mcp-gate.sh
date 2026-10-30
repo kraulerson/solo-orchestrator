@@ -86,7 +86,7 @@ fi
 # means the three functions the other hooks require, as their load trials do.
 # `command -v` is a builtin, so this holds under the empty-PATH arm too.
 LW_NOTE=""
-{ command -v _lw_update && command -v _lw_put && command -v _lw_traps; } >/dev/null 2>&1 || LW_NOTE=" ALSO: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded, so the MCP tracker cannot record any call and no call can satisfy this check. Run bash scripts/verify-install.sh --auto-fix to restore it."
+{ command -v _lw_update && command -v _lw_put && command -v _lw_traps; } >/dev/null 2>&1 || LW_NOTE=" ALSO: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded (it needs lib/lock.sh beside it), so the MCP tracker cannot record any call and no call can satisfy this check. Run bash scripts/verify-install.sh --auto-fix to restore it."
 
 # THE ESCAPE IS LAUNCH-TIME, and the hint must say so rather than implying a
 # retry. A PreToolUse hook inherits the environment Claude Code started with,

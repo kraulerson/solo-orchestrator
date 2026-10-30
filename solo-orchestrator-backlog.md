@@ -26570,6 +26570,18 @@ locked, unique-temp writer, `scripts/lib/ledger-write.sh`.
 `tests/test-bl314-tool-usage-concurrent.sh` and T5d in `tests/test-session-test-gate-check-merge.sh`
 pin it; the cases are named below.
 
+**Changed by `## BL-358:` (2026-10-27) — read that entry for the lock as it is now.** The lock below is
+no longer `mkdir "$TOOL_USAGE.lockdir"` but an O_EXCL create of `$TOOL_USAGE.lock` through
+`scripts/lib/lock.sh` (uutils coreutils 0.10.0 reported a lost mkdir race as a win). Four statements
+below are superseded: a lock that cannot be taken (stale and not removable, its time unreadable) no
+longer lets the write go ahead unlocked — the write is skipped and stderr says so (C6's stuck arm and
+C7u now want nothing written); a stale lock is broken under a break guard and only if it is still the
+lock read stale, which narrows the first residual below to the guard's own (`## BL-358:`'s residuals;
+it said "closes" until that entry's review); M1, ML38 and ML25 are killed by C15's `.tmp` neighbour
+and C19e's failing mktemp, since no burst writes unlocked any more; and a resume whose SessionStart
+write cannot land no longer ends that hook non-zero: it empties the ledger, says so, and finishes with
+its report (C19, C26).
+
 **Found:** 2026-09-22 in practice, where several sessions and subagents shared one checkout.
 `.claude/tool-usage.json` sat at 0 bytes with its mtime advancing on every hook event, and
 `scripts/session-mcp-gate.sh` refused every Write and Edit with "requirements not met" after
@@ -27246,7 +27258,9 @@ changes no local read. `## BL-354:` already treats a `.claude/*.jsonl` as state 
 to generated projects (`init.sh` copies it), so any machine on uutils before 0.11.0 can lose MCP ledger records; the same
 primitive guards the phase-gate attestation writers, the Phase 3 attestation writers and the bypass audit log (all
 shipped by `init.sh`), so a concurrent write there can drop an audit record
-**Status:** Open — CI pinned to `ubuntu-24.04` as a stopgap (`# BL-358-RUNNER-PIN`); the writer is not fixed
+**Status:** Open — the writers are fixed (`f6a4eddb`, "The fix" below). Open until the CI runner pin
+(`# BL-358-RUNNER-PIN`) comes off, in a PR of its own that measures the whole unit lane on `ubuntu-26.04` (bash 5.3.9,
+jq 1.8.1) first; this entry closes with that PR
 
 **What.** GitHub's `ubuntu-latest` moved from `Image: ubuntu-24.04` (run 39629060444 attempt 1, 2026-10-21, main's last
 green run) to `Image: ubuntu-26.04`. On 26.04 `tests/test-bl314-tool-usage-concurrent.sh` loses writes in one to four of
@@ -27288,6 +27302,7 @@ That hides the defect from CI only; remove the pin when the fix lands, and run t
 26.04 between 2026-10-19 and 2026-11-19 (actions/runner-images#14748, which names `ubuntu-24.04` as the mitigation). The
 pin can also come off once the 26.04 image's rust-coreutils carries uutils PR #13986. The unpin PR must also re-check
 CLAUDE.md's ENVIRONMENT TRAPS, which say the runners run bash 5.2: 26.04 ships bash 5.3.9 and jq 1.8.1.
+(2026-10-27: the pin stays past the fix, and the unpin is its own PR; see Status.)
 
 **Direction.** A lock primitive that does not depend on the coreutils implementation — for example bash's own `set -C`
 (`noclobber`, an `O_EXCL` open) on a lock file, which in review gave exactly one winner in every round of the same race
@@ -27300,7 +27315,289 @@ sooner. Decide whether `_lw_lock || :` should fail loudly instead.
 merge ref predated the pin) and failed two legs: `approval` with `Failed: tests/test-bl314-tool-usage-concurrent.sh`
 (`[FAIL] C9 — N=80: parses=1 calls=78/80`) and `rest` with `Failed: tests/test-bypass-audit-lib.sh`.
 `scripts/lib/bypass-audit.sh` takes the same `while ! mkdir "$lock_dir"` lock, so this is the audit-log exposure the
-Severity line names; the failing case was not isolated.
+Severity line names; the failing case was not isolated. (Isolated 2026-10-27: T5, ten concurrent appends — on
+`ubuntu:26.04` at `d6564e17` it reads `[FAIL] T5 — expected 10, got 9`.)
+
+**The fix (2026-10-27, `f6a4eddb` on `fix/bl358-lock-primitive`).** One lock primitive, `scripts/lib/lock.sh`, under
+all twelve writers. `soif_lock_try` takes `<file>.lock` with bash's own noclobber — `( set -C; : > "$lock" )`, an
+O_EXCL create (`# BL-358-LOCK-NOCLOBBER`) — and only when nothing is at the name, so a FIFO, a link to a device or a
+directory there counts as a held lock and the open never blocks (`# BL-358-LOCK-PRESENT`). `soif_lock_release` removes
+the file. No coreutils exit status decides who holds a lock any more. Each site keeps its own wait, budget, stale rule
+and messages:
+
+- `scripts/lib/ledger-write.sh` (`# BL-314-LOCK`), 3 s stale rule by mtime unchanged. It sources `lock.sh` from its own
+  folder and defines nothing without it (`# BL-358-LW-LOCK-LIB`), so the three hooks report the lib missing, and their
+  line now says it needs `lib/lock.sh` beside it. A lock that cannot be taken no longer lets a write go ahead:
+  `_lw_lock || :` is gone from `_lw_update` (`# BL-358-NO-UNLOCKED-WRITE`) and `_lw_put` (`# BL-314-PUT-LOCK`), and
+  the tracker's commit counter (`# BL-358-COMMIT-LOCK`) and seed (`# BL-314-SEED-LOCK`), which ignored its status the
+  same way, now write only under it. A write whose lock cannot be taken — stale and not removable, its time
+  unreadable, or the folder refuses it — is SKIPPED, and stderr says so (`# BL-358-SKIP-LOUD`). A stale lock is broken
+  under a second lock, `<ledger>.lock.break` (`# BL-358-BREAK-GUARD`), and only if its mtime is still the one read stale
+  (`# BL-314-BREAK-STALE`): a lock taken after that read is always newer, so of two waiters that both read it stale, the
+  one holding the guard breaks it and the other waits. That narrows `## BL-314:`'s first residual to the guard's own
+  (Residuals); this paragraph said it closed it until the review (R-358-1, below). A guard one waiter has seen held for
+  more than a budget on one stale lock (a breaker SIGKILL took inside it) is cleared once, and the lock is given up if it
+  is held again (`# BL-358-GUARD-WAIT`, `# BL-358-GUARD-AGE`, `# BL-358-GUARD-GIVE-UP`, `# BL-358-GUARD-STALE`,
+  `# BL-358-GUARD-ONCE`); the waiter's clock starts again whenever it sees the lock not stale (`# BL-358-GUARD-EPISODE`).
+  Every break releases its guard after its re-read and its remove (`# BL-358-GUARD-RELEASE`).
+- The tracker still never blocks the agent (`## BL-233:`). After a skipped write it finishes and ends with exit 1, a
+  non-blocking hook error Claude Code shows the user (`# BL-358-TRACKER-LOUD`); its two agent reports, the empty
+  retrieval and the failed call, where the JSON decides and the exit code is not shown, say the call was NOT recorded
+  (`# BL-358-REPORT-NOTE`). The MCP check reads only what landed, so it then fails CLOSED, measured: behind a lock that
+  cannot be taken, a qdrant-find and a query-docs that both worked are followed by a deny, and the same calls behind a
+  breakable stale lock by an allow (C26). SessionStart's startup behind such a lock ends rc 1 with the skip line and
+  `# BL-314-RESET-FAIL-CLOSED`'s line on stderr, the ledger emptied in place (0 bytes), and the next Write denied. A
+  resume, `/compact` or `/clear` behind it does the same since the review (R-358-4): when the merge and the fresh write
+  after it both fail (`# BL-358-MERGE-PUT`), the ledger is emptied in place (`# BL-358-MERGE-FAIL-CLOSED`), stderr and
+  the report say so (`# BL-358-MERGE-SAY`, `# BL-358-MERGE-NOTE`), the operator's extra requirements are named to be
+  added again (`# BL-358-MERGE-SNAP`), and the hook goes on to its report and ends rc 0, which is what puts the report
+  in front of the session. These in-place truncations are the only writes made without the lock, and they record
+  nothing: they remove the last session's outcome flags, as the startup already did when `.claude` was unwritable.
+- `scripts/check-phase-gate.sh` (four writers), `scripts/run-phase3-validation.sh` (two),
+  `scripts/track-tool-usage.sh`'s `_tt_record_accumulation` and `scripts/lib/bypass-audit.sh` (four) load `lock.sh`
+  through a trial keyed on what it defines, and each writer refuses, loudly, without it, naming the lib and
+  `bash scripts/verify-install.sh --auto-fix` (`# BL-358-CPG-NEEDS-LOCK-*`, `# BL-358-P3-NEEDS-LOCK-*`,
+  `# BL-358-TT-NEEDS-LOCK`, `# BL-358-BA-NEEDS-LOCK-*`; the single-authority recorder returns 6, with a remedy of its
+  own). Every other check in those scripts still runs. Their waits, and their rule of never breaking a stale lock,
+  are unchanged (`# BL-358-CPG-LOCK-*`, `# BL-358-P3-LOCK-*`, `# BL-358-TT-LOCK`, `# BL-358-BA-LOCK-*`; releases
+  `# BL-358-CPG-RELEASE-*`, `# BL-358-P3-RELEASE-*`, `# BL-358-TT-RELEASE`, `# BL-358-BA-RELEASE-*`): a stale
+  `process-state.json.lock` still has no breaker, which is `## BL-233:` residual 18 under a new name.
+- Shipped wherever its callers are: `init.sh`'s cp line (`# BL-358-SHIP-LOCK`), so `--sync-framework` and adoption,
+  which copy `soif_parse_shipped_scripts`'s set, ship it too; `verify-install.sh`'s row and `fix_lib_copy_lock`; the
+  upgrade backfill list that ships `lib/bypass-audit.sh` and `run-phase3-validation.sh` on every upgrade path
+  (`# BL-358-UP-CLOSURE-LOCK`). A lock FILE, unlike an empty `.lockdir`, is something git sees, and a committed one
+  would hold every clone's writers, so `.claude/*.json.lock` and `.claude/tool-usage.json.lock.break` are ignored by
+  `.gitignore`, the project template, adoption's `.claude/.gitignore` (`_adopt_session_ignore_rules`) and the upgrade's
+  `.gitignore` backfill (`# BL-358-GITIGNORE-BACKFILL`).
+
+**Measured, on this Mac (bash 3.2.57) with a mkdir first on PATH that, like uutils 0.10.0, reports success when its
+mkdir(2) fails on a name that is a directory** (on every call, not only inside uutils' race window):
+
+| suite | `d6564e17` with the shim | `d6564e17` without | `f6a4eddb` with the shim |
+|---|---|---|---|
+| `tests/test-bl314-tool-usage-concurrent.sh` | `52 passed, 13 failed`, rc 1 | `65 passed, 0 failed`, rc 0 | `89 passed, 0 failed`, rc 0 |
+| `tests/test-bypass-audit-lib.sh` | `9 passed, 1 failed`, rc 1 (×3) | `10 passed, 0 failed` | `11 passed, 0 failed`, rc 0 (×3; T5b is new) |
+
+The thirteen at `d6564e17`: C1 (calls 4/12, 4/12, 3/12), C3 (commits 1/12 in each round), C5, C8 (calls 4/12 ×3),
+C9 (14/40 and 17/80), C17 (5/12, 3/12, 4/12), C17c, C5b, all fifteen C18 arms, and M4, MBUD, MFUT and MUNR, which need a
+lock that waits; T5 read `expected 10, got 1`. The new permanent cases go red there too: C29 `C1: parses=1 calls=3/12;
+C3: parses=1 commits=1/12; C9: parses=1 calls=15/40`, and T5b `expected 10, got 1` (three runs).
+
+Under the real uutils, `ubuntu:26.04` (aarch64, uutils 0.10.0, bash 5.3.9; `git archive` streamed in, `jq git perl`,
+a non-root user): at `d6564e17` T5 `expected 10, got 9` and BL-314 `60 passed, 5 failed` (C1 11/12, C3 9/12, 8/12,
+8/12, C5 11/12, C8 9/12, C9 30/80); at `f6a4eddb` both green (table below). The race itself, 40 contenders per round on
+one barrier: `mkdir` gave more than one winner in 23 of 200 rounds on 26.04 and 0 of 200 on 24.04 (GNU 9.4, bash 5.2.21);
+the noclobber lock gave exactly one winner in every round on both, and in 100 of 100 on this Mac (and more than one in
+100 of 100 with `set -C` removed).
+
+| suite at `f6a4eddb` | `ubuntu:24.04` | `ubuntu:26.04` |
+|---|---|---|
+| `tests/test-bypass-audit-lib.sh` | `11 passed, 0 failed`, rc 0 | `11 passed, 0 failed`, rc 0 |
+| `tests/test-bl358-lock-primitive.sh` | `78 passed, 0 failed`, rc 0 | `78 passed, 0 failed`, rc 0 |
+| `tests/test-bl314-tool-usage-concurrent.sh` | `89 passed, 0 failed`, rc 0 | `89 passed, 0 failed`, rc 0 |
+| `tests/test-check-phase-gate-date-writeback.sh` | `12 passed, 0 failed`, rc 0 | `12 passed, 0 failed`, rc 0 |
+| `tests/test-bl274-single-authority-attestation.sh` | 76 passed, 0 failed, 1 skipped, rc 0 | 76 passed, 0 failed, 1 skipped, rc 0 |
+| `tests/test-bl073-review-manifest-gate.sh` | `29 passed, 0 failed`, rc 0 | `29 passed, 0 failed`, rc 0 |
+| `tests/test-phase3-validation-gate.sh` | `51 passed, 0 failed`, rc 0 | `51 passed, 0 failed`, rc 0 |
+| `tests/test-bl070-license-scanner.sh` | `51 passed, 0 failed`, rc 0 | `51 passed, 0 failed`, rc 0 |
+| `tests/test-bl130-attest-fail-guard.sh` | `4 passed, 0 failed`, rc 0 | `4 passed, 0 failed`, rc 0 |
+| `tests/test-bl233-mcp-outcome-enforcement.sh` | `51 passed, 0 failed`, rc 0 | `51 passed, 0 failed`, rc 0 |
+| `tests/test-bl233-wpb-accumulation.sh` | `90 passed, 10 failed`, rc 1; with python3, `100 passed, 0 failed`, rc 0 | the same |
+| `tests/test-brownfield-wp9b-preflight-approval.sh` | `47 passed, 39 failed`, rc 1; with python3 and gitleaks, `102 passed, 1 failed`, rc 1 | the same; with gawk as `awk` under `LC_ALL=C.UTF-8` too, `103 passed, 0 failed`, rc 0 |
+
+The last two are the suites a grep for the six writers' names finds that are not green in a bare container, and the
+same suite at `d6564e17` in the same image gives the same tallies (26.04: `90 passed, 10 failed`, `47 passed, 39
+failed`; with the tools, `100 passed, 0 failed` and `102 passed, 1 failed`). bl233-wpb's fixtures run `python3`, which
+the image lacks. wp9b's adoptions need gitleaks, and its one remaining case, AM2, seeds its row with an awk whose
+`/^## Phase Gate: Phase 0 . Phase 1/` never matches the three-byte `→` under the images' mawk: 0 matches in both images,
+also under `LC_ALL=C.UTF-8`, and with gawk as `awk` under `LC_ALL=C.UTF-8` the suite is green on 26.04. That is the
+multibyte `.` trap in CLAUDE.md, in the test, and not this change.
+
+On this Mac at `f6a4eddb`, the whole unit lane — the 268 suites of the `tests.yml` list, each run with an empty temp
+HOME and no `CDF_HOME` — was green but for two suites the change itself broke, both fixed in `9b3fc3e1`:
+`tests/test-bl174-gitignore-backfill.sh` T4 (the backfill now manages two more lines; `6 passed, 0 failed`) and
+`tests/test-walk-phase-lifecycle.sh` T15 (its fixture copied the gate without `lib/lock.sh`; `20 passed, 0 failed`).
+`tests/test-bl099-guard-coverage.sh`: `Total: 53 | Pinned: 53 | Failed: 0`. Eight init.sh-based full-lane suites, each
+with a copy of the Guardrails clone in a temp HOME, all green: verify-install-fix-functions 16, init-atomic-finalize 8,
+upgrade-bl030-backfill 10, bl029-integration 9, brownfield-wp3-regenerate-path 4, init-schema-phase-gate 8,
+scaffold-tdd-block-real 10, bl112-commit-enforcement 13. `bash scripts/run-lints.sh`: 16 of 16. The Guardrails clone at
+`~/.claude-dev-framework` stayed at `3438484` throughout.
+
+**The transition gap — recorded, not closed.** The lock is `<file>.lock`; a script from before this change takes
+`<file>.lockdir`, and the two do not exclude each other. Measured with 8 appends through the `d6564e17`
+`lib/bypass-audit.sh` racing 8 through the new one, on one ledger, under a jq that answers 50 ms after it reads: 8, 8,
+11, 8 and 8 of 16 rows kept in five rounds; 16 appends through the new one alone keep 16 of 16. The window is a
+project whose scripts are part old and part new: hooks already running while `--sync-framework` copies, and a sync
+that stopped half way, until the next one. It is also PERSISTENT in two ways (review R-358-3). A tier change,
+`--backfill-only` and a plain upgrade all run `_run_idempotent_backfill`, whose BL-088 list in
+`scripts/upgrade-project.sh` ships `run-phase3-validation.sh`, `lib/bypass-audit.sh` and `lib/lock.sh`
+(`# BL-358-UP-CLOSURE-LOCK`) but not `check-phase-gate.sh`, and no other part of those paths refreshes it. After any of
+them, the new `_p3_write_*` writers (`.lock`) and the old `_cpg_record_gate_date` (`.lockdir`) write
+`.claude/phase-state.json` without excluding each other, until the next `--sync-framework`. Measured 2026-10-29 with
+the reviewer's mixrace (`d6564e17`'s `check-phase-gate.sh` beside this branch's `run-phase3-validation.sh` and
+`lib/lock.sh`, 8 gate-date writers and 8 Phase 3 attestation writers at once under a jq that answers 50 ms late): 8, 8,
+8, 8 and 8 of 16 rows kept in five rounds; this branch's gate in the old one's place keeps 16 of 16 in five. And two
+checkouts of one project on opposite sides of this change that write one `.claude/` are the same mix for as long as
+they stay apart: `## BL-356:`'s hooks run the main checkout's scripts with a linked worktree's working directory, so a
+worktree's own scripts, run by hand, and the main checkout's hooks can lock the same file two ways. Neither path prints
+anything that would send the operator to `--sync-framework`; no such nudge was added here. Honouring `.lockdir` would
+not close it: excluding an old writer would need
+the new one to take the mkdir lock too, whose exit status is what this entry stops trusting, and waiting on any
+`.lockdir` would turn every `.lockdir` an old killed run left into a lock that holds the four sites that never break a
+stale one. `tests/test-bl358-lock-primitive.sh` G1 pins the other face of the same fact: beside a held `.lockdir`, the
+new writers land at once and leave it alone.
+
+**Tests.** `tests/test-bl358-lock-primitive.sh` (new, unit lane, leg `ledger`): the primitive (L1 one winner per round
+under the uutils-like mkdir, L2 a taken name of every kind, L3 release and a refused create); the eleven non-ledger
+writers, each run as its script defines it (extracted, never copied), in one burst under that mkdir — writer 1 held
+inside its write (after its jq read, before its `mv`) until exactly one second writer, the site's own or its partner's,
+has run, then the rest (since `23745ab0`) — without `lib/lock.sh`, and with TERM to its process group inside its write; the three
+refusals inside the lock; the single-authority remedy; each script's own load of the lib (E1, E2, and E3 for
+`lib/bypass-audit.sh`, sourced alone from a project folder); G1; the shipped set and the ignore rules (P1, P2).
+`tests/test-bl314-tool-usage-concurrent.sh` (leg `ledger`): C26 (above, with the resume arm), C27 (a stale lock
+replaced while a waiter read it is left alone), C27b (a waiter held on its re-read under the guard keeps a second one
+out), C28 and C28b (the guard), C28c (the guard's clock belongs to one stale lock), C29 (C1's, C3's and C9's bursts
+under the uutils-like mkdir), C19e (a failed mktemp under a lock that was taken), C25's fourth shape (no `lib/lock.sh`),
+C21 and C22 for the lock; C19's resume arm now wants rc 0 and the emptied ledger.
+`tests/test-bypass-audit-lib.sh` T5b. `tests/test-bl320-approval-schema2.sh` U3 now wants `lib/lock.sh` shipped by a
+tier change. `tests/test-bl174-gitignore-backfill.sh` knows the two new managed lines. Fixtures that copy a writer into
+a project now copy `lib/lock.sh` beside it.
+
+| marker or line | mutant | killed by |
+|---|---|---|
+| `# BL-358-LOCK-NOCLOBBER` | MLN, `set -C` dropped | L1 (more than one winner in 20 of 20 rounds) |
+| `# BL-358-LOCK-PRESENT` | MLP, the test for something already there dropped | L2 (a link to /dev/null taken, a FIFO blocks) |
+| the eleven `# BL-358-*-LOCK*` takes | MA-<site>, the lock never taken | S-<site>, the held write erases the second writer's row (one burst; fails if the hold never happened) |
+| the eleven `# BL-358-*-NEEDS-LOCK*` refusals | MN-<site> | S-<site>-nolock (still running after 2 s, or the lib not named) |
+| the eleven `# BL-358-*-RELEASE*` releases | MR-<site> | S-<site> (the lock left) |
+| the eleven traps' release | MT-<site> | S-<site>-term (TERM leaves the lock) |
+| the releases on a refusal inside the lock | MRX-ba-append, MRX-accum, MRX-tt | S-<site>-refuse |
+| the single-authority status-6 remedy | MS6 | S-sa-remedy |
+| each script's load of the lib | ML1, ML2 | E1, E2 |
+| `lib/bypass-audit.sh`'s own load of the lib | ML3, its trial skipped; ML4, its folder read as `.` | E3 |
+| `# BL-358-SHIP-LOCK`, `# BL-358-GITIGNORE-BACKFILL`, the adoption rule | MP1, MP2, MP3 | P1, P2 |
+| `# BL-358-UP-CLOSURE-LOCK` | M62 in `tests/test-bl320-approval-schema2.sh` | U3 |
+| `# BL-358-LW-LOCK-LIB` | MLL, the lib loads without `lib/lock.sh` | C25's nolock shape |
+| `# BL-358-NO-UNLOCKED-WRITE` | MUL, `_lw_lock \|\| :` restored | C26 (the stuck lock's ledger changes and the next Write is allowed) |
+| `# BL-314-PUT-LOCK` | MUP, `_lw_lock \|\| :` restored in `_lw_put`; MX5, no lock | C26's put arm; C17c |
+| `# BL-358-SKIP-LOUD`, the `LW_SKIPPED` flag | MSK, MSF | C26 |
+| `# BL-358-TRACKER-LOUD`, `# BL-358-REPORT-NOTE`, `# BL-358-COMMIT-LOCK` | MTX, MRN, MCL | C26 |
+| `# BL-314-BREAK-STALE` | M4, no break; MBS, no same-lock check | C7; C27 |
+| `# BL-358-BREAK-GUARD`, `# BL-358-GUARD-STALE`, `# BL-358-GUARD-WAIT`, `# BL-358-GUARD-AGE` | MBG, MGS, MGW, MGA | C28 |
+| `# BL-358-GUARD-GIVE-UP`, `# BL-358-GUARD-ONCE` | MGC, MGO | C28b (each waits for ever) |
+| `# BL-358-GUARD-RELEASE` | MGR | C11's shape (the guard left behind) |
+| `# BL-358-GUARD-RELEASE` after `# BL-314-BREAK-STALE` | MGX, the two lines exchanged: the guard released before the re-read and the remove | C27b |
+| `# BL-358-GUARD-EPISODE` | MGE, the clock carried over to the next stale lock | C28c |
+| `# BL-358-MERGE-PUT`, `# BL-358-MERGE-FAIL-CLOSED`, `# BL-358-MERGE-SNAP`, `# BL-358-MERGE-SAY`, `# BL-358-MERGE-NOTE` | MMP, MMF, MMS, MMY, MMN | C26's resume arm |
+| verify-install's lock row and fixer | MV03, MV04 | C21 |
+| each ignore file's two lock lines | MGL | C22 |
+
+M1 (the shared temp name), ML38 and ML25 needed new killers, because no burst writes without the lock any more: C15's
+`.tmp` neighbour, and C19e.
+
+**Review of `317a24c3` (2026-10-29), and round 2: `3bfad9f1`, `3fe81913`, `a9028dbb`.** One adversarial review; each
+finding was reproduced at `317a24c3` before it was fixed.
+- **R-358-1 (block): a silent lost write.** `# BL-358-GUARD-WAIT` started a waiter's guard clock at the first guard it
+  met and never restarted it, so `# BL-358-GUARD-AGE` cleared a LIVE guard the moment the lock went stale a second time
+  in the same wait. The review's doublebreak probe at `317a24c3`: the waiter held a fresh lock 0.32 s after the other
+  breaker took the guard, both exited 0, and 1 of 2 rows was kept. Fixed by `# BL-358-GUARD-EPISODE`, the first of the
+  review's two options; the other, aging the guard by its own mtime, would need its own rules for a guard dated ahead
+  of the clock or with a time that cannot be read, where the waiter's clock is already bounded. The probe then keeps 2
+  of 2 and the guard survives. C28c is the probe's pattern in the suite: red at `317a24c3` (`W cleared the guard Z held
+  on its re-read; rows kept [Z] (want W,Z)`), green here; mutant MGE. The lib's header, "The fix" above and the guard
+  residual no longer say two waiters that read a lock stale cannot both break it.
+- **R-358-2 (major):** the mutant that releases the guard before the re-read and the remove (the review's m21) survived
+  the BL-314 suite at 89/0 in the review. Here the same suite killed it once by chance, `[FAIL] C6 — breakable round 2:
+  parses=1 bad=0 calls=11/12` (88/1): only a race caught it. It is not equivalent: the review's guardcs probe kept 1 of
+  2 rows under it, and does here (2 of 2 without it). C27b holds waiter A on its re-read under the guard and starts B;
+  the stale lock must stand while A is held, and both rows land. It passes at `317a24c3`, since it pins what that tree
+  already does; the swap is in the suite as MGX, placed by `_mk_mutant_swap` (the file with exactly those two lines
+  exchanged), and C27b kills it there and here (`while A held the guard on its re-read, B broke the stale lock; rows
+  kept [B]`).
+- **R-358-4 (minor):** SessionStart on resume, `/compact` or `/clear` behind a lock that cannot be taken: the merge's
+  fallback `_lw_put` failed under `set -euo pipefail` and ended the hook. The review's ssprobe at `317a24c3`: rc 1, no
+  stdout, the ledger unchanged with the last session's satisfied flags, `## BL-236:`'s class; C26's new resume arm adds
+  that the MCP check then allowed the next Write. Fixed as "The fix" above says (`# BL-358-MERGE-PUT` and the four
+  markers after it). The arm is red at `317a24c3` (`resume: rc=1 …; the report did not print; …; the ledger still holds
+  the last session's outcome flags; the next Write was allowed`) and green here; mutants MMP, MMF, MMS, MMY, MMN. C19's
+  resume arm (`.claude` at 0555) wanted rc non-zero; it now wants rc 0 and the stderr line, and was red at `317a24c3`
+  for that alone. The hook ends rc 0 because the hooks reference (code.claude.com/docs/en/hooks, read 2026-10-29) says
+  SessionStart's plain-text stdout is added to the session on exit 0, that any other code is a non-blocking error whose
+  notice carries the first line of stderr, and that Claude never sees stderr from a hook that exits 0. So the note is
+  printed on stdout as well as on stderr.
+- **R-358-5 (minor, CI time):** the BL-314 suite spanned 199.2–216.3 s on the six green runs before this change
+  (40574502629, 40389017155, 40388076247, 40385604661, 40385312862, 40382597540), where `approval` took 535–601 s; on
+  this Mac it ran 232 s at `d6564e17` (65 cases) and 349 s here (98 cases), so ~300–325 s on CI at the same ratio and
+  `approval` ~640–710 s of 720 s. A thirteenth leg, `ledger`, takes it and the BL-358 suite (95 s here, from `rest`),
+  as `## BL-350:` added `adopt-c`: the matrix, the roster, a `pins_for` arm and `pin_ledger`. Projected: `approval`
+  336–385 s on those runs, `ledger` ~410–450 s. The job's own selection script, extracted and run for each of the 13
+  legs, puts all 268 canonical suites in exactly one leg; without the `pins_for` arm, with a double pin, with a pin
+  missing from the canonical list, and with the roster one leg short of the matrix, it fails by name each time.
+- **R-358-6 (minor):** the S driver sources `lib/lock.sh` before `lib/bypass-audit.sh`, so no S-ba-* case saw that
+  lib's own load: its trial load as `if false; then`, and `BYPASS_AUDIT_DIR=.`, survive the `317a24c3` suite at 78/0
+  (both measured). E3 sources the lib alone from a project folder; ML3 and ML4 are those two mutants, and E3 kills both
+  (rc 1, no row). E3 itself passes at `317a24c3`.
+- **R-358-3 (docs):** the transition gap is also persistent; see that paragraph. No nudge toward `--sync-framework` was
+  added to the backfill.
+- **R-358-7 (residual):** the reviewer attestation printed as recorded before it is written; recorded below, not fixed.
+- The review's nit, that the sync copy `lib/lock.sh` before its callers, was not taken: `_bl099_sync_scripts` copies in
+  sorted order, so `scripts/check-phase-gate.sh`, `scripts/lib/bypass-audit.sh` and `scripts/lib/ledger-write.sh` land
+  first, and a writer that runs in that window refuses, loudly, as it does without the lib.
+- **A timing-dependent kill, found on PR #528 (fixed in `23745ab0`).** Run 40943025582's `ledger` leg (ubuntu-24.04)
+  failed `[FAIL] MA-reviewer — reviewer without its lock lost nothing in 3 rounds`: each MA-<site> needed eight
+  concurrent writers to collide within three bursts, and in ubuntu:24.04 14 of 110 single bursts lost nothing. Now one
+  burst holds writer 1 inside its write while exactly one second writer runs, so an unlocked site always loses that
+  row and a locked one always keeps it; S-<site> and MA-<site> fail if the hold never happened. Measured by the
+  builder: 385 of 385 mutant bursts killed (Mac 220, ubuntu:24.04 110, ubuntu:26.04 55), every unmutated burst 8 of 8.
+
+Measured at `a9028dbb` (the containers: `git archive` streamed in, `jq git perl`, a non-root user, aarch64):
+
+| suite | this Mac (bash 3.2.57) | `ubuntu:24.04` (bash 5.2.21, GNU 9.4) | `ubuntu:26.04` (bash 5.3.9, uutils 0.10.0) |
+|---|---|---|---|
+| `tests/test-bl358-lock-primitive.sh` | `81 passed, 0 failed`, rc 0, 95 s (127 s at `23745ab0`) | `81 passed, 0 failed`, rc 0, 79 s (108 s at `23745ab0`) | `81 passed, 0 failed`, rc 0, 82 s (111 s at `23745ab0`) |
+| `tests/test-bl314-tool-usage-concurrent.sh` | `98 passed, 0 failed`, rc 0, 346 s (349 s on the run before the commit) | `98 passed, 0 failed`, rc 0, 293 s | `98 passed, 0 failed`, rc 0, 300 s |
+| `tests/test-bypass-audit-lib.sh` | `11 passed, 0 failed`, rc 0 | `11 passed, 0 failed`, rc 0 | `11 passed, 0 failed`, rc 0 |
+| `tests/test-session-test-gate-check-merge.sh` | `20 passed, 0 failed`, rc 0 | `20 passed, 0 failed`, rc 0 | `20 passed, 0 failed`, rc 0 |
+
+Also on this Mac, each with an empty temp HOME and no `CDF_HOME`: `tests/test-bl233-mcp-outcome-enforcement.sh` 51/0,
+`tests/test-bl233-wpb-accumulation.sh` 100/0, `tests/test-bl335-additional-required-carry.sh` 51/0,
+`tests/test-bl322-zsh-legs.sh` 15/0, `tests/test-lint-tests-registered.sh` 24/0, `tests/test-upgrade-sync-framework.sh`
+40/0, `tests/test-bl099-guard-coverage.sh` `Total: 53 | Pinned: 53 | Failed: 0`, and `bash scripts/run-lints.sh` 16 of
+16, all rc 0. The Guardrails clone at `~/.claude-dev-framework` stayed at `3438484`.
+
+**Residuals.**
+- The transition gap above, which a tier change, `--backfill-only` or a plain upgrade leaves in place until the next
+  `--sync-framework`.
+- A live hold longer than 3 s is still taken for stale (`## BL-314:`'s residual), and the guard has the same shape one
+  level up: a guard one waiter has seen held for more than a budget on one stale lock is cleared as a killed breaker's.
+  So one lock can still be broken twice by a breaker stalled or killed for more than a budget inside its guard, with
+  two waiters that both saw it held that long, or by a waiter itself stalled for more than a budget across the fresh
+  hold between two stale locks, which then clears the next breaker's guard. Each needs a process held for more than a
+  budget at one point and a second inside a window of milliseconds. Until the review this item said only "a breaker
+  killed inside the milliseconds it holds the guard": R-358-1 measured that a waiter whose clock had started at an
+  earlier guard needed no stall at all, and the other breaker a stall of 0.3–0.6 s.
+- `_cpg_record_reviewer_attestation`'s two callers (the Phase 3→4 review check's no-manifest and missing-mandatory arms
+  in `scripts/check-phase-gate.sh`) print `[OK] … ATTESTED (reason: …) — recorded to .claude/process-state.json (not
+  silenced).` before they call it, and a write that fails prints only `[WARN]   (could not persist the reviewer
+  attestation — jq unavailable or state locked)`, with no `issues` increment: the check passes on an attestation that
+  left no record. That is the shape `# BL-233-WPB-ATTEST-REFUSE` refuses for the accumulation attestation ("An escape
+  that leaves no trace is not an escape"). It predates this entry; a missing `lib/lock.sh`
+  (`# BL-358-CPG-NEEDS-LOCK-REVIEW`) is now one more way to reach it. Recorded, not fixed (review R-358-7).
+- Inherited from the mkdir lock: in the eleven inline writers a failed `mv`, or a signal to the writer's subshell,
+  releases the lock in the subshell's trap and again in the caller, so a lock another writer took in between is
+  removed (`rmdir` did the same).
+- Outside the twelve, unchanged: `_cpg_record_reviewer_attestation`, `_p3_write_attestation`,
+  `_p3_write_license_exception` and `bypass_audit_init` create their state file before taking the lock;
+  `session-mcp-gate.sh`'s `mcp_record_attestation`, `pre-commit-gate.sh`'s TDD attestation and `check-gate.sh`'s
+  protection repair write `process-state.json` without it.
+- `scripts/lib/plan-staging.sh` (`# BL-109-PLAN-MKDIR`) still trusts an exclusive `mkdir` for its run folder. uutils
+  0.10.0 checks the name first, so only a folder created inside its own race window is misreported, and the run id
+  carries the pid and the time. Not one of the twelve.
+- A FIFO that appears at the lock's name between the test and the open would block the open.
+- Shard time: both suites are on the thirteenth leg, `ledger`, since the review (R-358-5). Its figure, ~410–450 s, and
+  `approval`'s, 336–385 s, are projections: the BL-314 suite's CI spans before this change scaled by its Mac time
+  after it, and the BL-358 suite's Mac time scaled the same way. Neither suite has run on CI yet; the first run of this
+  branch is the measurement, and `## BL-350:`'s doctrine (split further, never raise the cap) applies to what it shows.
 
 ## BL-359: BL-333 review residuals — writes through a linked backup or matrix folder, shard time, dry-run wording, a vacuous-killer gap, host backfill
 

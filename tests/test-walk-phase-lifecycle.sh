@@ -72,9 +72,12 @@ _install_scripts() {
     cp "$REPO_ROOT/scripts/$s" "$d/scripts/" || return 1
     chmod +x "$d/scripts/$s"
   done
+  # `## BL-358:` lib/lock.sh too: check-phase-gate.sh records a gate date only
+  # under its lock, and refuses the write without the lib.
   cp "$REPO_ROOT/scripts/lib/helpers.sh" \
      "$REPO_ROOT/scripts/lib/helpers-core.sh" \
-     "$REPO_ROOT/scripts/lib/helpers-full.sh" "$d/scripts/lib/" || return 1
+     "$REPO_ROOT/scripts/lib/helpers-full.sh" \
+     "$REPO_ROOT/scripts/lib/lock.sh" "$d/scripts/lib/" || return 1
 }
 
 # mk_phase3_clean <dir> — a Light-track project sitting at current_phase 3

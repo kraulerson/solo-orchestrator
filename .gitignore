@@ -67,6 +67,11 @@ test-logs/
 # BL-314: the ledger writer's temps (scripts/lib/ledger-write.sh). A SIGKILL
 # can leave one, a full copy of the ledger, until the next write sweeps it.
 .claude/tool-usage.json.lw.*
+# BL-358: the lock files of scripts/lib/lock.sh — the ledger's and its break
+# guard, and those of the phase-state, process-state and bypass-audit writers.
+# A SIGKILL can leave one; committed, it would hold every clone's writers.
+.claude/*.json.lock
+.claude/tool-usage.json.lock.break
 
 # `unit-shard` installs jsdom with `npm install --no-save` for the BL-263/BL-264
 # behavioural cases (see .github/workflows/tests.yml). `--no-save` keeps

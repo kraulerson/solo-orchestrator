@@ -1503,6 +1503,10 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/track-tool-usage.sh" scripts/
   # BL-314: the locked ledger writer both hooks above source.
   cp "$SCRIPT_DIR/scripts/lib/ledger-write.sh" scripts/lib/
+  # `## BL-358:` the lock primitive under that writer, check-phase-gate.sh,
+  # run-phase3-validation.sh, track-tool-usage.sh and lib/bypass-audit.sh. Each
+  # refuses to write without it, so it ships wherever they do.
+  cp "$SCRIPT_DIR/scripts/lib/lock.sh" scripts/lib/   # BL-358-SHIP-LOCK
   # BL-029: bypass-detector + escalate-to-user CLI + libs.
   mkdir -p scripts/hooks scripts/lib
   cp "$SCRIPT_DIR/scripts/hooks/bypass-detector.sh" scripts/hooks/

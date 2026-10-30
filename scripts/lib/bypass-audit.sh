@@ -1,8 +1,9 @@
 # scripts/lib/bypass-audit.sh — BL-029 audit-log writer library.
 #
-# Canonical schema for .claude/bypass-audit.json. Provides flock-protected
-# append so concurrent writers (PostToolUse hooks, Stop hooks, SessionStart
-# detector, init/reconfigure recorders) don't race on the file.
+# Canonical schema for .claude/bypass-audit.json. Provides a locked append
+# (lib/lock.sh, beside this file) so concurrent writers (PostToolUse hooks,
+# Stop hooks, SessionStart detector, init/reconfigure recorders) don't race on
+# the file.
 #
 # Schema per row (per BL-030 spec § 6):
 #   {
@@ -75,6 +76,26 @@
 
 # shellcheck shell=bash
 
+# `## BL-358:` the four writers below lock through lib/lock.sh, beside this
+# file: an O_EXCL lock file, where they took `mkdir "$file.lockdir"` and
+# trusted an exit status uutils coreutils 0.10.0 reports wrongly. Loaded through
+# a trial keyed on what it defines, so a broken copy cannot end a `set -e`
+# caller at the `.`. Without it the readers here still work and each writer
+# refuses, loudly (_bypass_audit_need_lock): never an unlocked write.
+case "${BASH_SOURCE[0]}" in */*) BYPASS_AUDIT_DIR="${BASH_SOURCE[0]%/*}" ;; *) BYPASS_AUDIT_DIR=. ;; esac
+if ( . "$BYPASS_AUDIT_DIR/lock.sh" && command -v soif_lock_try && command -v soif_lock_release ) >/dev/null 2>&1; then
+  # shellcheck source=scripts/lib/lock.sh
+  . "$BYPASS_AUDIT_DIR/lock.sh"
+fi
+
+# _bypass_audit_need_lock <function> — 0 when lib/lock.sh is loaded; otherwise
+# says on stderr that <function> wrote nothing, and returns 1.
+_bypass_audit_need_lock() {
+  command -v soif_lock_try >/dev/null 2>&1 && return 0
+  echo "[FAIL] $1: $BYPASS_AUDIT_DIR/lock.sh is missing or cannot be loaded, so nothing was written to .claude/bypass-audit.json: a write without its lock can lose a concurrent row. Restore it: bash scripts/verify-install.sh --auto-fix" >&2
+  return 1
+}
+
 # _bypass_audit_preserve_mode <reference_file> <target_file>
 # Copies <reference_file>'s octal mode onto <target_file>. Tries GNU
 # `chmod --reference` first (single syscall path); falls back to
@@ -118,7 +139,7 @@ bypass_audit_init() {
 
 # bypass_audit_append <project_root> <row_json>
 # Validates row_json is a JSON object, then appends to the audit array
-# under flock. Returns 0 on success, 1 on validation or write failure.
+# under the lock. Returns 0 on success, 1 on validation or write failure.
 bypass_audit_append() {
   local project_root="${1:-.}"
   local row="${2:-}"
@@ -135,12 +156,13 @@ bypass_audit_append() {
 
   bypass_audit_init "$project_root"
 
-  # Portable advisory lock via atomic mkdir. flock isn't on macOS by
-  # default; mkdir works everywhere. Lock is held for the read-modify-
-  # write window only.
-  local lock_dir="$file.lockdir"
+  # Portable advisory lock (lib/lock.sh). flock isn't on macOS by default,
+  # and since `## BL-358:` it is not mkdir either. Lock is held for the
+  # read-modify-write window only.
+  _bypass_audit_need_lock bypass_audit_append || return 1   # BL-358-BA-NEEDS-LOCK-APPEND
+  local lock_file="$file.lock"
   local attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while ! soif_lock_try "$lock_file"; do   # BL-358-BA-LOCK-APPEND
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
       echo "[FAIL] bypass_audit_append: lock timeout (>10s)" >&2
@@ -180,7 +202,7 @@ bypass_audit_append() {
   # rejects `null` and any other scalar or object. `-e` turns a `false` result
   # into a non-zero exit. A parse error exits non-zero on its own.
   if ! jq -es 'length == 1 and (.[0] | type == "array")' "$file" >/dev/null 2>&1; then
-    rmdir "$lock_dir" 2>/dev/null
+    soif_lock_release "$lock_file"
     echo "[FAIL] bypass_audit_append: $file is not a single JSON array (empty, truncated, multi-document or the wrong type) — refusing to append rather than silently losing the row. Inspect it with: jq . \"$file\"" >&2
     return 1
   fi
@@ -215,13 +237,13 @@ bypass_audit_append() {
   local rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --argjson r "$row" '. + [$r]' "$file" > "$tmp" 2>/dev/null; then
       _bypass_audit_preserve_mode "$file" "$tmp"
       mv "$tmp" "$file" || exit 1
       # Successful rename: clear the trap so the EXIT path doesn't try
       # to rm a now-renamed (i.e. nonexistent) tmp path. Also let the
-      # outer caller manage the lock_dir cleanup uniformly.
+      # outer caller manage the lock cleanup uniformly.
       trap - EXIT INT TERM
       exit 0
     else
@@ -232,7 +254,7 @@ bypass_audit_append() {
     fi
   ) || rc=1
 
-  rmdir "$lock_dir" 2>/dev/null
+  soif_lock_release "$lock_file"   # BL-358-BA-RELEASE-APPEND
   return "$rc"
 }
 
@@ -281,9 +303,10 @@ bypass_audit_close_pending() {
 
   [ -f "$file" ] || return 0
 
-  local lock_dir="$file.lockdir"
+  _bypass_audit_need_lock bypass_audit_close_pending || return 1   # BL-358-BA-NEEDS-LOCK-CLOSE
+  local lock_file="$file.lock"
   local attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while ! soif_lock_try "$lock_file"; do   # BL-358-BA-LOCK-CLOSE
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
       echo "[FAIL] bypass_audit_close_pending: lock timeout (>10s)" >&2
@@ -313,7 +336,7 @@ bypass_audit_close_pending() {
   local rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     # BL-277-FP-RECORD — the reason lands on every row the close touches.
     if jq --arg ur "$user_resp" --arg fo "$final_out" --arg why "$reason" \
          '[.[] | if .type == "claude_bypass_proposal" and .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo | (if $ur == "false_positive" then .details.false_positive_reason = $why else . end) else . end]' \
@@ -330,7 +353,7 @@ bypass_audit_close_pending() {
     fi
   ) || rc=1
 
-  rmdir "$lock_dir" 2>/dev/null
+  soif_lock_release "$lock_file"   # BL-358-BA-RELEASE-CLOSE
   return "$rc"
 }
 
@@ -390,8 +413,9 @@ bypass_audit_close_from_approvals() {
   jq -e 'type == "array"' "$file" >/dev/null 2>&1 || { echo "[FAIL] bypass_audit_close_from_approvals: $file is not a JSON array" >&2; return 1; }
   before="$(jq '[.[] | select(.type == "claude_bypass_proposal" and .user_response == "PENDING")] | length' "$file")"
 
-  local lock_dir="$file.lockdir" attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  _bypass_audit_need_lock bypass_audit_close_from_approvals || return 1   # BL-358-BA-NEEDS-LOCK-APPROVALS
+  local lock_file="$file.lock" attempts=0
+  while ! soif_lock_try "$lock_file"; do   # BL-358-BA-LOCK-APPROVALS
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
       echo "[FAIL] bypass_audit_close_from_approvals: lock timeout (>10s)" >&2
@@ -402,7 +426,7 @@ bypass_audit_close_from_approvals() {
   local rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --argjson picks "$picks" --arg qp "$BYPASS_QUESTION_PREFIX" --arg acc "$BYPASS_ACCEPT_TEXT" --arg dec "$BYPASS_DECLINE_TEXT" \
          --arg fp "${BYPASS_FALSE_POSITIVE_TEXT:-}" --arg fpl "${BYPASS_FALSE_POSITIVE_LEAD:-}" '[ .[] |
         if .type == "claude_bypass_proposal" and .user_response == "PENDING"
@@ -438,7 +462,7 @@ bypass_audit_close_from_approvals() {
       exit 1
     fi
   ) || rc=1
-  rmdir "$lock_dir" 2>/dev/null
+  soif_lock_release "$lock_file"   # BL-358-BA-RELEASE-APPROVALS
   [ "$rc" -eq 0 ] || return 1
   after="$(jq '[.[] | select(.type == "claude_bypass_proposal" and .user_response == "PENDING")] | length' "$file")"
   echo $((before - after))
@@ -460,8 +484,9 @@ bypass_audit_rebind_pending() {
   [ "${#sha}" -eq 64 ] || { echo "[FAIL] bypass_audit_rebind_pending: '$sha' is not a sha256" >&2; return 1; }
   jq -e 'type == "array"' "$file" >/dev/null 2>&1 || { echo "[FAIL] bypass_audit_rebind_pending: $file is missing or not a JSON array" >&2; return 1; }
 
-  local lock_dir="$file.lockdir" attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  _bypass_audit_need_lock bypass_audit_rebind_pending || return 1   # BL-358-BA-NEEDS-LOCK-REBIND
+  local lock_file="$file.lock" attempts=0
+  while ! soif_lock_try "$lock_file"; do   # BL-358-BA-LOCK-REBIND
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
       echo "[FAIL] bypass_audit_rebind_pending: lock timeout (>10s)" >&2
@@ -472,7 +497,7 @@ bypass_audit_rebind_pending() {
   local rc=0
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     # BL-277-FP-REBIND — the PENDING proposals, and nothing else.
     if jq --arg s "$sha" '[.[] | if (.type == "claude_bypass_proposal" and .user_response == "PENDING") then .details.sentinel_sha256 = $s else . end]' \
          "$file" > "$tmp" 2>/dev/null; then
@@ -487,6 +512,6 @@ bypass_audit_rebind_pending() {
       exit 1
     fi
   ) || rc=1
-  rmdir "$lock_dir" 2>/dev/null
+  soif_lock_release "$lock_file"   # BL-358-BA-RELEASE-REBIND
   return "$rc"
 }

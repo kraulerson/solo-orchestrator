@@ -79,7 +79,7 @@ if ( . "$SCRIPT_DIR/lib/ledger-write.sh" && command -v _lw_update && command -v 
   _lw_traps
 else
   _lw_absent() {
-    echo "track-tool-usage.sh: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded, so this call was NOT recorded in $TOOL_USAGE, and the MCP check will keep refusing Write and Edit. Restore it: bash scripts/verify-install.sh --auto-fix" >&2
+    echo "track-tool-usage.sh: $SCRIPT_DIR/lib/ledger-write.sh is missing or cannot be loaded (it needs lib/lock.sh beside it), so this call was NOT recorded in $TOOL_USAGE, and the MCP check will keep refusing Write and Edit. Restore it: bash scripts/verify-install.sh --auto-fix" >&2
     exit 1   # BL-314-NOLIB-LOUD
   }
   _lw_lock() { _lw_absent; }
@@ -88,6 +88,16 @@ else
   _lw_update() { _lw_absent; }
   _lw_unlock() { :; }
 fi
+
+# `## BL-358:` a ledger write whose lock cannot be taken is skipped, never made
+# without the lock, and the lib says so on stderr. This hook still never blocks:
+# it finishes its work and ends with exit 1, a non-blocking hook error Claude
+# Code shows the user, because the call it fired for is missing from the ledger
+# and the MCP check will refuse Write and Edit on that.
+_tt_exit() {
+  [ "${LW_SKIPPED:-0}" = "1" ] && exit 1   # BL-358-TRACKER-LOUD
+  exit 0
+}
 
 # ── argv: --event <name> ────────────────────────────────────────────────────
 # Unknown arguments are ignored rather than fatal — an argv this hook does not
@@ -155,13 +165,14 @@ case "$TOOL_NAME" in
     if echo "$BASH_CMD" | grep -qE '^\s*git\s+commit' 2>/dev/null; then
       if [ -f "$TOOL_USAGE" ] && command -v jq &>/dev/null; then
         # The read and the write under one hold; the EXIT trap releases it.
-        _lw_lock
-        CURRENT=$(jq -r '.commits_since_last_context7 // 0' "$TOOL_USAGE" 2>/dev/null)
-        case "$CURRENT" in ''|*[!0-9]*) CURRENT=0 ;; esac
-        _lw_write ".commits_since_last_context7 = $((CURRENT + 1))"
+        if _lw_lock; then   # BL-358-COMMIT-LOCK
+          CURRENT=$(jq -r '.commits_since_last_context7 // 0' "$TOOL_USAGE" 2>/dev/null)
+          case "$CURRENT" in ''|*[!0-9]*) CURRENT=0 ;; esac
+          _lw_write ".commits_since_last_context7 = $((CURRENT + 1))"
+        fi
       fi
     fi
-    exit 0
+    _tt_exit
     ;;
   *) exit 0 ;; # Not an MCP tool, not a commit — exit fast
 esac
@@ -191,8 +202,7 @@ _ledger_unusable() {
 CREATED_LEDGER=0
 if _ledger_unusable; then
   mkdir -p .claude
-  _lw_lock   # BL-314-SEED-LOCK
-  if _ledger_unusable; then
+  if _lw_lock && _ledger_unusable; then   # BL-314-SEED-LOCK
     _lw_land cat << 'EOF' && CREATED_LEDGER=1
 {
   "session_id": null,
@@ -215,7 +225,7 @@ EOF
   _lw_unlock
 fi
 
-command -v jq &>/dev/null || exit 0
+command -v jq &>/dev/null || _tt_exit
 
 # Belt-and-braces on the absence above, scoped to a ledger THIS invocation just
 # created (never to one SessionStart or the scaffolder wrote — those carry
@@ -315,11 +325,12 @@ fi
 # reads .claude/process-state.json::mcp_accumulation, which survives session
 # boundaries, and this function is its ONLY writer.
 #
-# It takes the same mkdir advisory lock as check-phase-gate.sh's two writers of
-# that same file (_cpg_record_gate_date, _cpg_record_reviewer_attestation). An
-# unlocked third writer would not merely race itself — it would break THEIR
-# mutual exclusion. The budget is deliberately short (3s, vs the gate's 10s):
-# this runs on a PostToolUse hook, and a tool call must not stall behind a lock.
+# It takes the same lock as check-phase-gate.sh's writers of that same file
+# (_cpg_record_reviewer_attestation and its siblings), through scripts/lib/lock.sh
+# (`## BL-358:`; it was a mkdir lock). An unlocked writer would not merely race
+# itself — it would break THEIR mutual exclusion. The budget is deliberately
+# short (3s, vs the gate's 10s): this runs on a PostToolUse hook, and a tool
+# call must not stall behind a lock.
 #
 # A failed write is RECORDED in the ledger, never swallowed. A store that never
 # reached the durable record would otherwise leave the operator in front of a
@@ -327,23 +338,27 @@ fi
 _tt_record_accumulation() {
   local ts="$1"
   local file=".claude/process-state.json"
-  local lock_dir="$file.lockdir"
+  local lock_file="$file.lock"
   local attempts=0 rc=0
 
+  if ! command -v soif_lock_try >/dev/null 2>&1; then
+    echo "track-tool-usage.sh: $SCRIPT_DIR/lib/lock.sh is missing or cannot be loaded, so this store was NOT added to $file: a write without its lock can lose a concurrent update. Restore it: bash scripts/verify-install.sh --auto-fix" >&2
+    return 1   # BL-358-TT-NEEDS-LOCK
+  fi
   mkdir -p .claude 2>/dev/null || return 1
-  while ! mkdir "$lock_dir" 2>/dev/null; do
+  while ! soif_lock_try "$lock_file"; do   # BL-358-TT-LOCK
     attempts=$((attempts + 1))
     [ "$attempts" -ge 30 ] && return 1
     sleep 0.1
   done
 
   if [ ! -f "$file" ]; then
-    echo '{}' > "$file" 2>/dev/null || { rmdir "$lock_dir" 2>/dev/null; return 1; }
+    echo '{}' > "$file" 2>/dev/null || { soif_lock_release "$lock_file"; return 1; }
   fi
 
   (
     tmp=$(mktemp "${file}.XXXXXX") || exit 1
-    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp"; soif_lock_release "$lock_file"' EXIT INT TERM
     if jq --arg ts "$ts" \
         '.mcp_accumulation = ((.mcp_accumulation // {})
            | .store_success_count = ((.store_success_count // 0) + 1)
@@ -359,7 +374,7 @@ _tt_record_accumulation() {
       exit 1
     fi
   ) || rc=1
-  rmdir "$lock_dir" 2>/dev/null || true
+  soif_lock_release "$lock_file" || true   # BL-358-TT-RELEASE
   return "$rc"
 }
 
@@ -424,10 +439,16 @@ fi
 # no reason to hand-build JSON on this path — unlike session-mcp-gate.sh's
 # deny(), which must be able to report a MISSING jq and therefore scrubs the
 # class with builtins instead.
+#
+# `## BL-358:` both reports say the call is recorded. When a ledger write was
+# skipped because its lock could not be taken, it is not, and the report says
+# that too: on this path the JSON decides and the exit code is not shown.
+TT_NOTE=""
+[ "${LW_SKIPPED:-0}" = "1" ] && TT_NOTE=" BUT THIS CALL WAS NOT RECORDED in $TOOL_USAGE: its lock could not be taken and the write was skipped (this hook's stderr says why), so the MCP check counts it as never made."   # BL-358-REPORT-NOTE
 if [ "$IS_EMPTY" = "1" ] && echo "$TOOL_NAME" | grep -q "qdrant" 2>/dev/null; then
-  jq -nc --arg ev "$EVENT" --arg tool "$TOOL_NAME" '{hookSpecificOutput: {hookEventName: $ev, additionalContext: ("QDRANT EMPTY RESULT: " + $tool + " returned no stored context. This does NOT block you — an empty semantic memory is expected on a new project. On an established one it means nothing was ever stored, so the retrieval half has nothing behind it. Report it to the Orchestrator and store what this session learns.")}}'  # BL-233-EMPTY-REPORT
+  jq -nc --arg ev "$EVENT" --arg tool "$TOOL_NAME" --arg note "$TT_NOTE" '{hookSpecificOutput: {hookEventName: $ev, additionalContext: ("QDRANT EMPTY RESULT: " + $tool + " returned no stored context. This does NOT block you — an empty semantic memory is expected on a new project. On an established one it means nothing was ever stored, so the retrieval half has nothing behind it. Report it to the Orchestrator and store what this session learns." + $note)}}'  # BL-233-EMPTY-REPORT
 elif [ "$OUTCOME" = "failure" ]; then
-  jq -nc --arg ev "$EVENT" --arg tool "$TOOL_NAME" --arg err "$TOOL_ERROR" '{hookSpecificOutput: {hookEventName: $ev, additionalContext: ("MCP CALL FAILED: " + $tool + " did not execute (" + $err + "). This is RECORDED and it does NOT satisfy any session requirement — the framework now distinguishes configured-but-unreachable from not-configured. Fix the server or attest the exception; do not retry silently and proceed.")}}'
+  jq -nc --arg ev "$EVENT" --arg tool "$TOOL_NAME" --arg err "$TOOL_ERROR" --arg note "$TT_NOTE" '{hookSpecificOutput: {hookEventName: $ev, additionalContext: ("MCP CALL FAILED: " + $tool + " did not execute (" + $err + "). This is RECORDED and it does NOT satisfy any session requirement — the framework now distinguishes configured-but-unreachable from not-configured. Fix the server or attest the exception; do not retry silently and proceed." + $note)}}'
 fi
 
-exit 0
+_tt_exit

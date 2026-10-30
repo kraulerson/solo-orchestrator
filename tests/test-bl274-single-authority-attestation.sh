@@ -22,7 +22,7 @@
 #                                         PATH, A23 read-only state file,
 #                                         A20 no gate key, A21 a value other
 #                                         than exactly 1, A24 a state file
-#                                         that is not JSON, A25 a held lockdir
+#                                         that is not JSON, A25 a held lock
 #   each unrecordable cause names ITS
 #   OWN remedy, and no other ............ A9, A22, A23, A24, A25
 #   it is recorded ...................... A6+A7 per gate and pinned to HEAD,
@@ -313,7 +313,7 @@ case_A8() {   # same reason, new HEAD → the pin is refreshed
 # The remedy must name the cause that fired and no other (Karl's review of
 # #452, finding 2: one catch-all told a stale-lock operator to install jq).
 #   <own token from REMEDIES> <must-match ERE> <what the cause is, for WHY>
-REMEDIES='install jq|cannot be written|not a JSON object|lockdir'
+REMEDIES='install jq|cannot be written|not a JSON object|lock is held'
 _remedy_names() {
   local rem others
   rem=$(printf '%s\n' "$OUT" | grep -A2 'COULD NOT BE RECORDED' || true)
@@ -333,7 +333,7 @@ case_A9() {   # a record that cannot be written → refused, and the gate BLOCKS
   [ "$RC" -ne 0 ] || { WHY="the gate exited 0 with an attestation it could not record — a route that leaves no trace"; r=1; }
   if printf '%s\n' "$OUT" | grep -q '\[ATTESTED\]'; then WHY="an unrecordable attestation was ACCEPTED"; r=1; fi
   # A lock left behind here refuses the next run on a valid file as "held".
-  if [ "$r" -eq 0 ] && [ -e "$PROJ/.claude/process-state.json.lockdir" ]; then WHY="the refusal left its lockdir behind"; r=1; fi
+  if [ "$r" -eq 0 ] && [ -e "$PROJ/.claude/process-state.json.lock" ]; then WHY="the refusal left its lock behind"; r=1; fi
   [ "$r" -ne 0 ] || _remedy_names 'cannot be written' 'cannot be written' 'an unwritable state file' || r=1
   teardown; return $r
 }
@@ -472,20 +472,20 @@ case_A32() {  # a state-file value echoed in jq's message cannot forge gate outp
 case_A25() {  # a lock held by another run (or left by a killed one) → refused, BLOCKS, file untouched
   setup_clean "$SOLO_NAME" "$SOLO_NAME" "$SOLO_MAIL"
   printf '{"note":"pre-existing"}\n' > "$PROJ/.claude/process-state.json"
-  mkdir "$PROJ/.claude/process-state.json.lockdir"
+  printf 'held by another run\n' > "$PROJ/.claude/process-state.json.lock"
   local before r=0
   before=$(cksum < "$PROJ/.claude/process-state.json")
   attested "$1" "$REASON"
   _refused_file_untouched "$before" || r=1
-  [ -d "$PROJ/.claude/process-state.json.lockdir" ] || { WHY="the recorder removed a lock it did not take"; r=1; }
-  [ "$r" -ne 0 ] || _remedy_names lockdir 'process-state\.json\.lockdir.*remove it' 'a held lock, with the instruction to remove a stale one' || r=1
+  [ -f "$PROJ/.claude/process-state.json.lock" ] || { WHY="the recorder removed a lock it did not take"; r=1; }
+  [ "$r" -ne 0 ] || _remedy_names 'lock is held' 'process-state\.json\.lock is held.*remove it' 'a held lock, with the instruction to remove a stale one' || r=1
   teardown; return $r
 }
 
 # Shared by A27 and A28: .claude/ refuses writes and no lock exists. The
-# refusal must name the unwritable path at once, never a lockdir that is not
+# refusal must name the unwritable path at once, never a lock that is not
 # there (Karl's review of #452, finding 2: name the actual cause). It used to
-# wait out the lock loop, about 10 s, and say to remove a lockdir that did not
+# wait out the lock loop, about 10 s, and say to remove a lock that did not
 # exist.
 #   <script> <lock-command> <unlock-command>
 _refused_unwritable_dir() {
@@ -502,18 +502,18 @@ _refused_unwritable_dir() {
   [ "$r" -ne 0 ] || _remedy_names 'cannot be written' 'cannot be written' 'a .claude/ that refuses writes' || r=1
   # The lock loop is 100 tries at 0.1 s: 9 s or more means it was waited out.
   if [ "$r" -eq 0 ] && [ "$secs" -ge 9 ]; then WHY="refused after ${secs}s, waiting on a lock that does not exist"; r=1; fi
-  if [ "$r" -eq 0 ] && [ -e "$PROJ/.claude/process-state.json.lockdir" ]; then WHY="a lockdir appeared in a directory that refuses writes"; r=1; fi
+  if [ "$r" -eq 0 ] && [ -e "$PROJ/.claude/process-state.json.lock" ]; then WHY="a lock appeared in a directory that refuses writes"; r=1; fi
   teardown; return $r
 }
 _mode_0555() { chmod 0555 "$1"; }
 _mode_0755() { chmod 0755 "$1"; }
-case_A27() {  # .claude/ at 0555, no lockdir → refused at once as unwritable
+case_A27() {  # .claude/ at 0555, no lock → refused at once as unwritable
   [ "$(id -u)" -ne 0 ] || { WHY="running as root — a 0555 directory is writable to root, so this case cannot measure"; return 3; }
   _refused_unwritable_dir "$1" _mode_0555 _mode_0755
 }
 _uchg()   { chflags uchg "$1"; }
 _nouchg() { chflags nouchg "$1"; }
-case_A28() {  # .claude/ immutable (chflags uchg), no lockdir → refused at once as unwritable
+case_A28() {  # .claude/ immutable (chflags uchg), no lock → refused at once as unwritable
   command -v chflags >/dev/null 2>&1 || { WHY="no chflags on this platform"; return 4; }
   # An immutable directory outlives rm -rf; the trap clears the flag if the
   # suite is interrupted between setting it and the case's own unlock.
@@ -578,7 +578,7 @@ SH
   kill -TERM "$sl" 2>/dev/null
   wait "$bg" 2>/dev/null
   if [ -n "$(_leftover_temps)" ]; then WHY="TERM mid-write left the temp file: $(_leftover_temps)"; r=1
-  elif [ -e "$PROJ/.claude/process-state.json.lockdir" ]; then WHY="TERM mid-write left the lockdir"; r=1
+  elif [ -e "$PROJ/.claude/process-state.json.lock" ]; then WHY="TERM mid-write left the lock"; r=1
   fi
   teardown; return $r
 }
@@ -760,13 +760,13 @@ run_case A9    case_A9    "the record cannot be written: refused, exit non-zero"
 run_case A22   case_A22   "jq absent from PATH: refused as unrecordable, exit non-zero, no [ATTESTED]"
 run_case A23   case_A23   "read-only state file: refused as unrecordable, exit non-zero, file untouched"
 run_case A24   case_A24   "state file is not JSON: refused, exit non-zero, no [ATTESTED], bytes unchanged"
-run_case A25   case_A25   "lockdir already held: refused, exit non-zero, no [ATTESTED], bytes unchanged"
+run_case A25   case_A25   "lock already held: refused, exit non-zero, no [ATTESTED], bytes unchanged"
 run_case A31   case_A31   "state file is a JSON array: refused, bytes unchanged, and jq's own diagnostic printed"
 run_case A32   case_A32   "a state-file value quoted in jq's message: one 'jq said:' line, no forged [OK]/[PASS] line"
-run_case A27   case_A27   ".claude/ at 0555, no lockdir: refused at once as unwritable, never as a held lock"
-run_case A28   case_A28   ".claude/ immutable (chflags uchg), no lockdir: refused at once as unwritable"
+run_case A27   case_A27   ".claude/ at 0555, no lock: refused at once as unwritable, never as a held lock"
+run_case A28   case_A28   ".claude/ immutable (chflags uchg), no lock: refused at once as unwritable"
 run_case A29   case_A29   "scripts/lib/accumulation.sh absent: the fallback sanitiser strips the reason"
-run_case A30   case_A30   "TERM during the write: no temp file and no lockdir left"
+run_case A30   case_A30   "TERM during the write: no temp file and no lock left"
 run_case A10   case_A10   "a reason carrying an escaped newline cannot forge an [OK] line"
 run_case A11   case_A11   "CONTROL — personal deployment: the route never fires"
 run_case A12   case_A12   "attested with nothing to excuse: silent, nothing recorded"
@@ -888,9 +888,9 @@ if mutate_at "$A_SA" 40 'XIV item 5' 'a governance section'; then
 else setup_ MT2 "$WHY"; fi
 unmirror
 
-echo "MT3: idempotence made reason-only (ATTEST-WRITE -33) → A8"
+echo "MT3: idempotence made reason-only (ATTEST-WRITE -34) → A8"
 mirror
-if mutate_at "$A_WR" -33 '[ "$_sa_cur_reason" = "$_sa_reason" ] && [ "$_sa_cur_head" = "$_sa_head" ]' '[ "$_sa_cur_reason" = "$_sa_reason" ]'; then
+if mutate_at "$A_WR" -34 '[ "$_sa_cur_reason" = "$_sa_reason" ] && [ "$_sa_cur_head" = "$_sa_head" ]' '[ "$_sa_cur_reason" = "$_sa_reason" ]'; then
   expect_kill MT3 A8 case_A8 A6+A7 case_A6A7
 else setup_ MT3 "$WHY"; fi
 unmirror
@@ -955,11 +955,11 @@ if insert_after "$A_SA" 41 'Recorded to .claude/process-state.json' '    echo " 
 else setup_ MT11 "$WHY"; fi
 unmirror
 
-echo "MT12: the recorder returns 0 instead of 2 when jq is absent (ATTEST-WRITE -60) → A22"
+echo "MT12: the recorder returns 0 instead of 2 when jq is absent (ATTEST-WRITE -61) → A22"
 mirror
 # The pre-merge review's RV8: with jq absent the recorder would report
 # success without writing, and a clean project would exit 0 with no record.
-if mutate_at "$A_WR" -60 'command -v jq >/dev/null 2>&1 || return 2' 'command -v jq >/dev/null 2>&1 || return 0'; then
+if mutate_at "$A_WR" -61 'command -v jq >/dev/null 2>&1 || return 2' 'command -v jq >/dev/null 2>&1 || return 0'; then
   expect_kill MT12 A22 case_A22 A13 case_A13
 else setup_ MT12 "$WHY"; fi
 unmirror
@@ -972,9 +972,9 @@ if mutate_at "$A_SA" 28 'if _cpg_record_single_authority_attestation "$_sa_gate"
 else setup_ MT13 "$WHY"; fi
 unmirror
 
-echo "MT14: the read-only guard on the state file removed (ATTEST-WRITE -54) → A23"
+echo "MT14: the read-only guard on the state file removed (ATTEST-WRITE -55) → A23"
 mirror
-if mutate_at "$A_WR" -54 '[ -w "$file" ] || return 3' ': # MUTANT: writability not checked'; then
+if mutate_at "$A_WR" -55 '[ -w "$file" ] || return 3' ': # MUTANT: writability not checked'; then
   expect_kill MT14 A23 case_A23 A13 case_A13
 else setup_ MT14 "$WHY"; fi
 unmirror
@@ -990,7 +990,7 @@ unmirror
 
 echo "MT16: the lock-timeout arm reports success (ATTEST-WRITE -19) → A25"
 mirror
-# Karl's review of #452, finding 1, the second mutant: a stale lockdir.
+# Karl's review of #452, finding 1, the second mutant: a stale lock.
 if mutate_at "$A_WR" -19 'return 4' 'return 0'; then
   expect_kill MT16 A25 case_A25 A13 case_A13
 else setup_ MT16 "$WHY"; fi
@@ -1013,9 +1013,9 @@ if mutate_at "$A_WR" 6 'exit 5' 'exit 3'; then
 else setup_ MT18 "$WHY"; fi
 unmirror
 
-echo "MT19: a read-only state file reported as a jq merge failure (ATTEST-WRITE -54) → A23"
+echo "MT19: a read-only state file reported as a jq merge failure (ATTEST-WRITE -55) → A23"
 mirror
-if mutate_at "$A_WR" -54 '[ -w "$file" ] || return 3' '[ -w "$file" ] || return 5'; then
+if mutate_at "$A_WR" -55 '[ -w "$file" ] || return 3' '[ -w "$file" ] || return 5'; then
   expect_kill MT19 A23 case_A23 A24 case_A24
 else setup_ MT19 "$WHY"; fi
 unmirror
@@ -1027,7 +1027,7 @@ if mutate_at "$A_WR" -11 'return 3; }' 'return 4; }'; then
 else setup_ MT20 "$WHY"; fi
 unmirror
 
-echo "MT21: the held-lock remedy loses its instruction to remove a stale lockdir (SINGLE-AUTHORITY +52) → A25"
+echo "MT21: the held-lock remedy loses its instruction to remove a stale lock (SINGLE-AUTHORITY +52) → A25"
 mirror
 if mutate_at "$A_SA" 52 'remove it and re-run' 'wait and re-run'; then
   expect_kill MT21 A25 case_A25 A24 case_A24
@@ -1045,9 +1045,9 @@ unmirror
 # the recorder and the gate has a flip-to-success mutant with its killer.
 # The two arms inside the lock that no fixture reaches (`mktemp` and `mv`
 # failing, ATTEST-WRITE -6 and +0) are named in the entry, not mutated.
-echo "MT23: the read-only arm returns 0 (ATTEST-WRITE -54) → A23"
+echo "MT23: the read-only arm returns 0 (ATTEST-WRITE -55) → A23"
 mirror
-if mutate_at "$A_WR" -54 '[ -w "$file" ] || return 3' '[ -w "$file" ] || return 0'; then
+if mutate_at "$A_WR" -55 '[ -w "$file" ] || return 3' '[ -w "$file" ] || return 0'; then
   expect_kill MT23 A23 case_A23 A13 case_A13
 else setup_ MT23 "$WHY"; fi
 unmirror
@@ -1088,9 +1088,9 @@ if mutate_at 'validate_approval_fields "Phase 0.*Phase 1" "Phase 0→1" "phase_0
 else setup_ MT28 "$WHY"; fi
 unmirror
 
-echo "MT29: the unrecordable refusal returns 0 (SINGLE-AUTHORITY +56) → A9"
+echo "MT29: the unrecordable refusal returns 0 (SINGLE-AUTHORITY +57) → A9"
 mirror
-if mutate_at "$A_SA" 56 'return 1' 'return 0'; then
+if mutate_at "$A_SA" 57 'return 1' 'return 0'; then
   expect_kill MT29 A9 case_A9 A13 case_A13
 else setup_ MT29 "$WHY"; fi
 unmirror
@@ -1121,23 +1121,23 @@ unmirror
 # MT33 to MT37: the idempotence reason half, the lock release on a failed
 # create, the cleanup trap, the temp removal on a failed merge, and the
 # no-lib fallback sanitiser.
-echo "MT33: idempotence made head-only, so a new reason at the same head is dropped (ATTEST-WRITE -33) → A8b"
+echo "MT33: idempotence made head-only, so a new reason at the same head is dropped (ATTEST-WRITE -34) → A8b"
 mirror
-if mutate_at "$A_WR" -33 '[ "$_sa_cur_reason" = "$_sa_reason" ] && [ "$_sa_cur_head" = "$_sa_head" ]' '[ "$_sa_cur_head" = "$_sa_head" ]'; then
+if mutate_at "$A_WR" -34 '[ "$_sa_cur_reason" = "$_sa_reason" ] && [ "$_sa_cur_head" = "$_sa_head" ]' '[ "$_sa_cur_head" = "$_sa_head" ]'; then
   expect_kill MT33 A8b case_A8b A8 case_A8
 else setup_ MT33 "$WHY"; fi
 unmirror
 
 echo "MT34: the create-failure arm keeps the lock (ATTEST-WRITE -11) → A9"
 mirror
-if mutate_at "$A_WR" -11 '{ rmdir "$lock_dir" 2>/dev/null; return 3; }' '{ return 3; }'; then
+if mutate_at "$A_WR" -11 '{ soif_lock_release "$lock_file"; return 3; }' '{ return 3; }'; then
   expect_kill MT34 A9 case_A9 A13 case_A13
 else setup_ MT34 "$WHY"; fi
 unmirror
 
 echo "MT35: the subshell's cleanup trap removed (ATTEST-WRITE -5) → A30"
 mirror
-if mutate_at "$A_WR" -5 "trap 'rm -f \"\$tmp\"; rmdir \"\$lock_dir\" 2>/dev/null' EXIT INT TERM" ': # MUTANT: no cleanup trap'; then
+if mutate_at "$A_WR" -5 "trap 'rm -f \"\$tmp\"; soif_lock_release \"\$lock_file\"' EXIT INT TERM" ': # MUTANT: no cleanup trap'; then
   expect_kill MT35 A30 case_A30 A24 case_A24
 else setup_ MT35 "$WHY"; fi
 unmirror
@@ -1158,14 +1158,14 @@ unmirror
 
 echo "MT38: the no-lock-to-wait-on arm returns 0 (ATTEST-WRITE -22) → A27"
 mirror
-if mutate_at "$A_WR" -22 '[ -e "$lock_dir" ] || return 3' '[ -e "$lock_dir" ] || return 0'; then
+if mutate_at "$A_WR" -22 '[ -e "$lock_file" ] || return 3' '[ -e "$lock_file" ] || return 0'; then
   expect_kill MT38 A27 case_A27 A25 case_A25
 else setup_ MT38 "$WHY"; fi
 unmirror
 
 echo "MT39: the no-lock-to-wait-on arm removed, so an unwritable .claude/ waits out the loop (ATTEST-WRITE -22) → A27"
 mirror
-if mutate_at "$A_WR" -22 '[ -e "$lock_dir" ] || return 3' ': # MUTANT: every mkdir failure is a held lock'; then
+if mutate_at "$A_WR" -22 '[ -e "$lock_file" ] || return 3' ': # MUTANT: every failed take is a held lock'; then
   expect_kill MT39 A27 case_A27 A25 case_A25
 else setup_ MT39 "$WHY"; fi
 unmirror

@@ -126,6 +126,14 @@ terraform.tfvars.json
 # BL-314: the ledger writer's temps (scripts/lib/ledger-write.sh). A SIGKILL
 # can leave one, a full copy of the ledger, until the next write sweeps it.
 .claude/tool-usage.json.lw.*
+# BL-358: the lock files of scripts/lib/lock.sh — the ledger's and its break
+# guard, and those of the phase-state, process-state and bypass-audit writers.
+# A SIGKILL can leave one; committed, it would hold every clone's writers. The
+# same two lines are written by `_adopt_session_ignore_rules` (anchored, into
+# .claude/.gitignore) and by upgrade-project.sh's `# BL-174-GITIGNORE-BACKFILL`:
+# change all three together.
+.claude/*.json.lock
+.claude/tool-usage.json.lock.break
 
 # BL-324-LEDGER-IGNORE — the Claude-commit ledger. scripts/hooks/record-claude-commit.sh
 # appends a commit's SHA AFTER the commit is made, so a row can never be in its

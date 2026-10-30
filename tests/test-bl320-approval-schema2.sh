@@ -325,7 +325,7 @@ case_W13() {  # --decision fails CLOSED: no readable Guardrails version, or no l
   jq -e '[.[] | select(.user_response == "accepted")] | length == 0' "$d/.claude/bypass-audit.json" >/dev/null 2>&1 \
     || { CASE_DETAIL="no manifest: rows were accepted on the agent's word"; return 1; }
   t="$(newtmp)"; mkdir -p "$t/scripts/lib"
-  cp "$1/scripts/pending-approval.sh" "$t/scripts/" && cp "$1/scripts/lib/helpers-core.sh" "$1/scripts/lib/bypass-audit.sh" "$t/scripts/lib/"
+  cp "$1/scripts/pending-approval.sh" "$t/scripts/" && cp "$1/scripts/lib/helpers-core.sh" "$1/scripts/lib/bypass-audit.sh" "$1/scripts/lib/lock.sh" "$t/scripts/lib/"
   d="$(newtmp)/p"; fx "$d" 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
   v2_sentinel "$d"; audit_rows "$d"
   pa "$t" "$d" --resolve --decision accept
@@ -607,6 +607,7 @@ case_U3() {   # R-3: a tier change ships the whole closure — lib, reader, dete
   command grep -qE '^SOIF_APPROVAL_SCHEMA=2' "$d/scripts/pending-approval.sh" || { CASE_DETAIL="the writer was not refreshed"; return 1; }
   [ -f "$d/scripts/lib/guardrails.sh" ] || { CASE_DETAIL="scripts/lib/guardrails.sh was not shipped"; return 1; }
   command grep -q '^bypass_audit_close_from_approvals()' "$d/scripts/lib/bypass-audit.sh" || { CASE_DETAIL="the approvals reader was not shipped"; return 1; }
+  [ -f "$d/scripts/lib/lock.sh" ] || { CASE_DETAIL="scripts/lib/lock.sh was not shipped beside bypass-audit.sh, which refuses every write without it (## BL-358:)"; return 1; }
   command grep -qE '^SOIF_APPROVAL_SCHEMA=2' "$d/scripts/hooks/bypass-detector.sh" || { CASE_DETAIL="the bypass detector was not refreshed"; return 1; }
   [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.4.0 ] || { CASE_DETAIL="not refreshed to 4.4.0: $(printf '%s' "$UPG_OUT" | command grep -iE 'guardrail|cdf' | tr '\n' '|' | cut -c1-300)"; return 1; }
   registered "$d" || { CASE_DETAIL="record-approval.sh not registered"; return 1; }
@@ -1335,6 +1336,7 @@ mutant M40 "$PAS" '# BL-320-PA-SCHEMA-MARK' ':' case_X3 "this framework's own wr
 MIRROR_FULL=1 mutant M54 scripts/upgrade-project.sh '# BL-320-UP-MIXED' '      :' case_U2 "R-4: --backfill-only installs 4.4.0 beside the old writer"
 MIRROR_FULL=1 mutant M55 scripts/upgrade-project.sh '# BL-320-UP-CLOSURE-GR' '      :' case_U3 "R-3: a tier change does not ship lib/guardrails.sh"
 MIRROR_FULL=1 mutant M56 scripts/upgrade-project.sh '# BL-320-UP-CLOSURE-BA' '      :' case_U3 "R-3: a tier change does not ship the approvals reader"
+MIRROR_FULL=1 mutant M62 scripts/upgrade-project.sh '# BL-358-UP-CLOSURE-LOCK' '      :' case_U3 "BL-358: a tier change ships bypass-audit.sh without the lock it refuses to write without"
 MIRROR_FULL=1 mutant M57 scripts/upgrade-project.sh '# BL-320-UP-DETECTOR' '  for helper in pending-approval.sh lint-uat-scenarios.sh; do' case_U3 "R-3: a tier change leaves the old bypass detector"
 MIRROR_FULL=1 mutant M58 scripts/upgrade-project.sh '# BL-320-SYNC-ORDER' '  :' case_U4 "R-4: --sync-framework never refreshes the Guardrails after syncing the writer"
 MIRROR_FULL=1 mutant M59 scripts/upgrade-project.sh '# BL-320-UP-PULL' '      :' case_U5 "N-1: the version is read before the clone's pull, so a stale clone installs 4.4.0 beside the old writer"
