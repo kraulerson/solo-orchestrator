@@ -1089,7 +1089,7 @@ jobs:
             #    the larger would have left the complement at 87% and bought one
             #    work package of headroom.
             tests/test-brownfield-wp5b-test-debt.sh          #  ~45s in CI (30s local)
-            tests/test-brownfield-wp6-collision-archive.sh   #  ~61s in CI (36s local)
+            # wp6-collision-archive WAS HERE until 2026-10-30 (BL-350: this leg ran 701s and 712s of 720s) and is in `pin_approval`.
             # bl276-stdin-hang WAS HERE until 2026-10-19 (BL-350) and is in `pin_approval`.
             tests/test-bl233-wpb-accumulation.sh         # 43s on PR #412 — moved WITH bl276 so the complement lands near 85% of the cap, not 99%: run 35028774242 hit 748s against 720s with 0 failures
             # Three from `rest` with the tenth leg, 2026-10-07 (the `pin_adopt_b` note):
@@ -1297,6 +1297,10 @@ jobs:
             # bl310-adopt-symlink-write WAS HERE until 2026-10-19 (BL-350) and is in `pin_adopt_c`.
             tests/test-bl276-stdin-hang.sh                                    # 51.8s, 52.6s, 51.8s and 47.2s on the four runs of the `adopt-c` note — from `slow-misc`
             tests/test-lint-raw-read-prompt.sh                                # 65.7s and 61.7s on runs 39354376715 and 39355429113 (after the twelve-leg refit), where `lint-sweep` ran 650s and 628s — from `lint-sweep` (BL-350 follow-up)
+            # From `slow-misc`, 2026-10-30 (`## BL-350:`): that leg ran 701s and 712s of 720s on runs 40943025582 and
+            # 40379039740, and this one 342s-391s on the three runs since `pin_ledger` took bl314. With the move applied to
+            # thirteen runs' spans, `slow-misc` projects at most 543s and this leg at most 543s.
+            tests/test-brownfield-wp6-collision-archive.sh                    # 109.8s-171.6s on the thirteen runs of the 2026-10-29 note in `## BL-350:` — from `slow-misc`
           )
           # ── `adopt-c` — the twelfth leg (2026-10-19, BL-350). On main run 39302163304
           # (merge of PR #515) `lint-scan` took 700s of 720s, and on PR #515's run
