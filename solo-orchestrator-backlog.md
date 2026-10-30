@@ -26866,8 +26866,9 @@ project"), before `44b3d13`.
 **Category:** CI headroom
 **Severity:** Low — green today; the next slow suite on either leg reds it
 **Status:** Closed — 2026-10-19 (fix `382c80e`; refit to four runs in `ae00781`; `slow-misc` re-balanced 2026-10-30 in
-`ea9361a0`, "Re-measured 2026-10-29" below). Projected, not yet observed: the real proof is the pull request's own
-`unit-shard` run, whose per-leg times the supervisor adds below once it exists.
+`ea9361a0`, "Re-measured 2026-10-29" below; fifteen legs fitted to ubuntu-26.04 in `d153ea48`, "Re-fitted for
+ubuntu-26.04" below). Projected, not yet observed: the real proof is the pull request's own `unit-shard` run, whose
+per-leg times the supervisor adds below once it exists.
 
 **What.** On `main` run 39003021516 (push of `08e940f`, after the eleventh leg, PR #510), `unit-shard (adopt)`
 took 640s and `unit-shard (slow-misc)` 620s of the 720s cap (`timeout-minutes: 12`); `approval` took 265s.
@@ -26962,21 +26963,27 @@ carrying the BL-314 suite, whose span is taken out for the column after it. Two 
 | run | image | `slow-misc` | `approval` | `approval` without bl314 | wp6-collision-archive | `slow-misc` after | `approval` after |
 |---|---|---|---|---|---|---|---|
 | 40984715494 (main, `0b5bc20d`) | 24.04 | 486 | 391 | 391 | 123.0 | 363 | 514 |
-| 40983484196 (PR #528) | 24.04 | 536 | 378 | 378 | 126.5 | 410 | 504 |
-| 40943025582 (PR #528) | 24.04 | 701 | 342 | 342 | 171.6 | 529 | 514 |
-| 40574502629 (main, `d6564e17`) | 24.04 | 616 | 545 | 343 | 144.5 | 472 | 488 |
-| 40389017155 (PR #527) | 24.04 | 641 | 580 | 370 | 148.6 | 492 | 519 |
-| 40388076247 (main) | 24.04 | 462 | 543 | 339 | 111.2 | 351 | 451 |
+| 40983484196 (PR #528) | 24.04 | 536 | 378 | 378 | 126.5 | 409 | 505 |
+| 40943025582 (PR #528) | 24.04 | 701 | 342 | 342 | 171.7 | 529 | 514 |
+| 40574502629 (main, `d6564e17`) | 24.04 | 616 | 545 | 344 | 144.5 | 472 | 488 |
+| 40389017155 (PR #527) | 24.04 | 641 | 580 | 371 | 148.6 | 492 | 519 |
+| 40388076247 (main) | 24.04 | 462 | 543 | 340 | 111.2 | 351 | 451 |
 | 40385604661 (PR #525) | 24.04 | 556 | 568 | 363 | 125.0 | 431 | 488 |
-| 40385312862 (main) | 24.04 | 459 | 535 | 335 | 109.8 | 349 | 446 |
-| 40382597540 (PR #524) | 24.04 | 507 | 601 | 384 | 118.7 | 388 | 503 |
-| 40382063836 (PR #525) | 26.04 | 690 | 590 | 357 | 164.1 | 526 | 522 |
-| 40381973525 (main) | 24.04 | 652 | 605 | 386 | 156.1 | 496 | 543 |
-| 40380066940 (PR #526) | 24.04 | 620 | 605 | 386 | 147.2 | 473 | 534 |
-| 40379039740 (PR #525) | 26.04 | 712 | 622 | 373 | 168.9 | 543 | 542 |
+| 40385312862 (main) | 24.04 | 459 | 535 | 336 | 109.8 | 349 | 446 |
+| 40382597540 (PR #524) | 24.04 | 507 | 601 | 385 | 118.7 | 388 | 503 |
+| 40382063836 (PR #525) | 26.04 | 690 | 590 | 358 | 164.2 | 526 | 522 |
+| 40381973525 (main) | 24.04 | 652 | 605 | 387 | 156.1 | 496 | 543 |
+| 40380066940 (PR #526) | 24.04 | 620 | 605 | 387 | 147.2 | 473 | 534 |
+| 40379039740 (PR #525) | 26.04 | 712 | 622 | 374 | 168.9 | 543 | 542 |
+
+One rounding rule throughout (since 2026-10-30, review R-unpin-5): each figure is computed from the logs' millisecond
+timestamps and the jobs' whole seconds, then rounded once, half up, to 0.1 s for a span and to 1 s for everything else.
+The first version of this table truncated the `approval` without bl314 column (run 40385312862: 535 − 199.248 = 335.752,
+shown as 335) and two spans (171.66, 164.16), and rounded the two derived columns of run 40983484196 from the
+already-rounded 126.5.
 
 `slow-misc`'s eleven suites are the same set on all thirteen runs. Its long pole is
-`tests/test-brownfield-wp6-collision-archive.sh`, 109.8s–171.6s, pinned at "~61s in CI" in 2026-08; the next,
+`tests/test-brownfield-wp6-collision-archive.sh`, 109.8s–171.7s, pinned at "~61s in CI" in 2026-08; the next,
 `tests/test-run-lints.sh`, 96.7s–158.3s. Moving wp6 to `approval`, the lightest leg since `pin_ledger` took the BL-314
 suite, projects `slow-misc` at 349s–543s and `approval` at 446s–543s on these runs (75% of 720s at worst; the line is
 576s), against 459s–712s before. Moving run-lints instead projects 561s and 536s. Done: wp6 is the last entry of
@@ -26985,6 +26992,94 @@ of the 13 legs, puts all 268 canonical suites in exactly one leg (`slow-misc` 10
 both arrays, with its new entry misspelled, and with the `approval` arm of `pins_for` removed, it fails by name each
 time. The projection is a sum of measured spans, not a forecast: the same suites swing a leg by up to 253s between
 runs (`slow-misc` 459s and 712s).
+
+**Re-fitted for ubuntu-26.04 on 2026-10-30 (`d153ea48`): fifteen legs.** Every job names `ubuntu-26.04` since
+`9813a9ca` (`# BL-358-RUNNER-LABEL`; Karl, 2026-10-30: "Rebalance + pin 26.04"), and the review of `ea9f1116` measured
+what that costs this lane. Job seconds on the three runs whose every leg ran 26.04 (each leg's image read from the
+`Image:` line of its log; twelve legs then, `approval` still carrying the BL-314 suite):
+
+| leg | 40336249134 (attempt 2) | 40379039740 | 40382063836 |
+|---|---|---|---|
+| `lint-sweep` | 542 | 535 | 555 |
+| `lint-scan` | 620 | 702 | 532 |
+| `sast` | 570 | 601 | 476 |
+| `slow-misc` | 593 | 712 | 690 |
+| `adopt` | 640 | 675 | 663 |
+| `adopt-b` | 667 | 510 | 625 |
+| `adopt-c` | 636 | 535 | 661 |
+| `commit-hooks` | 646 | 535 | 525 |
+| `mcp` | 564 | 589 | 558 |
+| `mcp-mutants` | 585 | 581 | 515 |
+| `approval` | 702 | 622 | 590 |
+| `rest` | 546 | 604 | 465 |
+
+Every leg but `lint-sweep` reached 576s on at least one of them. On 24.04, run 40983484196 had seven legs over it.
+
+**What the fit read.** Per-suite spans from each leg's log, from the previous suite's PASS or FAIL line to the suite's
+own (the first suite's from the `partition verified` line), on fifteen inputs: the three 26.04 runs as measured, and
+twelve 24.04 runs times 1.1433 — the eight 24.04 runs of the 2026-10-29 table above, the three thirteen-leg runs
+(40943025582, 40983484196, 40984715494) and PR #529's 41103570175. A suite that changed after a run, or was not in
+it, takes its largest later span (times 1.1433 when that is a 24.04 span): the BL-314 suite 324.9s and the BL-358
+suite 112.9s on the 26.04 runs, and the BL-358 suite on 40943025582, which ran its version before `23745ab0`; the two
+BL-333 suites, not yet in 40336249134 and four of the older 24.04 runs, their largest span in the same image;
+`tests/test-bypass-audit-lib.sh`, red at 1.0s on 40382063836 (`## BL-358:`'s T5), its larger 26.04 span. A leg is
+29s of setup plus its suites' spans; the time outside the suites averaged 25.2s on the 36 26.04 legs (19.7s-33.4s)
+and 29.2s on the 135 24.04 ones.
+
+**The ratio.** The 263 suites present and passing on the three 26.04 runs and the eight older 24.04 runs (bl314 left
+out: it lost writes on 26.04) summed 6703.8s, 6525.2s and 6227.0s on 26.04 and 5348.7s-5913.5s on 24.04: 1.1433
+times as long on average, 1.053-1.253 run pair by run pair; per suite, the median over the 67 suites above 20s is
+1.163.
+
+**Fourteen legs cannot reach the line.** On 40983484196 the 268 suites sum to 7743s (times 1.1433): 29 + 7743/14 =
+582s a leg if perfectly balanced, so some leg is over 576s on that input whatever the pins. Fifteen: 545s balanced.
+
+**The fit, and how it was checked.** Fifteen-leg layouts fitted to the three 26.04 runs and the three thirteen-leg
+runs alone read 565s-572s there and 598s-673s on the eight older 24.04 runs: the first fit's failure above, again.
+Fitted to those fourteen inputs, fifteen of seventeen such layouts then read 577s-618s on the next run, 41103570175
+(`mcp` over in eleven). So that run is an input too. The layout taken is the one with the fewest moves found over all
+fifteen inputs (simulated annealing over the suites of 12s or more, many seeds): 21 moves, and none of them can be
+undone without a leg going over 576s or `rest` over 510s.
+
+| leg | projected, thirteen legs: worst of the fifteen | fifteen legs: the three 26.04 runs | fifteen legs: worst 24.04 run, times 1.1433 |
+|---|---|---|---|
+| `lint-sweep` | 676 | 550, 514, 534 | 567 |
+| `lint-scan` | 752 | 538, 549, 432 | 574 |
+| `sast` | 708 | 440, 465, 362 | 562 |
+| `slow-misc` | 602 | 465, 557, 511 | 566 |
+| `adopt` | 757 | 529, 518, 514 | 571 |
+| `adopt-b` | 718 | 551, 448, 524 | 572 |
+| `adopt-c` | 671 | 542, 457, 563 | 570 |
+| `commit-hooks` | 720 | 513, 427, 427 | 572 |
+| `mcp` | 654 | 506, 535, 511 | 574 |
+| `mcp-mutants` | 634 | 527, 532, 481 | 570 |
+| `approval` | 614 | 522, 514, 493 | 571 |
+| `ledger` | 530 | 567, 562, 560 | 574 |
+| `adopt-d` | - | 550, 492, 542 | 564 |
+| `adopt-e` | - | 543, 548, 446 | 570 |
+| `rest` | 662 | 422, 471, 370 | 507 |
+
+The moves: bl322-s3-ignore-preflight `adopt-b` -> `adopt-d`; delta-wp5-hotfix-retro `lint-sweep` -> `adopt-d`;
+wp11-archive-classes `adopt` -> `adopt-d`; wp10a-tool-resolution `lint-scan`, bl312-tldr-mode `mcp-mutants`,
+bl131-domsink-rules `mcp` and bl277-detector-authorship `sast` -> `adopt-e`; bl310-install-buckets-and-consent and
+delta-wp2-state-policy `rest` -> `adopt-e`; wp4-driver `lint-sweep` and bl261-contributor-sast-live `sast` ->
+`adopt-b`; bl318-g1-test-command `adopt`, wp2-scout-sections `adopt-c` and wp7b-commit-hook `commit-hooks` ->
+`lint-sweep`; wp9d-window-rehearsal `slow-misc` -> `lint-scan`; wp12a-assessment `adopt` -> `mcp`; wp9d-driver-edges
+`sast` -> `mcp-mutants`; wp5b-test-debt `slow-misc` -> `adopt-c`; bl320-approval-schema2 `approval` -> `ledger`;
+bl322-zsh-legs and wp1-scout `rest` -> `slow-misc`. Each moved entry carries its three 26.04 spans and its 24.04 range
+in `tests.yml`, lands last in its leg and leaves a `WAS HERE` note; the new legs are `adopt-d` and `adopt-e` (matrix,
+roster, `pins_for` arms, `pin_adopt_d` and `pin_adopt_e`). Checked on `d153ea48`: the job's own selection script,
+extracted and run for each of the fifteen legs, prints `partition verified: 81 pinned + 187 rest == 268 canonical` in
+each, and the legs' union is the 268 canonical suites, each once; with the `adopt-e` arm of `pins_for` removed, with
+`adopt-d` missing from the roster, with a suite pinned twice and with a pin absent from the canonical array, every leg
+fails by name. On this Mac: `tests/test-bl322-zsh-legs.sh` 15/0, `tests/test-bl344-home-clone-guard.sh` 36/0,
+`tests/test-lint-tests-registered.sh` 24/0, `bash scripts/lint-tests-registered.sh` rc 0.
+
+**At the line, not under it.** 573.8s is what 21 moves buy on these fifteen inputs, and the next run will likely read
+some leg over 576s, as 41103570175 did for the layouts fitted without it; the 720s cap is what holds. A sixteenth leg,
+fitted the same way, reads at most 545.8s-550.0s on the fifteen inputs with 22-25 moves. It was not added here: the
+instruction was one more leg if fourteen could not reach the line. Projected, not observed: this branch's own
+`unit-shard` run is the first measurement of the fifteen legs on 26.04.
 
 ## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
 
@@ -27298,7 +27393,9 @@ primitive guards the phase-gate attestation writers, the Phase 3 attestation wri
 shipped by `init.sh`), so a concurrent write there can drop an audit record
 **Status:** Closed — 2026-10-30. The writers are fixed (`f6a4eddb`, "The fix" below; PR #528, merged as `0b5bc20d`),
 and the CI runner pin (`# BL-358-RUNNER-PIN`) came off in `06173443` once the whole unit lane had been measured on <!-- lint-bl-markers: allow the pin was withdrawn on purpose in 06173443; this line records that it existed -->
-`ubuntu:26.04` against `ubuntu:24.04` ("The unpin" below). The residuals stay open (Residuals)
+`ubuntu:26.04` against `ubuntu:24.04` ("The unpin" below). Every job names `ubuntu-26.04` since `9813a9ca`
+(`# BL-358-RUNNER-LABEL`, "The runner label" below). The residuals stay open (Residuals). This branch merges with a
+merge commit ("Merging this branch" below)
 
 **What.** GitHub's `ubuntu-latest` moved from `Image: ubuntu-24.04` (run 39629060444 attempt 1, 2026-10-21, main's last
 green run) to `Image: ubuntu-26.04`. On 26.04 `tests/test-bl314-tool-usage-concurrent.sh` loses writes in one to four of
@@ -27450,7 +27547,12 @@ failed`; with the tools, `100 passed, 0 failed` and `102 passed, 1 failed`). bl2
 the image lacks. wp9b's adoptions need gitleaks, and its one remaining case, AM2, seeds its row with an awk whose
 `/^## Phase Gate: Phase 0 . Phase 1/` never matches the three-byte `→` under the images' mawk: 0 matches in both images,
 also under `LC_ALL=C.UTF-8`, and with gawk as `awk` under `LC_ALL=C.UTF-8` the suite is green on 26.04. That is the
-multibyte `.` trap in CLAUDE.md, in the test, and not this change.
+multibyte `.` trap in CLAUDE.md, in the test, and not this change. Until 2026-10-30 that was inferred, not shown: the
+green run had changed the awk and the locale at once (review R-unpin-3). Isolated then, in `ubuntu:26.04` with python3
+and gitleaks, the tree at `ea9f1116`, a non-root user, one change at a time: the image's mawk 1.3.4 20260129 under
+`LC_ALL=C.UTF-8`, `102 passed, 1 failed` (AM2), rc 1; gawk 5.3.2 under `LC_ALL=C.UTF-8`, `103 passed, 0 failed`, rc 0;
+gawk under `LC_ALL=C`, `102 passed, 1 failed` (AM2), rc 1. The awk alone flips AM2, and under gawk the locale alone
+flips it back, which is what a `.` that must match a three-byte character predicts.
 
 On this Mac at `f6a4eddb`, the whole unit lane — the 268 suites of the `tests.yml` list, each run with an empty temp
 HOME and no `CDF_HOME` — was green but for two suites the change itself broke, both fixed in `9b3fc3e1`:
@@ -27645,7 +27747,8 @@ in both passes, and T9 on every 24.04 re-run (2 of 2 on arm64, 1 of 1 on amd64; 
 characters: Y, N, N, N; 26.04's 20260129: Y, Y, Y, Y), so BL-335, BL-348 and BL-354, which cite longer SHAs, read as
 uncited. CI passes T9 on 24.04, so the runner's `awk` does not have that bug.
 `tests/test-bl322-s2-project-rules.sh` U1 and M3 in both passes (the import parser drops `AFTER_SHORT.md`,
-`AFTER_SHORT2.md` and `OMEGA.md`; not isolated);
+`AFTER_SHORT2.md` and `OMEGA.md`; isolated 2026-10-30 to the image's mawk 1.3.4 20240123, an adoption defect under
+that awk, filed as `## BL-360:`; the 24.04 runner's `awk` passed U1 on every run);
 `tests/test-bl145-hook-symlink-hookspath.sh` T4 and `tests/test-brownfield-wp9b-preflight-approval.sh` P6f in pass A
 only (bl145 2 of 2 green on re-run); bl311-adopt-mcp's S28 (the race). Red in both images in pass B, the same case in
 each: wp9b's AM2 (the multibyte `.` under mawk, above) and `tests/test-specs-plans-host-aware-quartet.sh` T8
@@ -27666,7 +27769,9 @@ and name GNU grep 3.12 for the multibyte `.` (the same answers as 3.11 under `C`
 
 Time: the 26.04 suites ran 7% and 6% longer than 24.04's in the same passes, and on CI the two 26.04 runs before the
 pin, 40379039740 and 40382063836, took 7201 s and 6855 s of twelve-leg time, against 5968–6527 s on the eight 24.04
-twelve-leg runs measured for `## BL-350:`. That measurement moved `slow-misc`'s long pole to `approval` (`ea9361a0`).
+twelve-leg runs measured for `## BL-350:`. That measurement moved `slow-misc`'s long pole to `approval` (`ea9361a0`);
+the review's measurement of every leg on 26.04 added a fourteenth and a fifteenth leg (`d153ea48`, "The runner label"
+below).
 
 At `94750852`, this branch's third commit (the code and workflows are the same at its head), the 93 unit-lane
 suites that name `tests.yml`, `lint.yml`, CLAUDE.md or this backlog: on this Mac (bash 3.2.57, six at a time, each
@@ -27674,6 +27779,21 @@ with an empty temp HOME and no `CDF_HOME`) 93 green; in pass B's setup from a bu
 and wp9b's AM2, 24.04 89 green, wp9b's AM2, the two 24.04-only reds above (T9, bl322-s2's U1 and M3) and
 walk006's D9 (the race). `bash scripts/run-lints.sh` 16 of 16, rc 0. The Guardrails clone at `~/.claude-dev-framework`
 stayed at `3438484`.
+
+**The runner label (Karl, 2026-10-30: "Rebalance + pin 26.04").** `06173443` put every job back on `ubuntu-latest`.
+A label resolves per job, and while GitHub moves that one (actions/runner-images#14748, until 2026-11-19) a run can
+hold legs of both images: run 39629060444's second attempt kept eleven legs that ran on 24.04 on 2026-10-21 and re-ran
+`approval` on 26.04 on 2026-10-26. Since `9813a9ca` all 17 `runs-on` lines (3 in `tests.yml`, 14 in `lint.yml`) name
+`ubuntu-26.04` (`# BL-358-RUNNER-LABEL`), so every job gets the same image and the next image is a change someone
+makes on purpose. **The rule: bump the label in a pull request of its own, after measuring the unit lane on the new
+image** — every suite's result, as "The unpin" did, and every leg's time against `## BL-350:`'s 576s line, which "The
+unpin" did not. Measured afterwards, in the review of `ea9f1116`: on the three runs whose legs all ran 26.04,
+every leg but `lint-sweep` reached 576s at least once, and the same 263 suites took 1.1433 times as long as on 24.04;
+`## BL-350:` re-fitted the lane to fifteen legs for it (`d153ea48`). CLAUDE.md's CANONICAL COMMANDS carries the rule.
+
+**Merging this branch.** `ci/bl358-unpin-ubuntu` must merge with a merge commit, not a squash or a rebase: this entry
+and `## BL-350:` cite its commits by SHA (`06173443`, `ea9361a0`, `94750852`, `ea9f1116`, `9813a9ca`, `d153ea48`), and
+a squash or a rebase leaves those SHAs on no branch.
 
 **Residuals.**
 - The transition gap above, which a tier change, `--backfill-only` or a plain upgrade leaves in place until the next
@@ -27713,13 +27833,16 @@ stayed at `3438484`.
   40983484196, in seconds: `lint-scan` 673, `adopt` 648, `adopt-b` 634, `commit-hooks` 609, `sast` 603, `adopt-c` 600,
   `rest` 594, `slow-misc` 536, `mcp-mutants` 518, `mcp` 490, `ledger` 478, `lint-sweep` 457, `approval` 378.
   `## BL-350:`'s doctrine (split further, never raise the cap) applies: on 2026-10-30 `approval`'s room took
-  `slow-misc`'s long pole (`## BL-350:`, `ea9361a0`).
+  `slow-misc`'s long pole (`## BL-350:`, `ea9361a0`), and the lane went to fifteen legs for ubuntu-26.04
+  (`d153ea48`); `ledger` keeps both suites and gains bl320.
 - The writer-SIGPIPE race under `pipefail` ("The unpin", above): an `echo` or `printf` piped into `grep -q` fails when
   grep matches a line and exits before the writer has written its last one. `scripts/delta.sh`'s close-time name
   check blocks a valid close with rc 9 that way. In the four full runs of the unit lane (two passes, two images) it
   reddened five suites once each, four in 26.04 and one in 24.04, one more in 120 looped re-runs (26.04), and one
   more in 24.04 in the 93-suite run at this branch's third commit; alone, it fails at the same rate in both images (26 and
-  30 of 36000 under load). Not fixed here.
+  30 of 36000 under load). Not fixed here. The class belongs to `## BL-183:` (`producer | grep -q` under `pipefail`),
+  which owns it and carries these measurements since its 2026-10-30 update (PR #529); `## BL-238:` is the same
+  mechanism with a `printf` writer.
 
 **Review residuals of PR #528 (the pr-reviewer, 2026-10-29), open.** Each was checked at `0b5bc20d` before it was
 recorded here; R-358-13 is the one applied (the "Shard time" item above).
@@ -27791,3 +27914,67 @@ rc 127) as killed. All 31 killers named today exist. Fix: `declare -F "$2" >/dev
 sync, so a project reached only through an exported `GIT_DIR`, with an old manifest that has no `.host` and an origin on
 github.com, now backfills `host` as `other` (it was `github` at `5d2bded4`); its pin is now correct. Linked worktrees
 are unaffected. Fix: read the host before the unset, or from the project's own `.git`.
+
+## BL-360: adoption drops the CLAUDE.md imports after a fence indented two or three spaces when `awk` is mawk 1.3.4 20240123 or 20200120 (Ubuntu 24.04 and 22.04)
+
+**Logged:** 2026-10-30 (`## BL-358:`'s unpin measurements: `tests/test-bl322-s2-project-rules.sh` U1 and M3 red in
+`ubuntu:24.04` only; review R-unpin-4 of `ea9f1116`)
+**Category:** Bug (adoption, portability)
+**Severity:** Medium — on a machine whose `awk` is one of those mawk builds, an adoptee CLAUDE.md with a code fence
+indented two or three spaces (a fence inside a list item) loses every import below the fence from the carried block,
+and "a missed import silently stops a rule loading, which is the defect S2 exists for"
+(`scripts/lib/adopt/adopt-docs.sh`); CI cannot show it, since every job runs ubuntu-26.04 (`# BL-358-RUNNER-LABEL`),
+whose mawk is correct
+**Status:** Open
+
+**What.** `## BL-358:`'s two full container passes found `tests/test-bl322-s2-project-rules.sh` U1 and M3 red in
+`ubuntu:24.04` and green in `ubuntu:26.04`. U1 got
+`ALPHA.md|docs/beta.md|Design\ Docs/gamma.md|TABBED.md|NBSP.md|EMPH.md|LINKED.md|FRAG.md|TRAIL` and wants
+`AFTER_SHORT.md`, `AFTER_SHORT2.md` and `OMEGA.md` after them; M3 (`# BL-322-CARRY-FENCE-LEN`'s `n >= flen && `
+removed) survives, because U1 passes against it. Re-measured 2026-10-30 in `ubuntu:24.04` (aarch64, the tree at
+`ea9f1116` by `git archive`, `jq git perl python3 curl ca-certificates gawk` and gitleaks 8.30.1, a non-root user),
+the suite with one change:
+
+| `awk` | result |
+|---|---|
+| the image's mawk 1.3.4 20240123 | `151 passed, 4 failed`: U1, M3, D1, D2 |
+| gawk 5.2.1, first on PATH as `awk` | `153 passed, 2 failed`: D1, D2 |
+
+D1 and D2 read `c125f0f` from the repository's history, which an archive has not; they fail the same way with either
+awk. On this Mac, in a checkout with history, the suite is `155 passed, 0 failed`, rc 0.
+
+**The cause.** These mawk builds give `/^ ? ? ?/` a one-character match where gawk and mawk 1.3.4 20260129 give the
+longest. On a line of two spaces and `x`, `match()` sets RLENGTH 1 (gawk and 20260129: 2), and `sub(/^ ? ? ?/, "", t)`
+leaves one space. With an atom after it, the three mawk builds below agree: `/^ ? ? ?(```|~~~)/` matches a fence
+indented two spaces, and `sub(/^ ? ? ?> ?/, "", t)` gives the same result. `_adopt_claude_md_import_tokens` strips a
+line's indent with that `sub` in three places: the fence's opening (`# BL-322-CARRY-FENCE`), its close
+(`# BL-322-CARRY-FENCE-LEN`'s line) and the strip before the setext, reference-definition and HTML checks. U1's
+fixture has a fence indented two spaces; its opening line keeps a space, so the fence is read as a fence of spaces one
+long, which no later line closes, and every line after it is skipped. Traced line by line, the state after that line
+is `fence=[ ] flen=1` under 20240123 and ``fence=[`] flen=3`` under 20260129. Its function header says it reads bytes
+with `LC_ALL=C` "so every awk reads the file the same way"; these two do not.
+
+The parser alone, each input ending in `@OMEGA.md` (`ubuntu:22.04` has mawk 1.3.4 20200120, `ubuntu:24.04` 20240123,
+`ubuntu:26.04` 20260129):
+
+| input | 20200120 and 20240123 | 20260129 |
+|---|---|---|
+| a fence indented one space, `@IN.md` inside it | `OMEGA.md` | `OMEGA.md` |
+| the same fence indented two or three spaces | nothing | `OMEGA.md` |
+| `  [r]: @IN_REF.md`, a reference definition indented two spaces | `IN_REF.md`, `OMEGA.md` | `OMEGA.md` |
+| `  <script>`, then after a blank line `@IN_S2.md`, then `</script>` | `IN_S2.md`, `OMEGA.md` | `OMEGA.md` |
+
+So under those builds an indented fence drops the imports after it, and an indented reference definition or raw HTML
+block carries a false one. macOS's `awk` (version 20200816) strips all three spaces.
+
+**Who it reaches.** Adoption runs this parser on the adopter's machine, with the first `awk` on PATH. The
+`ubuntu:22.04` and `ubuntu:24.04` images' `awk` is mawk; installing gawk makes it `awk` (in `ubuntu:24.04`,
+`/usr/bin/mawk` before and `/usr/bin/gawk` after). The 24.04 runner's `awk` passed U1 on all twelve 24.04 runs
+measured (2026-10-26 to 2026-10-30), so it does not have this defect, and since `# BL-358-RUNNER-LABEL` no CI job runs
+24.04. A user on Ubuntu 22.04 or 24.04 without gawk meets it; CI will not.
+
+**Direction (not done here).** Strip the indent without a trailing optional atom: up to three times, drop one leading
+space (`for (j = 0; j < 3 && substr(t, 1, 1) == " "; j++) t = substr(t, 2)`), at the three sites; and a unit case for
+each site that runs the parser on an input indented two and three spaces, which a revert of any one site fails on
+those builds. That case can only go red where such an awk runs, so it wants either a mawk 1.3.4 20240123 in the unit
+lane (an apt pin in one leg) or a check that the regex is gone (a lint on `sub(/^ ? ? ?/`), the latter weaker.

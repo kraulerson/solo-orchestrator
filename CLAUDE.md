@@ -63,9 +63,9 @@ here.
   3.2.57, 5.0.18 and 5.1.16 and `one TWO three` on 5.2.37, and the `shopt`
   that governs it (`patsub_replacement`, on by default) does not exist before
   5.2. This Mac runs 3.2 and
-  the runners run 5.3: `ubuntu-latest` is ubuntu-26.04 (bash 5.3.9) by
-  2026-11-19 (actions/runner-images#14748), and nothing pins ubuntu-24.04
-  (bash 5.2.21) since `## BL-358:`'s runner pin came off. 5.3 keeps 5.2's
+  the runners run 5.3: every job in `tests.yml` and `lint.yml` names
+  `runs-on: ubuntu-26.04` (`# BL-358-RUNNER-LABEL`), whose bash is 5.3.9
+  (`## BL-358:`). 5.3 keeps 5.2's
   rule (measured below), so a replacement carrying `&&` — which every shell
   guard does — produces the intended text locally and splices the match back
   in on CI. It is silent in the worst way: the line still changes, the
@@ -101,8 +101,8 @@ here.
   the helper's `\\&` to `\&` and that suite stays GREEN on this Mac and goes
   red only on the runner, which is this same trap one level up: a local run
   of the suite that guards the trap does not see the trap.
-  Reproduce the runner's bash on this host (`ubuntu:26.04`, bash 5.3.9;
-  `ubuntu:24.04` gives 5.2.21, the runners' bash while the pin was on):
+  Reproduce the runner's bash on this host (`ubuntu:26.04`, bash 5.3.9, the
+  image every job names; `ubuntu:24.04` gives 5.2.21):
   ```
   docker run --rm -v "$PWD:/repo:ro" ubuntu:26.04 bash -c 'apt-get update -qq \
     && apt-get install -y -qq jq git && useradd -m t && cp -r /repo /home/t/r \
@@ -234,9 +234,9 @@ here.
   entirely). Repeated with a fresh `cp -r` of the tree per run, same spread.
   **Every measurement of this is `linux/arm64`, which is NOT the lane's
   architecture**: on `--platform linux/amd64`, same image, same recipe, the
-  suite is 12/12 clean, and on this Mac 6/6. `ubuntu-latest` is x86_64, so
-  there is no evidence of a PR-lane risk here. Two drafts of this paragraph
-  named a cause — first "the image, not the suite", then "the suite is
+  suite is 12/12 clean, and on this Mac 6/6. The lane's `ubuntu-26.04` is
+  x86_64, so there is no evidence of a PR-lane risk here. Two drafts of this
+  paragraph named a cause — first "the image, not the suite", then "the suite is
   nondeterministic on Linux" — and both were refuted. What is measured is that
   the ARM container returns different answers for the same deterministic
   pipeline over byte-identical input (`T8` and `T11` are pure `grep`/`awk` over
@@ -249,8 +249,15 @@ here.
   12/27, `wp9-act-boundaries` 0/1, `wp9b-preflight-approval` 48/38,
   `wp10a-tool-resolution` 52/2); install it and five go fully green. The
   residue is `wp9b`'s `AM2` at 102/1, where the gate blocks on `[WARN] Phase
-  0→1: … gate date not recorded in phase-state.json`. **Cause not isolated —
-  and NOT node/npm**, measured with `node`, `npm` and `python3` all installed.
+  0→1: … gate date not recorded in phase-state.json`. It is NOT node/npm
+  (measured with `node`, `npm` and `python3` all installed). It is the
+  multibyte `.` of the next bullet, in the test: AM2 seeds its row with an
+  `awk` whose `/^## Phase Gate: Phase 0 . Phase 1/` has to match the
+  three-byte `→`. Measured 2026-10-30 in `ubuntu:26.04` with python3 and
+  gitleaks, one change at a time: the image's mawk under `LC_ALL=C.UTF-8`
+  102/1, AM2 red; gawk under `LC_ALL=C.UTF-8` 103/0; gawk under `LC_ALL=C`
+  102/1, AM2 red. The awk alone flips it, and so does the locale alone
+  (`## BL-358:`).
   Add `curl ca-certificates` to the apt line; neither `ubuntu:24.04` nor
   `ubuntu:26.04` has either, and
   the fetch below exits 127 without them. Runs as root, BEFORE `su t`. Note
@@ -315,7 +322,7 @@ here.
   finds the last gate header matched nothing under `LC_ALL=C`, and the function
   returned "clean" because it had nothing to measure against — a check that
   could not run reporting that it passed, which is `## BL-147:`'s own shape.
-- **This Mac's git is configured and an ubuntu-latest runner's is not — and the
+- **This Mac's git is configured and a GitHub ubuntu runner's is not — and the
   difference is silent.** Xcode ships
   `/Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig`
   carrying **`init.defaultbranch=main`**, so `git init --bare` here produces
@@ -395,7 +402,7 @@ here.
   - **Adding a test is still a ONE-LINE edit** — append it to the canonical
     array. The lane is sharded (matrix `shard: [lint-sweep, lint-scan, sast,
     slow-misc, adopt, adopt-b, adopt-c, commit-hooks, mcp, mcp-mutants, approval,
-    ledger, rest]`, thirteen legs since 2026-10-29), but only the
+    ledger, adopt-d, adopt-e, rest]`, fifteen legs since 2026-10-30), but only the
     measured long poles are pinned to a shard by the `pin_*` arrays; `rest`
     is the COMPLEMENT, so a new entry lands there automatically. Keep `rest`
     light: every new suite lands in it, so a suite pinned INTO it spends the
@@ -440,6 +447,17 @@ here.
   `full` job: `if: github.event_name == 'workflow_dispatch'`, `timeout-minutes: 180`).
   Never run it casually. Locally, `bash tests/full-project-test-suite.sh` and
   `bash tests/host-drivers/run-all.sh` validate a checkout.
+- **The runner image is named, never `ubuntu-latest`** (Karl, 2026-10-30).
+  Every `runs-on` in `tests.yml` and `lint.yml` is `ubuntu-26.04`
+  (`# BL-358-RUNNER-LABEL`), so every job gets the same image. A label
+  resolves per job, and while GitHub moves `ubuntu-latest` (to 2026-11-19)
+  one run can hold legs of both images: run 39629060444's second attempt kept
+  eleven legs that ran on 24.04 and re-ran `approval` on 26.04. The next image
+  is a deliberate change: **bump the label in a pull request of its own, after
+  measuring the unit lane on the new image** — every suite's result, and every
+  leg's time against `## BL-350:`'s 576 s line (`## BL-358:`). The times are
+  not optional: on 26.04 the same 263 suites took 1.1433 times as long as on
+  24.04, and the lane needed two more legs (`## BL-350:`).
 
 ## LINT GOTCHAS
 
