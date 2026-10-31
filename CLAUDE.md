@@ -256,8 +256,11 @@ here.
   three-byte `→`. Measured 2026-10-30 in `ubuntu:26.04` with python3 and
   gitleaks, one change at a time: the image's mawk under `LC_ALL=C.UTF-8`
   102/1, AM2 red; gawk under `LC_ALL=C.UTF-8` 103/0; gawk under `LC_ALL=C`
-  102/1, AM2 red. The awk alone flips it, and so does the locale alone
-  (`## BL-358:`).
+  102/1, AM2 red. The awk alone flips it, and under gawk the locale alone
+  flips it back (`## BL-358:`). Under mawk no locale does: on a `→` header
+  line the image's mawk 1.3.4 matched AM2's pattern 0 times under `C`,
+  `POSIX` and `C.UTF-8` alike, where gawk 5.3.2 matched it under `C.UTF-8`
+  (measured 2026-10-31).
   Add `curl ca-certificates` to the apt line; neither `ubuntu:24.04` nor
   `ubuntu:26.04` has either, and
   the fetch below exits 127 without them. Runs as root, BEFORE `su t`. Note
@@ -458,11 +461,17 @@ here.
   leg's time against `## BL-350:`'s 576 s line (`## BL-358:`). The times are
   not optional: on 26.04 the same 263 suites took 1.1433 times as long as on
   24.04, and the lane needed two more legs (`## BL-350:`).
+  `scripts/lint-runner-label.sh` enforces the label: it fails, by file, line
+  and job, any `runs-on` line in the two workflows that names anything else
+  or lacks the marker. `RUNNER_LABEL` in it (`# BL-358-LABEL-VALUE`) is the
+  one place it reads the label from, so the bump changes that line in the
+  same pull request. It has no `lint.yml` job; `tests/test-run-lints.sh` and
+  its own suite run it in the unit lane, so a red one turns `unit` red.
 
 ## LINT GOTCHAS
 
 - `scripts/run-lints.sh` runs **every `scripts/lint-*.sh` EXCEPT
-  `lint-uat-scenarios.sh`** (**16 of the 17** lint scripts as of 2026-09-09 — it
+  `lint-uat-scenarios.sh`** (**17 of the 18** lint scripts as of 2026-10-31 — it
   discovers them by glob, so a new lint needs no wiring; the count drifts, so
   measure it rather than quoting this line: `ls scripts/lint-*.sh | wc -l`, and
   `bash scripts/run-lints.sh` prints its own total on the last line).
