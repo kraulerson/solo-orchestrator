@@ -975,6 +975,11 @@ run_child_suite "tests/test-bl314-tool-usage-concurrent.sh" \
 run_child_suite "tests/test-bl358-lock-primitive.sh" \
   "BL-358: the lock file primitive and the eleven state writers on it lose no update under a uutils-like mkdir" \
   "BL-358 lock primitive tests FAILED (run tests/test-bl358-lock-primitive.sh for details)"
+# BL-358: every job names its runner image, ubuntu-26.04, never ubuntu-latest;
+# scripts/lint-runner-label.sh holds that, and fails a line that does not by name.
+run_child_suite "tests/test-lint-runner-label.sh" \
+  "BL-358: every runs-on line in tests.yml and lint.yml names ubuntu-26.04 with its marker; a line that does not fails by file, line and job" \
+  "BL-358 lint-runner-label tests FAILED (run tests/test-lint-runner-label.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

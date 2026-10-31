@@ -689,6 +689,7 @@ jobs:
             tests/test-bl333-sync-tool-matrix.sh
             tests/test-bl333-sync-tool-matrix-mutants.sh
             tests/test-bl358-lock-primitive.sh
+            tests/test-lint-runner-label.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────
