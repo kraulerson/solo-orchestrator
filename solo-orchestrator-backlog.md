@@ -27866,13 +27866,20 @@ every leg but `lint-sweep` reached 576s at least once, and the same 263 suites t
 label (`# BL-358-LABEL-NAME`), a line without `# BL-358-RUNNER-LABEL` after the label (`# BL-358-LABEL-MARKER`), a
 line that mentions runs-on but is not a plain key (`# BL-358-LABEL-SHAPE`), and a workflow with no runs-on line
 (`# BL-358-LABEL-FLOOR`). On the same mutation `run-lints` reads 17 lints, 16 passed, `lint-runner-label.sh` failed.
-`RUNNER_LABEL` (`# BL-358-LABEL-VALUE`) is the one place it reads the label from, so the bump changes that line with
-the 17 runs-on lines; its failure output and `--help` say so. It is a lint, not a case in an existing suite, because
-`run-lints` takes it by glob and `tests/test-run-lints.sh` (leg `slow-misc`) runs it over the tree, which puts it
-behind the required `unit` check with no `lint.yml` job of its own. `tests/test-lint-runner-label.sh` (leg `rest`,
-56 cases) pins it with one mutant per behavioural line, and each mutant, applied to the lint itself, turns the suite
-red. In `ubuntu:26.04` (bash 5.3.9, mawk 1.3.4 20260129, `git archive` streamed in, a non-root user) the suite is
-56/0 and `tests/test-run-lints.sh` 8/0, rc 0.
+`RUNNER_LABEL` (`# BL-358-LABEL-VALUE`) is the one place it reads the label from, and its suite reads the label from
+there too, so the bump is that line and the 17 runs-on lines and nothing else; its failure output and `--help` say
+so. Until 2026-11-01 the suite wrote `ubuntu-26.04` out on 22 lines, and the review of the check made the bump on a
+copy with `ubuntu-28.04`: the lint said OK, rc 0, and the suite went 36 passed, 20 failed. Since then the suite reads
+the label from `RUNNER_LABEL` and builds every fixture, pattern and expected message from it. On a copy, the same bump
+changes 18 lines in three files, the lint says OK and the suite is 56/0, and one `lint.yml` job set back to
+`ubuntu-latest` turns the suite red, 49 passed and 6 failed, before the bump and after it. Prose that names the image
+goes stale on a bump, not red; `git grep -n` the old label to find it. It is a lint, not a case in an existing suite,
+because `run-lints` takes it by glob and `tests/test-run-lints.sh` (leg `slow-misc`) runs it over the tree, which
+puts it behind the required `unit` check with no `lint.yml` job of its own. `tests/test-lint-runner-label.sh` (leg
+`rest`, 56 cases) pins it with one mutant per marked line (17: the lint has 16 marked lines, and
+`# BL-358-LABEL-MARKER` has two), and each mutant, applied to the lint itself, turns the suite red (measured again on
+2026-11-01). In `ubuntu:26.04` (bash 5.3.9, mawk 1.3.4 20260129, `git archive` streamed in, a non-root user) the
+suite is 56/0 and `tests/test-run-lints.sh` 8/0, rc 0, measured again on 2026-11-01.
 
 **Merging this branch.** `ci/bl358-unpin-ubuntu` must merge with a merge commit, not a squash or a rebase: this entry
 and `## BL-350:` cite its commits by SHA (`06173443`, `ea9361a0`, `94750852`, `ea9f1116`, `9813a9ca`, `d153ea48`), and
@@ -27957,6 +27964,32 @@ recorded here; R-358-13 is the one applied (the "Shard time" item above).
   with a partner), and the second writer runs after writer 1 releases, as `_burst`'s header in
   `tests/test-bl358-lock-primitive.sh` says ("With the lock the second waits, and the first is held for all its
   tries").
+
+**Review residuals of the runner-label check (its adversarial review; recorded 2026-11-01), open.** Each was
+reproduced on 2026-11-01 before it was recorded here. The review's main finding, that the bump turned the suite red,
+is applied ("The check", above).
+- **R-358-15 (the review's R-2): only `tests.yml` and `lint.yml` are read.** The default run names the two files, so
+  a workflow added under `.github/workflows/` (a reusable workflow, a release workflow) is not checked. Measured: a
+  scratch `release.yml` whose one job is on `runs-on: ubuntu-latest`, beside the two, and the default run printed
+  `OK: 17 runs-on line(s) in 2 workflow(s) …`, rc 0; passed as an argument, the same file fails by line and job.
+  Reading every file under `.github/workflows/`, or keeping a closed list so that a later lane on another image is
+  added on purpose, is Karl's call. Reading every file meets one shape the floor (`# BL-358-LABEL-FLOOR`) fails: a
+  workflow whose jobs only call reusable workflows has no `runs-on` line, because GitHub does not take `runs-on` on a
+  job that calls one.
+- **R-358-16 (the review's R-3): 8 of the review's 16 mutants of the lint survive the unit lane.** The four it named
+  were reproduced, each applied to the lint with the suite 56/0 under it. `$1 !~ /^runs-on:/` for `$1 != "runs-on:"`
+  (`# BL-358-LABEL-SHAPE`) passes `runs-on:ubuntu-26.04` with its marker, which with no space after the colon is no
+  `runs-on` key at all (Ruby's YAML loader refuses the fixture). `v !~ ("^" label "$")` for `v != label`
+  (`# BL-358-LABEL-NAME`) reads the label as a regex, so it passes `ubuntu-26x04`, a label that differs from it only
+  where it has a `.` and names no image. Dropping `w[1] != "#"` (`# BL-358-LABEL-MARKER`) passes
+  `#x BL-358-RUNNER-LABEL`. Dropping `(#.*)?` from the job pattern (`# BL-358-LABEL-JOB`) skips a job key with a
+  comment after it, so the fault under it is named with the job before it, the verdict unchanged. None of the four
+  lets a missing marker through. The review called its other four cosmetic or equivalent; they were not reproduced.
+- **R-358-17: a key spelled another way is not read.** The parser reads only lines that hold the literal `runs-on`.
+  Beside one canonical job, each of these passes, rc 0: a YAML escape (`"runs\x2don": ubuntu-latest`), an explicit
+  key split over two lines (`? "runs-\`, then `on"`, then `: ubuntu-latest`), and `Runs-On: ubuntu-latest`. Ruby's
+  YAML loader reads the first two as `runs-on` and the third as `Runs-On`; whether GitHub takes `Runs-On` for
+  `runs-on` was not measured.
 
 ## BL-359: BL-333 review residuals — writes through a linked backup or matrix folder, shard time, dry-run wording, a vacuous-killer gap, host backfill
 

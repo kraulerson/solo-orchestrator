@@ -464,9 +464,13 @@ here.
   `scripts/lint-runner-label.sh` enforces the label: it fails, by file, line
   and job, any `runs-on` line in the two workflows that names anything else
   or lacks the marker. `RUNNER_LABEL` in it (`# BL-358-LABEL-VALUE`) is the
-  one place it reads the label from, so the bump changes that line in the
-  same pull request. It has no `lint.yml` job; `tests/test-run-lints.sh` and
-  its own suite run it in the unit lane, so a red one turns `unit` red.
+  one place it and its suite, `tests/test-lint-runner-label.sh`, read the
+  label from, so the bump is that line and every `runs-on` line, in the same
+  pull request, and nothing else has to change for either to pass. Prose that
+  names the image goes stale, not red: `git grep -n` the old label. It has no
+  `lint.yml` job; `tests/test-run-lints.sh` and its own suite run it in the
+  unit lane, so a red one turns `unit` red. It reads only those two files: a
+  new workflow file is not checked (`## BL-358:`, R-358-15).
 
 ## LINT GOTCHAS
 
