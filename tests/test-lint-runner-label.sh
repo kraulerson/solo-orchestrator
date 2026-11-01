@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # tests/test-lint-runner-label.sh — pins scripts/lint-runner-label.sh
 # (`## BL-358:`, "The runner label"): every runs-on line in tests.yml and
-# lint.yml names ubuntu-26.04 and carries the label's marker, and a line that
-# does not is failed by file, line and job.
+# lint.yml names the label RUNNER_LABEL holds and carries the label's marker,
+# and a line that does not is failed by file, line and job.
 #
 #   R  the lint over this repository's own two workflows, and over copies of
 #      them with one line set back to ubuntu-latest or stripped of its marker
@@ -10,9 +10,15 @@
 #      real files
 #   B  moving to a new image, rehearsed on copies: RUNNER_LABEL and the
 #      runs-on lines change together, and the lines alone fail
-#   M  one mutant per behavioural line of the lint, each on a copy, each found
-#      by its end-of-line marker and asserted to have landed; each must turn
-#      its killer case's verdict around
+#   M  one mutant per marked line of the lint (two on the marker check), each
+#      on a copy, each found by its end-of-line marker and asserted to have
+#      landed; each must turn its killer case's verdict around
+#
+# The label is never written here. It is read from the lint's RUNNER_LABEL
+# line (`# BL-358-LABEL-VALUE`), and every fixture, pattern and expected
+# message is built from it: a label written out here turns this suite red at
+# the bump the lint documents (RUNNER_LABEL and every runs-on line, nothing
+# else), as it did until 2026-11-01 (`## BL-358:`, "The check").
 #
 # This file is in lint-bl-markers' code surface, so every marker-shaped token
 # below defines a marker on the real tree. They are all `BL-358-…`, which
@@ -44,7 +50,23 @@ if [ ! -f "$LINT" ]; then
   exit 1
 fi
 
-OK_LINE='runs-on: ubuntu-26.04   # BL-358-RUNNER-LABEL'
+# LABEL is the label under test. Setup takes a label of letters, digits, `.`,
+# `_` and `-` only and fails on anything else, so no fixture depends on how
+# the shell, a regex or YAML would read a stranger character. Of those only
+# `.` means anything to a regex, so LABEL_RE brackets it, which reads the same
+# in a BRE, an ERE and an awk -v string (no backslash for -v to unescape). The
+# fixtures' wrong label is ubuntu-latest, so LABEL must not be it.
+LABEL="$(sed -n 's/^RUNNER_LABEL="\([^"]*\)"[[:space:]]*# BL-358-LABEL-VALUE$/\1/p' "$LINT")"
+case "$LABEL" in
+  ''|*[![:alnum:]._-]*|ubuntu-latest)
+    echo "  [FAIL] setup — no usable label on the RUNNER_LABEL line of $LINT (read: '$LABEL'): it must be one line, and only letters, digits, '.', '_' and '-', and not ubuntu-latest"
+    echo ""
+    echo "Results: 0 passed, 1 failed"
+    exit 1 ;;
+esac
+LABEL_RE="$(printf '%s\n' "$LABEL" | sed 's/[.]/[.]/g')"
+
+OK_LINE="runs-on: $LABEL   # BL-358-RUNNER-LABEL"
 
 # mk_wf <file> <runs-on-line>... — a workflow whose first job, `ok`, is
 # canonical; each further argument is one more job, `bad1`, `bad2`, …, whose
@@ -108,11 +130,11 @@ else
 fi
 
 R="$(newtmp)"
-if _rewrite "$WF_LINT" counter-antipattern-lint 'ubuntu-26[.]04' 'ubuntu-latest' "$R/lint.yml"; then
+if _rewrite "$WF_LINT" counter-antipattern-lint "$LABEL_RE" 'ubuntu-latest' "$R/lint.yml"; then
   ln="$(awk '/^[[:space:]]*runs-on: ubuntu-latest/ { print NR; exit }' "$R/lint.yml")"
   run_lint "$LINT" "$WF_TESTS" "$R/lint.yml"
   if [ "$RC" -eq 1 ] && [ "$(_fails "$OUT")" = "1" ] \
-    && printf '%s\n' "$OUT" | _gq -F "$R/lint.yml:$ln (job counter-antipattern-lint): runs on \`ubuntu-latest\`, not \`ubuntu-26.04\`"; then
+    && printf '%s\n' "$OUT" | _gq -F "$R/lint.yml:$ln (job counter-antipattern-lint): runs on \`ubuntu-latest\`, not \`$LABEL\`"; then
     pass "R2 — one lint.yml job set back to ubuntu-latest fails, that line alone, by file, line and job"
   else
     fail_ "R2" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
@@ -148,15 +170,15 @@ U2="$(newtmp)"; mk_wf "$U2/wf.yml" 'runs-on: ubuntu-latest   # BL-358-RUNNER-LAB
 ln="$(_line_eq "$U2/wf.yml" '    runs-on: ubuntu-latest   # BL-358-RUNNER-LABEL')"
 run_lint "$LINT" "$U2/wf.yml"
 if [ "$RC" -eq 1 ] \
-  && printf '%s\n' "$OUT" | _gq -F "$U2/wf.yml:$ln (job bad1): runs on \`ubuntu-latest\`, not \`ubuntu-26.04\`" \
-  && printf '%s\n' "$OUT" | _gq -F 'change RUNNER_LABEL in scripts/lint-runner-label.sh, the one place this check reads the label from'; then
+  && printf '%s\n' "$OUT" | _gq -F "$U2/wf.yml:$ln (job bad1): runs on \`ubuntu-latest\`, not \`$LABEL\`" \
+  && printf '%s\n' "$OUT" | _gq -F 'change RUNNER_LABEL in scripts/lint-runner-label.sh, the one place this check and its suite read the label from'; then
   pass "U2 — ubuntu-latest fails by file, line and job, and the message says where the label is changed"
 else
   fail_ "U2" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
 fi
 
-U3="$(newtmp)"; mk_wf "$U3/wf.yml" 'runs-on: ubuntu-26.04'
-ln="$(_line_eq "$U3/wf.yml" '    runs-on: ubuntu-26.04')"
+U3="$(newtmp)"; mk_wf "$U3/wf.yml" "runs-on: $LABEL"
+ln="$(_line_eq "$U3/wf.yml" "    runs-on: $LABEL")"
 run_lint "$LINT" "$U3/wf.yml"
 if [ "$RC" -eq 1 ] && [ "$(_fails "$OUT")" = "1" ] \
   && printf '%s\n' "$OUT" | _gq -F "$U3/wf.yml:$ln (job bad1): no \`# BL-358-RUNNER-LABEL\` after the label"; then
@@ -194,20 +216,20 @@ u5() {   # u5 <id> <expected-text> <runs-on-line>
     fail_ "$1" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
   fi
 }
-u5 U5a 'runs on `[ubuntu-26.04]`'                      'runs-on: [ubuntu-26.04]   # BL-358-RUNNER-LABEL'
-u5 U5b 'runs on `"ubuntu-26.04"`'                      'runs-on: "ubuntu-26.04"   # BL-358-RUNNER-LABEL'
+u5 U5a 'runs on `['"$LABEL"']`'                        'runs-on: ['"$LABEL"']   # BL-358-RUNNER-LABEL'
+u5 U5b 'runs on `"'"$LABEL"'"`'                        'runs-on: "'"$LABEL"'"   # BL-358-RUNNER-LABEL'
 u5 U5c 'runs on `${{ matrix.os }}`'                    'runs-on: ${{ matrix.os }}   # BL-358-RUNNER-LABEL'
-u5 U5d 'runs on `ubuntu-26.04# BL-358-RUNNER-LABEL`'   'runs-on: ubuntu-26.04# BL-358-RUNNER-LABEL'
-u5 U5e 'mentions runs-on but is not a `runs-on:` line' '"runs-on": ubuntu-26.04   # BL-358-RUNNER-LABEL'
+u5 U5d 'runs on `'"$LABEL"'# BL-358-RUNNER-LABEL`'     'runs-on: '"$LABEL"'# BL-358-RUNNER-LABEL'
+u5 U5e 'mentions runs-on but is not a `runs-on:` line' '"runs-on": '"$LABEL"'   # BL-358-RUNNER-LABEL'
 
 # U5f — the labels on the lines below the key, as a list.
 U5F="$(newtmp)"
 mk_wf "$U5F/a.yml" 'runs-on:'
-awk '{ print } $0 == "    runs-on:" { print "      - ubuntu-26.04" }' "$U5F/a.yml" > "$U5F/wf.yml"
+awk -v l="$LABEL" '{ print } $0 == "    runs-on:" { print "      - " l }' "$U5F/a.yml" > "$U5F/wf.yml"
 ln="$(_line_eq "$U5F/wf.yml" '    runs-on:')"
 run_lint "$LINT" "$U5F/wf.yml"
-if grep -qx '      - ubuntu-26.04' "$U5F/wf.yml" && [ "$RC" -eq 1 ] \
-  && printf '%s\n' "$OUT" | _gq -F "$U5F/wf.yml:$ln (job bad1): names no label on this line, not \`ubuntu-26.04\`"; then
+if grep -qxF "      - $LABEL" "$U5F/wf.yml" && [ "$RC" -eq 1 ] \
+  && printf '%s\n' "$OUT" | _gq -F "$U5F/wf.yml:$ln (job bad1): names no label on this line, not \`$LABEL\`"; then
   pass "U5f — a runs-on whose labels are on the lines below it fails by name"
 else
   fail_ "U5f" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
@@ -243,9 +265,9 @@ else
 fi
 
 U8="$(newtmp)"
-mk_wf "$U8/wf.yml" 'runs-on: ubuntu-26.04   # BL-358-RUNNER-LABELX' \
-                   'runs-on: ubuntu-26.04   # see BL-358-RUNNER-LABEL' \
-                   'runs-on: ubuntu-26.04   #BL-358-RUNNER-LABEL'
+mk_wf "$U8/wf.yml" "runs-on: $LABEL   # BL-358-RUNNER-LABELX" \
+                   "runs-on: $LABEL   # see BL-358-RUNNER-LABEL" \
+                   "runs-on: $LABEL   #BL-358-RUNNER-LABEL"
 run_lint "$LINT" "$U8/wf.yml"
 u8_ok=1
 for j in 1 2 3; do
@@ -291,28 +313,31 @@ fi
 
 echo "=== B — moving to a new image, rehearsed on copies ==="
 
+# The next label is the current one with `-next` after it, so it never equals it.
+NEXT="$LABEL-next"
+NEXT_RE="$LABEL_RE-next"
 B="$(newtmp)"
-_swap '# BL-358-LABEL-VALUE' 'RUNNER_LABEL="ubuntu-28.04"   # BL-358-LABEL-VALUE' "$LINT" "$B/lint-next.sh"; b_rc=$?
+_swap '# BL-358-LABEL-VALUE' "RUNNER_LABEL=\"$NEXT\"   # BL-358-LABEL-VALUE" "$LINT" "$B/lint-next.sh"; b_rc=$?
 for w in tests lint; do
-  awk '/^[[:space:]]*runs-on: ubuntu-26[.]04[[:space:]]/ { sub(/ubuntu-26[.]04/, "ubuntu-28.04") } { print }' \
+  awk -v from="$LABEL_RE" -v to="$NEXT" '$0 ~ ("^[[:space:]]*runs-on: " from "[[:space:]]") { sub(from, to) } { print }' \
     "$REPO_ROOT/.github/workflows/$w.yml" > "$B/$w.yml"
 done
-B_SUB="$(cat "$B/tests.yml" "$B/lint.yml" | grep -c '^[[:space:]]*runs-on: ubuntu-28[.]04   # BL-358-RUNNER-LABEL$')"
-if [ "$b_rc" -ne 0 ] || ! grep -qx 'RUNNER_LABEL="ubuntu-28.04"   # BL-358-LABEL-VALUE' "$B/lint-next.sh" || [ "$B_SUB" != "$WANT_N" ]; then
+B_SUB="$(cat "$B/tests.yml" "$B/lint.yml" | grep -c "^[[:space:]]*runs-on: $NEXT_RE   # BL-358-RUNNER-LABEL\$")"
+if [ "$b_rc" -ne 0 ] || ! grep -qxF "RUNNER_LABEL=\"$NEXT\"   # BL-358-LABEL-VALUE" "$B/lint-next.sh" || [ "$B_SUB" != "$WANT_N" ]; then
   fail_ "B setup" "the label edit did not land (rc=$b_rc) or $B_SUB of $WANT_N runs-on lines were rewritten"
 else
   run_lint "$B/lint-next.sh" "$B/tests.yml" "$B/lint.yml"
   [ "$RC" -eq 0 ] \
-    && pass "B1 — RUNNER_LABEL and all $WANT_N runs-on lines changed together pass" \
+    && pass "B1 — RUNNER_LABEL and all $WANT_N runs-on lines changed together, $LABEL to $NEXT, pass" \
     || fail_ "B1" "rc=$RC out=$(printf '%s' "$OUT" | head -3 | tr '\n' ' ')"
   run_lint "$LINT" "$B/tests.yml" "$B/lint.yml"
-  b2_n="$(printf '%s\n' "$OUT" | grep -c 'runs on `ubuntu-28.04`, not `ubuntu-26.04`')"
+  b2_n="$(printf '%s\n' "$OUT" | grep -cF "runs on \`$NEXT\`, not \`$LABEL\`")"
   [ "$RC" -eq 1 ] && [ "$b2_n" = "$WANT_N" ] \
     && pass "B2 — the runs-on lines changed without RUNNER_LABEL fail, all $WANT_N named" \
     || fail_ "B2" "rc=$RC named=$b2_n of $WANT_N"
 fi
 
-echo "=== M — one mutant per behavioural line, each on a copy ==="
+echo "=== M — one mutant per marked line, each on a copy ==="
 
 # mutant <id> <marker> <replacement-line> — writes $MUT, the lint with the one
 # line that ENDS with <marker> replaced by <replacement-line> (end of line, so
@@ -337,7 +362,9 @@ for m in VALUE HELP OPTION JOB COMMENT-SKIP SCOPE SHAPE SPLIT NAME MARKER FLOOR 
     || fail_ "M0" "'# BL-358-LABEL-$m' ends $n lines (need exactly 1)"
 done
 
-if mutant M1 '# BL-358-LABEL-VALUE' 'RUNNER_LABEL="ubuntu-latest"   # BL-358-LABEL-VALUE'; then
+# M1's label is B's next one: ubuntu-latest, applied to the lint itself, would
+# stop at the setup check, not at R1.
+if mutant M1 '# BL-358-LABEL-VALUE' "RUNNER_LABEL=\"$NEXT\"   # BL-358-LABEL-VALUE"; then
   run_lint "$MUT" "$WF_TESTS" "$WF_LINT"
   [ "$RC" -eq 1 ] && [ "$(_fails "$OUT")" = "$WANT_N" ] \
     && pass "M1 — RUNNER_LABEL changed alone fails all $WANT_N real lines: R1 kills it, so the label is read from that line" \
@@ -377,7 +404,7 @@ if mutant M5 '# BL-358-LABEL-COMMENT-SKIP' '    0 { next }   # BL-358-LABEL-COMM
     || fail_ "M5" "rc=$RC out=$(printf '%s' "$OUT" | head -1)"
 fi
 
-M_QK='"runs-on": ubuntu-26.04   # BL-358-RUNNER-LABEL'
+M_QK="\"runs-on\": $LABEL   # BL-358-RUNNER-LABEL"
 if mutant M6 '# BL-358-LABEL-SCOPE' '    $1 != "runs-on:" { next }   # BL-358-LABEL-SCOPE'; then
   d="$(newtmp)"; mk_wf "$d/wf.yml" "$M_QK"
   run_lint "$MUT" "$d/wf.yml"
@@ -393,9 +420,9 @@ if mutant M7 '# BL-358-LABEL-SHAPE' '      if ($1 != "runs-on:") next   # BL-358
 fi
 
 if mutant M8 '# BL-358-LABEL-SPLIT' '      if (match(rest, /#/)) { v = substr(rest, 1, RSTART - 1); c = substr(rest, RSTART) }   # BL-358-LABEL-SPLIT'; then
-  d="$(newtmp)"; mk_wf "$d/wf.yml" 'runs-on: ubuntu-26.04# BL-358-RUNNER-LABEL'
+  d="$(newtmp)"; mk_wf "$d/wf.yml" "runs-on: ${LABEL}# BL-358-RUNNER-LABEL"
   run_lint "$MUT" "$d/wf.yml"
-  [ "$RC" -eq 0 ] && pass "M8 — with a comment taken from any #, U5d's \`ubuntu-26.04# …\` passes (U5d kills it)" \
+  [ "$RC" -eq 0 ] && pass "M8 — with a comment taken from any #, U5d's \`${LABEL}# …\` passes (U5d kills it)" \
     || fail_ "M8" "U5d's fixture still fails, rc=$RC"
 fi
 

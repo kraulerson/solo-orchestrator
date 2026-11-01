@@ -20,11 +20,14 @@
 #   A workflow with no runs-on line fails too: a renamed key would otherwise
 #   leave nothing to check and read as clean. Whole-line comments are skipped.
 #
-# MOVING TO A NEW IMAGE, ON PURPOSE (one place to change)
-#   RUNNER_LABEL, below, is the only place this check reads the label from.
-#   Measure the unit lane on the new image first: every suite's result, and
-#   every leg's time against `## BL-350:`'s 576s line. Then, in a pull request
-#   of its own, change RUNNER_LABEL and every runs-on line this lint names.
+# MOVING TO A NEW IMAGE, ON PURPOSE
+#   RUNNER_LABEL, below, is the only place this check reads the label from,
+#   and tests/test-lint-runner-label.sh reads it from here too. Measure the
+#   unit lane on the new image first: every suite's result, and every leg's
+#   time against `## BL-350:`'s 576s line. Then, in a pull request of its own,
+#   change RUNNER_LABEL and every runs-on line this lint names. Nothing else
+#   has to change for this check or its suite to pass; prose that names the
+#   old image goes stale, not red, so grep for it.
 #
 # CI: it has no lint.yml job; adding one, and making it a required check, are
 # Karl's call. The unit lane runs it twice, so a failure turns the required
@@ -96,7 +99,7 @@ done
 if [ "$failed" -ne 0 ]; then
   echo "  Each runs-on line reads:  runs-on: $RUNNER_LABEL   # $MARKER" >&2
   echo "  To move every job to another image on purpose, measure the unit lane on it first: every suite's result, and every leg's time against BL-350's 576s line (CLAUDE.md, CANONICAL COMMANDS)." >&2
-  echo "  Then, in a pull request of its own, change RUNNER_LABEL in scripts/lint-runner-label.sh, the one place this check reads the label from, and every runs-on line named above." >&2   # BL-358-LABEL-HOW
+  echo "  Then, in a pull request of its own, change RUNNER_LABEL in scripts/lint-runner-label.sh, the one place this check and its suite read the label from, and every runs-on line named above; nothing else has to change for either to pass." >&2   # BL-358-LABEL-HOW
   exit 1   # BL-358-LABEL-EXIT
 fi
 
