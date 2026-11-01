@@ -5346,8 +5346,11 @@ that holds here).
 described there but never given an owner)
 **Category:** Enforcement correctness / portability — silent predicate inversion in gate scripts
 **Severity:** Medium — a predicate that reads FALSE when it should read TRUE, in scripts that decide
-whether a commit is allowed; but each site needs its own reachability proof, so this is an audit,
-not a known live break.
+whether a commit is allowed or a piece of work may close. Each site needs its own reachability
+proof, and one is a known live break: `scripts/delta.sh` refuses a valid `--close` with rc 9 when
+the race fires, under load 26 of 36000 times on ubuntu:24.04 and 30 of 36000 on ubuntu:26.04 (the
+2026-10-30 update below). Until 2026-10-31 this line called the class an audit, not a known live
+break.
 
 **The mechanism, measured during BL-181.** Under `set -o pipefail`, `grep -q` exits the instant it
 matches. The upstream producer is still writing, dies of `SIGPIPE` (rc 141), and `pipefail` promotes
@@ -26913,8 +26916,8 @@ project"), before `44b3d13`.
 **Severity:** Low — green today; the next slow suite on either leg reds it
 **Status:** Closed — 2026-10-19 (fix `382c80e`; refit to four runs in `ae00781`; `slow-misc` re-balanced 2026-10-30 in
 `ea9361a0`, "Re-measured 2026-10-29" below; fifteen legs fitted to ubuntu-26.04 in `d153ea48`, "Re-fitted for
-ubuntu-26.04" below). Projected, not yet observed: the real proof is the pull request's own `unit-shard` run, whose
-per-leg times the supervisor adds below once it exists.
+ubuntu-26.04" below; bl311-d-relayed-escape back in `rest` in `e51e09e5`). The fifteen legs' first runs on
+ubuntu-26.04, PR #530's, are in "Measured on 26.04, and one move back" below.
 
 **What.** On `main` run 39003021516 (push of `08e940f`, after the eleventh leg, PR #510), `unit-shard (adopt)`
 took 640s and `unit-shard (slow-misc)` 620s of the 720s cap (`timeout-minutes: 12`); `approval` took 265s.
@@ -27070,7 +27073,10 @@ suite 112.9s on the 26.04 runs, and the BL-358 suite on 40943025582, which ran i
 BL-333 suites, not yet in 40336249134 and four of the older 24.04 runs, their largest span in the same image;
 `tests/test-bypass-audit-lib.sh`, red at 1.0s on 40382063836 (`## BL-358:`'s T5), its larger 26.04 span. A leg is
 29s of setup plus its suites' spans; the time outside the suites averaged 25.2s on the 36 26.04 legs (19.7s-33.4s)
-and 29.2s on the 135 24.04 ones.
+and 29.6s on the 148 legs of the twelve 24.04 runs (20.5s-63.4s, the 63.4s `mcp` on 41103570175). Until 2026-10-31
+this said 29.2s on 135: that average left out 41103570175's thirteen legs (135 = 8 × 12 + 3 × 13). Re-derived on
+2026-10-31 as each job's seconds from the jobs API less its log's span from the `partition verified` line to the
+last PASS or FAIL line; that method gives back the 25.2s and the 29.2s on the legs first counted.
 
 **The ratio.** The 263 suites present and passing on the three 26.04 runs and the eight older 24.04 runs (bl314 left
 out: it lost writes on 26.04) summed 6703.8s, 6525.2s and 6227.0s on 26.04 and 5348.7s-5913.5s on 24.04: 1.1433
@@ -27084,8 +27090,10 @@ times as long on average, 1.053-1.253 run pair by run pair; per suite, the media
 runs alone read 565s-572s there and 598s-673s on the eight older 24.04 runs: the first fit's failure above, again.
 Fitted to those fourteen inputs, fifteen of seventeen such layouts then read 577s-618s on the next run, 41103570175
 (`mcp` over in eleven). So that run is an input too. The layout taken is the one with the fewest moves found over all
-fifteen inputs (simulated annealing over the suites of 12s or more, many seeds): 21 moves, and none of them can be
-undone without a leg going over 576s or `rest` over 510s.
+fifteen inputs (simulated annealing over the suites of 12s or more, many seeds): 21 moves, and on those inputs none
+of them could be undone without a leg going over 576s or `rest` over 510s. That is true of `d153ea48`'s layout;
+`e51e09e5` has since moved one suite into `rest` that the fit kept out ("Measured on 26.04, and one move back",
+below).
 
 | leg | projected, thirteen legs: worst of the fifteen | fifteen legs: the three 26.04 runs | fifteen legs: worst 24.04 run, times 1.1433 |
 |---|---|---|---|
@@ -27124,8 +27132,21 @@ fails by name. On this Mac: `tests/test-bl322-zsh-legs.sh` 15/0, `tests/test-bl3
 **At the line, not under it.** 573.8s is what 21 moves buy on these fifteen inputs, and the next run will likely read
 some leg over 576s, as 41103570175 did for the layouts fitted without it; the 720s cap is what holds. A sixteenth leg,
 fitted the same way, reads at most 545.8s-550.0s on the fifteen inputs with 22-25 moves. It was not added here: the
-instruction was one more leg if fourteen could not reach the line. Projected, not observed: this branch's own
-`unit-shard` run is the first measurement of the fifteen legs on 26.04.
+instruction was one more leg if fourteen could not reach the line. This branch's own `unit-shard` runs were the first
+measurement of the fifteen legs on 26.04 (below).
+
+**Measured on 26.04, and one move back (2026-10-30, `e51e09e5`).** PR #530's run 41133149117 (at `f24362df`), the
+first run of the fifteen legs, every leg's `Image:` line `ubuntu-26.04`, put `lint-sweep` at 581s, over the 576s
+line, with `tests/test-bl311-d-relayed-escape.sh` at 50.7s in it; `rest` took 467s. That suite came to `lint-sweep`
+from `rest` in the 2026-10-19 refit, not in the 21 moves above, so `e51e09e5` moved it back to `rest`, unpinned: one
+entry removed, nothing added. The next run, 41144590396 (PR #530 at `e51e09e5`, every leg on 26.04), had every leg
+at or under 550s, in seconds: `ledger` 550, `adopt-c` 544, `mcp` 544, `lint-sweep` 542, `mcp-mutants` 538,
+`slow-misc` 538, `approval` 536, `rest` 523 (the moved suite 45.3s), `adopt` 522, `adopt-b` 489, `lint-scan` 464,
+`adopt-d` 460, `adopt-e` 454, `sast` 436, `commit-hooks` 416. `rest` took 523s there; the fit had held it at or
+under 510s on its fifteen inputs. Main's push run of the merge, 41145572121 (`cc4630c7`, every leg on 26.04), then
+read `adopt-c` and `mcp-mutants` at 585s each, over the line, and `rest` 450s (the moved suite 38.2s): the next run
+over 576s that "At the line, not under it" expects, with the 720s cap holding. Job seconds from
+`gh api repos/kraulerson/solo-orchestrator/actions/runs/<id>/jobs`, spans from each leg's log as above.
 
 ## BL-351: adoption writes outside the repository when the adoptee's `.claude` is a symlink to a folder outside it
 
@@ -27440,7 +27461,8 @@ shipped by `init.sh`), so a concurrent write there can drop an audit record
 **Status:** Closed — 2026-10-30. The writers are fixed (`f6a4eddb`, "The fix" below; PR #528, merged as `0b5bc20d`),
 and the CI runner pin (`# BL-358-RUNNER-PIN`) came off in `06173443` once the whole unit lane had been measured on <!-- lint-bl-markers: allow the pin was withdrawn on purpose in 06173443; this line records that it existed -->
 `ubuntu:26.04` against `ubuntu:24.04` ("The unpin" below). Every job names `ubuntu-26.04` since `9813a9ca`
-(`# BL-358-RUNNER-LABEL`, "The runner label" below). The residuals stay open (Residuals). This branch merges with a
+(`# BL-358-RUNNER-LABEL`, "The runner label" below), held by `scripts/lint-runner-label.sh` since 2026-10-31 ("The
+check" below). The residuals stay open (Residuals). This branch merges with a
 merge commit ("Merging this branch" below)
 
 **What.** GitHub's `ubuntu-latest` moved from `Image: ubuntu-24.04` (run 39629060444 attempt 1, 2026-10-21, main's last
@@ -27837,6 +27859,28 @@ unpin" did not. Measured afterwards, in the review of `ea9f1116`: on the three r
 every leg but `lint-sweep` reached 576s at least once, and the same 263 suites took 1.1433 times as long as on 24.04;
 `## BL-350:` re-fitted the lane to fifteen legs for it (`d153ea48`). CLAUDE.md's CANONICAL COMMANDS carries the rule.
 
+**The check (2026-10-31).** Until then nothing held the label: the review of PR #530 set one `lint.yml` job back to
+`ubuntu-latest`, and `bash scripts/run-lints.sh` stayed 16 of 16 and `scripts/lint-bl-markers.sh` rc 0, reproduced at
+`cc4630c7` with `backlog-references-lint` on `runs-on: ubuntu-latest`. `scripts/lint-runner-label.sh` reads every
+`runs-on` line of `tests.yml` and `lint.yml` and fails, by file, line and job, a line that names anything but the
+label (`# BL-358-LABEL-NAME`), a line without `# BL-358-RUNNER-LABEL` after the label (`# BL-358-LABEL-MARKER`), a
+line that mentions runs-on but is not a plain key (`# BL-358-LABEL-SHAPE`), and a workflow with no runs-on line
+(`# BL-358-LABEL-FLOOR`). On the same mutation `run-lints` reads 17 lints, 16 passed, `lint-runner-label.sh` failed.
+`RUNNER_LABEL` (`# BL-358-LABEL-VALUE`) is the one place it reads the label from, and its suite reads the label from
+there too, so the bump is that line and the 17 runs-on lines and nothing else; its failure output and `--help` say
+so. Until 2026-11-01 the suite wrote `ubuntu-26.04` out on 22 lines, and the review of the check made the bump on a
+copy with `ubuntu-28.04`: the lint said OK, rc 0, and the suite went 36 passed, 20 failed. Since then the suite reads
+the label from `RUNNER_LABEL` and builds every fixture, pattern and expected message from it. On a copy, the same bump
+changes 18 lines in three files, the lint says OK and the suite is 56/0, and one `lint.yml` job set back to
+`ubuntu-latest` turns the suite red, 49 passed and 6 failed, before the bump and after it. Prose that names the image
+goes stale on a bump, not red; `git grep -n` the old label to find it. It is a lint, not a case in an existing suite,
+because `run-lints` takes it by glob and `tests/test-run-lints.sh` (leg `slow-misc`) runs it over the tree, which
+puts it behind the required `unit` check with no `lint.yml` job of its own. `tests/test-lint-runner-label.sh` (leg
+`rest`, 56 cases) pins it with one mutant per marked line (17: the lint has 16 marked lines, and
+`# BL-358-LABEL-MARKER` has two), and each mutant, applied to the lint itself, turns the suite red (measured again on
+2026-11-01). In `ubuntu:26.04` (bash 5.3.9, mawk 1.3.4 20260129, `git archive` streamed in, a non-root user) the
+suite is 56/0 and `tests/test-run-lints.sh` 8/0, rc 0, measured again on 2026-11-01.
+
 **Merging this branch.** `ci/bl358-unpin-ubuntu` must merge with a merge commit, not a squash or a rebase: this entry
 and `## BL-350:` cite its commits by SHA (`06173443`, `ea9361a0`, `94750852`, `ea9f1116`, `9813a9ca`, `d153ea48`), and
 a squash or a rebase leaves those SHAs on no branch.
@@ -27920,6 +27964,32 @@ recorded here; R-358-13 is the one applied (the "Shard time" item above).
   with a partner), and the second writer runs after writer 1 releases, as `_burst`'s header in
   `tests/test-bl358-lock-primitive.sh` says ("With the lock the second waits, and the first is held for all its
   tries").
+
+**Review residuals of the runner-label check (its adversarial review; recorded 2026-11-01), open.** Each was
+reproduced on 2026-11-01 before it was recorded here. The review's main finding, that the bump turned the suite red,
+is applied ("The check", above).
+- **R-358-15 (the review's R-2): only `tests.yml` and `lint.yml` are read.** The default run names the two files, so
+  a workflow added under `.github/workflows/` (a reusable workflow, a release workflow) is not checked. Measured: a
+  scratch `release.yml` whose one job is on `runs-on: ubuntu-latest`, beside the two, and the default run printed
+  `OK: 17 runs-on line(s) in 2 workflow(s) …`, rc 0; passed as an argument, the same file fails by line and job.
+  Reading every file under `.github/workflows/`, or keeping a closed list so that a later lane on another image is
+  added on purpose, is Karl's call. Reading every file meets one shape the floor (`# BL-358-LABEL-FLOOR`) fails: a
+  workflow whose jobs only call reusable workflows has no `runs-on` line, because GitHub does not take `runs-on` on a
+  job that calls one.
+- **R-358-16 (the review's R-3): 8 of the review's 16 mutants of the lint survive the unit lane.** The four it named
+  were reproduced, each applied to the lint with the suite 56/0 under it. `$1 !~ /^runs-on:/` for `$1 != "runs-on:"`
+  (`# BL-358-LABEL-SHAPE`) passes `runs-on:ubuntu-26.04` with its marker, which with no space after the colon is no
+  `runs-on` key at all (Ruby's YAML loader refuses the fixture). `v !~ ("^" label "$")` for `v != label`
+  (`# BL-358-LABEL-NAME`) reads the label as a regex, so it passes `ubuntu-26x04`, a label that differs from it only
+  where it has a `.` and names no image. Dropping `w[1] != "#"` (`# BL-358-LABEL-MARKER`) passes
+  `#x BL-358-RUNNER-LABEL`. Dropping `(#.*)?` from the job pattern (`# BL-358-LABEL-JOB`) skips a job key with a
+  comment after it, so the fault under it is named with the job before it, the verdict unchanged. None of the four
+  lets a missing marker through. The review called its other four cosmetic or equivalent; they were not reproduced.
+- **R-358-17: a key spelled another way is not read.** The parser reads only lines that hold the literal `runs-on`.
+  Beside one canonical job, each of these passes, rc 0: a YAML escape (`"runs\x2don": ubuntu-latest`), an explicit
+  key split over two lines (`? "runs-\`, then `on"`, then `: ubuntu-latest`), and `Runs-On: ubuntu-latest`. Ruby's
+  YAML loader reads the first two as `runs-on` and the third as `Runs-On`; whether GitHub takes `Runs-On` for
+  `runs-on` was not measured.
 
 ## BL-359: BL-333 review residuals — writes through a linked backup or matrix folder, shard time, dry-run wording, a vacuous-killer gap, host backfill
 
