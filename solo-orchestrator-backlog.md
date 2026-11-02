@@ -26048,7 +26048,7 @@ with the framework sync; a project registered under `Bash|Write` alone could onl
 **Logged:** 2026-10-08 (issue #464, filed 2026-09-29; decided by Karl 2026-10-08)
 **Category:** Gap (brownfield parity)
 **Severity:** Low — the Currency System has nothing to check in an adopted project
-**Status:** Open
+**Status:** Closed — shipped 2026-11-02 (PR #532, commits `64f353db`, `6f29890a`). Adoption stamps the `currency` block with A1/A2 render bases recorded as unknown; follow-ups are `## BL-361:` and `## BL-362:`.
 
 **What.** `soif_currency_stamp` (`scripts/lib/currency-manifest.sh`) has one caller, init.sh
 (`# BL-109-CURRENCY`); adoption never calls it, so an adopted project has `soloFrameworkCommit` but no `currency`
