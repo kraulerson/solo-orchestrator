@@ -2727,10 +2727,15 @@ adopted one now gets the same one, from the same code
 - **The Currency System's inventory** (`## BL-337:`), the `currency` block in
   `.claude/manifest.json` that `init.sh` writes for a new project: every
   framework script and reference document adoption installed, by hash, so the
-  session-start freshness check can tell you when one was edited or has fallen
-  behind. It differs from a new project's in one way. A new project records
-  which template its `CLAUDE.md`, `PROJECT_INTAKE.md`, `PROJECT_BIBLE.md` and
-  `PRODUCT_MANIFESTO.md` came from; adoption records that as **unknown**, so
+  session-start freshness check can tell you when one was edited. A guide you
+  already had in `docs/reference/` is not in it, because adoption left it alone.
+  The check cannot yet tell you when one has fallen behind the framework: that
+  compares against the framework commit the project was built from
+  (`soloFrameworkCommit` in the same file), which `init.sh` records and adoption
+  does not yet (`## BL-361:`), so for an adopted project those checks do not
+  run. The inventory itself differs from a new project's in one way. A new
+  project records which template its `CLAUDE.md`, `PROJECT_INTAKE.md`,
+  `PROJECT_BIBLE.md` and `PRODUCT_MANIFESTO.md` came from; adoption records that as **unknown**, so
   the check cannot say whether those four are behind the framework's
   templates, and says that instead of saying nothing:
 

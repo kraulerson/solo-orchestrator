@@ -26078,19 +26078,40 @@ row (`# BL-337-FRESH-KNOWN-ONLY`) and a new arm reports all of them as one infor
 (`# BL-337-PLAN-NOT-CURRENT`). The freshness check writes `.claude/cache/` in every session once the block exists,
 so adoption's `.claude/.gitignore` now ignores `/cache/` (`# BL-337-ADOPT-IGNORE-CACHE`). The init-parity table's
 row 29 in `docs/designs/2026-08-23-brownfield-adoption-v2.md` is updated. `tests/test-bl337-adopt-currency-stamp.sh`
-A1-A5, F1-F4, P1 and G1.
+A1-A6, F1-F4, P1, H1 and G1.
+
+**Review round (2026-11-02).** `soif_currency_sha256` called only `shasum`, so on a host with only `sha256sum`
+(Fedora's `dnf install git jq`) every files{} row was skipped and the receipt refused the adoption ("the Currency
+System's inventory did not land"); it now falls back to `sha256sum` and returns 1 with a message when neither exists
+(`# BL-337-SHA256-FALLBACK`; H1 adopts under a PATH with no `shasum*`). The inventory recorded a guide the adoptee
+already had at `docs/reference/`, which adoption keeps, as a framework file, so every edit of it was reported as a
+local edit to a framework-managed file; `adopt_write_currency` now keeps only the paths in this run's ledger
+(`adopt_written_paths`, `# BL-337-WRITTEN-ONLY`; A6). F2's known-stale control now also asserts the
+`updates available` header, so `# BL-337-FRESH-HEADER`'s positive side is pinned. `docs/adoption.md` no longer says
+the check tells an adopted project when a file has fallen behind (see `## BL-361:`).
 
 **Found while building it, not fixed here.**
 - Adoption writes no `soloFrameworkCommit`; init.sh does (`# BL-110-PIN-UNIVERSAL`). This entry's own "What" says
   an adopted project has one, and it does not (measured on `2313b797`: the manifest's keys are `adoption`,
   `deployment`, `enforcement_level`, `host`, `mode`, `poc_mode`, `remote_url`, `tldr_mode`). Without it the
   freshness check's framework-drift and orphan arms skip, as for any unpinned project, and `--plan` prints its
-  pin-absent notice; the local-edit, hook and render-base arms run.
+  pin-absent notice; the local-edit, hook and render-base arms run. Filed as `## BL-361:`.
 - `soif_parse_shipped_skills` (`scripts/lib/scaffold-shipped-set.sh`) yields the literal path
   `.claude/skills/$(soif_vendored_skills)/SKILL.md`: init.sh's loop became `for skill in $(soif_vendored_skills)`
-  and the parser reads the loop's text. So no skill has a files{} row in either birth's block.
+  and the parser reads the loop's text. So no skill has a files{} row in either birth's block. Filed as `## BL-362:`.
 - Adoption renders `CLAUDE.md` from `templates/generated/claude-md.tmpl` (`adopt-docs.sh`), so that one template
   sha could be known; per the decision it is recorded as unknown with the other three.
+
+**Review residuals (2026-11-02), not fixed here.**
+- `## BL-361:` (no `soloFrameworkCommit` in an adopted project) and `## BL-362:` (no skill in any files{}).
+- `mcpProbe` is always `{"context7": "absent"}` in an adopted block: `soif_currency_mcp_probe` asks
+  `is_context7_mcp_registered`, which lives in `scripts/lib/helpers-full.sh`, and adoption reads that file only in
+  subshells (`adopt-mcp.sh`, `adopt-session.sh`), never where the block is built. Nothing outside
+  `currency-manifest.sh` reads `mcpProbe` today.
+- Untested lines: the kept-theirs note's `/cache/` line for a `.claude/.gitignore` adoption leaves alone, the
+  receipt check after the merge (`# BL-337-ADOPT-CURRENCY`), and the inventory's rows for the paths the Guardrails
+  install writes, verified by hand only.
+- The currency stage's notes print under the session layer's heading, since the stage opens none of its own.
 
 ## BL-338: the agent is never told the date — Solo's half: `resume.sh` prints today's date and the days left beside each due date
 
@@ -28127,3 +28148,49 @@ space (`for (j = 0; j < 3 && substr(t, 1, 1) == " "; j++) t = substr(t, 2)`), at
 each site that runs the parser on an input indented two and three spaces, which a revert of any one site fails on
 those builds. That case can only go red where such an awk runs, so it wants either a mawk 1.3.4 20240123 in the unit
 lane (an apt pin in one leg) or a check that the regex is gone (a lint on `sub(/^ ? ? ?/`), the latter weaker.
+
+## BL-361: adoption never stamps `soloFrameworkCommit`, so the freshness check's framework-drift and orphan arms skip for every adopted project
+
+**Logged:** 2026-11-02 (`## BL-337:`'s review; found while building BL-337)
+**Category:** Gap (brownfield parity)
+**Severity:** Low — an adopted project is never told that the framework has moved past the scripts and guides it
+installed, nor about a file the framework has since removed; edits, hooks and render bases are still checked
+**Status:** Open
+
+**What.** init.sh pins the framework commit a project was built from in `.claude/manifest.json`
+(`soloFrameworkCommit`, `# BL-110-PIN-UNIVERSAL`); adoption writes no such key. The freshness check's
+framework-drift and orphan arms compare files{} against the framework's history since that pin, and skip a project
+without one, as they do for any unpinned project; `--plan` prints its pin-absent notice. Since `## BL-337:` an
+adopted project carries a `currency` block, so this is the one piece of framework currency it still lacks.
+
+**Measured (2026-11-02, branch `fix/bl337-adopt-currency-stamp`).** A fresh adoption's manifest has no
+`soloFrameworkCommit` (`jq 'has("soloFrameworkCommit")'` is `false`); its `scripts/session-freshness-check.sh`
+prints `FRAMEWORK CURRENCY — no update found, but a check could not run.` with the render-base item only. With
+`soloFrameworkCommit` set by hand to an older framework commit, the same check prints `updates available` and names
+the framework files changed since the pin (`framework updated scripts/lib/currency-manifest.sh since you installed
+it`) and the commits the clone is ahead.
+
+**Direction (not done here).** Adoption pins the framework clone's HEAD at the same stage the `currency` block is
+written, through `adopt_jq_edit`, under the same never-a-backfill rule. Then `docs/adoption.md`'s Currency System
+paragraph can say the check tells an adopted project when a file has fallen behind.
+
+## BL-362: `soif_parse_shipped_skills` returns a literal `$(soif_vendored_skills)` path, so no skill has a Currency System files{} row
+
+**Logged:** 2026-11-02 (`## BL-337:`'s review; found while building BL-337)
+**Category:** Bug (Currency System inventory)
+**Severity:** Low — an edited, stale or removed vendored skill is never reported by the freshness check, in a new
+project or an adopted one
+**Status:** Open
+
+**What.** `soif_parse_shipped_skills` (`scripts/lib/scaffold-shipped-set.sh`) derives the shipped skills by reading
+init.sh's install loop as text. That loop became `for skill in $(soif_vendored_skills)`, so the parser yields one
+path, the literal `.claude/skills/$(soif_vendored_skills)/SKILL.md`, which exists in no project, and
+`_soif_currency_emit_file_row` skips it. Neither init.sh's block nor adoption's (`## BL-337:`) has a row for any of
+the skills under `templates/generated/skills/`.
+
+**Measured (2026-11-02).** `. scripts/lib/scaffold-shipped-set.sh; soif_parse_shipped_skills init.sh
+templates/generated/skills` prints `.claude/skills/$(soif_vendored_skills)/SKILL.md`, rc 0; a fresh adoption's
+`.currency.files` has 0 keys containing `skills`.
+
+**Direction (not done here).** Derive the list from `soif_vendored_skills` itself (`scripts/lib/claude-settings.sh`)
+instead of from init.sh's text, and pin it with a case that fails when the parser yields a path containing `$(`.
