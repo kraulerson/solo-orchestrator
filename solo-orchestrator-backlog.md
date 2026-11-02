@@ -26059,6 +26059,39 @@ A2 render bases come from a file only init.sh's render step produces.
 **Decision (Karl, 2026-10-08).** Adoption owns the stamp, with the A1 and A2 render-base rows recorded as unknown,
 not empty.
 
+**Fix (2026-11-01, branch `fix/bl337-adopt-currency-stamp`).** `soif_currency_stamp`'s body is split into
+`soif_currency_block` (builds the block) and the stamp (merges it); init.sh's call and its output are unchanged. A
+sixth argument `unknown:<reason>` writes each of init.sh's four render-base artifacts as
+`{templateSha: null, [outputSha: null,] base: "unknown", reason}` (`# BL-337-RB-UNKNOWN`), never `{}` or `""`, and
+no A1 files{} row, since an A1 row is output captured at a render. Adoption runs a `currency` stage after
+`session_layer` (`# BL-337-CURRENCY-STAGE-ORDER`): `adopt_write_currency` builds the block with
+`unknown:adopted` and merges it through `adopt_jq_edit` (`# BL-337-ADOPT-CURRENCY`), the guarded, recorded,
+atomic-rename path the other adoption manifest writes use, then reads it back. It refuses a manifest that already
+has the block (`# BL-337-NO-BACKFILL`), so the birth stamp still never runs as a backfill; the Stage 3 note in
+`adopt-state.sh` now says that a project is born once, by init.sh or by adoption. Every reader of `renderBases` was
+traced (`grep -rn renderBases scripts/ init.sh templates/`): the freshness check's render-base arm skips an unknown
+row (`# BL-337-FRESH-KNOWN-ONLY`) and a new arm reports all of them as one informational `render-base-unknown` item,
+"render base unknown for … (adopted project)", snoozable until a framework template changes
+(`# BL-337-FRESH-UNKNOWN`), under a header that does not claim an update when that is the only item
+(`# BL-337-FRESH-HEADER`); `--plan` turns the item into a notice, never an A1 candidate or A2 diff
+(`# BL-337-PLAN-UNKNOWN`), and stops saying "Everything tracked is current" beside it
+(`# BL-337-PLAN-NOT-CURRENT`). The freshness check writes `.claude/cache/` in every session once the block exists,
+so adoption's `.claude/.gitignore` now ignores `/cache/` (`# BL-337-ADOPT-IGNORE-CACHE`). The init-parity table's
+row 29 in `docs/designs/2026-08-23-brownfield-adoption-v2.md` is updated. `tests/test-bl337-adopt-currency-stamp.sh`
+A1-A5, F1-F4, P1 and G1.
+
+**Found while building it, not fixed here.**
+- Adoption writes no `soloFrameworkCommit`; init.sh does (`# BL-110-PIN-UNIVERSAL`). This entry's own "What" says
+  an adopted project has one, and it does not (measured on `2313b797`: the manifest's keys are `adoption`,
+  `deployment`, `enforcement_level`, `host`, `mode`, `poc_mode`, `remote_url`, `tldr_mode`). Without it the
+  freshness check's framework-drift and orphan arms skip, as for any unpinned project, and `--plan` prints its
+  pin-absent notice; the local-edit, hook and render-base arms run.
+- `soif_parse_shipped_skills` (`scripts/lib/scaffold-shipped-set.sh`) yields the literal path
+  `.claude/skills/$(soif_vendored_skills)/SKILL.md`: init.sh's loop became `for skill in $(soif_vendored_skills)`
+  and the parser reads the loop's text. So no skill has a files{} row in either birth's block.
+- Adoption renders `CLAUDE.md` from `templates/generated/claude-md.tmpl` (`adopt-docs.sh`), so that one template
+  sha could be known; per the decision it is recorded as unknown with the other three.
+
 ## BL-338: the agent is never told the date — Solo's half: `resume.sh` prints today's date and the days left beside each due date
 
 **Logged:** 2026-10-08 (issue #423, filed 2026-09-17; split by Karl 2026-10-08)
