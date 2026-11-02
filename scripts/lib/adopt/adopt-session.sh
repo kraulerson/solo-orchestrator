@@ -125,22 +125,23 @@ adopt_write_session_layer() {                          # BL-242-SESSION-STAGE
   # (keep-theirs, no archive row, as `# BL-318-TESTCMD-KEEP`). `## BL-324:` adds
   # the Claude-commit ledger, .claude/claude-commits.jsonl, which the commit
   # recorder writes after each agent commit (tracked, it would be modified after
-  # every one). Only these: init's other .claude/ runtime lines are for files
-  # an adoption never writes (.claude/cache/ needs a manifest `currency` block,
-  # last-gate-pass.txt the strict terminal-commit check, framework-gate.sh,
-  # which adoption does not install). .claude/approvals.jsonl is the Guardrails' file and
+  # every one). `## BL-337:` adds .claude/cache/, the freshness check's cache,
+  # which that check writes in every session once the manifest has a `currency`
+  # block — and adoption now stamps one. Only these: init's other .claude/
+  # runtime line, last-gate-pass.txt, is the strict terminal-commit check's
+  # (framework-gate.sh), which adoption does not install. .claude/approvals.jsonl is the Guardrails' file and
   # .claude/tdd-warn-ledger.jsonl a tracked audit trail; neither is ignored here.
   # (The stop hook's "Uncommitted source changes" over those two is the
   # Guardrails' source-file test, handed to them.)
   if [ -e "$root/$ADOPT_SESSION_IGNORE_REL" ] || [ -L "$root/$ADOPT_SESSION_IGNORE_REL" ] || adopt_path_under_link "$root" "$ADOPT_SESSION_IGNORE_REL"; then   # BL-322-ADOPT-IGNORE-KEEP
     adopt_note "$ADOPT_SESSION_IGNORE_REL is already yours, so it was left alone. If git shows"
-    adopt_note ".claude/last-checked-commit.txt, .claude/tool-usage.json or"
-    adopt_note ".claude/claude-commits.jsonl as untracked, add these lines to it:"
-    adopt_note "/last-checked-commit.txt, /tool-usage.json and /claude-commits.jsonl"
+    adopt_note ".claude/last-checked-commit.txt, .claude/tool-usage.json,"
+    adopt_note ".claude/claude-commits.jsonl or .claude/cache/ as untracked, add these lines to it:"
+    adopt_note "/last-checked-commit.txt, /tool-usage.json, /claude-commits.jsonl and /cache/"
   else
     _adopt_session_ignore_rules | adopt_write_file "$root" "$ADOPT_SESSION_IGNORE_REL" || return 1   # BL-322-ADOPT-IGNORE-WRITE
-    adopt_note "Wrote $ADOPT_SESSION_IGNORE_REL: git ignores the three files the session hooks write"
-    adopt_note "(.claude/last-checked-commit.txt, .claude/tool-usage.json, .claude/claude-commits.jsonl)."
+    adopt_note "Wrote $ADOPT_SESSION_IGNORE_REL: git ignores what the session hooks write (.claude/"
+    adopt_note "last-checked-commit.txt, tool-usage.json, claude-commits.jsonl and the cache/ folder)."
     adopt_note "Your .gitignore is unchanged."
   fi
 
@@ -189,8 +190,11 @@ ADOPT_SESSION_IGNORE_REL=".claude/.gitignore"
 # paths are in templates/generated/gitignore-base.tmpl (init.sh); the first two
 # are also in upgrade-project.sh's `# BL-174-GITIGNORE-BACKFILL`. The third is
 # the temps of scripts/lib/ledger-write.sh (`## BL-314:`), which a SIGKILLed
-# write leaves until the next write sweeps it. The last two are the lock files
-# of scripts/lib/lock.sh (`## BL-358:`), which a SIGKILL can leave too.
+# write leaves until the next write sweeps it. The next two are the lock files
+# of scripts/lib/lock.sh (`## BL-358:`), which a SIGKILL can leave too. The
+# last is the freshness check's cache (`## BL-337:`); init.sh ignores it as
+# `.claude/cache/` in generate_gitignore's heredoc, which it appends after
+# copying gitignore-base.tmpl (the template itself does not name it).
 _adopt_session_ignore_rules() {
   printf '%s\n' \
     "# Solo Orchestrator's runtime files. The framework's session hooks rewrite them" \
@@ -200,5 +204,6 @@ _adopt_session_ignore_rules() {
     "/claude-commits.jsonl" \
     "/tool-usage.json" \
     "/*.json.lock" \
-    "/tool-usage.json.lock.break"
+    "/tool-usage.json.lock.break" \
+    "/cache/"   # BL-337-ADOPT-IGNORE-CACHE
 }

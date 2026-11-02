@@ -18,6 +18,11 @@
 #       A1: { artifact -> { templateSha, outputSha } },   # script-rendered
 #       A2: { artifact -> { templateSha } }               # agent-authored
 #     },
+#     # An adopted project (`## BL-337:`, design §2-L0 amendment 2026-11-02):
+#     # no render site captured a base, so every row is the UNKNOWN shape —
+#     #   A1: { artifact -> { templateSha: null, outputSha: null, base: "unknown", reason } }
+#     #   A2: { artifact -> { templateSha: null, base: "unknown", reason } }
+#     # — and no A1 artifact has a files{} row.
 #     hooks: { name -> present | absent-intentional | absent-unavailable },
 #     mcpProbe: { context7: present | absent }
 #   }
@@ -59,11 +64,24 @@ fi
 unset _soif_cm_dir
 
 # ── Primitives: sha256 + mode ────────────────────────────────────────────────
-# soif_currency_sha256 <file> — hex sha256 (shasum -a 256), empty on missing.
+# soif_currency_sha256 <file> — hex sha256, rc 1 on a missing file.
+# shasum first, then sha256sum (`# BL-337-SHA256-FALLBACK`): Fedora's
+# `dnf install git jq` brings no shasum, and on such a host every files{} row
+# was skipped, so adoption's receipt refused the run. Probed, not chained with
+# `||`, for the reason adopt_sha256 gives: the pipeline's status is awk's, and
+# awk succeeds on empty input. Neither tool is rc 1 with a message, never an
+# empty hash that reads as success.
 soif_currency_sha256() {
   local f="$1"
   [ -f "$f" ] || return 1
-  shasum -a 256 "$f" 2>/dev/null | awk '{print $1}'
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$f" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then   # BL-337-SHA256-FALLBACK
+    sha256sum "$f" 2>/dev/null | awk '{print $1}'
+  else
+    printf 'soif_currency_sha256: neither shasum nor sha256sum is on PATH; cannot hash %s\n' "$f" >&2
+    return 1
+  fi
 }
 
 # soif_currency_mode <file> — octal permission bits, GNU-first then BSD.
@@ -193,37 +211,63 @@ _soif_currency_mt_files_tsv() {
 }
 
 # ── The stamp (writer) ───────────────────────────────────────────────────────
-# soif_currency_stamp <manifest> <init_file> <framework_dir> <project_dir> \
-#                     <language> <solo_framework_path>
-#   Assembles the whole `currency` block and jq-merges it into <manifest> with
-#   the atomic-rename pattern. Additive: every pre-existing manifest field is
-#   preserved. No-op if jq is unavailable.
-soif_currency_stamp() {
-  local manifest="$1" init_file="$2" fw_dir="$3" proj_dir="$4"
-  local language="$5" solo_fw_path="$6"
-  command -v jq >/dev/null 2>&1 || return 0
-  [ -f "$manifest" ] || return 0
+# soif_currency_block <init_file> <framework_dir> <project_dir> <language> \
+#                     <solo_framework_path> [unknown:<reason>]
+#   Prints the whole `currency` block as JSON. With no sixth argument the render
+#   bases come from $SOIF_CURRENCY_RENDERBASE_FILE, captured at init.sh's render
+#   sites — the birth stamp's own shape, unchanged.
+#
+#   `unknown:<reason>` (`## BL-337:`, Karl 2026-10-08) is for a birth with no
+#   render step to capture from: adoption. Each A1/A2 artifact init.sh records
+#   gets a row saying its base is UNKNOWN —
+#     A1: { templateSha: null, outputSha: null, base: "unknown", reason }
+#     A2: { templateSha: null, base: "unknown", reason }
+#   — and NOT `{}` or a "" sha, which every reader takes as "nothing recorded"
+#   and skips. `null` is no sha a template can have, and `base` names why it is
+#   absent, so a reader cannot mistake the row for a base and must say so.
+#   SYNC: the four artifacts are init.sh's four soif_currency_record_render_base
+#   calls and freshness-detect.sh's `_soif_fresh_check_render_base` rows
+#   (tests/test-bl337-adopt-currency-stamp.sh A3 derives them from init.sh).
+#   No A1 files{} row is written then: an A1 row is the output captured AT the
+#   render, and hashing the file afterwards is the post-hoc base this file's
+#   render-base section rules out.
+soif_currency_block() {
+  local init_file="$1" fw_dir="$2" proj_dir="$3"
+  local language="$4" solo_fw_path="$5" rb_mode="${6:-}"
 
   # M/T rows (scripts + skills + reference docs), hashed from the project tree.
   local mt_tsv
   mt_tsv="$(_soif_currency_mt_files_tsv "$init_file" "$fw_dir" "$proj_dir")"
 
-  # Render-base scratch → A1 file rows + A1/A2 renderBases objects.
-  local store store_content=""
-  store="${SOIF_CURRENCY_RENDERBASE_FILE:-}"
-  if [ -n "$store" ] && [ -f "$store" ]; then
-    store_content="$(cat "$store")"
-  fi
-
-  local a1_file_tsv a1_json a2_json
-  a1_file_tsv="$(printf '%s\n' "$store_content" \
-    | awk -F'\t' 'NF>=5 && $1=="A1" { print $2"\t"$4"\t"$5"\tA1\tcurrent" }')"
-  a1_json="$(printf '%s\n' "$store_content" \
-    | awk -F'\t' 'NF>=4 && $1=="A1"' \
-    | jq -Rn '[inputs | select(length>0) | split("\t") | {(.[1]): {templateSha: .[2], outputSha: .[3]}}] | add // {}')"
-  a2_json="$(printf '%s\n' "$store_content" \
-    | awk -F'\t' 'NF>=3 && $1=="A2"' \
-    | jq -Rn '[inputs | select(length>0) | split("\t") | {(.[1]): {templateSha: .[2]}}] | add // {}')"
+  local a1_file_tsv="" a1_json="" a2_json=""
+  case "$rb_mode" in
+    "")
+      # Render-base scratch → A1 file rows + A1/A2 renderBases objects.
+      local store store_content=""
+      store="${SOIF_CURRENCY_RENDERBASE_FILE:-}"
+      if [ -n "$store" ] && [ -f "$store" ]; then
+        store_content="$(cat "$store")"
+      fi
+      a1_file_tsv="$(printf '%s\n' "$store_content" \
+        | awk -F'\t' 'NF>=5 && $1=="A1" { print $2"\t"$4"\t"$5"\tA1\tcurrent" }')"
+      a1_json="$(printf '%s\n' "$store_content" \
+        | awk -F'\t' 'NF>=4 && $1=="A1"' \
+        | jq -Rn '[inputs | select(length>0) | split("\t") | {(.[1]): {templateSha: .[2], outputSha: .[3]}}] | add // {}')"
+      a2_json="$(printf '%s\n' "$store_content" \
+        | awk -F'\t' 'NF>=3 && $1=="A2"' \
+        | jq -Rn '[inputs | select(length>0) | split("\t") | {(.[1]): {templateSha: .[2]}}] | add // {}')"
+      ;;
+    unknown:?*)
+      local reason="${rb_mode#unknown:}"
+      a1_json="$(jq -n --arg r "$reason" '{"CLAUDE.md": {templateSha: null, outputSha: null, base: "unknown", reason: $r},
+        "PROJECT_INTAKE.md": {templateSha: null, outputSha: null, base: "unknown", reason: $r}}')"   # BL-337-RB-UNKNOWN
+      a2_json="$(jq -n --arg r "$reason" '{"PROJECT_BIBLE.md": {templateSha: null, base: "unknown", reason: $r},
+        "PRODUCT_MANIFESTO.md": {templateSha: null, base: "unknown", reason: $r}}')"
+      ;;
+    *)
+      printf 'soif_currency_block: unknown render-base mode %s\n' "$rb_mode" >&2
+      return 1 ;;
+  esac
 
   # files{} = M/T rows + A1 rows, folded into one object.
   local all_tsv files_json
@@ -240,8 +284,7 @@ soif_currency_stamp() {
   mcp_json="$(soif_currency_mcp_probe)"
 
   # Assemble the block.
-  local currency_json
-  currency_json="$(jq -n \
+  jq -n \
     --argjson files "$files_json" \
     --argjson a1 "$a1_json" \
     --argjson a2 "$a2_json" \
@@ -249,7 +292,24 @@ soif_currency_stamp() {
     --argjson mcp "$mcp_json" \
     --arg path "$solo_fw_path" \
     '{schemaVersion: 1, soloFrameworkPath: $path, files: $files,
-      renderBases: {A1: $a1, A2: $a2}, hooks: $hooks, mcpProbe: $mcp}')"
+      renderBases: {A1: $a1, A2: $a2}, hooks: $hooks, mcpProbe: $mcp}'
+}
+
+# soif_currency_stamp <manifest> <init_file> <framework_dir> <project_dir> \
+#                     <language> <solo_framework_path>
+#   init.sh's birth stamp: soif_currency_block's captured shape, jq-merged into
+#   <manifest> with the atomic-rename pattern. Additive: every pre-existing
+#   manifest field is preserved. No-op if jq is unavailable. Adoption does not
+#   call this; it merges soif_currency_block's unknown shape through its own
+#   checked writer (adopt_write_currency).
+soif_currency_stamp() {
+  local manifest="$1" init_file="$2" fw_dir="$3" proj_dir="$4"
+  local language="$5" solo_fw_path="$6"
+  command -v jq >/dev/null 2>&1 || return 0
+  [ -f "$manifest" ] || return 0
+
+  local currency_json
+  currency_json="$(soif_currency_block "$init_file" "$fw_dir" "$proj_dir" "$language" "$solo_fw_path")"
 
   # Merge — atomic rename, mirrors the soloFrameworkCommit stamp.
   jq --argjson currency "$currency_json" '.currency = $currency' \

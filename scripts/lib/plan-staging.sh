@@ -297,6 +297,10 @@ _soif_plan_derive_items() {
         local hverb=update
         case "$id" in hook-missing:*|hook-unavailable:*) hverb=add ;; esac
         printf '%s\thook\t%s\tenforcement\t%s\tbatch\t\n' "$id" "$hverb" "$path" >> "$items_tmp" ;;
+      render-base-unknown)
+        # `## BL-337:` — no base, so nothing to merge or diff against: a NOTICE,
+        # never an A1 candidate or an A2 structural diff built on a guessed base.
+        printf 'render-base-unknown\t%s\n' "$msg" >> "$notices" ;;   # BL-337-PLAN-UNKNOWN
       local-edit)
         printf 'local-edit\t%s\n' "$msg" >> "$notices" ;;
       framework)
@@ -1091,7 +1095,13 @@ _soif_plan_emit_update_plan() {
   fi
 
   if [ "$total" = "0" ]; then
-    printf '## No updates available\n\nEverything tracked is current. Nothing to select.\n'
+    # An unknown render base was not checked, so "everything is current" would
+    # be a claim this plan cannot make (`## BL-337:`).
+    if awk -F'\t' '$1 == "render-base-unknown" { f = 1 } END { exit !f }' "$notices" 2>/dev/null; then   # BL-337-PLAN-NOT-CURRENT
+      printf '## No updates available\n\nEverything else tracked is current; the render bases named under Notices could not be checked. Nothing to select.\n'
+    else
+      printf '## No updates available\n\nEverything tracked is current. Nothing to select.\n'
+    fi
     return 0
   fi
 

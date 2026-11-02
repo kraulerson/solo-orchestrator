@@ -200,7 +200,7 @@ d8() {
   local label="D8 the stage sits after \`manifest\` and before \`adoption_record\`" order
   order="$( ( set +u; . "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh" >/dev/null 2>&1; _adopt_state_order ) | tr '\n' ' ')"
   case "$order" in
-    *"manifest framework_docs ci session_layer assessment_prompt adoption_record"*) pass "$label" ;;   # WP7's `ci` stage sits between them since §7.4 landed
+    *"manifest framework_docs ci session_layer currency assessment_prompt adoption_record"*) pass "$label" ;;   # WP7's `ci` stage sits between them since §7.4 landed; `## BL-337:` `currency` too
     *) fail_ "$label" "order is: $order" ;;
   esac
 }

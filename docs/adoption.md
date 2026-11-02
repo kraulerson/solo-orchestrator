@@ -2710,21 +2710,44 @@ adopted one now gets the same one, from the same code
   ```
 
   Then commit `.claude/settings.json` with the files the sync refreshed.
-- **`.claude/.gitignore`**, so git ignores the three files those hooks write:
+- **`.claude/.gitignore`**, so git ignores what those hooks write:
   `.claude/last-checked-commit.txt` (where the out-of-band commit check left
-  off), `.claude/tool-usage.json` (the MCP tool record) and
+  off), `.claude/tool-usage.json` (the MCP tool record),
   `.claude/claude-commits.jsonl` (the commits the agent made, which that check
   reads; `## BL-324:` — it is written after each commit, so a tracked copy
-  would be modified after every one). Before this the first two sat untracked
-  in an adopted project (`## BL-322:`). A new project's `.gitignore` from
-  `init.sh` has more `.claude/` runtime lines; adoption covers these three
-  because the others are for files an adopted project does not get:
-  `.claude/cache/` (the freshness check's cache, written only for a manifest
-  with a `currency` block, which only `init.sh` writes) and
-  `.claude/last-gate-pass.txt` (the receipt of the strict terminal-commit check,
-  `.git/hooks/framework-gate.sh`, which adoption does not install). A
-  `.claude/.gitignore` you already have is left alone, and the run names the
-  lines to add to it.
+  would be modified after every one) and `.claude/cache/` (the freshness
+  check's cache, written in every session once the manifest has a `currency`
+  block, which adoption stamps since `## BL-337:`). Before this the first two
+  sat untracked in an adopted project (`## BL-322:`). A new project's
+  `.gitignore` from `init.sh` has one more `.claude/` runtime line, for a file
+  an adopted project does not get: `.claude/last-gate-pass.txt` (the receipt of
+  the strict terminal-commit check, `.git/hooks/framework-gate.sh`, which
+  adoption does not install). A `.claude/.gitignore` you already have is left
+  alone, and the run names the lines to add to it.
+- **The Currency System's inventory** (`## BL-337:`), the `currency` block in
+  `.claude/manifest.json` that `init.sh` writes for a new project: every
+  framework script and reference document adoption installed, by hash, so the
+  session-start freshness check can tell you when one was edited. A guide you
+  already had in `docs/reference/` is not in it, because adoption left it alone.
+  The check cannot yet tell you when one has fallen behind the framework: that
+  compares against the framework commit the project was built from
+  (`soloFrameworkCommit` in the same file), which `init.sh` records and adoption
+  does not yet (`## BL-361:`), so for an adopted project those checks do not
+  run. The inventory itself differs from a new project's in one way. A new
+  project records which template its `CLAUDE.md`, `PROJECT_INTAKE.md`,
+  `PROJECT_BIBLE.md` and `PRODUCT_MANIFESTO.md` came from; adoption records that as **unknown**, so
+  the check cannot say whether those four are behind the framework's
+  templates, and says that instead of saying nothing:
+
+  ```
+  FRAMEWORK CURRENCY — no update found, but a check could not run. Report to the operator.
+
+  Informational:
+    - render base unknown for CLAUDE.md, PROJECT_INTAKE.md, PROJECT_BIBLE.md, PRODUCT_MANIFESTO.md (adopted project): …
+  ```
+
+  `bash scripts/session-freshness-check.sh --snooze render-base-unknown`
+  quiets it until one of those templates changes in the framework.
 - **Adoption does not change your own `.gitignore`. The first
   `upgrade-project.sh --sync-framework` does:** it appends four commented
   blocks (`.claude/last-checked-commit.txt`, `.claude/last-gate-pass.txt`,

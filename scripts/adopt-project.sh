@@ -89,6 +89,10 @@
 #                                        (`## BL-320:`), so the adoption names
 #                                        Guardrails below the minimum from the
 #                                        one place the number is written
+#   scripts/lib/currency-manifest.sh     soif_currency_block, the Currency
+#                                        System's `currency` block as init.sh's
+#                                        birth stamp builds it (`## BL-337:`),
+#                                        so the two births record one shape
 #
 # Direction (M3) holds in one direction only: this module sources core, and no
 # core file names this module. That is why `init.sh` does NOT ship
@@ -130,7 +134,7 @@ ADOPT_LIB_DIR="$ADOPT_SELF_DIR/lib/adopt"
 ADOPT_CORE_LIB_DIR="$ADOPT_SELF_DIR/lib"
 
 # ── Core libs (M2's declared set) ───────────────────────────────────────────
-for _core in helpers-core.sh render-project-docs.sh tldr-mode.sh claude-settings.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh bypass-audit.sh guardrails.sh; do
+for _core in helpers-core.sh render-project-docs.sh tldr-mode.sh claude-settings.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh bypass-audit.sh guardrails.sh currency-manifest.sh; do
   if [ ! -f "$ADOPT_CORE_LIB_DIR/$_core" ]; then
     echo "adopt-project: missing $ADOPT_CORE_LIB_DIR/$_core — run this from a complete framework clone." >&2
     exit 2
