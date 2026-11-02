@@ -73,6 +73,11 @@ _adopt_state_order() {
   printf '%s\n' ci   # BL-242-CI-STAGE-ORDER
   # The Claude Code session layer (§10-WP9c): settings, hook roster, skills, MCP.
   printf '%s\n' session_layer   # BL-242-SESSION-STAGE-ORDER
+  # The Currency System's inventory (`## BL-337:`) hashes the scripts, the
+  # reference docs and the skills (none today: the entry records why), so it
+  # follows the last stage that installs one of them (session_layer, the
+  # skills) and merges into the manifest the `manifest` stage wrote.
+  printf '%s\n' currency   # BL-337-CURRENCY-STAGE-ORDER
   # The prompt resume.sh prints for the assessment; it needs the stamp's commit.
   printf '%s\n' assessment_prompt   # BL-242-ASSESSMENT-PROMPT-ORDER
   printf '%s\n' adoption_record   # BL-242-RECORD-STAGE
@@ -1311,11 +1316,16 @@ adopt_write_intake() {
 
 # ── Stage 3 — manifest, and THE STAMP ───────────────────────────────────────
 # §8.5: the stamp's home is `.claude/manifest.json`'s top-level `adoption`
-# block, and this is its ONE product call site. `soif_currency_stamp` has
-# exactly one too, and the operating-model design's F1 correction records why:
-# a birth stamp that acquires a second caller has become a backfill. WP3 made
-# that structural — a second stamp is REFUSED — but the budget here is one call
-# either way.
+# block, and this is its ONE product call site. WP3 made that structural — a
+# second stamp is REFUSED — but the budget here is one call either way.
+# The operating-model design's F1 correction is why: a birth stamp that
+# acquires a second caller has become a backfill. That holds for the Currency
+# System's `currency` block too, and `## BL-337:` gave it a second caller
+# without breaking it: a project is born ONCE, by init.sh OR by adoption, never
+# both, and each birth stamps its own project once. What the principle forbids
+# is a stamp run on a project that already has one, so the adoption's currency
+# writer refuses a manifest that already carries the block (`adopt_write_currency`,
+# `# BL-337-NO-BACKFILL`) — the same structural refusal the adoption stamp has.
 # The `cmd … | awk … || fallback` spelling does NOT work here and is worth
 # naming: the `||` binds to the whole PIPELINE, whose status is awk's, and awk
 # succeeds happily on empty input — so a host without `shasum` would silently
@@ -1424,6 +1434,46 @@ adopt_write_manifest() {
     adopt_refuse "the adoption stamp did not land in .claude/manifest.json"
     return 1
   fi
+  return 0
+}
+
+# ── The Currency System's inventory (`## BL-337:`) ──────────────────────────
+# adopt_write_currency ROOT REPORT — the `currency` block init.sh's
+# `# BL-109-CURRENCY` stamp writes, for the project adoption gives birth to:
+# files{} hashed from what this run installed, the hook expectations, the MCP
+# probe and soloFrameworkPath, built by the same soif_currency_block. The render
+# bases are the one difference, decided by Karl (2026-10-08): adoption captured
+# none at a render site, so every A1 and A2 row says its base is UNKNOWN
+# (`# BL-337-RB-UNKNOWN`), and the freshness check and `--plan` say so rather
+# than skip it.
+#
+# Merged through adopt_jq_edit — the guarded, recorded, atomic-rename path every
+# other adoption manifest write takes — not through soif_currency_stamp's own
+# write, which no-ops in silence when jq is missing and never checks its rename.
+adopt_write_currency() {
+  local root="$1" report="$2" rel=".claude/manifest.json" block="" lang=""
+  # NEVER A BACKFILL. Unreachable through the driver today — a manifest with a
+  # `currency` block is a Solo manifest, which `_adopt_preflight_managed` and
+  # `_adopt_preflight_adopted` refuse before any write — and kept because the
+  # principle should not rest on two preflights staying as they are.
+  if jq -e 'has("currency")' "$root/$rel" >/dev/null 2>&1; then   # BL-337-NO-BACKFILL
+    adopt_refuse "$rel already has a currency block; adoption stamps a project once, at its birth, and never re-stamps one that has it (that would be a backfill)"
+    return 1
+  fi
+  lang="$(_adopt_session_language "$report")"
+  block="$(soif_currency_block "$ADOPT_FRAMEWORK_ROOT/init.sh" "$ADOPT_FRAMEWORK_ROOT" "$root" "$lang" "$ADOPT_FRAMEWORK_ROOT" "unknown:adopted")" \
+    && [ -n "$block" ] \
+    || { adopt_refuse "could not build the Currency System's inventory"; return 1; }
+  adopt_jq_edit "$root" "$rel" '.currency = $currency' --argjson currency "$block" || return 1   # BL-337-ADOPT-CURRENCY
+  # The receipt, as for the adoption stamp: rc 0 is not proof it landed.
+  if ! jq -e '.currency.schemaVersion == 1 and (.currency.files | length > 0)' "$root/$rel" >/dev/null 2>&1; then
+    adopt_refuse "the Currency System's inventory did not land in $rel"
+    return 1
+  fi
+  adopt_note "Recorded the Currency System's inventory in $rel: $(jq '.currency.files | length' "$root/$rel") framework file(s)."
+  adopt_note "Which template CLAUDE.md, PROJECT_INTAKE.md, PROJECT_BIBLE.md and PRODUCT_MANIFESTO.md"
+  adopt_note "came from is recorded as unknown, so the session-start check cannot say whether they"
+  adopt_note "are behind the framework's templates, and it tells you so."
   return 0
 }
 
@@ -2008,6 +2058,7 @@ _adopt_write_phase() {
       framework_docs) adopt_write_framework_docs "$root" || return 1 ;;   # BL-242-DOCS-STAGE
       ci)          adopt_write_ci "$root" "$report" || return 1 ;;   # BL-242-CI-STAGE
       session_layer) adopt_write_session_layer "$root" "$report" || return 1 ;;   # BL-242-SESSION-STAGE
+      currency)    adopt_write_currency "$root" "$report" || return 1 ;;   # BL-337-CURRENCY-STAGE
       assessment_prompt) adopt_write_assessment_prompt "$root" || return 1 ;;
       adoption_record) adopt_write_adoption_record "$root" "$report" || return 1 ;;   # BL-242-RECORD-STAGE
       write_set)   adopt_write_write_set "$root" || return 1 ;;   # BL-242-WRITE-SET

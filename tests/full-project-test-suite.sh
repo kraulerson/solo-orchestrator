@@ -980,6 +980,11 @@ run_child_suite "tests/test-bl358-lock-primitive.sh" \
 run_child_suite "tests/test-lint-runner-label.sh" \
   "BL-358: every runs-on line in tests.yml and lint.yml names ubuntu-26.04 with its marker; a line that does not fails by file, line and job" \
   "BL-358 lint-runner-label tests FAILED (run tests/test-lint-runner-label.sh for details)"
+# BL-337: adoption never stamped the Currency System's `currency` block, so an
+# adopted project's session-start freshness check had nothing to check.
+run_child_suite "tests/test-bl337-adopt-currency-stamp.sh" \
+  "BL-337: adoption stamps the currency block with the A1/A2 render bases recorded as unknown; the freshness check and --plan say so; init.sh's stamp is unchanged" \
+  "BL-337 adopt currency stamp tests FAILED (run tests/test-bl337-adopt-currency-stamp.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

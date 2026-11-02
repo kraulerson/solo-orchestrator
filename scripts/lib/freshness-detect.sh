@@ -60,7 +60,9 @@
 #                        BL-107'); present-but-missing / drift → ENFORCEMENT.
 #   (e) RENDER-BASE    — A1/A2 template shas vs the framework's current templates
 #                        → informational ('your CLAUDE.md was rendered from an
-#                        older template').
+#                        older template'). A row whose base is UNKNOWN (an
+#                        adopted project, `## BL-337:`) is never compared; one
+#                        informational `render-base-unknown` item names them.
 #   (f) CDF STALENESS  — read-only via the existing cdf-refresh surfaces
 #                        (frameworkCommit pin vs the local CDF clone HEAD) →
 #                        informational. Skips silently if the clone is absent.
@@ -557,8 +559,48 @@ _soif_fresh_stdin_sha() {
 }
 
 # ── (e) RENDER-BASE drift ────────────────────────────────────────────────────
+# _soif_fresh_check_render_base_unknown <mani> <fw> — `## BL-337:`. An adopted
+# project's A1/A2 rows record the base as UNKNOWN (`# BL-337-RB-UNKNOWN`): no
+# render step said which template each artifact came from. Comparing nothing
+# and printing nothing would read as "current", so ONE informational item names
+# every such artifact. Its snooze signature is the framework's current
+# templates for them, so a snooze holds until one of those templates changes,
+# which is when the question is worth asking again. Runs whether or not
+# soloFrameworkPath resolves: saying the base is unknown needs no framework.
+_soif_fresh_check_render_base_unknown() {
+  local mani="$1" fw="$2" rows="" names="" reason="" sig="" group="" artifact="" rsn="" tpl="" s=""
+  rows="$(jq -r '.currency.renderBases // {} | to_entries[] | .key as $g | (.value // {}) | to_entries[]
+                 | select((.value | type) == "object" and .value.base == "unknown")
+                 | "\($g)\t\(.key)\t\(.value.reason // "")"' "$mani" 2>/dev/null)"
+  [ -n "$rows" ] || return 0
+  while IFS="$(printf '\t')" read -r group artifact rsn; do
+    [ -n "$artifact" ] || continue
+    if [ -z "$names" ]; then names="$artifact"; else names="$names, $artifact"; fi
+    [ -n "$reason" ] || reason="$rsn"
+    case "$artifact" in
+      CLAUDE.md)            tpl="templates/generated/claude-md.tmpl" ;;
+      PROJECT_INTAKE.md)    tpl="templates/project-intake.md" ;;
+      PROJECT_BIBLE.md)     tpl="templates/generated/project-bible.tmpl" ;;
+      PRODUCT_MANIFESTO.md) tpl="templates/generated/product-manifesto.tmpl" ;;
+      *)                    tpl="" ;;
+    esac
+    s=""
+    if [ -n "$fw" ] && [ -n "$tpl" ] && [ -f "$fw/$tpl" ]; then s="$(_soif_fresh_sha "$fw/$tpl")"; fi
+    sig="$sig${s:-unknown}."
+  done <<RB_UNKNOWN
+$rows
+RB_UNKNOWN
+  case "$reason" in
+    adopted) reason="adopted project" ;;
+    "")      reason="no reason recorded" ;;
+  esac
+  _soif_fresh_emit "render-base-unknown" render-base-unknown informational "-" "-" "$sig" \
+    "render base unknown for $names ($reason): no render step recorded which template each came from, so whether they are behind the framework's templates cannot be checked"   # BL-337-FRESH-UNKNOWN
+}
+
 _soif_fresh_check_render_base() {
   local mani="$1" fw="$2"
+  _soif_fresh_check_render_base_unknown "$mani" "$fw"
   [ -n "$fw" ] || return 0
   local rows group artifact tpl mtpl_sha ftpl_sha
   # (group, artifact, framework-template-relpath) — the stable A1/A2 mapping.
@@ -568,8 +610,10 @@ A2	PROJECT_BIBLE.md	templates/generated/project-bible.tmpl
 A2	PRODUCT_MANIFESTO.md	templates/generated/product-manifesto.tmpl'
   printf '%s\n' "$rows" | while IFS="$(printf '\t')" read -r group artifact tpl; do
     [ -n "$artifact" ] || continue
+    # A row whose base is unknown is never a base, whatever sha it carries; the
+    # arm above reports it (`# BL-337-FRESH-KNOWN-ONLY`).
     mtpl_sha="$(jq -r --arg g "$group" --arg a "$artifact" \
-      '.currency.renderBases[$g][$a].templateSha // empty' "$mani" 2>/dev/null)"
+      '.currency.renderBases[$g][$a] | select(.base != "unknown") | .templateSha // empty' "$mani" 2>/dev/null)"   # BL-337-FRESH-KNOWN-ONLY
     [ -n "$mtpl_sha" ] || continue
     [ -f "$fw/$tpl" ] || continue
     ftpl_sha="$(_soif_fresh_sha "$fw/$tpl")"
@@ -715,7 +759,13 @@ _soif_fresh_render_human() {
   local enf inf id check tier path verb sig msg
   enf="$(printf '%s\n' "$items" | awk -F'\t' '$3=="enforcement"')"
   inf="$(printf '%s\n' "$items" | awk -F'\t' '$3=="informational"')"
-  printf 'FRAMEWORK CURRENCY — updates available. Report to the operator; do NOT auto-apply.\n'
+  # An unknown render base (`## BL-337:`) is not an update, so a block that lists
+  # nothing else must not say one is available.
+  if [ -z "$(printf '%s\n' "$items" | awk -F'\t' 'NF>1 && $2!="render-base-unknown"')" ]; then   # BL-337-FRESH-HEADER
+    printf 'FRAMEWORK CURRENCY — no update found, but a check could not run. Report to the operator.\n'
+  else
+    printf 'FRAMEWORK CURRENCY — updates available. Report to the operator; do NOT auto-apply.\n'
+  fi
   if [ -n "$(printf '%s' "$enf" | tr -d '[:space:]')" ]; then
     printf '\nRecommended now (enforcement):\n'
     printf '%s\n' "$enf" | while IFS="$(printf '\t')" read -r id check tier path verb sig msg; do

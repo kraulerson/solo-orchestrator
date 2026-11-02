@@ -32,7 +32,7 @@
 #     "network":           "none",               // zero-network guarantee
 #     "items": [
 #       { "id":     "<stable-item-id>",          // e.g. "orphan:scripts/foo.sh"
-#         "check":  "local-edit|framework|framework-drift|orphan|hook|render-base|cdf",
+#         "check":  "local-edit|framework|framework-drift|orphan|hook|render-base|render-base-unknown|cdf",
 #         "tier":   "enforcement|informational",
 #         "path":   "<rel-path>|null",
 #         "verb":   "add|update|retire|null",    // the §2-L2 lifecycle verb

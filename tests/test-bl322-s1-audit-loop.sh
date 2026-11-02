@@ -471,7 +471,7 @@ mutant M11 "$DET" '# BL-322-APPROVED-SHA' '         then .ok += [$e.commit | tos
 SES=scripts/lib/adopt/adopt-session.sh
 mutant M7 "$SES" '# BL-322-ADOPT-IGNORE-WRITE' '    :' case_A1 "adoption writes no ignore rule"
 mutant M8 "$SES" '# BL-322-ADOPT-IGNORE-KEEP' '  if false; then' case_A2 "adoption writes over the adoptee's own .claude/.gitignore"
-mutant_drop M14 "$SES" '    adopt_note "/last-checked-commit.txt, /tool-usage.json and /claude-commits.jsonl"' case_A2 "the kept-theirs note stops naming the lines"
+mutant_drop M14 "$SES" '    adopt_note "/last-checked-commit.txt, /tool-usage.json, /claude-commits.jsonl and /cache/"' case_A2 "the kept-theirs note stops naming the lines"
 mutant_drop M15 "$SES" '    "/tool-usage.json.lw.*" \' case_A1 "adoption stops ignoring the ledger writer's temps (BL-314)"
 mutant_drop M16 "$SES" '    "/claude-commits.jsonl" \' case_A1 "adoption stops ignoring the Claude-commit ledger (BL-324)"
 TPL=templates/generated/gitignore-base.tmpl

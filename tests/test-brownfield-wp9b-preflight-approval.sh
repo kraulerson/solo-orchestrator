@@ -1132,7 +1132,11 @@ else
   ( cd "$PM1D/p" && git add -A && git commit -q -m "chore: earned a gate, lost a script" ) >/dev/null 2>&1
   # The `.adoption` deletion comes AFTER the commit, so HEAD's copy still says
   # adopted and only the working copy is blanked — which is the whole point.
-  jq 'del(.adoption)' "$PM1D/p/.claude/manifest.json" > "$PM1D/mf.new" 2>/dev/null \
+  # `.currency` goes too (`## BL-337:`): adoption stamps it now, and left in
+  # place the currency writer's own refusal (`# BL-337-NO-BACKFILL`) stops the
+  # rehearsal before I20 is asked, so this case would stop observing I20.
+  # tests/test-bl337-adopt-currency-stamp.sh A5 pins that refusal.
+  jq 'del(.adoption) | del(.currency)' "$PM1D/p/.claude/manifest.json" > "$PM1D/mf.new" 2>/dev/null \
     && mv "$PM1D/mf.new" "$PM1D/p/.claude/manifest.json"
   PM1D_PHASE_BEFORE="$(_json_str "$PM1D/p/.claude/phase-state.json" '.current_phase')"
   _ans 1 > "$PM1D/answers2"
