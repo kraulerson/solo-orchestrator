@@ -192,8 +192,9 @@ ADOPT_SESSION_IGNORE_REL=".claude/.gitignore"
 # the temps of scripts/lib/ledger-write.sh (`## BL-314:`), which a SIGKILLed
 # write leaves until the next write sweeps it. The next two are the lock files
 # of scripts/lib/lock.sh (`## BL-358:`), which a SIGKILL can leave too. The
-# last is the freshness check's cache (`## BL-337:`), `.claude/cache/` in the
-# template.
+# last is the freshness check's cache (`## BL-337:`); init.sh ignores it as
+# `.claude/cache/` in generate_gitignore's heredoc, which it appends after
+# copying gitignore-base.tmpl (the template itself does not name it).
 _adopt_session_ignore_rules() {
   printf '%s\n' \
     "# Solo Orchestrator's runtime files. The framework's session hooks rewrite them" \

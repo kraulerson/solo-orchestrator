@@ -1451,7 +1451,7 @@ adopt_write_manifest() {
 # other adoption manifest write takes — not through soif_currency_stamp's own
 # write, which no-ops in silence when jq is missing and never checks its rename.
 adopt_write_currency() {
-  local root="$1" report="$2" rel=".claude/manifest.json" block="" lang=""
+  local root="$1" report="$2" rel=".claude/manifest.json" block="" lang="" written=""
   # NEVER A BACKFILL. Unreachable through the driver today — a manifest with a
   # `currency` block is a Solo manifest, which `_adopt_preflight_managed` and
   # `_adopt_preflight_adopted` refuse before any write — and kept because the
@@ -1464,7 +1464,16 @@ adopt_write_currency() {
   block="$(soif_currency_block "$ADOPT_FRAMEWORK_ROOT/init.sh" "$ADOPT_FRAMEWORK_ROOT" "$root" "$lang" "$ADOPT_FRAMEWORK_ROOT" "unknown:adopted")" \
     && [ -n "$block" ] \
     || { adopt_refuse "could not build the Currency System's inventory"; return 1; }
-  adopt_jq_edit "$root" "$rel" '.currency = $currency' --argjson currency "$block" || return 1   # BL-337-ADOPT-CURRENCY
+  # ONLY WHAT THIS RUN WROTE (`# BL-337-WRITTEN-ONLY`). The framework documents
+  # stage keeps a guide the project already had at docs/reference/, and the
+  # inventory, derived from init.sh's shipped set, would hash it as a framework
+  # file; every edit its owner made would then be reported as a local edit to a
+  # framework-managed file. The ledger is the record of this run's writes.
+  written="$(adopt_written_paths | jq -R . | jq -s -c .)" && [ -n "$written" ] \
+    || { adopt_refuse "could not read the record of what this adoption wrote"; return 1; }   # BL-337-WRITTEN-ONLY
+  adopt_jq_edit "$root" "$rel" \
+    '.currency = ($currency | .files |= with_entries(select(.key as $k | any($written[]; . == $k))))' \
+    --argjson currency "$block" --argjson written "$written" || return 1   # BL-337-ADOPT-CURRENCY
   # The receipt, as for the adoption stamp: rc 0 is not proof it landed.
   if ! jq -e '.currency.schemaVersion == 1 and (.currency.files | length > 0)' "$root/$rel" >/dev/null 2>&1; then
     adopt_refuse "the Currency System's inventory did not land in $rel"

@@ -25,13 +25,21 @@
 #   A5  the adoption writer itself refuses to stamp a manifest that already has
 #       a `currency` block (a birth stamp never becomes a backfill); with the
 #       block removed, the same harness stamps (so A5's refusal is the guard's)
+#   A6  a guide the adoptee already had at docs/reference/ (adoption keeps it)
+#       gets no files{} row, while the guides adoption installed do; after the
+#       owner edits it, the freshness check does not call it a local edit to a
+#       framework-managed file (`# BL-337-WRITTEN-ONLY`)
+#   H1  on a host with sha256sum and no shasum (Fedora's `dnf install git jq`),
+#       adoption succeeds and files{} is not empty — every row hashed through
+#       the sha256sum arm of soif_currency_sha256 (`# BL-337-SHA256-FALLBACK`)
 #   F1  the adoptee's own session-freshness-check.sh reports the unknown render
 #       bases by name, says "adopted project", never claims an update is
 #       available, and its machine block carries check `render-base-unknown`
 #       with current:false
 #   F2  the known-base arm never reads an unknown row as a base: an unknown row
 #       carrying a stale templateSha raises no "older template" item, while a
-#       known row with the same stale sha still does
+#       known row with the same stale sha still does, under the "updates
+#       available" header (`# BL-337-FRESH-HEADER`'s positive side)
 #   F3  the freshness cache the check writes is ignored by the adoptee's git
 #   F4  the unknown item can be snoozed like any informational item
 #   P1  `--plan` on the adoptee names the unknown render bases in its notices,
@@ -77,9 +85,9 @@ mk_adoptee() {
   printf 'node_modules/\n' > "$p/.gitignore"
   gitq "$p" add -A && gitq "$p" commit -q --no-verify -m "chore: their own history"
 }
-run_adopt() {   # DIR OUTFILE — sets RUN_RC
+run_adopt() {   # DIR OUTFILE — sets RUN_RC; RUN_PATH, when set, is the run's whole PATH
   RUN_RC=0
-  ( cd "$1" && printf '1\nstandard\n1\n1\n1\n1\n' | env SOIF_ADOPT_SCANNER_BIN=sh SOIF_ADOPT_QDRANT=no \
+  ( cd "$1" && PATH="${RUN_PATH:-$PATH}" && printf '1\nstandard\n1\n1\n1\n1\n' | env SOIF_ADOPT_SCANNER_BIN=sh SOIF_ADOPT_QDRANT=no \
       SOIF_ADOPT_GUARDRAILS_DIR="$WORK/no-guardrails" bash "$REPO_ROOT/scripts/adopt-project.sh" ) \
     > "$2" 2>&1 || RUN_RC=$?
 }
@@ -89,6 +97,11 @@ freshness() {   # DIR [args...] — the adoptee's OWN copy of the check, as a se
 
 P="$WORK/p"
 mk_adoptee "$P" || { echo "fixture failed"; exit 1; }
+# A guide of the adoptee's own at a path the framework ships one to (A6).
+OWN_GUIDE="docs/reference/user-guide.md"
+mkdir -p "$P/docs/reference" && printf '# Our own user guide\n' > "$P/$OWN_GUIDE" \
+  && gitq "$P" add "$OWN_GUIDE" && gitq "$P" commit -q --no-verify -m "docs: our own user guide" \
+  || { echo "fixture failed"; exit 1; }
 run_adopt "$P" "$WORK/adopt.out"
 ADOPT_RC=$RUN_RC
 M="$P/.claude/manifest.json"
@@ -153,6 +166,8 @@ a4() {
 }
 # The writer, called directly in a copy of the adopted project, with the
 # driver's libs sourced (the driver itself would refuse at its preflight first).
+# Its ledger is seeded from the run's committed write set, because the writer
+# records only what this adoption wrote (`# BL-337-WRITTEN-ONLY`).
 writer() {   # DIR — prints the writer's output, returns its rc
   ( cd "$REPO_ROOT" || exit 9
     for l in helpers-core render-project-docs tldr-mode claude-settings adoption-stamp scaffold-shipped-set hook-templates \
@@ -164,7 +179,8 @@ writer() {   # DIR — prints the writer's output, returns its rc
       . "scripts/lib/adopt/$l.sh" || exit 9
     done
     command -v adopt_write_currency >/dev/null 2>&1 || { echo "NO-WRITER"; exit 8; }
-    ADOPT_FRAMEWORK_ROOT="$REPO_ROOT"; ADOPT_WRITTEN_LEDGER=""; ADOPT_GUARD_REAL_ROOT=""
+    ADOPT_FRAMEWORK_ROOT="$REPO_ROOT"; ADOPT_WRITTEN_LEDGER="$1.ledger"; ADOPT_GUARD_REAL_ROOT=""
+    cp "$1/.claude/adoption/write-set.txt" "$ADOPT_WRITTEN_LEDGER" || { echo "NO-WRITE-SET"; exit 8; }
     adopt_write_currency "$1" "$P/.claude/adoption/scout-report.json" ) 2>&1
 }
 a5() {
@@ -180,7 +196,21 @@ a5() {
   if [ "$rc" -eq 0 ] && jq -e '.currency.renderBases.A1["CLAUDE.md"].base == "unknown"' "$c/.claude/manifest.json" >/dev/null 2>&1; then pass "$label"
   else fail_ "$label" "positive control: rc $rc, out: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"; fi
 }
-a1; a2; a3; a4; a5
+a6() {
+  local label="A6 a guide the adoptee already had gets no files{} row, the guides adoption installed do, and editing theirs is not reported" c="$WORK/a6" bad="" rel="" out=""
+  [ "$(cat "$P/$OWN_GUIDE" 2>/dev/null)" = "# Our own user guide" ] || { fail_ "$label" "fixture: adoption did not keep the adoptee's own $OWN_GUIDE"; return; }
+  jq -e --arg r "$OWN_GUIDE" '.currency.files | has($r)' "$M" >/dev/null 2>&1 \
+    && bad="$bad [$OWN_GUIDE is recorded as framework-managed: $(jq -c --arg r "$OWN_GUIDE" '.currency.files[$r]' "$M")]"
+  for rel in docs/reference/builders-guide.md docs/reference/messaging-standard.md; do
+    jq -e --arg r "$rel" '.currency.files[$r].class == "T"' "$M" >/dev/null 2>&1 || bad="$bad [$rel, which adoption installed, has no T row]"
+  done
+  cp -R "$P" "$c" || { fail_ "$label" "copy failed"; return; }
+  printf 'An edit of our own.\n' >> "$c/$OWN_GUIDE"
+  out="$(freshness "$c")"
+  printf '%s' "$out" | command grep -qF "$OWN_GUIDE" && bad="$bad [the check reports the owner's edit: $(printf '%s' "$out" | command grep -F "$OWN_GUIDE" | head -1)]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+a1; a2; a3; a4; a5; a6
 
 echo
 echo "=== F — the freshness check reports unknown honestly ==="
@@ -213,8 +243,11 @@ f2() {
   fi
   jq --arg s "$stale" '.currency.renderBases.A1["CLAUDE.md"] = {templateSha: $s, outputSha: $s}' "$c/.claude/manifest.json" > "$c/m.tmp" && mv "$c/m.tmp" "$c/.claude/manifest.json"
   out="$(freshness "$c")"
-  if printf '%s' "$out" | command grep -q 'CLAUDE.md was rendered from an older template'; then pass "$label"
-  else fail_ "$label" "control: a known stale CLAUDE.md row did not report: $(printf '%s' "$out" | head -4 | tr '\n' '|')"; fi
+  if ! printf '%s' "$out" | command grep -q 'CLAUDE.md was rendered from an older template'; then
+    fail_ "$label" "control: a known stale CLAUDE.md row did not report: $(printf '%s' "$out" | head -4 | tr '\n' '|')"
+  elif ! printf '%s' "$out" | command grep -q 'updates available'; then   # BL-337-FRESH-HEADER, positive side
+    fail_ "$label" "control: a real update is reported without the 'updates available' header: $(printf '%s' "$out" | head -2 | tr '\n' '|')"
+  else pass "$label"; fi
 }
 f3() {
   local label="F3 the freshness cache is written and ignored by the adoptee's git"
@@ -249,6 +282,43 @@ p1() {
   [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
 }
 p1
+
+echo
+echo "=== H — a host with sha256sum and no shasum ==="
+# The run's PATH is one folder of symlinks to every command on this PATH except
+# shasum*, so nothing the adoption needs is missing but shasum. Where the host
+# has no sha256sum (older macOS), a two-line shim stands in for it, so the
+# sha256sum arm is the one under test either way.
+h1() {
+  local label="H1 with sha256sum and no shasum, adoption succeeds and files{} is hashed (not empty)" h="$WORK/h1" bin="$WORK/h1-bin" d="" f="" n="" bad="" sha="" real=""
+  mkdir -p "$bin" || { fail_ "$label" "mkdir"; return; }
+  real="$(command -v shasum)"
+  printf '%s\n' "$PATH" | tr ':' '\n' > "$WORK/h1-path"
+  while IFS= read -r d; do
+    [ -d "$d" ] || continue
+    for f in "$d"/*; do
+      n="${f##*/}"
+      case "$n" in shasum*) continue ;; esac
+      [ -f "$f" ] && [ -x "$f" ] && [ ! -e "$bin/$n" ] && ln -s "$f" "$bin/$n"
+    done
+  done < "$WORK/h1-path"
+  if [ ! -e "$bin/sha256sum" ]; then
+    printf '#!/bin/sh\nexec "%s" -a 256 "$@"\n' "$real" > "$bin/sha256sum" && chmod +x "$bin/sha256sum"
+  fi
+  if PATH="$bin" command -v shasum >/dev/null 2>&1 || ! PATH="$bin" command -v sha256sum >/dev/null 2>&1; then
+    fail_ "$label" "fixture: shasum=$(PATH="$bin" command -v shasum) sha256sum=$(PATH="$bin" command -v sha256sum)"; return
+  fi
+  mk_adoptee "$h" || { fail_ "$label" "fixture failed"; return; }
+  RUN_PATH="$bin" run_adopt "$h" "$WORK/h1.out"
+  [ "$RUN_RC" -eq 0 ] || { fail_ "$label" "adoption rc $RUN_RC: $(command grep -E 'BLOCKED|REFUSED' "$WORK/h1.out" | head -1)"; return; }
+  n="$(jq '.currency.files | length' "$h/.claude/manifest.json" 2>/dev/null)"
+  [ "${n:-0}" -gt 0 ] || bad="$bad [files{} is empty]"
+  sha="$(shasum -a 256 "$h/scripts/check-phase-gate.sh" | awk '{print $1}')"
+  [ "$(jq -r '.currency.files["scripts/check-phase-gate.sh"].sha256 // ""' "$h/.claude/manifest.json" 2>/dev/null)" = "$sha" ] \
+    || bad="$bad [scripts/check-phase-gate.sh sha is not the file's]"
+  [ -z "$bad" ] && pass "$label" || fail_ "$label" "$bad"
+}
+h1
 
 echo
 echo "=== G — init.sh's stamp is unchanged ==="

@@ -18,6 +18,11 @@
 #       A1: { artifact -> { templateSha, outputSha } },   # script-rendered
 #       A2: { artifact -> { templateSha } }               # agent-authored
 #     },
+#     # An adopted project (`## BL-337:`, design §2-L0 amendment 2026-11-02):
+#     # no render site captured a base, so every row is the UNKNOWN shape —
+#     #   A1: { artifact -> { templateSha: null, outputSha: null, base: "unknown", reason } }
+#     #   A2: { artifact -> { templateSha: null, base: "unknown", reason } }
+#     # — and no A1 artifact has a files{} row.
 #     hooks: { name -> present | absent-intentional | absent-unavailable },
 #     mcpProbe: { context7: present | absent }
 #   }
@@ -59,11 +64,24 @@ fi
 unset _soif_cm_dir
 
 # ── Primitives: sha256 + mode ────────────────────────────────────────────────
-# soif_currency_sha256 <file> — hex sha256 (shasum -a 256), empty on missing.
+# soif_currency_sha256 <file> — hex sha256, rc 1 on a missing file.
+# shasum first, then sha256sum (`# BL-337-SHA256-FALLBACK`): Fedora's
+# `dnf install git jq` brings no shasum, and on such a host every files{} row
+# was skipped, so adoption's receipt refused the run. Probed, not chained with
+# `||`, for the reason adopt_sha256 gives: the pipeline's status is awk's, and
+# awk succeeds on empty input. Neither tool is rc 1 with a message, never an
+# empty hash that reads as success.
 soif_currency_sha256() {
   local f="$1"
   [ -f "$f" ] || return 1
-  shasum -a 256 "$f" 2>/dev/null | awk '{print $1}'
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$f" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then   # BL-337-SHA256-FALLBACK
+    sha256sum "$f" 2>/dev/null | awk '{print $1}'
+  else
+    printf 'soif_currency_sha256: neither shasum nor sha256sum is on PATH; cannot hash %s\n' "$f" >&2
+    return 1
+  fi
 }
 
 # soif_currency_mode <file> — octal permission bits, GNU-first then BSD.
