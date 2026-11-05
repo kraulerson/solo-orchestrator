@@ -277,6 +277,151 @@ sibling="$(find "$PROJ/.claude" -maxdepth 1 -name '*manifest*.json' | wc -l | tr
 case "$sibling" in ''|*[!0-9]*) sibling=0 ;; esac
 assert_eq "T8-exactly one manifest file in .claude/" "1" "$sibling"
 
+# ════════════════════════════════════════════════════════════════════════════
+# T9 — files{} is hashed in ONE batch (`# BL-337-BATCH-HASH`)
+# ════════════════════════════════════════════════════════════════════════════
+# Per-file shasum + stat cost ~1.2 s per block over an adopted project, and an
+# adoption builds the block twice (rehearsal + real). The batch must give every
+# row exactly what the per-file soif_currency_sha256 / soif_currency_mode give
+# that file under the same PATH, keep the shasum -> sha256sum -> refuse order
+# (`# BL-337-SHA256-FALLBACK`), and fail loud rather than mis-pair.
+#
+# The project path carries a space and a backslash: shasum and GNU sha256sum
+# answer a backslash in a name by escaping it and prefixing the line with `\`.
+#
+# Every tool is reached through a bin folder holding only what the block runs,
+# so a hasher can be wrapped (counted, broken) or left out. A tool missing from
+# that list fails T9a's positive control, never passes silently.
+echo "== T9: batched hashing =="
+PROJB="$TOPTMP/proj b\\x"
+cp -R "$PROJ" "$PROJB"
+chmod 750 "$PROJB/scripts/alpha.sh"
+T9_ROWS="scripts/alpha.sh M
+scripts/host-drivers/github.driver.sh M
+scripts/lib/hook-templates.sh M
+.claude/skills/alpha-skill/NOTICE M
+.claude/skills/alpha-skill/SKILL.md M
+.claude/skills/beta-skill/SKILL.md M
+docs/reference/builders-guide.md T"
+REAL_SHASUM="$(command -v shasum 2>/dev/null)"
+REAL_SHA256SUM="$(command -v sha256sum 2>/dev/null)"
+T9_LOG="$TOPTMP/t9-calls.log"
+# t9_bin <dir> <hasher...> — a bin folder of the block's own tools plus the
+# named hashers. `shasum`, `sha256sum` and `stat` log one line per invocation;
+# `shasum:drop|:extra|:nothex|:rc1` and `stat:drop` lie in that way.
+t9_bin() {
+  local dir="$1" t="" p="" h="" st=""; shift
+  mkdir -p "$dir"
+  for t in jq awk sed sort grep basename head cat tr; do
+    p="$(command -v "$t" 2>/dev/null)" && ln -s "$p" "$dir/$t"
+  done
+  st="$(command -v stat)"
+  printf '#!/bin/sh\necho stat >> "%s"\nexec "%s" "$@"\n' "$T9_LOG" "$st" > "$dir/stat"
+  for h in "$@"; do
+    case "$h" in
+      stat:drop)     printf '#!/bin/sh\n"%s" "$@" | sed '"'"'$d'"'"'\n' "$st" > "$dir/stat" ;;
+      shasum)        printf '#!/bin/sh\necho shasum >> "%s"\nexec "%s" "$@"\n' "$T9_LOG" "$REAL_SHASUM" > "$dir/shasum" ;;
+      shasum:drop)   printf '#!/bin/sh\n"%s" "$@" | sed '"'"'$d'"'"'\n' "$REAL_SHASUM" > "$dir/shasum" ;;
+      shasum:extra)  printf '#!/bin/sh\n"%s" "$@" | sed '"'"'1p'"'"'\n' "$REAL_SHASUM" > "$dir/shasum" ;;
+      shasum:nothex) printf '#!/bin/sh\n"%s" "$@" | sed '"'"'1s/^/z/'"'"'\n' "$REAL_SHASUM" > "$dir/shasum" ;;
+      shasum:rc1)    printf '#!/bin/sh\n"%s" "$@"\nexit 1\n' "$REAL_SHASUM" > "$dir/shasum" ;;
+      sha256sum)
+        if [ -n "$REAL_SHA256SUM" ]; then p="exec \"$REAL_SHA256SUM\" \"\$@\""; else p="exec \"$REAL_SHASUM\" -a 256 \"\$@\""; fi
+        printf '#!/bin/sh\necho sha256sum >> "%s"\n%s\n' "$T9_LOG" "$p" > "$dir/sha256sum" ;;
+    esac
+  done
+  for t in stat shasum sha256sum; do   # the wrappers only, never a symlinked tool
+    if [ -f "$dir/$t" ] && [ ! -L "$dir/$t" ]; then chmod +x "$dir/$t"; fi
+  done
+}
+# t9_expected <bindir> — files{} built one file at a time with the per-file
+# soif_currency_sha256 / soif_currency_mode, under the same PATH, sorted.
+t9_expected() {
+  ( PATH="$1"
+    printf '%s\n' "$T9_ROWS" | while read -r rel cls; do
+      printf '%s\t%s\t%s\t%s\n' "$rel" "$(soif_currency_sha256 "$PROJB/$rel")" "$(soif_currency_mode "$PROJB/$rel")" "$cls"
+    done | jq -SRn '[inputs | split("\t") | {(.[0]): {sha256: .[1], mode: .[2], class: .[3], state: "current"}}] | add' )
+}
+# t9_run <bindir> [project] — the block on PROJB (or [project]) with only
+# <bindir> on PATH; sets T9_RC, T9_OUT (stdout), T9_ERR (stderr) and T9_FILES
+# (its files{}, sorted).
+t9_run() {
+  : > "$T9_LOG"
+  T9_RC=0
+  ( PATH="$1"; soif_currency_block "$FW/init.sh" "$FW" "${2:-$PROJB}" typescript "$FW" "unknown:t9" ) \
+    > "$TOPTMP/t9.out" 2> "$TOPTMP/t9.err" || T9_RC=$?
+  T9_OUT="$(cat "$TOPTMP/t9.out")"; T9_ERR="$(cat "$TOPTMP/t9.err")"
+  T9_FILES="$(printf '%s' "$T9_OUT" | jq -S '.files' 2>/dev/null)"
+  T9_ORDER="$(printf '%s' "$T9_OUT" | jq -r '.files | keys_unsorted | join(" ")' 2>/dev/null)"
+}
+t9_calls() { command grep -c "^$1\$" "$T9_LOG" 2>/dev/null; }
+t9_short() { printf '%s' "$1" | tr '\n' ' ' | cut -c1-160; }
+# t9_refused <label> <stderr-pattern> — the block failed, printed no block, and said why.
+t9_refused() {
+  if [ "$T9_RC" -ne 0 ] && [ -z "$T9_OUT" ] && printf '%s' "$T9_ERR" | command grep -q -- "$2"; then pass "$1"
+  else fail "$1" "rc $T9_RC, out [$(t9_short "$T9_OUT")], err [$(t9_short "$T9_ERR")]"; fi
+}
+
+if [ -z "$REAL_SHASUM" ]; then
+  fail "T9 batched hashing" "shasum is not on PATH; the wrappers need it"
+else
+  t9_bin "$TOPTMP/t9-shasum" shasum sha256sum
+  want="$(t9_expected "$TOPTMP/t9-shasum")"
+  t9_run "$TOPTMP/t9-shasum"
+  # jq keeps insertion order, so the rows' order is part of the block's bytes.
+  want_order="$(printf '%s\n' "$T9_ROWS" | awk '{print $1}' | tr '\n' ' ' | sed 's/ $//')"
+  if [ "$T9_RC" -eq 0 ] && [ "$(printf '%s' "$T9_FILES" | jq 'length')" = "7" ] && [ "$T9_FILES" = "$want" ] && [ "$T9_ORDER" = "$want_order" ]; then
+    pass "T9a all 7 files{} rows equal the per-file sha256 + mode, in parser order, under a path with a space and a backslash"
+  else
+    fail "T9a all 7 files{} rows equal the per-file sha256 + mode, in parser order, under a path with a space and a backslash" \
+      "rc $T9_RC, err [$(t9_short "$T9_ERR")], order [$T9_ORDER], got $(printf '%s' "$T9_FILES" | jq -c . 2>/dev/null), want $(printf '%s' "$want" | jq -c .)"
+  fi
+  # Seven files: ONE shasum, and stat at most twice (GNU -c, then BSD -f).
+  if [ "$(t9_calls shasum)" = "1" ] && [ "$(t9_calls sha256sum)" = "0" ] && [ "$(t9_calls stat)" -le 2 ]; then
+    pass "T9b seven files take one shasum and at most two stat processes"
+  else
+    fail "T9b seven files take one shasum and at most two stat processes" \
+      "shasum=$(t9_calls shasum) sha256sum=$(t9_calls sha256sum) stat=$(t9_calls stat)"
+  fi
+  t9_bin "$TOPTMP/t9-sha256sum" sha256sum
+  want="$(t9_expected "$TOPTMP/t9-sha256sum")"
+  t9_run "$TOPTMP/t9-sha256sum"
+  if [ "$T9_RC" -eq 0 ] && [ "$(printf '%s' "$T9_FILES" | jq 'length')" = "7" ] && [ "$T9_FILES" = "$want" ] && [ "$(t9_calls sha256sum)" = "1" ]; then
+    pass "T9c with sha256sum and no shasum, one sha256sum gives every row its per-file hash"
+  else
+    fail "T9c with sha256sum and no shasum, one sha256sum gives every row its per-file hash" \
+      "rc $T9_RC, sha256sum=$(t9_calls sha256sum), err [$(t9_short "$T9_ERR")], got $(printf '%s' "$T9_FILES" | jq -c . 2>/dev/null), want $(printf '%s' "$want" | jq -c .)"
+  fi
+  t9_bin "$TOPTMP/t9-none"
+  t9_run "$TOPTMP/t9-none"
+  t9_refused "T9d with neither hasher the block is rc 1 with a message, not an empty files{}" 'neither shasum nor sha256sum'
+  t9_bin "$TOPTMP/t9-drop" shasum:drop
+  t9_run "$TOPTMP/t9-drop"
+  t9_refused "T9e a hasher that returns one line too few fails loud, never mis-pairs" '6 hash line(s) for 7 file(s)'
+  t9_bin "$TOPTMP/t9-extra" shasum:extra
+  t9_run "$TOPTMP/t9-extra"
+  t9_refused "T9f a hasher that returns one line too many fails loud, never mis-pairs" '8 hash line(s) for 7 file(s)'
+  t9_bin "$TOPTMP/t9-nothex" shasum:nothex
+  t9_run "$TOPTMP/t9-nothex"
+  t9_refused "T9g a line whose first field is not a sha256 fails loud" 'not a sha256'
+  t9_bin "$TOPTMP/t9-rc1" shasum:rc1
+  t9_run "$TOPTMP/t9-rc1"
+  t9_refused "T9h a hasher that exits non-zero (an unreadable file) fails loud even with full output" 'shasum failed'
+  t9_bin "$TOPTMP/t9-statdrop" shasum stat:drop
+  t9_run "$TOPTMP/t9-statdrop"
+  t9_refused "T9i a stat that returns too few mode lines fails loud, never mis-pairs" 'mode line(s) for 7 file(s)'
+  # A shipped file the project does not hold is skipped, as it always was.
+  PROJC="$TOPTMP/proj c"
+  cp -R "$PROJB" "$PROJC" && mv "$PROJC/.claude/skills/beta-skill/SKILL.md" "$TOPTMP/t9-moved-SKILL.md"
+  t9_run "$TOPTMP/t9-shasum" "$PROJC"
+  if [ "$T9_RC" -eq 0 ] && [ "$(printf '%s' "$T9_FILES" | jq 'length')" = "6" ] \
+     && [ "$(printf '%s' "$T9_FILES" | jq 'has(".claude/skills/beta-skill/SKILL.md")')" = "false" ]; then
+    pass "T9j a shipped file missing from the project is skipped, and the other six are hashed"
+  else
+    fail "T9j a shipped file missing from the project is skipped, and the other six are hashed" "rc $T9_RC, err [$(t9_short "$T9_ERR")], rows [$T9_ORDER]"
+  fi
+fi
+
 # ── Tally ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"

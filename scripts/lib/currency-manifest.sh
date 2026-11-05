@@ -164,49 +164,79 @@ soif_currency_record_render_base() {
   printf '%s\t%s\t%s\t%s\t%s\n' "$group" "$artifact" "$tsha" "$osha" "$omode" >> "$store"
 }
 
-# ── files{} row emitters (M/T from the shipped-set parsers) ──────────────────
-# _soif_currency_emit_file_row <project_dir> <rel-path> <class> — one TSV row
-# "<rel>\t<sha>\t<mode>\t<class>\tcurrent" hashed from the SCAFFOLDED project
-# tree (what the project actually holds). Silently skips a rel path missing from
-# the tree (a real gap the aggregator fidelity test is designed to catch).
-_soif_currency_emit_file_row() {
-  local proj_dir="$1" rel="$2" class="$3"
-  local abspath sha mode
-  abspath="$proj_dir/$rel"
-  [ -f "$abspath" ] || return 0
-  sha="$(soif_currency_sha256 "$abspath" 2>/dev/null)" || sha=""
-  mode="$(soif_currency_mode "$abspath" 2>/dev/null)" || mode=""
-  [ -n "$sha" ] || return 0
-  printf '%s\t%s\t%s\t%s\tcurrent\n' "$rel" "$sha" "$mode" "$class"
-}
-
+# ── files{} rows (M/T from the shipped-set parsers) ──────────────────────────
 # _soif_currency_mt_files_tsv <init_file> <framework_dir> <project_dir>
 #   Emits M (scripts + skills) and T (reference docs + bulk project templates)
-#   rows, MECHANICALLY derived. `local x="$(...)"` captures are set-e-safe (local
-#   returns 0).
+#   rows, MECHANICALLY derived: one TSV row "<rel>\t<sha>\t<mode>\t<class>\tcurrent"
+#   per file, hashed from the SCAFFOLDED project tree (what the project actually
+#   holds), in parser order. A rel path missing from the tree is skipped (a real
+#   gap the aggregator fidelity test is designed to catch).
 #
 #   BL-109 S3, carried obligation 2: the bulk `templates/generated/*.tmpl`
 #   skeletons init.sh ships verbatim are Class T (soif_parse_shipped_templates),
 #   joining the docs/reference verbatim set. Render-source templates (claude-md,
 #   project-bible, product-manifesto) are excluded there and stay renderBases-only.
+#
+#   ONE hasher and one stat for every file (`# BL-337-BATCH-HASH`; two stats on
+#   BSD, where GNU's -c fails first). Three processes per file cost ~1.2 s a
+#   block over an adopted project, and adoption builds the block twice
+#   (rehearsal + real). Hashes pair with files by argument order, and
+#   that is safe only because the hasher exited 0 (it read every file, so none is
+#   missing a line) and returned exactly one line per file (so no name broke a
+#   line in two — macOS's sha256sum does not escape a newline). Anything else is
+#   rc 1 with a message, never a row. Each line's first field is kept verbatim —
+#   with the `\` shasum prefixes when a name holds a backslash — because that is
+#   what soif_currency_sha256 gives the same file, and the readers compare with it.
 _soif_currency_mt_files_tsv() {
   local init_file="$1" fw_dir="$2" proj_dir="$3"
-  local scripts_list skills_list docs_list templates_list rel
+  local scripts_list="" skills_list="" docs_list="" templates_list=""
+  local tab="" rel="" cls="" hashes="" modes="" tool="" h="" i=0 n=0 k=0
+  local rels=() clss=() paths=() shas=() mds=()
   scripts_list="$(soif_parse_shipped_scripts "$init_file" "$fw_dir/scripts" 2>/dev/null)"
   skills_list="$(soif_parse_shipped_skills "$init_file" "$fw_dir/templates/generated/skills" 2>/dev/null)"
   docs_list="$(soif_parse_shipped_reference_docs "$init_file" 2>/dev/null)"
   templates_list="$(soif_parse_shipped_templates "$init_file" 2>/dev/null)"
-  printf '%s\n' "$scripts_list" | while IFS= read -r rel; do
-    if [ -n "$rel" ]; then _soif_currency_emit_file_row "$proj_dir" "$rel" M; fi
-  done
-  printf '%s\n' "$skills_list" | while IFS= read -r rel; do
-    if [ -n "$rel" ]; then _soif_currency_emit_file_row "$proj_dir" "$rel" M; fi
-  done
-  printf '%s\n' "$docs_list" | while IFS= read -r rel; do
-    if [ -n "$rel" ]; then _soif_currency_emit_file_row "$proj_dir" "$rel" T; fi
-  done
-  printf '%s\n' "$templates_list" | while IFS= read -r rel; do
-    if [ -n "$rel" ]; then _soif_currency_emit_file_row "$proj_dir" "$rel" T; fi
+  tab="$(printf '\t')"
+  while IFS="$tab" read -r cls rel; do
+    [ -n "$rel" ] && [ -f "$proj_dir/$rel" ] || continue
+    rels[$n]="$rel"; clss[$n]="$cls"; paths[$n]="$proj_dir/$rel"; n=$((n + 1))
+  done <<CANDIDATES
+$(printf '%s\n' "$scripts_list" | awk 'length { print "M\t" $0 }')
+$(printf '%s\n' "$skills_list" | awk 'length { print "M\t" $0 }')
+$(printf '%s\n' "$docs_list" | awk 'length { print "T\t" $0 }')
+$(printf '%s\n' "$templates_list" | awk 'length { print "T\t" $0 }')
+CANDIDATES
+  [ "$n" -gt 0 ] || return 0
+
+  # shasum first, then sha256sum (`# BL-337-SHA256-FALLBACK`), as soif_currency_sha256.
+  if command -v shasum >/dev/null 2>&1; then
+    tool="shasum"; hashes="$(shasum -a 256 "${paths[@]}")"
+  elif command -v sha256sum >/dev/null 2>&1; then   # BL-337-SHA256-FALLBACK
+    tool="sha256sum"; hashes="$(sha256sum "${paths[@]}")"
+  else
+    printf '_soif_currency_mt_files_tsv: neither shasum nor sha256sum is on PATH; cannot hash %s file(s) under %s\n' "$n" "$proj_dir" >&2
+    return 1
+  fi || { printf '_soif_currency_mt_files_tsv: %s failed hashing %s file(s) under %s\n' "$tool" "$n" "$proj_dir" >&2; return 1; }
+  modes="$(stat -c '%a' "${paths[@]}" 2>/dev/null)" || modes="$(stat -f '%Lp' "${paths[@]}" 2>/dev/null)" || modes=""
+
+  k=0
+  while IFS= read -r h; do shas[$k]="${h%% *}"; k=$((k + 1)); done <<HASHES
+$hashes
+HASHES
+  [ "$k" -eq "$n" ] || { printf '_soif_currency_mt_files_tsv: %s gave %s hash line(s) for %s file(s); refusing to pair them\n' "$tool" "$k" "$n" >&2; return 1; }   # BL-337-BATCH-HASH
+  k=0
+  while IFS= read -r h; do mds[$k]="$h"; k=$((k + 1)); done <<MODES
+$modes
+MODES
+  [ "$k" -eq "$n" ] || { printf '_soif_currency_mt_files_tsv: stat gave %s mode line(s) for %s file(s); refusing to pair them\n' "$k" "$n" >&2; return 1; }
+
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    h="${shas[$i]#\\}"
+    case "$h" in *[!0123456789abcdef]*) h="" ;; esac
+    [ "${#h}" -eq 64 ] || { printf '_soif_currency_mt_files_tsv: %s gave "%s" for %s, which is not a sha256\n' "$tool" "${shas[$i]}" "${paths[$i]}" >&2; return 1; }
+    printf '%s\t%s\t%s\t%s\tcurrent\n' "${rels[$i]}" "${shas[$i]}" "${mds[$i]}" "${clss[$i]}"
+    i=$((i + 1))
   done
 }
 
@@ -237,7 +267,7 @@ soif_currency_block() {
 
   # M/T rows (scripts + skills + reference docs), hashed from the project tree.
   local mt_tsv
-  mt_tsv="$(_soif_currency_mt_files_tsv "$init_file" "$fw_dir" "$proj_dir")"
+  mt_tsv="$(_soif_currency_mt_files_tsv "$init_file" "$fw_dir" "$proj_dir")" || return 1
 
   local a1_file_tsv="" a1_json="" a2_json=""
   case "$rb_mode" in
