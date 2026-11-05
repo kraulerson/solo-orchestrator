@@ -186,9 +186,12 @@ writer() {   # DIR — prints the writer's output, returns its rc
 a5() {
   local label="A5 the adoption writer refuses a manifest that already has a currency block, and stamps one without it" c="$WORK/a5" out rc=0 before
   cp -R "$P" "$c" || { fail_ "$label" "copy failed"; return; }
+  # Drop the pin first, so the refusal below is `# BL-337-NO-BACKFILL`'s and not
+  # `# BL-361-NO-BACKFILL`'s, which runs earlier and also says "backfill".
+  jq 'del(.soloFrameworkCommit)' "$c/.claude/manifest.json" > "$c/m.tmp" && mv "$c/m.tmp" "$c/.claude/manifest.json"
   before="$(cat "$c/.claude/manifest.json")"
   out="$(writer "$c")" || rc=$?
-  if [ "$rc" -eq 0 ] || [ "$before" != "$(cat "$c/.claude/manifest.json")" ] || ! printf '%s' "$out" | command grep -q 'backfill'; then
+  if [ "$rc" -eq 0 ] || [ "$before" != "$(cat "$c/.claude/manifest.json")" ] || ! printf '%s' "$out" | command grep -q 'already has a currency block'; then
     fail_ "$label" "on a stamped manifest: rc $rc, changed=$([ "$before" = "$(cat "$c/.claude/manifest.json")" ] && echo no || echo yes), out: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"; return
   fi
   # The pin goes too: it is part of the same birth, and the writer refuses a

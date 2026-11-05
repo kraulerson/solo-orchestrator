@@ -1046,6 +1046,7 @@ jobs:
             # RE-PIN signal — not a raise. semgrep is installed in EVERY shard (BL-190), so
             # the suite loses nothing by living away from this leg.
             tests/test-bl288-scout-shallow-history-claim.sh # 12s on PR #412 — three gitleaks git scans; belongs with the scanner leg
+            tests/test-bl361-adopt-framework-pin.sh     # new — 21s local (Mac), one adoption; `rest` was 583s on PR #533, `sast` the lightest leg on five runs (307-450s)
             # bl277-detector-authorship and wp9d-driver-edges WERE HERE until 2026-10-30 (BL-350, the 26.04 refit) and are in `pin_adopt_e` and `pin_mcp_mutants`.
           )
           pin_slow_misc=(

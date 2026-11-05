@@ -28187,7 +28187,7 @@ lane (an apt pin in one leg) or a check that the regex is gone (a lint on `sub(/
 **Category:** Gap (brownfield parity)
 **Severity:** Low — an adopted project is never told that the framework has moved past the scripts and guides it
 installed, nor about a file the framework has since removed; edits, hooks and render bases are still checked
-**Status:** Open
+**Status:** Closed — shipped 2026-11-05 (PR #534, commit `c7cad690`). Adoption pins `soloFrameworkCommit` as init.sh does (`# BL-361-ADOPT-PIN`), never as a backfill (`# BL-361-NO-BACKFILL`); follow-ups `## BL-365:`, `## BL-366:`, `## BL-367:`.
 
 **What.** init.sh pins the framework commit a project was built from in `.claude/manifest.json`
 (`soloFrameworkCommit`, `# BL-110-PIN-UNIVERSAL`); adoption writes no such key. The freshness check's
@@ -28246,7 +28246,7 @@ instead of from init.sh's text, and pin it with a case that fails when the parse
 **Category:** Bug (Currency System, freshness check)
 **Severity:** Low — a project whose absolute path holds a `\` gets a false "local edit" line for every files{} row;
 nothing is blocked
-**Status:** Open
+**Status:** Closed — shipped 2026-11-05 (PR #534, commit `c7cad690`). Currency shas are plain hex whatever the path (`# BL-363-SHA-PLAIN`) and stored rows are compared without a leading `\` (`# BL-363-STORED-ROW`); the non-currency siblings are `## BL-368:`.
 
 **What.** `shasum` and GNU `sha256sum` answer a file NAME holding a backslash by escaping it and prefixing the line
 with `\`. init.sh stamps with the project dir `"."` (`soif_currency_stamp … "." …`, `# BL-109-CURRENCY`), so its
@@ -28305,3 +28305,77 @@ morning's test runs; every suite that scaffolds through init.sh adds one per sca
 `soif_currency_stamp` call in `prepare_initial_state_for_commit`, and init.sh's failure exits after
 `soif_currency_renderbase_init`), and pin it with a case that counts render-base-shaped files in a private `TMPDIR`
 before and after a scaffold.
+
+## BL-365: `upgrade-project.sh --plan` offers to "add" a framework file the project already holds
+
+**Logged:** 2026-11-05 (`## BL-361:`'s review)
+**Category:** Bug (Currency System, plan staging)
+**Severity:** Low today, Medium once plans can be applied — `--plan` stages, and no `--apply` exists yet, so nothing
+is overwritten; the staged item is a latent overwrite of the owner's own file
+**Status:** Open
+
+**What.** `_soif_plan_derive_items` (`scripts/lib/plan-staging.sh`) emits an `add` item for a framework file that is
+absent from `currency.files{}` without checking whether the path exists on disk. Adoption keeps an adoptee's own
+`docs/reference/<guide>.md` and, by `# BL-337-WRITTEN-ONLY`, leaves it out of files{}, so a pinned adoptee is offered
+the framework's guide as an add over its own file. Reachable before `## BL-361:` too, once an adoptee's first
+`--sync-framework` wrote a pin; BL-361 makes it reachable straight after adoption.
+
+**Measured (2026-11-05, branch `fix/bl361-adopt-framework-pin`).** An adoptee that kept its own
+`docs/reference/builders-guide.md` ("# their builders guide"), with the pin at the framework's HEAD:
+`upgrade-project.sh --plan --non-interactive` printed `Items: 20` including
+`| add:docs/reference/builders-guide.md | T | add | +1610/-0 |`, a diff from `--- /dev/null`, and in the plan manifest
+`"consent": "batch"`, `"baseSha": null`.
+
+**Direction (not done here).** In the add-detection loop, a path that exists on disk is a notice ("the framework ships
+a file of this name; yours is kept"), never an add item. Pin it with a case on an adoptee that kept a guide.
+
+## BL-366: adoption never installs the `templates/generated/*.tmpl` skeletons init.sh copies into every scaffold
+
+**Logged:** 2026-11-05 (`## BL-361:`'s review)
+**Category:** Gap (brownfield parity)
+**Severity:** Low — scripts that look for a project-local template fall back or point at a file that is not there
+**Status:** Open
+
+**What.** init.sh copies the bulk `templates/generated/*.tmpl` skeletons (Class T, `soif_parse_shipped_templates`)
+into every project; adoption installs none of them. Project scripts expect them: `process-checklist.sh` tells the user
+to use `templates/generated/security-audit-findings.tmpl`, and `delta.sh` prefers the project's own
+`delta-brief.tmpl`. With an adoption pin (`## BL-361:`), `upgrade-project.sh --plan` now lists all 19 as `add` items —
+true items, unlike `## BL-365:`'s.
+
+**Direction (not done here).** Decide whether adoption installs them (as init.sh does, minus any the adoptee already
+has) or whether the adopted-project contract says they arrive through `--plan`; record the answer in the brownfield
+init-parity table.
+
+## BL-367: a framework clone with no commits is pinned as the literal string `HEAD`
+
+**Logged:** 2026-11-05 (`## BL-361:`'s build and review)
+**Category:** Bug (framework pin)
+**Severity:** Very low — needs a framework clone with no commits
+**Status:** Open
+
+**What.** init.sh's `_solo_fw_commit` (`# BL-110-PIN-UNIVERSAL`), `_bl099_stamp_pin`, and adoption's
+`# BL-361-ADOPT-PIN` derive the pin as `git rev-parse HEAD 2>/dev/null || echo ""`. On an unborn HEAD `git rev-parse
+HEAD` prints its argument and exits 128 (git 2.54.0), so the pin is `HEAD`. That always resolves to the current tip,
+so "commit(s) ahead of your pin" and `--plan`'s change summaries stay silent for that project permanently, and
+adoption's "Could not read the framework clone's HEAD" note is unreachable in the one case it serves.
+
+**Direction (not done here).** Use `git rev-parse --verify --quiet HEAD` in all three places together (adoption already
+uses that form for the adoptee's own HEAD).
+
+## BL-368: `adopt_sha256` and `pending-approval.sh` keep the backslash-escaped sha that `## BL-363:` removed from the currency code
+
+**Logged:** 2026-11-05 (`## BL-361:`'s review)
+**Category:** Bug (path-dependent hashing)
+**Severity:** Low — needs a project path containing a backslash
+**Status:** Open
+
+**What.** shasum and GNU sha256sum print `\<hex>` when the hashed path contains a backslash. `## BL-363:` strips it in
+the Currency System only. Two siblings keep it:
+- `adopt_sha256` (adoption's evidence and archive hashes). Measured under `bs\x q/acme`:
+  `.adoption.scannerReportSha256 = "\\d167d30c…"` while `.claude/adoption/secrets-dispositions.json` records
+  `reportSha256 = d167d30c…` for the same file. No product code reads either value today.
+- `pending-approval.sh` hashes `$project_root/.claude/pending-approval.json.XXXXXX` with `sha256sum || shasum`; GNU
+  sha256sum escapes such a path (measured in ubuntu:24.04: `\73cb…  /t/a\\b c/f`), so `bypass_audit_rebind_pending`
+  would refuse with "is not a sha256". Inferred from the code, not run end to end.
+
+**Direction (not done here).** Strip one leading `\` at those hash sites the way `# BL-363-SHA-PLAIN` does.
