@@ -2729,11 +2729,13 @@ adopted one now gets the same one, from the same code
   framework script and reference document adoption installed, by hash, so the
   session-start freshness check can tell you when one was edited. A guide you
   already had in `docs/reference/` is not in it, because adoption left it alone.
-  The check cannot yet tell you when one has fallen behind the framework: that
-  compares against the framework commit the project was built from
-  (`soloFrameworkCommit` in the same file), which `init.sh` records and adoption
-  does not yet (`## BL-361:`), so for an adopted project those checks do not
-  run. The inventory itself differs from a new project's in one way. A new
+  Adoption also records the framework commit those files came from
+  (`soloFrameworkCommit` in the same file, `## BL-361:`), as `init.sh` does:
+  the framework clone's `HEAD` when adoption ran. With it the check tells you
+  when the framework has moved past a file adoption installed, or no longer
+  ships one. A framework folder that is not a git checkout has no commit to
+  record; adoption says so, and those two checks then do not run. The
+  inventory itself differs from a new project's in one way. A new
   project records which template its `CLAUDE.md`, `PROJECT_INTAKE.md`,
   `PROJECT_BIBLE.md` and `PRODUCT_MANIFESTO.md` came from; adoption records that as **unknown**, so
   the check cannot say whether those four are behind the framework's

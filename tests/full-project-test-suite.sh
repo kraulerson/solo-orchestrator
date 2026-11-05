@@ -985,6 +985,9 @@ run_child_suite "tests/test-lint-runner-label.sh" \
 run_child_suite "tests/test-bl337-adopt-currency-stamp.sh" \
   "BL-337: adoption stamps the currency block with the A1/A2 render bases recorded as unknown; the freshness check and --plan say so; init.sh's stamp is unchanged" \
   "BL-337 adopt currency stamp tests FAILED (run tests/test-bl337-adopt-currency-stamp.sh for details)"
+run_child_suite "tests/test-bl361-adopt-framework-pin.sh" \
+  "BL-361/BL-363: adoption pins soloFrameworkCommit as init.sh does, never re-pins; a files{} sha is the same whatever path hashed it, and rows stamped with the escape still read as current" \
+  "BL-361 adopt framework pin tests FAILED (run tests/test-bl361-adopt-framework-pin.sh for details)"
 # BL-284: two verify-install.sh auto-fixers that could never run — has_context()
 # was unsatisfiable on an adopted project, and fix_superpowers ran a CLI verb
 # that does not exist.

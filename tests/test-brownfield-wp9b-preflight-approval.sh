@@ -1135,8 +1135,10 @@ else
   # `.currency` goes too (`## BL-337:`): adoption stamps it now, and left in
   # place the currency writer's own refusal (`# BL-337-NO-BACKFILL`) stops the
   # rehearsal before I20 is asked, so this case would stop observing I20.
-  # tests/test-bl337-adopt-currency-stamp.sh A5 pins that refusal.
-  jq 'del(.adoption) | del(.currency)' "$PM1D/p/.claude/manifest.json" > "$PM1D/mf.new" 2>/dev/null \
+  # tests/test-bl337-adopt-currency-stamp.sh A5 pins that refusal. The same
+  # holds for `soloFrameworkCommit` since `## BL-361:` (`# BL-361-NO-BACKFILL`,
+  # tests/test-bl361-adopt-framework-pin.sh N4), so it goes as well.
+  jq 'del(.adoption) | del(.currency) | del(.soloFrameworkCommit)' "$PM1D/p/.claude/manifest.json" > "$PM1D/mf.new" 2>/dev/null \
     && mv "$PM1D/mf.new" "$PM1D/p/.claude/manifest.json"
   PM1D_PHASE_BEFORE="$(_json_str "$PM1D/p/.claude/phase-state.json" '.current_phase')"
   _ans 1 > "$PM1D/answers2"
