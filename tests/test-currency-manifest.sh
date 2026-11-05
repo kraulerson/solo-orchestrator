@@ -308,13 +308,18 @@ REAL_SHA256SUM="$(command -v sha256sum 2>/dev/null)"
 T9_LOG="$TOPTMP/t9-calls.log"
 # t9_bin <dir> <hasher...> — a bin folder of the block's own tools plus the
 # named hashers. `shasum`, `sha256sum` and `stat` log one line per invocation;
-# `shasum:drop|:extra|:nothex|:rc1` and `stat:drop` lie in that way.
+# `shasum:drop|:extra|:nothex|:rc1`, `stat:drop` and `awk:busybox|:failprefix` lie in that way.
 t9_bin() {
-  local dir="$1" t="" p="" h="" st=""; shift
+  local dir="$1" t="" p="" h="" st="" ra=""; shift
   mkdir -p "$dir"
-  for t in jq awk sed sort grep basename head cat tr; do
+  for t in jq sed sort grep basename head cat tr; do
     p="$(command -v "$t" 2>/dev/null)" && ln -s "$p" "$dir/$t"
   done
+  # awk is always a wrapper: it passes through, or (`awk:busybox`) refuses the
+  # bare `length` pattern the way busybox does, or (`awk:failprefix`) exits 3 on
+  # any program that starts with `length`, the block's CANDIDATES prefixer.
+  ra="$(command -v awk)"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$ra" > "$dir/awk"
   st="$(command -v stat)"
   printf '#!/bin/sh\necho stat >> "%s"\nexec "%s" "$@"\n' "$T9_LOG" "$st" > "$dir/stat"
   for h in "$@"; do
@@ -323,14 +328,16 @@ t9_bin() {
       shasum)        printf '#!/bin/sh\necho shasum >> "%s"\nexec "%s" "$@"\n' "$T9_LOG" "$REAL_SHASUM" > "$dir/shasum" ;;
       shasum:drop)   printf '#!/bin/sh\n"%s" "$@" | sed '"'"'$d'"'"'\n' "$REAL_SHASUM" > "$dir/shasum" ;;
       shasum:extra)  printf '#!/bin/sh\n"%s" "$@" | sed '"'"'1p'"'"'\n' "$REAL_SHASUM" > "$dir/shasum" ;;
-      shasum:nothex) printf '#!/bin/sh\n"%s" "$@" | sed '"'"'1s/^/z/'"'"'\n' "$REAL_SHASUM" > "$dir/shasum" ;;
+      awk:busybox)   printf '#!/bin/sh\nfor a in "$@"; do\n  case "$a" in '"'"'length {'"'"'*|'"'"'length{'"'"'*) echo "awk: cmd. line:1: Unexpected token" >&2; exit 1 ;; esac\ndone\nexec "%s" "$@"\n' "$ra" > "$dir/awk" ;;
+      awk:failprefix) printf '#!/bin/sh\nfor a in "$@"; do\n  case "$a" in length*) exit 3 ;; esac\ndone\nexec "%s" "$@"\n' "$ra" > "$dir/awk" ;;
+      shasum:nothex) printf '#!/bin/sh\n"%s" "$@" | sed '"'"'1s/[0-9a-f]/z/'"'"'\n' "$REAL_SHASUM" > "$dir/shasum" ;;
       shasum:rc1)    printf '#!/bin/sh\n"%s" "$@"\nexit 1\n' "$REAL_SHASUM" > "$dir/shasum" ;;
       sha256sum)
         if [ -n "$REAL_SHA256SUM" ]; then p="exec \"$REAL_SHA256SUM\" \"\$@\""; else p="exec \"$REAL_SHASUM\" -a 256 \"\$@\""; fi
         printf '#!/bin/sh\necho sha256sum >> "%s"\n%s\n' "$T9_LOG" "$p" > "$dir/sha256sum" ;;
     esac
   done
-  for t in stat shasum sha256sum; do   # the wrappers only, never a symlinked tool
+  for t in stat awk shasum sha256sum; do   # the wrappers only, never a symlinked tool
     if [ -f "$dir/$t" ] && [ ! -L "$dir/$t" ]; then chmod +x "$dir/$t"; fi
   done
 }
@@ -420,6 +427,46 @@ else
   else
     fail "T9j a shipped file missing from the project is skipped, and the other six are hashed" "rc $T9_RC, err [$(t9_short "$T9_ERR")], rows [$T9_ORDER]"
   fi
+  # busybox awk (Alpine) rejects a bare `length` pattern. The candidate list is
+  # built with awk, so a program it cannot parse must neither be written that way
+  # nor pass silently: Alpine once recorded NO M/T rows with rc 0 (main 107 rows).
+  t9_bin "$TOPTMP/t9-busybox" shasum awk:busybox
+  want="$(t9_expected "$TOPTMP/t9-busybox")"
+  t9_run "$TOPTMP/t9-busybox"
+  if [ "$T9_RC" -eq 0 ] && [ "$(printf '%s' "$T9_FILES" | jq 'length')" = "7" ] && [ "$T9_FILES" = "$want" ]; then
+    pass "T9k an awk that rejects a bare \`length\` pattern (busybox) still gives all 7 rows"
+  else
+    fail "T9k an awk that rejects a bare \`length\` pattern (busybox) still gives all 7 rows" \
+      "rc $T9_RC, err [$(t9_short "$T9_ERR")], rows [$T9_ORDER]"
+  fi
+  t9_bin "$TOPTMP/t9-awkfail" shasum awk:failprefix
+  t9_run "$TOPTMP/t9-awkfail"
+  t9_refused "T9l an awk that fails building the candidate list is rc 1 with a message, never rc 0 with no rows" 'awk failed'
+  # Nothing to hash is legitimate (n=0): rc 0, no rows, and the hasher is never
+  # started, since `shasum -a 256` with no file arguments reads STDIN. A pipe
+  # carrying data proves it: the data must still be there afterwards.
+  PROJD="$TOPTMP/proj d"; mkdir -p "$PROJD"
+  : > "$TOPTMP/t9m.rest"
+  printf 'ANSWER\n' | {
+    ( PATH="$TOPTMP/t9-shasum"; _soif_currency_mt_files_tsv "$FW/init.sh" "$FW" "$PROJD" ) > "$TOPTMP/t9m.out" 2> "$TOPTMP/t9m.err"
+    echo "$?" > "$TOPTMP/t9m.rc"
+    cat > "$TOPTMP/t9m.rest"
+  }
+  if [ "$(cat "$TOPTMP/t9m.rc")" = "0" ] && [ ! -s "$TOPTMP/t9m.out" ] && [ ! -s "$TOPTMP/t9m.err" ] && [ "$(cat "$TOPTMP/t9m.rest")" = "ANSWER" ]; then
+    pass "T9m a project holding none of the shipped files gives no rows, rc 0, and leaves stdin unread"
+  else
+    fail "T9m a project holding none of the shipped files gives no rows, rc 0, and leaves stdin unread" \
+      "rc $(cat "$TOPTMP/t9m.rc"), out [$(t9_short "$(cat "$TOPTMP/t9m.out")")], err [$(t9_short "$(cat "$TOPTMP/t9m.err")")], stdin left [$(t9_short "$(cat "$TOPTMP/t9m.rest")")]"
+  fi
+  # init.sh stamps with project dir "."; the no-hasher message must name where
+  # that is, and the remedy, not "under .".
+  T9_CWD="$PWD"; cd "$PROJB" || exit 1
+  t9_run "$TOPTMP/t9-none" .
+  T9_HERE="$PWD"; cd "$T9_CWD" || exit 1
+  case "$T9_ERR" in
+    *"under $T9_HERE"*"shasum (perl)"*"sha256sum (coreutils)"*) pass "T9n the no-hasher message names the absolute project dir and the tools to install" ;;
+    *) fail "T9n the no-hasher message names the absolute project dir and the tools to install" "rc $T9_RC, err [$(t9_short "$T9_ERR")], want dir [$T9_HERE]" ;;
+  esac
 fi
 
 # ── Tally ───────────────────────────────────────────────────────────────────

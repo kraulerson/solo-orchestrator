@@ -26125,14 +26125,23 @@ first field is not a sha256, a short or long hash list, or a short mode list is 
 After: 0.25-0.26 s a call (ten calls 13.03 s → 2.52 s); `tests/test-bl253-adoption-state-parity.sh` 58 s and 55 s →
 45 s and 45 s. Output is byte-identical (`cmp`) to `e6fb4d84`'s on the same inputs: an adopted project, the same
 under a path with a space and a backslash, and a real `init.sh` scaffold through both the block and
-`soif_currency_stamp`. `tests/test-currency-manifest.sh` T9a-T9j.
-- **Behaviour change.** When no hasher exists, or the hasher fails or mis-counts, the block is now rc 1, so
-  adoption refuses ("could not build the Currency System's inventory") and init.sh, which stamps under
-  `set -euo pipefail`, stops at the stamp. Before, every row was skipped and the block carried an empty files{}.
-- **Found, kept as it was.** Under a project path holding a backslash, `shasum` and GNU `sha256sum` escape the name
-  and prefix the line with `\`, so every files{} sha is recorded as `\` plus 64 hex characters, on `e6fb4d84` as
-  now. The readers hash with the same `soif_currency_sha256`, so they agree with the stamp; macOS's `sha256sum`
-  does not escape, so a project stamped on one tool and checked on the other would differ.
+`soif_currency_stamp`. `tests/test-currency-manifest.sh` T9a-T9n.
+- **Behaviour change.** When the hasher fails or mis-counts, or `awk` fails building the candidate list, the block
+  is now rc 1 with a message, and init.sh, which stamps under `set -euo pipefail`, stops at the stamp. With NO hasher on PATH nothing changed at the front
+  door: adoption refuses earlier, identically on `e6fb4d84` and now (`[BLOCKED] cannot hash the kept scan report —
+  neither shasum nor sha256sum is available…`, then `[REFUSED] the pre-write rehearsal did not complete`), and
+  `e6fb4d84`'s init.sh stamp carried `files{}` with just the two A1 rows (empty sha256), where the block is now
+  rc 1 naming the absolute project dir and the tools to install (`shasum` from perl, `sha256sum` from coreutils).
+- **Found, kept as it was; filed as `## BL-363:`.** Under a project path holding a backslash, `shasum` and GNU
+  `sha256sum` prefix the line with `\`, so the batch (and `e6fb4d84`'s per-file build) records `\` plus 64 hex
+  characters when the path it was handed holds one. The readers do NOT agree with an init.sh stamp: it passes `"."`
+  as the project dir (plain hex), while `_soif_fresh_check_local_edits` hashes the absolute
+  `$CLAUDE_PROJECT_DIR/$rel`, which carries the `\`. The prefix also differs between hashers: macOS's `sha256sum`
+  does not escape.
+- **Busybox awk (found in review).** The candidate list was built with `awk 'length { … }'`, which busybox awk
+  (Alpine) rejects (`Unexpected token`, rc 1); the ignored status left the stamp with no M/T rows at rc 0 (Alpine:
+  2 `files{}` rows against main's 107). Now `awk 'length($0) > 0 { … }'` with its status checked
+  (`_soif_currency_mt_prefixed`); `tests/test-currency-manifest.sh` T9k-T9l.
 - **Not done.** The four `soif_parse_shipped_*` calls are now most of the call (~0.21 s), ~0.135 s of it
   `soif_parse_shipped_scripts`.
 
@@ -28217,3 +28226,29 @@ templates/generated/skills` prints `.claude/skills/$(soif_vendored_skills)/SKILL
 
 **Direction (not done here).** Derive the list from `soif_vendored_skills` itself (`scripts/lib/claude-settings.sh`)
 instead of from init.sh's text, and pin it with a case that fails when the parser yields a path containing `$(`.
+
+## BL-363: an init.sh-born project's files{} shas never match the freshness check under a project path holding a backslash
+
+**Logged:** 2026-11-05 (`## BL-337:`'s batch-hash review; present on `e6fb4d84`, not a regression)
+**Category:** Bug (Currency System, freshness check)
+**Severity:** Low — a project whose absolute path holds a `\` gets a false "local edit" line for every files{} row;
+nothing is blocked
+**Status:** Open
+
+**What.** `shasum` and GNU `sha256sum` answer a file NAME holding a backslash by escaping it and prefixing the line
+with `\`. init.sh stamps with the project dir `"."` (`soif_currency_stamp … "." …`, `# BL-109-CURRENCY`), so its
+files{} shas are plain 64-hex. `_soif_fresh_check_local_edits` hashes the absolute `$CLAUDE_PROJECT_DIR/$rel` through
+`soif_currency_sha256`, which takes the line's first field verbatim, so under a path holding a backslash it gets `\`
+plus 64 hex and `"$disk_sha" != "$msha"` for every row. Adoption stamps from an absolute path, so its rows should carry the
+`\` too (not re-measured). macOS's `sha256sum`
+does not escape at all, so the same project can also differ by hasher.
+
+**Measured.** On `shasum -a 256` here, a file `f` in a directory named `b\s q` prints plain hex when hashed as `f`
+from inside that directory and `\<hex>` when hashed by its absolute path. The `BL-337` review's reproduction, on a
+scaffold under `…/b\s q/proj two`: 210 false "local edit" lines, manifest `d3f410a5…` against reader `\d3f410a5…`;
+identical on `e6fb4d84`.
+
+**Direction (not done here).** Make the sha path-independent: strip one leading `\` from the first field in both
+`soif_currency_sha256` and the batch in `_soif_currency_mt_files_tsv` (`# BL-337-BATCH-HASH`). A sha256 is lowercase hex
+only, so a leading `\` can only be the escape. Pin it with a case that stamps under a path holding a backslash and
+asserts the freshness check reports no local edit.

@@ -165,6 +165,16 @@ soif_currency_record_render_base() {
 }
 
 # ── files{} rows (M/T from the shipped-set parsers) ──────────────────────────
+# _soif_currency_mt_prefixed <class> <list> — the list's non-empty lines, each
+# prefixed "<class>\t". awk's own status is the answer: busybox awk refuses a
+# bare `length` pattern and exits 1, and an ignored status there turned a parse
+# failure into rc 0 with no M/T rows at all. `length($0) > 0`, never bare `length`.
+_soif_currency_mt_prefixed() {
+  local rc=0
+  printf '%s\n' "$2" | awk -v c="$1" 'length($0) > 0 { print c "\t" $0 }' \
+    || { rc=$?; printf '_soif_currency_mt_files_tsv: awk failed (rc %s) building the candidate list\n' "$rc" >&2; return 1; }
+}
+
 # _soif_currency_mt_files_tsv <init_file> <framework_dir> <project_dir>
 #   Emits M (scripts + skills) and T (reference docs + bulk project templates)
 #   rows, MECHANICALLY derived: one TSV row "<rel>\t<sha>\t<mode>\t<class>\tcurrent"
@@ -185,26 +195,33 @@ soif_currency_record_render_base() {
 #   missing a line) and returned exactly one line per file (so no name broke a
 #   line in two — macOS's sha256sum does not escape a newline). Anything else is
 #   rc 1 with a message, never a row. Each line's first field is kept verbatim —
-#   with the `\` shasum prefixes when a name holds a backslash — because that is
-#   what soif_currency_sha256 gives the same file, and the readers compare with it.
+#   with the `\` shasum prefixes when a path holds a backslash — so the row is
+#   what soif_currency_sha256 gives that same path (byte-identical to the per-file
+#   build). That is NOT what the readers compare with: init.sh stamps with the
+#   project dir ".", so its rows are plain hex, while the freshness check hashes
+#   the absolute path, which carries the `\` when that path does (`## BL-363:`).
 _soif_currency_mt_files_tsv() {
   local init_file="$1" fw_dir="$2" proj_dir="$3"
   local scripts_list="" skills_list="" docs_list="" templates_list=""
-  local tab="" rel="" cls="" hashes="" modes="" tool="" h="" i=0 n=0 k=0
+  local tab="" rel="" cls="" hashes="" modes="" tool="" h="" i=0 n=0 k=0 cands="" part="" abs_dir=""
   local rels=() clss=() paths=() shas=() mds=()
   scripts_list="$(soif_parse_shipped_scripts "$init_file" "$fw_dir/scripts" 2>/dev/null)"
   skills_list="$(soif_parse_shipped_skills "$init_file" "$fw_dir/templates/generated/skills" 2>/dev/null)"
   docs_list="$(soif_parse_shipped_reference_docs "$init_file" 2>/dev/null)"
   templates_list="$(soif_parse_shipped_templates "$init_file" 2>/dev/null)"
   tab="$(printf '\t')"
+  part="$(_soif_currency_mt_prefixed M "$scripts_list")" || return 1; cands="$part"
+  part="$(_soif_currency_mt_prefixed M "$skills_list")" || return 1; cands="$cands
+$part"
+  part="$(_soif_currency_mt_prefixed T "$docs_list")" || return 1; cands="$cands
+$part"
+  part="$(_soif_currency_mt_prefixed T "$templates_list")" || return 1; cands="$cands
+$part"
   while IFS="$tab" read -r cls rel; do
     [ -n "$rel" ] && [ -f "$proj_dir/$rel" ] || continue
     rels[$n]="$rel"; clss[$n]="$cls"; paths[$n]="$proj_dir/$rel"; n=$((n + 1))
   done <<CANDIDATES
-$(printf '%s\n' "$scripts_list" | awk 'length { print "M\t" $0 }')
-$(printf '%s\n' "$skills_list" | awk 'length { print "M\t" $0 }')
-$(printf '%s\n' "$docs_list" | awk 'length { print "T\t" $0 }')
-$(printf '%s\n' "$templates_list" | awk 'length { print "T\t" $0 }')
+$cands
 CANDIDATES
   [ "$n" -gt 0 ] || return 0
 
@@ -214,7 +231,8 @@ CANDIDATES
   elif command -v sha256sum >/dev/null 2>&1; then   # BL-337-SHA256-FALLBACK
     tool="sha256sum"; hashes="$(sha256sum "${paths[@]}")"
   else
-    printf '_soif_currency_mt_files_tsv: neither shasum nor sha256sum is on PATH; cannot hash %s file(s) under %s\n' "$n" "$proj_dir" >&2
+    abs_dir="$(cd "$proj_dir" && pwd)" || abs_dir="$proj_dir"   # init.sh stamps with "."
+    printf '_soif_currency_mt_files_tsv: neither shasum nor sha256sum is on PATH; cannot hash %s file(s) under %s; install shasum (perl) or sha256sum (coreutils)\n' "$n" "$abs_dir" >&2
     return 1
   fi || { printf '_soif_currency_mt_files_tsv: %s failed hashing %s file(s) under %s\n' "$tool" "$n" "$proj_dir" >&2; return 1; }
   modes="$(stat -c '%a' "${paths[@]}" 2>/dev/null)" || modes="$(stat -f '%Lp' "${paths[@]}" 2>/dev/null)" || modes=""
