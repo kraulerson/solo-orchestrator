@@ -103,7 +103,7 @@ _soif_plan_sha() {
     soif_currency_sha256 "$1" 2>/dev/null
   else
     [ -f "$1" ] || return 1
-    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+    shasum -a 256 "$1" 2>/dev/null | awk '{ h = $1; sub(/^\\/, "", h); print h }'   # BL-363-SHA-PLAIN
   fi
 }
 
@@ -347,6 +347,7 @@ _soif_plan_link_renames() {
     if [ "$verb" = "retire" ]; then
       local rsha add_id add_path
       rsha="$(soif_currency_file_field "$mani" "$path" sha256)"
+      rsha="${rsha#\\}"   # BL-363-STORED-ROW: a row stamped before `## BL-363:` can carry the `\` escape
       add_id=""; add_path=""
       if [ -n "$rsha" ]; then
         # find an add whose framework source sha matches
@@ -370,6 +371,7 @@ _soif_plan_link_renames() {
       while IFS="$(printf '\t')" read -r rid rcls rverb rtier rpath rconsent rrof; do
         [ "$rverb" = "retire" ] || continue
         rsha="$(soif_currency_file_field "$mani" "$rpath" sha256)"
+        rsha="${rsha#\\}"   # BL-363-STORED-ROW
         local msrc msha
         msrc="$(_soif_plan_fw_relpath "$fw" "$init" "$path")"
         msha="$(_soif_plan_sha "$fw/$msrc")"

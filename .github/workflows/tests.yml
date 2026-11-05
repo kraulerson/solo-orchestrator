@@ -691,6 +691,7 @@ jobs:
             tests/test-bl358-lock-primitive.sh
             tests/test-lint-runner-label.sh
             tests/test-bl337-adopt-currency-stamp.sh
+            tests/test-bl361-adopt-framework-pin.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

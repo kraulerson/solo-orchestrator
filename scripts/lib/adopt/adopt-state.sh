@@ -1460,6 +1460,12 @@ adopt_write_currency() {
     adopt_refuse "$rel already has a currency block; adoption stamps a project once, at its birth, and never re-stamps one that has it (that would be a backfill)"
     return 1
   fi
+  # The pin is part of the same birth (`## BL-361:`), so the same rule. "Has one"
+  # is init.sh's own test, a non-empty value (`# BL-110-PIN-UNIVERSAL`).
+  if jq -e '(.soloFrameworkCommit // "") != ""' "$root/$rel" >/dev/null 2>&1; then   # BL-361-NO-BACKFILL
+    adopt_refuse "$rel already has a soloFrameworkCommit; adoption pins a project once, at its birth, and never re-pins one that has it (that would be a backfill)"
+    return 1
+  fi
   lang="$(_adopt_session_language "$report")"
   block="$(soif_currency_block "$ADOPT_FRAMEWORK_ROOT/init.sh" "$ADOPT_FRAMEWORK_ROOT" "$root" "$lang" "$ADOPT_FRAMEWORK_ROOT" "unknown:adopted")" \
     && [ -n "$block" ] \
@@ -1483,6 +1489,33 @@ adopt_write_currency() {
   adopt_note "Which template CLAUDE.md, PROJECT_INTAKE.md, PROJECT_BIBLE.md and PRODUCT_MANIFESTO.md"
   adopt_note "came from is recorded as unknown, so the session-start check cannot say whether they"
   adopt_note "are behind the framework's templates, and it tells you so."
+
+  # THE FRAMEWORK PIN (`## BL-361:`): the commit the files hashed above came
+  # from, without which the freshness check's framework-drift and orphan arms
+  # skip the project. Derived as init.sh derives it (`# BL-110-PIN-UNIVERSAL`):
+  # the framework clone's HEAD verbatim — no `-dirty` suffix, which is
+  # --sync-framework's pin, not a birth's — and no pin, with a note, when the
+  # framework dir is not a git checkout. SYNC: init.sh's `_solo_fw_commit` line
+  # (tests/test-bl361-adopt-framework-pin.sh N1 pins it).
+  local commit=""
+  if git -C "$ADOPT_FRAMEWORK_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    commit="$(git -C "$ADOPT_FRAMEWORK_ROOT" rev-parse HEAD 2>/dev/null || echo "")"   # BL-361-ADOPT-PIN
+    if [ -z "$commit" ]; then
+      adopt_note "Could not read the framework clone's HEAD, so $rel has no soloFrameworkCommit;"
+      adopt_note "the session-start check cannot say when the framework moves past these files."
+      return 0
+    fi
+  else
+    adopt_note "The framework dir is not a git checkout, so $rel has no soloFrameworkCommit;"
+    adopt_note "the session-start check cannot say when the framework moves past these files."
+    return 0
+  fi
+  adopt_jq_edit "$root" "$rel" '.soloFrameworkCommit = $c' --arg c "$commit" || return 1   # BL-361-ADOPT-PIN
+  if [ "$(jq -r '.soloFrameworkCommit // ""' "$root/$rel" 2>/dev/null)" != "$commit" ]; then
+    adopt_refuse "the framework pin did not land in $rel"
+    return 1
+  fi
+  adopt_note "Pinned the framework commit these files came from: soloFrameworkCommit $commit."
   return 0
 }
 

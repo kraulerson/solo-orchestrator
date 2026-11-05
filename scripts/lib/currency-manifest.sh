@@ -71,13 +71,19 @@ unset _soif_cm_dir
 # `||`, for the reason adopt_sha256 gives: the pipeline's status is awk's, and
 # awk succeeds on empty input. Neither tool is rc 1 with a message, never an
 # empty hash that reads as success.
+# ONE leading `\` is stripped (`# BL-363-SHA-PLAIN`): both tools answer a NAME
+# holding a backslash by escaping it and prefixing the line with `\`, so the same
+# bytes hashed by `./f` and by `/a\b/f` gave two different shas. A sha256 is hex
+# only, so a leading `\` can only be that escape. Rows stamped before this can
+# still carry it; every reader strips it from the stored side too
+# (`# BL-363-STORED-ROW`).
 soif_currency_sha256() {
   local f="$1"
   [ -f "$f" ] || return 1
   if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$f" 2>/dev/null | awk '{print $1}'
+    shasum -a 256 "$f" 2>/dev/null | awk '{ h = $1; sub(/^\\/, "", h); print h }'   # BL-363-SHA-PLAIN
   elif command -v sha256sum >/dev/null 2>&1; then   # BL-337-SHA256-FALLBACK
-    sha256sum "$f" 2>/dev/null | awk '{print $1}'
+    sha256sum "$f" 2>/dev/null | awk '{ h = $1; sub(/^\\/, "", h); print h }'   # BL-363-SHA-PLAIN
   else
     printf 'soif_currency_sha256: neither shasum nor sha256sum is on PATH; cannot hash %s\n' "$f" >&2
     return 1
@@ -194,12 +200,11 @@ _soif_currency_mt_prefixed() {
 #   that is safe only because the hasher exited 0 (it read every file, so none is
 #   missing a line) and returned exactly one line per file (so no name broke a
 #   line in two — macOS's sha256sum does not escape a newline). Anything else is
-#   rc 1 with a message, never a row. Each line's first field is kept verbatim —
-#   with the `\` shasum prefixes when a path holds a backslash — so the row is
-#   what soif_currency_sha256 gives that same path (byte-identical to the per-file
-#   build). That is NOT what the readers compare with: init.sh stamps with the
-#   project dir ".", so its rows are plain hex, while the freshness check hashes
-#   the absolute path, which carries the `\` when that path does (`## BL-363:`).
+#   rc 1 with a message, never a row. Each line's first field loses ONE leading
+#   `\`, the escape shasum and GNU sha256sum prefix when a path holds a backslash
+#   (`# BL-363-SHA-PLAIN`), so a row is plain hex whatever path hashed it: what
+#   soif_currency_sha256 gives, and what the freshness check computes from the
+#   absolute path, while init.sh stamps from "." (`## BL-363:`).
 _soif_currency_mt_files_tsv() {
   local init_file="$1" fw_dir="$2" proj_dir="$3"
   local scripts_list="" skills_list="" docs_list="" templates_list=""
@@ -253,7 +258,7 @@ MODES
     h="${shas[$i]#\\}"
     case "$h" in *[!0123456789abcdef]*) h="" ;; esac
     [ "${#h}" -eq 64 ] || { printf '_soif_currency_mt_files_tsv: %s gave "%s" for %s, which is not a sha256\n' "$tool" "${shas[$i]}" "${paths[$i]}" >&2; return 1; }
-    printf '%s\t%s\t%s\t%s\tcurrent\n' "${rels[$i]}" "${shas[$i]}" "${mds[$i]}" "${clss[$i]}"
+    printf '%s\t%s\t%s\t%s\tcurrent\n' "${rels[$i]}" "$h" "${mds[$i]}" "${clss[$i]}"   # BL-363-SHA-PLAIN
     i=$((i + 1))
   done
 }

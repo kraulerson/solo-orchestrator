@@ -110,13 +110,14 @@ soif_freshness_now() {
 }
 
 # _soif_fresh_sha <file> — hex sha256, empty on missing. Reuses the currency lib
-# primitive when available, else a local shasum fallback.
+# primitive when available, else a local shasum fallback that strips the same
+# escape it does (`# BL-363-SHA-PLAIN`).
 _soif_fresh_sha() {
   if command -v soif_currency_sha256 >/dev/null 2>&1; then
     soif_currency_sha256 "$1" 2>/dev/null
   else
     [ -f "$1" ] || return 1
-    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+    shasum -a 256 "$1" 2>/dev/null | awk '{ h = $1; sub(/^\\/, "", h); print h }'   # BL-363-SHA-PLAIN
   fi
 }
 
@@ -312,6 +313,9 @@ _soif_fresh_check_local_edits() {
   | while IFS="$(printf '\t')" read -r rel msha cls; do
       [ -n "$rel" ] || continue
       [ -f "$proj/$rel" ] || continue          # absent locally is an orphan/hook concern, not a local edit
+      # A row stamped before `## BL-363:` can carry the `\` shasum prefixes when the
+      # hashed path holds a backslash; the disk side never does now.
+      msha="${msha#\\}"   # BL-363-STORED-ROW
       disk_sha="$(_soif_fresh_sha "$proj/$rel")"
       [ -n "$disk_sha" ] || continue
       if [ "$disk_sha" != "$msha" ]; then
@@ -426,6 +430,7 @@ _soif_fresh_check_framework() {
          | "\(.key)\t\(.value.sha256)\t\(.value.class)"' "$mani" 2>/dev/null \
   | while IFS="$(printf '\t')" read -r rel msha cls; do
       [ -n "$rel" ] || continue
+      msha="${msha#\\}"   # BL-363-STORED-ROW
       src="$(_soif_fresh_fw_source "$fw" "$init" "$rel")"
       [ -n "$src" ] || continue                # unmappable class — leave to other checks
 
@@ -615,6 +620,7 @@ A2	PRODUCT_MANIFESTO.md	templates/generated/product-manifesto.tmpl'
     mtpl_sha="$(jq -r --arg g "$group" --arg a "$artifact" \
       '.currency.renderBases[$g][$a] | select(.base != "unknown") | .templateSha // empty' "$mani" 2>/dev/null)"   # BL-337-FRESH-KNOWN-ONLY
     [ -n "$mtpl_sha" ] || continue
+    mtpl_sha="${mtpl_sha#\\}"   # BL-363-STORED-ROW
     [ -f "$fw/$tpl" ] || continue
     ftpl_sha="$(_soif_fresh_sha "$fw/$tpl")"
     [ -n "$ftpl_sha" ] || continue
