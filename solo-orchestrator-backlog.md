@@ -28206,6 +28206,19 @@ it`) and the commits the clone is ahead.
 written, through `adopt_jq_edit`, under the same never-a-backfill rule. Then `docs/adoption.md`'s Currency System
 paragraph can say the check tells an adopted project when a file has fallen behind.
 
+**Fix (2026-11-05, branch `fix/bl361-adopt-framework-pin`).** `adopt_write_currency` (`scripts/lib/adopt/adopt-state.sh`)
+pins `soloFrameworkCommit` after the `currency` block lands, through `adopt_jq_edit`, and reads it back
+(`# BL-361-ADOPT-PIN`). The value is init.sh's (`# BL-110-PIN-UNIVERSAL`): `git -C <framework> rev-parse HEAD` verbatim,
+no `-dirty` suffix (that is `--sync-framework`'s pin), and no pin, with a note, when the framework dir is not a git
+checkout. A manifest that already has a non-empty pin is refused before anything is written
+(`# BL-361-NO-BACKFILL`), init.sh's own "has one" test. The pin made `## BL-363:` reachable for adopted projects: under
+a path holding a backslash, a fresh adoption pinned at HEAD got 86 false `framework-drift` items (12 at enforcement
+tier); fixed in the same change. `tests/test-bl361-adopt-framework-pin.sh` (12 cases, one adoption plus a refused
+re-run) pins both, and `docs/adoption.md`'s Currency System paragraph now says the drift and orphan checks run.
+Mirrored as found, and not decided here: in a framework clone with no commit (an unborn HEAD) the shared derivation
+pins the literal string `HEAD` — `git rev-parse HEAD` prints its argument to stdout and exits 128, and
+`|| echo ""` appends nothing (measured on git 2.54.0, 2026-11-05). init.sh does the same.
+
 ## BL-362: `soif_parse_shipped_skills` returns a literal `$(soif_vendored_skills)` path, so no skill has a Currency System files{} row
 
 **Logged:** 2026-11-02 (`## BL-337:`'s review; found while building BL-337)
@@ -28252,3 +28265,43 @@ identical on `e6fb4d84`.
 `soif_currency_sha256` and the batch in `_soif_currency_mt_files_tsv` (`# BL-337-BATCH-HASH`). A sha256 is lowercase hex
 only, so a leading `\` can only be the escape. Pin it with a case that stamps under a path holding a backslash and
 asserts the freshness check reports no local edit.
+
+**Measured, the adoption half (2026-11-05, `2dce9200`).** An adoption under `…/ad\opt q/p` stamps every files{} row
+`\`-prefixed (`\d3f410a5…` for `scripts/check-phase-gate.sh`, 86 rows), because adoption hashes the absolute path.
+Its own reader hashes the same path, so today it reports nothing; with a `soloFrameworkCommit` equal to the
+framework's current HEAD — what `## BL-361:` writes — the freshness check reports 86 `framework-drift` items, 12 at
+enforcement tier, with nothing changed: the framework side hashes the framework's path, which holds no backslash. A
+real init.sh scaffold under `…/b\s q/proj two` on the same commit gives 105 `local-edit` items and no drift.
+
+**Fix (2026-11-05, with `## BL-361:`).** One leading `\` is stripped wherever a sha is computed (`# BL-363-SHA-PLAIN`):
+both arms of `soif_currency_sha256`, the row `_soif_currency_mt_files_tsv` prints (it validated the stripped value and
+printed the raw one), and the shasum fallbacks of `_soif_fresh_sha` and `_soif_plan_sha`. Rows stamped before this keep
+their `\`, so every reader strips one from the STORED side too before comparing (`# BL-363-STORED-ROW`): the local-edit
+and framework-drift arms, the known render-base arm, and both halves of `--plan`'s rename linkage. A project stamped
+under a backslash path therefore reads as current with no restamp. `tests/test-bl361-adopt-framework-pin.sh` B1–B4 and
+C1–C3 pin it: both hashers, the batch, an init.sh-shaped "." stamp and an adoption under such a path, and
+`\`-prefixed rows in files{}, renderBases and the rename linkage.
+
+## BL-364: init.sh never removes the render-base scratch file `soif_currency_renderbase_init` creates
+
+**Logged:** 2026-11-05 (`## BL-361:`'s review)
+**Category:** Bug (Currency System, init.sh hygiene)
+**Severity:** Low — one 480-byte file is left in `$TMPDIR` per scaffold; nothing reads it again and nothing is blocked
+**Status:** Open
+
+**What.** init.sh calls `soif_currency_renderbase_init` (`scripts/lib/currency-manifest.sh`) before `create_project`;
+it creates `$SOIF_CURRENCY_RENDERBASE_FILE` with `mktemp` and exports it, the render sites append their
+`<group>\t<artifact>\t<templateSha>\t<outputSha>\t<outputMode>` rows to it, and the birth stamp
+(`# BL-109-CURRENCY`) reads it. Nothing removes it afterwards: init.sh has no `rm` of it and no trap that names it.
+The tests that drive the helper directly clean up after themselves (`tests/test-bl337-adopt-currency-stamp.sh` G1
+runs `rm -f "$SOIF_CURRENCY_RENDERBASE_FILE"`), so the leak is init.sh's alone.
+
+**Measured (2026-11-05, `2dce9200`, macOS).** `$TMPDIR` held 124 `tmp.*` files whose content starts with an `A1`/`A2`
+render-base row; one `init.sh --non-interactive … --no-remote-creation` scaffold raised that to 125, and the new file
+(`-rw-------`, 480 bytes) holds the four rows of that run. The `## BL-361:` review counted 75 such files from one
+morning's test runs; every suite that scaffolds through init.sh adds one per scaffold.
+
+**Direction (not done here).** Remove the file once the stamp has read it, on every exit path that created it (the
+`soif_currency_stamp` call in `prepare_initial_state_for_commit`, and init.sh's failure exits after
+`soif_currency_renderbase_init`), and pin it with a case that counts render-base-shaped files in a private `TMPDIR`
+before and after a scaffold.
