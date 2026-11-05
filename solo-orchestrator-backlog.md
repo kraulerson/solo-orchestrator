@@ -26113,6 +26113,29 @@ the check tells an adopted project when a file has fallen behind (see `## BL-361
   install writes, verified by hand only.
 - The currency stage's notes print under the session layer's heading, since the stage opens none of its own.
 
+**Cost, and the batch that cut it (2026-11-05, branch `perf/bl337-batch-currency-hash`).** `soif_currency_block`
+hashed files{} one file at a time: a `shasum` and an `awk` through `soif_currency_sha256` plus a `stat`, about three
+processes for each of the 86 files an adopted project holds. Measured on this Mac over one adopted project: 1.20-1.32 s
+a call on `e6fb4d84`, of which the four `soif_parse_shipped_*` calls are ~0.21 s. An adoption builds the block twice,
+once in the rehearsal tree and once for real (counted with a logging copy of the lib), so the cost is paid twice per
+adoption. `_soif_currency_mt_files_tsv` now runs ONE hasher over every file and one `stat`, two on BSD, where `-c`
+fails first (`# BL-337-BATCH-HASH`), keeping the shasum-then-sha256sum order (`# BL-337-SHA256-FALLBACK`). Hashes
+pair with files by argument order, and only when the hasher exited 0 and returned one line per file; a line whose
+first field is not a sha256, a short or long hash list, or a short mode list is rc 1 with a message, never a row.
+After: 0.25-0.26 s a call (ten calls 13.03 s → 2.52 s); `tests/test-bl253-adoption-state-parity.sh` 58 s and 55 s →
+45 s and 45 s. Output is byte-identical (`cmp`) to `e6fb4d84`'s on the same inputs: an adopted project, the same
+under a path with a space and a backslash, and a real `init.sh` scaffold through both the block and
+`soif_currency_stamp`. `tests/test-currency-manifest.sh` T9a-T9j.
+- **Behaviour change.** When no hasher exists, or the hasher fails or mis-counts, the block is now rc 1, so
+  adoption refuses ("could not build the Currency System's inventory") and init.sh, which stamps under
+  `set -euo pipefail`, stops at the stamp. Before, every row was skipped and the block carried an empty files{}.
+- **Found, kept as it was.** Under a project path holding a backslash, `shasum` and GNU `sha256sum` escape the name
+  and prefix the line with `\`, so every files{} sha is recorded as `\` plus 64 hex characters, on `e6fb4d84` as
+  now. The readers hash with the same `soif_currency_sha256`, so they agree with the stamp; macOS's `sha256sum`
+  does not escape, so a project stamped on one tool and checked on the other would differ.
+- **Not done.** The four `soif_parse_shipped_*` calls are now most of the call (~0.21 s), ~0.135 s of it
+  `soif_parse_shipped_scripts`.
+
 ## BL-338: the agent is never told the date — Solo's half: `resume.sh` prints today's date and the days left beside each due date
 
 **Logged:** 2026-10-08 (issue #423, filed 2026-09-17; split by Karl 2026-10-08)
@@ -28185,8 +28208,8 @@ project or an adopted one
 **What.** `soif_parse_shipped_skills` (`scripts/lib/scaffold-shipped-set.sh`) derives the shipped skills by reading
 init.sh's install loop as text. That loop became `for skill in $(soif_vendored_skills)`, so the parser yields one
 path, the literal `.claude/skills/$(soif_vendored_skills)/SKILL.md`, which exists in no project, and
-`_soif_currency_emit_file_row` skips it. Neither init.sh's block nor adoption's (`## BL-337:`) has a row for any of
-the skills under `templates/generated/skills/`.
+`_soif_currency_mt_files_tsv` skips it (`_soif_currency_emit_file_row` did, until `## BL-337:`'s batch). Neither
+init.sh's block nor adoption's (`## BL-337:`) has a row for any of the skills under `templates/generated/skills/`.
 
 **Measured (2026-11-02).** `. scripts/lib/scaffold-shipped-set.sh; soif_parse_shipped_skills init.sh
 templates/generated/skills` prints `.claude/skills/$(soif_vendored_skills)/SKILL.md`, rc 0; a fresh adoption's
