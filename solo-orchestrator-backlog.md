@@ -28429,8 +28429,9 @@ and off by default. `initialUserMessage` works only under `-p`, so `session-inta
   registered (corrected 2026-11-10 by this branch's review — the first draft said "opt-in"): init.sh marks Qdrant
   required in the manifest (`# BL-233-WPB-MANIFEST-DECL`) when the host already has a user-scope registration, and it
   also CREATES that registration itself when a Qdrant container or Docker is available at init (`register_qdrant_mcp`,
-  `# BL-311-MCP-ADD-ORDER`), behind the tool-install plan's one `Proceed with this plan? [Y/n]` and behind no prompt at
-  all under `NON_INTERACTIVE` with `AUTO_INSTALL_TOOLS`; adoption offers it. So a project born on a Docker host carries
+  `# BL-311-MCP-ADD-ORDER`), behind the tool-install plan's one `Proceed with this plan? [Y/n]` on the Docker path
+  (`resolve_and_install_tools`) and behind no prompt in any mode on the running-container path (`create_project`),
+  which also runs after a declined plan; adoption offers it. So a project born on a Docker host carries
   the requirement without having chosen Qdrant, and "Qdrant unreachable, Write/Edit blocked" is reachable there. The
   decline rests on `## BL-233:`'s ruling; whether init.sh should ask before registering is a separate question that has
   not been put to Karl. Auto memory is a per-project file with no accumulation check; it does not replace `## BL-233:`
@@ -28476,8 +28477,8 @@ starts in `default` permission mode, so also try `--permission-mode auto` if the
 deny rule on the three files (`.claude/settings.json`, `.claude/settings.local.json`, `.claude/manifest.json`) stops
 (Edit, Write, MultiEdit, `sed -i`, `echo >`, `tee`, `cp`, `mv`, `jq … > tmp && mv`, a Python `open()`); whether `ConfigChange` fires for each method, what its payload carries, and what the blocked session
 and the next session see. Then: deny rules on the three files in the generated roster (`scripts/lib/claude-settings.sh`) and
-in this repo's `.claude/settings.json` — the framework's own manifest writers (`adopt_jq_edit`, the currency stamp,
-`record-pr-review.sh`) go through `jq … > tmp && mv`, which a deny rule does not reach; a `ConfigChange` command hook that exits 2 and appends a `bypass-audit.json`
+in this repo's `.claude/settings.json` — the framework's own manifest writers (`adopt_jq_edit`, the currency stamp) and the
+ledger writer `record-pr-review.sh` go through `jq … > tmp && mv`, which a deny rule does not reach; a `ConfigChange` command hook that exits 2 and appends a `bypass-audit.json`
 row through `scripts/lib/bypass-audit.sh`, so the silent block becomes a visible one; and, if the on-disk edit
 survives, a SessionStart roster-drift check as its own entry. The framework's own update path (`soif_register_hook_roster`,
 `jq > tmp && mv`) must keep working — a deny rule does not reach `mv`, which is the point, not a gap. Open question for
@@ -28490,7 +28491,7 @@ get the same deny rules.
 **Category:** Doc currency (generated project)
 **Severity:** Low — a project without Superpowers was told to use a skill it does not have; the native `Agent` tool
 needs no plugin
-**Status:** Open
+**Status:** Closed — shipped 2026-11-10 (PR #536, commits `a891929b`, `0281b65e`).
 
 **What.** `templates/generated/claude-md.tmpl` § Multi-Agent Parallelism opened "When Superpowers is available, dispatch
 parallel subagents" and closed "Use `superpowers:dispatching-parallel-agents` for dispatch", making a plugin the
