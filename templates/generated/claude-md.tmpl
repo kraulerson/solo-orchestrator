@@ -140,7 +140,7 @@ If a framework hook blocks an action:
 - Use git worktrees for feature isolation when available.
 
 ### Multi-Agent Parallelism
-Dispatch subagents for independent tasks with Claude Code's own `Agent` tool — it needs no plugin, and a subagent started from the main conversation runs in the background by default:
+Dispatch subagents for independent tasks with Claude Code's own `Agent` tool; it needs no plugin:
 - **Phase 2.4 Security Audit:** 5 parallel audit agents (SAST, threat model, data isolation, input validation, logging)
 - **Phase 2.5 Documentation:** Parallel generation of CHANGELOG, interface docs, and ADRs
 - **Phase 2.9 Bug Remediation:** Parallel fix agents per affected component

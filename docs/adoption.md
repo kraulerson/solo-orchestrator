@@ -170,7 +170,8 @@ in a text editor, **before you start the session**:
   settings your organization manages are combined with yours, not swapped for
   them.
 - **A shortcut that drafts the same line.** `/auto-mode-setup`, run inside a
-  Claude Code session (2.1.304 or later in every session type), reads the
+  Claude Code session (2.1.304 or later; earlier builds have it only in some
+  session types), reads the
   project and your recent sessions and offers `autoMode.environment` entries,
   which it writes to the same `~/.claude/settings.json` if you accept them. It
   is a way to draft the block above, not a different mechanism: check that the
