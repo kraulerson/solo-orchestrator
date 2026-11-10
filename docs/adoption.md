@@ -169,6 +169,13 @@ in a text editor, **before you start the session**:
   the line applies to every Claude Code session on this machine. Lines from
   settings your organization manages are combined with yours, not swapped for
   them.
+- **A shortcut that drafts the same line.** `/auto-mode-setup`, run inside a
+  Claude Code session (2.1.304 or later in every session type), reads the
+  project and your recent sessions and offers `autoMode.environment` entries,
+  which it writes to the same `~/.claude/settings.json` if you accept them. It
+  is a way to draft the block above, not a different mechanism: check that the
+  clone line it proposes keeps the "never a destination" clause, and run the
+  check below either way.
 - **Why not a permission rule,** as the refusal itself suggests (*"the user can
   add a Bash permission rule to their settings"*)? A rule such as
   `Bash(bash ~/solo-orchestrator/scripts/scout.sh *)` is applied before the

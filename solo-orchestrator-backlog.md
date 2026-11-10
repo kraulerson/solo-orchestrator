@@ -28379,3 +28379,137 @@ the Currency System only. Two siblings keep it:
   would refuse with "is not a sha256". Inferred from the code, not run end to end.
 
 **Direction (not done here).** Strip one leading `\` at those hash sites the way `# BL-363-SHA-PLAIN` does.
+
+## BL-369: Claude Code currency review (2026-11-06) — what the integration layer keeps, changes and declines
+
+**Logged:** 2026-11-10 (Karl, from a Cloud Claude review of `main` at `72357274` against Claude Code 2.1.318; verified
+here against the official docs and this tree with Claude Code 2.1.319 installed; decided by Karl 2026-11-10)
+**Category:** Decision record (platform currency)
+**Severity:** Low — nothing is broken; the integration layer predates several native features and three of the
+review's eight proposals would have removed enforcement
+**Status:** Open — closes when `## BL-370:`, `## BL-371:` and `## BL-372:` have shipped
+
+**What the review found, verified.** The methodology layer (phase gates, approval ledger, bypass audit, TDD commit-msg
+check, scanner checks, currency system, delta track, scout, adoption) has no native equivalent. The integration layer
+references none of: the hook handler `if` filter, `onFailure: "block"` (2.1.295), `type: "prompt"` and `type:
+"mcp_tool"` hooks, the `ConfigChange` / `TaskCreated` / `TaskCompleted` / `InstructionsLoaded` / `PermissionDenied`
+events, `.claude/rules/*.md` with `paths:`, `permissions.blockWritesOutsideWorkingDirectories` (2.1.314),
+`sandbox.enabled`, `/auto-mode-setup` (every session type from 2.1.304), `/code-review`. Measured here: the always-on
+hooks cost per non-commit Bash call on this Mac — `pre-commit-gate.sh` 38–42 ms, `bypass-detector.sh` 31–36 ms,
+`track-tool-usage.sh` 6–7 ms, `session-mcp-gate.sh` (per Write/Edit) 7–9 ms.
+
+**Platform facts that constrain the design** (official docs, 2026-11-06). The `if` field holds exactly one permission
+rule per handler, no list syntax; it inherits permission-rule limits, so `Bash(git commit *)` does not match `git -C dir
+commit` or `git -c k=v commit` (the same hole `_is_git_commit` has today) and does match `cd d && git commit`; it is
+best-effort — when Claude Code cannot tell which commands a Bash input runs, the hook runs anyway. `onFailure: "block"`
+has no effect on `Stop`, `SubagentStop`, `TaskCompleted`, `TeammateIdle` or async hooks; the docs do not say how a
+build older than 2.1.295 treats an unknown handler field. Prompt hooks return `{ok, reason, impossible}`, run on
+`Stop`/`PreToolUse`/`PostToolUse`, default to a 30 s timeout and are not covered by `onFailure`.
+`blockWritesOutsideWorkingDirectories` restrains only Write/Edit/NotebookEdit, not shell commands or hook subprocesses;
+only the sandbox limits those, and the sandbox blocks every network host until allowlisted. `/auto-mode-setup` drafts
+`autoMode.environment` entries into `~/.claude/settings.json` — the key `docs/adoption.md` § 2 already documents; there is
+no list of trusted directories, entries are prose. Local `/code-review` is a background subagent that reads the diff;
+`/code-review ultra` reproduces findings in a cloud fleet after uploading repository state. Agent teams are experimental
+and off by default. `initialUserMessage` works only under `-p`, so `session-intake-check.sh` stays.
+
+**Accepted (Karl, 2026-11-10).**
+1. `## BL-370:` — an early-exit fast path in `pre-commit-gate.sh` (step 1); one `if` handler per command shape plus
+   `onFailure: "block"` deferred to its step 2 behind a minimum-version ruling.
+2. `## BL-371:` — protect the hook roster from the agent that runs under it (deny rules and a `ConfigChange` hook),
+   after a measurement spike.
+3. `## BL-372:` — the generated CLAUDE.md's § Multi-Agent Parallelism dispatches with the native `Agent` tool;
+   Superpowers becomes optional.
+4. `docs/adoption.md` § 2 names `/auto-mode-setup` as a way to draft the one settings line, shipped with this entry.
+5. `## BL-373:` — a design note, not scheduled work: platform-module guidance as `.claude/rules/*.md` with `paths:`.
+
+**Declined (Karl, 2026-11-10), so the next review does not re-propose them.**
+- *MCP gate default-off and the Stop-hook Qdrant reminder.* The fail-closed default (`# BL-233-FAILCLOSED-REQ`, absent
+  key reads as required) and "registered means required" are `## BL-233:`'s rulings; Qdrant in a generated project is
+  already opt-in (init.sh registers it only when the host has a global registration; adoption offers it), so the block
+  reaches only a project that chose the server and cannot reach it. Auto memory is a per-project file with no
+  accumulation check; it does not replace `## BL-233:` WP-B. The review's "Qdrant is down, blocking writes in this repo"
+  was false on the day it was written.
+- *A `type: "prompt"` bypass classifier.* Non-deterministic, not mutation-testable, fails open on `Stop`, ~30 s per
+  evaluation; the regex table's calibration (`## BL-277:`, four review rounds) is the price of an auditable detector.
+- *Retiring the `pr-reviewer` agent for `/code-review`.* The agent is not shipped (`.claude/agents/` exists only here);
+  its value is reproduction — the 2026-11-05 reviews ran adoptions in Fedora and Alpine containers and found the busybox
+  awk defect (`## BL-337:`) that way; `scripts/record-pr-review.sh --reviewer <name>` already accepts any reviewer.
+- *Dropping the self-handoff half of the handoff skill.* `/resume` keeps context; it does not re-verify claims against
+  the tree, which is the handoff's Verify block and the house rule for session starts.
+- *`sandbox.enabled` and `blockWritesOutsideWorkingDirectories` in generated projects.* The first breaks the framework-clone
+  `git fetch`, `npm`, `gh`, Snyk and Docker until each is allowlisted per project; the second does not cover what the
+  review said it covers and would need measuring against the scratchpad and auto-memory workflows, which write outside
+  the project with the Write tool.
+- *Exec-form handlers.* Shell form with a double-quoted placeholder is what the hooks docs prescribe for shell form; this
+  repo's own path carries a space and exercises it daily. Any roster-shape change meets `## BL-353:` first.
+
+## BL-371: the hook roster can be edited by the agent that runs under it — deny rules and a `ConfigChange` hook
+
+**Logged:** 2026-11-10 (`## BL-369:`, accepted item 2)
+**Category:** Gap (enforcement surface)
+**Severity:** Medium — `.claude/settings.json` is the roster that installs every Solo hook, and `.claude/settings.local.json`
+carries the `mcpServers.qdrant` declaration `# BL-233-WPB-SCOPE` reads; an agent that edits either switches a check off
+for the rest of the session with no ledger row
+**Status:** Open
+
+**What.** Nothing stops a session from editing its own `.claude/settings.json` (drop a hook, widen a matcher) or
+`.claude/settings.local.json` (remove the Qdrant entry so the accumulation check derives NOT REQUIRED). The bypass
+detector reads text, not settings diffs. Claude Code offers two native guards: `permissions.deny` rules, which "apply to
+Claude's built-in file tools, to file commands Claude Code recognizes in Bash, such as `cat`, `head`, `tail`, `sed`, and
+`tee`, and to the targets of Bash redirections" but not to "arbitrary subprocesses that read or write files indirectly";
+and the `ConfigChange` event (matchers `project_settings`, `local_settings`), where exit 2 keeps the new settings out of
+the running session — but "a blocked change surfaces no message to you or to Claude", and the file on disk stays edited.
+
+**Direction.** Measure first, in a scratch project under a scratch `CLAUDE_CONFIG_DIR`, with `claude -p` (note: `-p`
+starts in `default` permission mode, so also try `--permission-mode auto` if the CLI offers it): which write methods a
+deny rule on the two files stops (Edit, Write, MultiEdit, `sed -i`, `echo >`, `tee`, `cp`, `mv`, `jq … > tmp && mv`,
+a Python `open()`); whether `ConfigChange` fires for each method, what its payload carries, and what the blocked session
+and the next session see. Then: deny rules on both files in the generated roster (`scripts/lib/claude-settings.sh`) and
+in this repo's `.claude/settings.json`; a `ConfigChange` command hook that exits 2 and appends a `bypass-audit.json`
+row through `scripts/lib/bypass-audit.sh`, so the silent block becomes a visible one; and, if the on-disk edit
+survives, a SessionStart roster-drift check as its own entry. The framework's own update path (`soif_register_hook_roster`,
+`jq > tmp && mv`) must keep working — a deny rule does not reach `mv`, which is the point, not a gap. Open question for
+the design: whether the ledgers (`.claude/bypass-audit.json`, `.claude/approvals.jsonl`, `.claude/process-state.json`)
+get the same deny rules.
+
+## BL-372: the generated CLAUDE.md told the agent to dispatch subagents through a Superpowers skill
+
+**Logged:** 2026-11-10 (`## BL-369:`, accepted item 3)
+**Category:** Doc currency (generated project)
+**Severity:** Low — a project without Superpowers was told to use a skill it does not have; the native `Agent` tool
+has run subagents in the background by default since before Claude Code 2.1.283
+**Status:** Open
+
+**What.** `templates/generated/claude-md.tmpl` § Multi-Agent Parallelism opened "When Superpowers is available, dispatch
+parallel subagents" and closed "Use `superpowers:dispatching-parallel-agents` for dispatch", making a plugin the
+dispatch mechanism. The four phase bullets (2.4, 2.5, 2.9, 3) are unchanged by this entry; whether a generated
+project should name "5 parallel audit agents" at all is a separate ruling nobody has made.
+
+**Fix.** The section dispatches with Claude Code's `Agent` tool, states that a subagent started from the main
+conversation runs in the background by default and gets one focused task stated in full, and names the Superpowers
+skill as optional. No script reads the section (`command grep -rn 'Multi-Agent Parallelism' scripts/ tests/` is empty),
+so no test pins it beyond the render suites. Depends on nothing in the Guardrails repo: it removes a dependency rather
+than adding one.
+
+## BL-373: platform-module guidance as `.claude/rules/*.md` with `paths:` — design note
+
+**Logged:** 2026-11-10 (`## BL-369:`, accepted item 5)
+**Category:** Design note (generated project layout)
+**Severity:** Low
+**Status:** Open — DEFERRED (Karl 2026-11-10: file the note; nobody has scheduled the work)
+
+**What.** Claude Code loads `.claude/rules/*.md` natively, at project and user scope, and a rule with a `paths:`
+frontmatter glob "loads when Claude uses the Read, Write, or Edit tool on a matching file" (also for a single-file
+`cat`/`head`); `paths` is the only frontmatter field it reads. A generated project today gets one monolithic CLAUDE.md,
+so mobile, web, desktop and MCP-server guidance is always in context whichever files are open.
+
+**Constraints already decided.** `## BL-322:` S2 (Karl, 2026-10-07) rejected moving the framework's CLAUDE.md into
+`.claude/rules/` because the scripts read the root file; this note is additive — the root file stays, and only
+platform-module sections would move. A `paths:`-scoped rule loads when a matching file is touched, not at planning
+time, so guidance a project needs before its first platform file exists cannot live there. The currency system
+tracks `CLAUDE.md` as an A1 render base; rule files would need their own rows (`soif_parse_shipped_*` has no rules
+parser) or the freshness check will not see edits to them. Adoption (`adopt-docs.sh`) renders CLAUDE.md; it would
+have to render the rules too, and `## BL-277:`'s hook roster is unaffected.
+
+**Direction, if scheduled.** Design doc first: which sections move, the `paths:` globs per platform module, the
+currency rows, the adoption render, and a measurement that the rule loads on the first touch of a matching file.
