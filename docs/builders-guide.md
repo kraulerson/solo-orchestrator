@@ -1431,7 +1431,7 @@ scripts/test-gate.sh --check-batch
 
 If the gate blocks (testing interval reached), execute a UAT session:
 
-1. **Agent dispatches parallel test subagents** (via `superpowers:dispatching-parallel-agents` if available, sequential otherwise):
+1. **Agent dispatches parallel test subagents** (with Claude Code's own `Agent` tool, following Superpowers' `dispatching-parallel-agents` checklist):
    - **Automated Suite agent:** Runs full test suite (unit + integration + E2E). Reports failures with stack traces.
    - **Exploratory agent persona — Malicious User:** This agent adopts the mindset of a user deliberately trying to damage the system or steal data. Start fresh with no knowledge of the implementation. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. Reads the Threat Model (Phase 1.3) and User Journey (Phase 0). Attack systematically: submit 10MB inputs in text fields, drop the network mid-save, use Unicode that breaks rendering, click buttons in rapid succession, open multiple tabs with the same session, disable JavaScript and resubmit forms, paste SQL injection payloads in every input, try to access other users' data by guessing URLs. Document every scenario where the app does not gracefully handle abuse.
    - **Cross-Platform agent** (if applicable): Runs core flows on each target platform.

@@ -140,12 +140,12 @@ If a framework hook blocks an action:
 - Use git worktrees for feature isolation when available.
 
 ### Multi-Agent Parallelism
-When Superpowers is available, dispatch parallel subagents for independent tasks:
+Dispatch subagents for independent tasks with Claude Code's own `Agent` tool; it needs no plugin:
 - **Phase 2.4 Security Audit:** 5 parallel audit agents (SAST, threat model, data isolation, input validation, logging)
 - **Phase 2.5 Documentation:** Parallel generation of CHANGELOG, interface docs, and ADRs
 - **Phase 2.9 Bug Remediation:** Parallel fix agents per affected component
 - **Phase 3 Validation:** All 6 test types (integration, security, chaos, accessibility, performance, contract) run simultaneously
-Use `superpowers:dispatching-parallel-agents` for dispatch. Each subagent gets a focused task with no shared state. Consolidate results before proceeding.
+Each subagent gets one focused task, stated in full in its prompt, with no shared state; consolidate results before proceeding. Superpowers' `dispatching-parallel-agents` checklist shapes the dispatch; the dispatch itself is the `Agent` tool.
 
 ### When to Ask the Orchestrator
 - Architecture decisions not covered by the Project Bible
