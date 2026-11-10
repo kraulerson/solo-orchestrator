@@ -145,7 +145,7 @@ Dispatch subagents for independent tasks with Claude Code's own `Agent` tool; it
 - **Phase 2.5 Documentation:** Parallel generation of CHANGELOG, interface docs, and ADRs
 - **Phase 2.9 Bug Remediation:** Parallel fix agents per affected component
 - **Phase 3 Validation:** All 6 test types (integration, security, chaos, accessibility, performance, contract) run simultaneously
-Each subagent gets one focused task, stated in full in its prompt, with no shared state; consolidate results before proceeding. Superpowers' `dispatching-parallel-agents` skill is optional: when it is installed its checklist can shape the dispatch, but the dispatch itself is the `Agent` tool.
+Each subagent gets one focused task, stated in full in its prompt, with no shared state; consolidate results before proceeding. Superpowers' `dispatching-parallel-agents` checklist shapes the dispatch; the dispatch itself is the `Agent` tool.
 
 ### When to Ask the Orchestrator
 - Architecture decisions not covered by the Project Bible

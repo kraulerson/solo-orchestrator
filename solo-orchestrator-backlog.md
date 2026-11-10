@@ -28419,7 +28419,7 @@ and off by default. `initialUserMessage` works only under `-p`, so `session-inta
 2. `## BL-371:` — protect the hook roster from the agent that runs under it (deny rules and a `ConfigChange` hook),
    after a measurement spike.
 3. `## BL-372:` — the generated CLAUDE.md's § Multi-Agent Parallelism dispatches with the native `Agent` tool;
-   Superpowers becomes optional.
+   Superpowers stays required (`## BL-318:` G6) and its `dispatching-parallel-agents` checklist shapes the dispatch.
 4. `docs/adoption.md` § 2 names `/auto-mode-setup` as a way to draft the one settings line, shipped with this entry.
 5. `## BL-373:` — a design note, not scheduled work: platform-module guidance as `.claude/rules/*.md` with `paths:`.
 
@@ -28499,7 +28499,9 @@ dispatch mechanism. The four phase bullets (2.4, 2.5, 2.9, 3) are unchanged by t
 project should name "5 parallel audit agents" at all is a separate ruling nobody has made.
 
 **Fix.** The section dispatches with Claude Code's `Agent` tool, states that each subagent gets one focused task
-stated in full, and names the Superpowers skill as optional; it makes no claim about how the platform schedules
+stated in full, and keeps Superpowers' `dispatching-parallel-agents` checklist as what shapes the dispatch —
+Superpowers stays a required install (`## BL-318:` G6; the first draft of this change called it "optional", and
+`tests/test-bl318-g4g6.sh` P8 caught that in CI on PR #536); it makes no claim about how the platform schedules
 subagents, because a generated CLAUDE.md outlives such behaviour. `docs/builders-guide.md` (shipped downstream as
 `docs/reference/builders-guide.md`) carried the same dispatch rule at its UAT step and is changed in the same PR. No
 script reads the section (`command grep -rn 'Multi-Agent Parallelism' scripts/ tests/` is empty), so no test pins it
