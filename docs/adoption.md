@@ -564,9 +564,11 @@ jq -r .frameworkVersion .claude/manifest.json
 **4.4.1** closes ways an agent could approve its own commit: running the
 override itself, feeding the hook that reads your reply a reply it made up,
 or writing the Guardrails' approval marker under a name split with quotes. This framework's
-minimum stays 4.4.0 (`SOIF_GUARDRAILS_MIN` in `scripts/lib/guardrails.sh`);
-once your Guardrails clone holds 4.4.1, every session start of a project at
-4.4.0 offers it like any other update.
+minimum is 4.6.0 (`SOIF_GUARDRAILS_MIN` in `scripts/lib/guardrails.sh`,
+`## BL-375:`: the fail-closed hook policy and the runaway scan); answering by
+option id needs only 4.4.0 (`SOIF_GUARDRAILS_PICK_MIN`), which does not move.
+Once your Guardrails clone holds a newer version, every session start of a
+project below it offers the update like any other.
 
 **The commit is one lone command.** After your approving pick, the agent
 commits with exactly `git commit -m "subject" -m "body"`: one `-m` per

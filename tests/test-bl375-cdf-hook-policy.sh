@@ -38,6 +38,11 @@
 #       offers the refresh; a missing entry and a refresh each get a clause
 #   P11 absent vs present the other way: a generator without onFailure (an
 #       older Claude Code) removes it from an entry that has it, keeps timeout
+#   H   the two floors (Karl's ruling B): SOIF_GUARDRAILS_MIN 4.6.0 is what the
+#       framework requires and SOIF_GUARDRAILS_PICK_MIN 4.4.0 is where the
+#       answer by option id arrived — a 4.5.0 project is below the floor and
+#       still routed pick (H1), 4.6.0 is at it (H2), 4.3.7 is legacy (H3), a
+#       4.5.0 clone over an old writer is still a refused mixed install (H4)
 #   M   mutants: each rewrites ONE marked line in a mirror of the tree, checks
 #       the edit landed and still parses, and needs a named case to go RED
 #
@@ -410,6 +415,100 @@ case_P11() {  # absent vs present the other way: onFailure removed where the gen
   [ "$(count_f "$REG_OUT" "  ~ ")" = 3 ] || { CASE_DETAIL="expected 3 refreshes named: $REG_OUT"; return 1; }
 }
 
+# ── H: the two floors (Karl's ruling B, 2026-11-16) ──────────────────────────
+# SOIF_GUARDRAILS_MIN (4.6.0) is what the framework REQUIRES — the fail-closed
+# hook policy and the runaway scan — and names a project or clone below it.
+# SOIF_GUARDRAILS_PICK_MIN (4.4.0) is where answering by option id arrived and
+# drives the route, the mixed-install refusal and pending-approval.sh's
+# messages. Measured before the split: one constant raised to 4.6.0 routed a
+# 4.5.0 project to `legacy`, where the agent's own --decision is accepted.
+h_proj() {   # DIR PROJECT-VERSION CLONE-VERSION — a current-shape project and its clone at those versions
+  cv_proj "$1" current || return 1
+  jq --arg v "$2" '.frameworkVersion = $v' "$1/.claude/manifest.json" > "$1/m" && mv "$1/m" "$1/.claude/manifest.json" || return 1
+  printf '%s\n' "$3" > "$1/home/.claude-dev-framework/FRAMEWORK_VERSION"
+  ( cd "$1/home/.claude-dev-framework" && git add -A && git commit -q -m version ) >/dev/null 2>&1
+  printf '[]\n' > "$1/.claude/bypass-audit.json"
+}
+sv() { ( cd "$2" && HOME="$2/home" PATH="$STUBBIN:$PATH" bash "$1/scripts/session-version-check.sh" </dev/null 2>&1 ); }
+route() { ( . "$1/scripts/lib/guardrails.sh" >/dev/null 2>&1 && soif_gr_route "$2" ); }
+clone_warn() {   # ROOT CLONE — init.sh's clone update with no one to ask (soif_guardrails_clone_update)
+  ( . "$1/scripts/lib/helpers-core.sh" >/dev/null 2>&1; . "$1/scripts/lib/guardrails.sh" >/dev/null 2>&1; soif_guardrails_clone_update "$2" true ) </dev/null 2>&1
+}
+v2_sentinel() {
+  jq -n '{schema: 2, question: "Commit the fix?",
+          options: [{id: "A1", text: "Commit the staged fix", approves: "commit"},
+                    {id: "A2", text: "Hold - do not commit", approves: "none"}],
+          recommendation: "A1", offered_at: "2026-11-16T00:00:00Z"}' > "$1/.claude/pending-approval.json"
+}
+v1_sentinel() {   # the pre-BL-320 shape, which only Guardrails below the pick floor can take an answer to
+  jq -n '{question: "old style", options: ["A1: foo", "A2: bar"], recommendation: "A1", offered_at: "2026-10-01T00:00:00Z"}' > "$1/.claude/pending-approval.json"
+}
+PA_OUT=""; PA_RC=0
+pa() {   # ROOT DIR ARGS… — ROOT's pending-approval.sh, run in DIR
+  local r="$1" d="$2"; shift 2
+  PA_RC=0
+  PA_OUT="$( cd "$d" && bash "$r/scripts/pending-approval.sh" "$@" </dev/null 2>&1 )" || PA_RC=$?
+}
+FLOOR_ROW='is below 4.6.0, the minimum for this framework'"'"'s fail-closed hook policy and runaway scan: until it is updated, a guard that hangs, crashes or cannot start lets the action it guards through'
+case_H1() {   # 4.5.0: below the floor (the row, the notice, the clone warning) and still answering by option id
+  local d out r
+  d="$(newtmp)/p"; h_proj "$d" 4.5.0 4.5.0 || { CASE_DETAIL="fixture"; return 1; }
+  out="$(cv "$1" "$d")"
+  has_f "$out" "[WARN] $GR: 4.5.0 $FLOOR_ROW" || { CASE_DETAIL="no floor row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|' | cut -c1-400)"; return 1; }
+  has_f "$out" "BELOW MINIMUM" && { CASE_DETAIL="worded as BELOW MINIMUM, which makes the session start URGENT"; return 1; }
+  has_f "$out" "approval questions" && { CASE_DETAIL="the row still blames approval questions, which 4.5.0 answers: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
+  out="$(sv "$1" "$d")"
+  has_f "$out" "GUARDRAILS NOTICE" && has_f "$out" "4.5.0 is below 4.6.0" && has_f "$out" "the clone itself needs updating first" \
+    || { CASE_DETAIL="not told as a below-floor notice: $(last3 "$out")"; return 1; }
+  has_f "$out" "GUARDRAILS UPDATE OFFER" && { CASE_DETAIL="offers an update the clone cannot give"; return 1; }
+  r="$(route "$1" "$d")"; [ "$r" = pick ] || { CASE_DETAIL="route is '$r', not pick: 4.5.0 answers by option id"; return 1; }
+  v2_sentinel "$d"
+  pa "$1" "$d" --resolve --decision accept
+  [ "$PA_RC" -ne 0 ] && has_f "$PA_OUT" "--decision is not used here" && [ -f "$d/.claude/pending-approval.json" ] \
+    || { CASE_DETAIL="the agent's own --decision was taken at 4.5.0: rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+  has_f "$PA_OUT" "older than 4.4.0" || { CASE_DETAIL="the refusal does not name the 4.4.0 pick floor: $(last3 "$PA_OUT")"; return 1; }
+  v1_sentinel "$d"
+  pa "$1" "$d" --validate
+  [ "$PA_RC" -ne 0 ] && has_f "$PA_OUT" "schema 1 — the Development Guardrails 4.4.0 and later cannot take an answer to it" \
+    || { CASE_DETAIL="a schema-1 question at 4.5.0 is not refused naming the 4.4.0 pick floor: rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+  out="$(clone_warn "$1" "$d/home/.claude-dev-framework")"
+  has_f "$out" "older than 4.6.0, the minimum for this framework's fail-closed hook policy" || { CASE_DETAIL="the clone-update warning does not name the floor: $(last3 "$out")"; return 1; }
+}
+case_H2() {   # 4.6.0: at the floor — no row, silent session start, answering by option id
+  local d out r
+  d="$(newtmp)/p"; h_proj "$d" 4.6.0 4.6.0 || { CASE_DETAIL="fixture"; return 1; }
+  out="$(cv "$1" "$d")"
+  has_f "$out" "[WARN] $GR" && { CASE_DETAIL="a project at the floor gets a row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
+  has_f "$out" "$GR: 4.6.0 — up to date" || { CASE_DETAIL="no up-to-date row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
+  out="$(sv "$1" "$d")"
+  [ -z "$out" ] || { CASE_DETAIL="the session start spoke at the floor: $(last3 "$out")"; return 1; }
+  r="$(route "$1" "$d")"; [ "$r" = pick ] || { CASE_DETAIL="route is '$r', not pick"; return 1; }
+}
+case_H3() {   # 4.3.7: below both floors — routed legacy, the row names the 4.6.0 floor, the messages name the 4.4.0 pick floor
+  local d out r
+  d="$(newtmp)/p"; h_proj "$d" 4.3.7 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
+  r="$(route "$1" "$d")"; [ "$r" = legacy ] || { CASE_DETAIL="route is '$r': 4.3.7 predates the answer by option id"; return 1; }
+  out="$(cv "$1" "$d")"
+  has_f "$out" "[WARN] $GR: 4.3.7 $FLOOR_ROW" || { CASE_DETAIL="no floor row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|' | cut -c1-400)"; return 1; }
+  v1_sentinel "$d"
+  pa "$1" "$d" --validate
+  [ "$PA_RC" -eq 0 ] && ! has_f "$PA_OUT" "Schema error" \
+    || { CASE_DETAIL="a schema-1 question is refused where the Guardrails record no pick (the pick floor moved): rc=$PA_RC $(last3 "$PA_OUT")"; return 1; }
+}
+case_H4() {   # the mixed install is still refused at 4.5.0: a clone below the floor but at the pick floor, over an old writer
+  local t d c
+  t="$(newtmp)"; d="$t/p"; c="$t/home/.claude-dev-framework"
+  rg_proj "$d" "$c" || { CASE_DETAIL="fixture"; return 1; }
+  printf '4.5.0\n' > "$c/FRAMEWORK_VERSION"; ( cd "$c" && git add -A && git commit -q -m v450 ) >/dev/null 2>&1
+  jq '.frameworkVersion = "4.4.0"' "$d/.claude/manifest.json" > "$d/m" && mv "$d/m" "$d/.claude/manifest.json"
+  mkdir -p "$d/scripts" && printf '#!/usr/bin/env bash\n# scripts/pending-approval.sh (before BL-320)\nset -euo pipefail\n' > "$d/scripts/pending-approval.sh"
+  rg "$1" "$d" "$t/home"
+  [ "$RG_RC" -ne 0 ] || { CASE_DETAIL="rc=0: 4.5.0 was installed beside a writer it cannot answer"; return 1; }
+  has_f "$RG_OUT" "older approval question" && has_f "$RG_OUT" "Guardrails 4.5.0 cannot take an answer" \
+    || { CASE_DETAIL="the refusal does not name the mixed install: $(last3 "$RG_OUT")"; return 1; }
+  [ "$(jq -r .frameworkVersion "$d/.claude/manifest.json")" = 4.4.0 ] || { CASE_DETAIL="the manifest moved"; return 1; }
+}
+
 # ── runner ───────────────────────────────────────────────────────────────────
 check() {   # LABEL CASE
   local rc=0
@@ -433,6 +532,11 @@ check "P9: refresh-guardrails.sh prints each refresh and the heading, not 'was n
 check "P9b: refresh-guardrails.sh shows the generator's WARNING" case_P9b
 check "P10: check-versions.sh — the row names the entries without the policy, a missing entry gets its own clause, a current project gets none" case_P10
 check "P11: a generator without onFailure removes it from entries that have it and keeps the timeout" case_P11
+echo "=== H — the two floors: 4.6.0 required, 4.4.0 for the answer by option id ==="
+check "H1: 4.5.0 — below the floor in the row, the notice and the clone warning; routed pick; the agent's --decision refused, naming 4.4.0" case_H1
+check "H2: 4.6.0 — at the floor: no row, silent session start, routed pick" case_H2
+check "H3: 4.3.7 — routed legacy; the row names the 4.6.0 floor, the message names the 4.4.0 pick floor" case_H3
+check "H4: a 4.5.0 clone over an old question writer is still refused as a mixed install" case_H4
 
 # ── M: mutants ───────────────────────────────────────────────────────────────
 mk_mirror() { mkdir -p "$2" && cp -Rp "$1/scripts" "$1/init.sh" "$2/"; }
@@ -474,6 +578,15 @@ mutant M8  "$GL" '# BL-375-CHECK-REFRESH' '    :' case_P7 "check mode hides the 
 mutant M9  scripts/check-versions.sh '# BL-375-CV-REFRESH' '    :' case_P10 "the session start never names an entry without the policy"
 mutant M10 scripts/refresh-guardrails.sh '# BL-375-RG-REFRESH-LINES' "  printf '%s\\n' \"\$REG_OUT\" | grep '^  + ' | sed 's/^/     /'" case_P9 "the refresh script hides the refreshes it made"
 mutant M11 scripts/refresh-guardrails.sh '# BL-375-RG-GEN-LINES' ':' case_P9b "the refresh script swallows the generator's WARNING"
+# The two floors: each constant's consumer swapped to the other constant.
+mutant MM1 "$GL" '# BL-375-MIN-460' 'SOIF_GUARDRAILS_MIN="4.4.0"' case_H1 "the required floor is still 4.4.0: a 4.5.0 project is not told"
+mutant MM2 "$GL" '# BL-375-FLOOR-BELOW' '  soif_gr_xyz_valid "${1:-}" && [ "$(soif_gr_xyz_cmp "$1" "$SOIF_GUARDRAILS_PICK_MIN")" = lt ]' case_H1 "below-minimum reads the pick floor: a 4.5.0 project is not told"
+mutant MM3 "$GL" '# BL-375-PICK-MIN' 'SOIF_GUARDRAILS_PICK_MIN="4.6.0"' case_H1 "the pick floor follows the required floor: 4.5.0 is routed legacy and the agent's own --decision is taken"
+mutant MM4 "$GL" '# BL-375-PICK-ROUTE' '  c="$(soif_gr_xyz_cmp "$v" "$SOIF_GUARDRAILS_MIN")"' case_H1 "the route reads the required floor: 4.5.0 is legacy"
+mutant MM5 "$GL" '# BL-375-PICK-MIXED' '  soif_gr_xyz_valid "${2:-}" && ! soif_gr_below_min "$2" || return 1' case_H4 "the mixed install reads the required floor: 4.5.0 lands beside an old writer"
+mutant MM6 "$GL" '# BL-375-PICK-BELOW' '  soif_gr_xyz_valid "${1:-}" && [ "$(soif_gr_xyz_cmp "$1" "$SOIF_GUARDRAILS_MIN")" = lt ]' case_H4 "below-pick-minimum reads the required floor: 4.5.0 lands beside an old writer"
+mutant MM7 scripts/pending-approval.sh '# BL-375-PICK-PA' 'PA_PICK_MIN="${SOIF_GUARDRAILS_MIN:-4.4.0}"' case_H1 "the messages name the required floor, not the version that records a pick"
+mutant MM8 scripts/session-version-check.sh '# BL-375-SVC-MIN' "  if printf '%s\\n' \"\$GR_NOTICE\" | grep -qF \", the minimum for this framework's approval questions\"; then" case_H1 "the session notice no longer recognises the below-floor row"
 
 echo
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"

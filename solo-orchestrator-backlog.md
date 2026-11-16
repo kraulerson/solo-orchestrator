@@ -28578,14 +28578,23 @@ write are kept. Tests: `tests/test-bl375-cdf-hook-policy.sh` (fixture clones who
 beside it, never the real clone, so the host's Guardrails version does not matter);
 `tests/test-bl320-approval-schema2.sh` 125/0/0 and `tests/test-bl318-g5-guardrails-refresh.sh` 96/0/0 unchanged.
 
-**Minimum version (decision pending).** Karl's ruling (2026-11-16): every generated and adopted project gets
-4.6.0 as the floor, timed with CDF's rollout — `SOIF_GUARDRAILS_MIN` in `scripts/lib/guardrails.sh`, the one place
-the number is written. That one constant also drives `soif_gr_route` (`# BL-320-ROUTE`) and `soif_gr_mixed`:
-raised alone, it would route every 4.4.x/4.5.x project to `legacy`, where `scripts/pending-approval.sh --resolve
---decision` is accepted again (the fail-closed rule of `## BL-320:` review round 1, R-3), and would stop refusing a
-4.4.x/4.5.x mixed install. So the raise waits on a decision: split the pick-route floor (4.4.0, where approval
-design B arrived) from the required floor (4.6.0), or accept the reroute until every host updates. The constant is
-unchanged on this branch until then.
+**Minimum version (Karl's ruling B, 2026-11-16): two constants.** Every generated and adopted project gets 4.6.0
+as the required floor, timed with CDF's rollout — `SOIF_GUARDRAILS_MIN="4.6.0"` in `scripts/lib/guardrails.sh`
+(`# BL-375-MIN-460`), read through `soif_gr_below_min` (`# BL-375-FLOOR-BELOW`) by the session-start row
+(`# BL-320-CV-MIN`), the adoption note (`# BL-320-ADOPT-MIN`), the clone-update warning (`# BL-320-PULL-MIN`) and
+the session-start notice (`# BL-375-SVC-MIN`), all worded for the reason the floor exists — the fail-closed hook
+policy (4.5.0) and the runaway scan (4.6.0) — rather than for approval questions. Measured before the split
+(2026-11-16): raising the one constant alone routed every 4.4.x/4.5.x project to `legacy`, where
+`scripts/pending-approval.sh --resolve --decision` is accepted again (`# BL-320-RESOLVE-DECISION`, the
+fail-closed rule of `## BL-320:` review round 1, R-3), and stopped refusing a 4.4.x/4.5.x mixed install. So the
+pick route has its own floor: `SOIF_GUARDRAILS_PICK_MIN="4.4.0"` (`# BL-375-PICK-MIN`), the version where approval
+design B — the answer by option id — arrived, which never moves; `soif_gr_route` (`# BL-375-PICK-ROUTE`),
+`soif_gr_mixed` (`# BL-375-PICK-MIXED`, through `soif_gr_below_pick_min`, `# BL-375-PICK-BELOW`) and
+`pending-approval.sh`'s messages (`# BL-375-PICK-PA`, one `PA_PICK_MIN` named by all three) read it. A 4.5.0 project is therefore below the floor
+(the row says so, as a notice until the clone holds 4.6.0) and still answers by option id; a 4.3.x project is
+routed `legacy`. The BL-320 cases that pinned 4.4.0 as "at the minimum" now pin the floor (V1–V4, I1, A1 at
+4.6.0) or the pick floor (X1, X2, G1–G3, W9/W10/W13 at 4.4.0), none weaker;
+`tests/test-bl375-cdf-hook-policy.sh` H1–H4 pin the split and its six mutants.
 
 **Merge condition.** Once the minimum is 4.6.0, this must not merge before CDF tags v4.6.0: with the host clone at
 4.5.0, `session-version-check.sh` would report every 4.5.0 host as BELOW MINIMUM. Related: `## BL-320:` (the

@@ -153,7 +153,7 @@ no_offer() {
   local out="$1"
   # `## BL-320:` a project below the minimum Guardrails version is named on a
   # row of its own; that row offers nothing, so it is not an offer here.
-  out="$(printf '%s\n' "$out" | command grep -vF ", the minimum for this framework's approval questions" || true)"
+  out="$(printf '%s\n' "$out" | command grep -vF ", the minimum for this framework's fail-closed hook policy" || true)"
   if has_f "$out" "[WARN] $GR: "; then CASE_DETAIL="a Guardrails warning: $(printf '%s\n' "$out" | command grep -F "[WARN] $GR")"; return 1; fi
   if has_f "$out" "$REFRESH_CMD"; then CASE_DETAIL="the update command is offered"; return 1; fi
   return 0
@@ -342,9 +342,9 @@ case_S1() {
   has_f "$out" "Would you like me to run these updates now" && { CASE_DETAIL="the agent is told to offer to run the update itself"; return 1; }
   return 0
 }
-case_S2() {   # current: silent (and at or above the BL-320 minimum, which a 4.3.x project is not)
+case_S2() {   # current: silent (and at the required floor — 4.6.0 since `## BL-375:` — which a 4.3.x or 4.4.x project is not)
   local out
-  pair 4.4.0 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  pair 4.6.0 4.6.0 || { CASE_DETAIL="fixture"; return 1; }
   out="$(sv "$1")"
   [ -z "$out" ] || { CASE_DETAIL="spoke: $(last3 "$out")"; return 1; }
 }
@@ -639,7 +639,7 @@ case_E1() {   # end to end, against the real upstream refresh
   # holds nothing newer, so the session start tells that as a notice. Anything
   # else — an offer, a command — is a regression of this case.
   if [ -n "$sout" ]; then
-    has_f "$sout" "GUARDRAILS NOTICE" && has_f "$sout" "4.3.7 is below 4.4.0" \
+    has_f "$sout" "GUARDRAILS NOTICE" && has_f "$sout" "4.3.7 is below 4.6.0" \
       && ! has_f "$sout" "$OFFER_HEAD" && ! has_f "$sout" "$REFRESH_CMD" \
       || { CASE_DETAIL="after the update the session hook spoke: $(last3 "$sout")"; return 1; }
   fi

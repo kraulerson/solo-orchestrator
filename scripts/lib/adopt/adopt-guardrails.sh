@@ -48,16 +48,18 @@ ADOPT_GUARDRAILS_RESULT=""   # what the Adoption Record says
 
 _adopt_guardrails_dir() { printf '%s' "${SOIF_ADOPT_GUARDRAILS_DIR:-$HOME/.claude-dev-framework}"; }
 
-# `## BL-320:` Guardrails below SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh)
-# cannot take the user's answer to an approval question, so the agent's commits
-# are approved the older way. Adoption keeps an adoptee's own install and does
-# not pull (both deliberate, above); it says so, in its output and in the
-# Adoption Record, and the session start offers the update.
+# `## BL-320:` Guardrails below SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh;
+# `## BL-375:` the required floor — the fail-closed hook policy and the runaway
+# scan; answering by option id needs only SOIF_GUARDRAILS_PICK_MIN) let a guard
+# that hangs, crashes or cannot start allow the action. Adoption keeps an
+# adoptee's own install and does not pull (both deliberate, above); it says so,
+# in its output and in the Adoption Record, and the session start offers the
+# update.
 _adopt_guardrails_say_below_min() {
-  ADOPT_GUARDRAILS_RESULT="$ADOPT_GUARDRAILS_RESULT; below the $SOIF_GUARDRAILS_MIN minimum for approval questions (the session start offers the update)"
+  ADOPT_GUARDRAILS_RESULT="$ADOPT_GUARDRAILS_RESULT; below the $SOIF_GUARDRAILS_MIN minimum for this framework's fail-closed hook policy (the session start offers the update)"
   adopt_note "These Guardrails ($1) are older than $SOIF_GUARDRAILS_MIN, the minimum for this framework's"
-  adopt_note "approval questions: until they are updated, a commit cannot be approved by answering the"
-  adopt_note "agent's question with an option id. Each Claude Code session start offers the update."
+  adopt_note "fail-closed hook policy and runaway scan: until they are updated, a guard that hangs, crashes"
+  adopt_note "or cannot start lets the action it guards through. Each Claude Code session start offers the update."
 }
 _adopt_guardrails_min_note() {   # ROOT
   local v=""

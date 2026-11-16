@@ -22,7 +22,9 @@
 #      Guardrails version; upgrade-project.sh's hold (U1)
 #   R  registering the Guardrails hook entries a project is missing (c2):
 #      soif_cdf_register_hooks, refresh-guardrails.sh, upgrade-project.sh
-#   V  the session start: the 4.4.0 minimum, and a missing registration
+#   V  the session start: the required floor (SOIF_GUARDRAILS_MIN, 4.6.0 since
+#      `## BL-375:`; the pick route keeps its own 4.4.0 floor), and a missing
+#      registration
 #   O  the out-of-band detector: matched=false is recorded once
 #   I  init.sh's clone update: ask first (Enter = yes) at a terminal, never
 #      without one; adoption's minimum note (A1)
@@ -859,36 +861,40 @@ vproj() {   # DIR INSTALLED CLONE-VERSION — a project with a one-row tool matr
 }
 cv() { ( cd "$2" && HOME="$2/home" PATH="$STUBBIN:$PATH" bash "$1/scripts/check-versions.sh" </dev/null 2>&1 ); }
 sv() { ( cd "$2" && HOME="$2/home" PATH="$STUBBIN:$PATH" bash "$1/scripts/session-version-check.sh" </dev/null 2>&1 ); }
-case_V1() {   # 4.3.7 behind 4.4.0: the minimum is named, beside the offer
+# `## BL-375:` the floor these cases pin is SOIF_GUARDRAILS_MIN (4.6.0, the
+# fail-closed hook policy and runaway scan), not the 4.4.0 pick floor: V1 and V4
+# name it, V2 and V3 sit AT it so the registration row and the silence are
+# tested where the below-minimum row cannot pre-empt them.
+case_V1() {   # 4.3.7 behind 4.4.0, both below the 4.6.0 floor: the floor is named, beside the offer
   local d out
   d="$(newtmp)/p"; vproj "$d" 4.3.7 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
   out="$(cv "$1" "$d")"
-  has_f "$out" "[WARN] $GR: 4.3.7 is below 4.4.0, the minimum" || { CASE_DETAIL="no minimum row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
+  has_f "$out" "[WARN] $GR: 4.3.7 is below 4.6.0, the minimum" || { CASE_DETAIL="no minimum row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
   has_f "$out" "BELOW MINIMUM" && { CASE_DETAIL="worded as BELOW MINIMUM, which makes the session start URGENT"; return 1; }
   out="$(sv "$1" "$d")"
-  has_f "$out" "GUARDRAILS UPDATE OFFER" && has_f "$out" "4.3.7 is below 4.4.0" \
+  has_f "$out" "GUARDRAILS UPDATE OFFER" && has_f "$out" "4.3.7 is below 4.6.0" \
     || { CASE_DETAIL="the session offer does not carry the minimum: $(last3 "$out")"; return 1; }
 }
-case_V2() {   # 4.4.0 current, record-approval not registered: the refresh is offered, and says why
+case_V2() {   # 4.6.0 current (at the floor), record-approval not registered: the refresh is offered, and says why
   local d out
-  d="$(newtmp)/p"; vproj "$d" 4.4.0 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  d="$(newtmp)/p"; vproj "$d" 4.6.0 4.6.0 || { CASE_DETAIL="fixture"; return 1; }
   out="$(cv "$1" "$d")"
-  has_f "$out" "[WARN] $GR: 4.4.0, but 1 of its hook registrations is missing from .claude/settings.json (record-approval)" \
+  has_f "$out" "[WARN] $GR: 4.6.0, but 1 of its hook registrations is missing from .claude/settings.json (record-approval)" \
     || { CASE_DETAIL="no registration row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
   has_f "$out" "  $GR: $REFRESH_CMD" || { CASE_DETAIL="the refresh is not offered"; return 1; }
 }
-case_V3() {   # 4.4.0 current and registered: silent
+case_V3() {   # 4.6.0 current (at the floor) and registered: silent
   local d out
-  d="$(newtmp)/p"; vproj "$d" 4.4.0 4.4.0 || { CASE_DETAIL="fixture"; return 1; }
+  d="$(newtmp)/p"; vproj "$d" 4.6.0 4.6.0 || { CASE_DETAIL="fixture"; return 1; }
   reg "$1" "$d" "$d/home/.claude-dev-framework"
   out="$(sv "$1" "$d")"
   [ -z "$out" ] || { CASE_DETAIL="spoke: $(last3 "$out")"; return 1; }
 }
-case_V4() {   # 4.3.7 and the clone at 4.3.7: a notice, no command
+case_V4() {   # 4.3.7 and the clone at 4.3.7: a notice naming the 4.6.0 floor, no command
   local d out
   d="$(newtmp)/p"; vproj "$d" 4.3.7 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
   out="$(sv "$1" "$d")"
-  has_f "$out" "GUARDRAILS NOTICE" && has_f "$out" "4.3.7 is below 4.4.0" || { CASE_DETAIL="$(last3 "$out")"; return 1; }
+  has_f "$out" "GUARDRAILS NOTICE" && has_f "$out" "4.3.7 is below 4.6.0" || { CASE_DETAIL="$(last3 "$out")"; return 1; }
   has_f "$out" "$REFRESH_CMD" && { CASE_DETAIL="offers a refresh that installs nothing newer"; return 1; }
   return 0
 }
@@ -1031,7 +1037,7 @@ case_I1() {   # no terminal: no pull, the command printed, and the minimum named
   upd "$1" false
   [ "$(head_of "$CL")" = "$h" ] || { CASE_DETAIL="the clone was pulled without asking"; return 1; }
   has_f "$UPD_OUT" "git -C \"$CL\" pull --ff-only" || { CASE_DETAIL="the command is not printed: $(last3 "$UPD_OUT")"; return 1; }
-  has_f "$UPD_OUT" "4.3.7" && has_f "$UPD_OUT" "older than 4.4.0" || { CASE_DETAIL="the minimum is not named: $(last3 "$UPD_OUT")"; return 1; }
+  has_f "$UPD_OUT" "4.3.7" && has_f "$UPD_OUT" "older than 4.6.0, the minimum for this framework's fail-closed hook policy" || { CASE_DETAIL="the minimum is not named: $(last3 "$UPD_OUT")"; return 1; }
 }
 case_I2() {   # a terminal, Enter: yes — the clone is pulled; current and available both shown
   local t
@@ -1088,8 +1094,8 @@ case_A1() {   # adoption keeps an adoptee's own Guardrails and says when they ar
   out="$( ( adopt_note() { printf '%s\n' "$*"; }; adopt_head() { printf '== %s\n' "$*"; }
             . "$1/scripts/lib/guardrails.sh"; . "$1/scripts/lib/adopt/adopt-guardrails.sh"
             adopt_guardrails_resolve "$d"; adopt_write_guardrails "$d" /dev/null; printf 'RESULT=%s\n' "$ADOPT_GUARDRAILS_RESULT" ) 2>&1 )"
-  has_f "$out" "older than 4.4.0" || { CASE_DETAIL="no minimum note: $(last3 "$out")"; return 1; }
-  has_f "$out" "RESULT=" && has_f "$(printf '%s' "$out" | command grep '^RESULT=')" "below the 4.4.0 minimum" \
+  has_f "$out" "older than 4.6.0, the minimum for this framework's" || { CASE_DETAIL="no minimum note: $(last3 "$out")"; return 1; }
+  has_f "$out" "RESULT=" && has_f "$(printf '%s' "$out" | command grep '^RESULT=')" "below the 4.6.0 minimum" \
     || { CASE_DETAIL="the Adoption Record does not say so: $(printf '%s' "$out" | command grep '^RESULT=')"; return 1; }
 }
 
@@ -1216,9 +1222,9 @@ check "R9: upgrade-project.sh --backfill-only refreshes to 4.4.0 and registers r
 check "R11: the registration re-reads settings.json — a write that never landed is a [FAIL], not 'added'" case_R11
 check "R10: against the real clone's generator: record-approval registered, idempotent" case_R10
 echo "=== V — the session start ==="
-check "V1: below 4.4.0 — named (not as BELOW MINIMUM), in the session offer too" case_V1
-check "V2: 4.4.0 with record-approval unregistered — the refresh is offered and says why" case_V2
-check "V3: 4.4.0, registered — silent" case_V3
+check "V1: below the 4.6.0 floor — named (not as BELOW MINIMUM), in the session offer too" case_V1
+check "V2: 4.6.0 (at the floor) with record-approval unregistered — the refresh is offered and says why" case_V2
+check "V3: 4.6.0 (at the floor), registered — silent" case_V3
 check "V4: project and clone both 4.3.7 — a notice, no command" case_V4
 echo "=== X — a mixed install (4.4.0 Guardrails, a pre-BL-320 writer) ==="
 check "X1: refresh-guardrails.sh refuses 4.4.0 over an old question writer, names the framework sync, changes nothing" case_X1
@@ -1307,7 +1313,7 @@ mutant M22 "$GL"  '# BL-320-REG-APPEND' "  prog='.hooks = ((.hooks // {}) + \$ad
 mutant M23 scripts/refresh-guardrails.sh '# BL-320-RG-REGISTER' ':' case_R8 "the refresh leaves the new hook unregistered"
 mutant M24 scripts/upgrade-project.sh '# BL-320-UP-REGISTER' '      :' case_R9 "the upgrade leaves the new hook unregistered"
 mutant XU1 scripts/upgrade-project.sh '# BL-320-UP-CLONE' '    _up_cdf="$PROJECT_ROOT/.nope"' case_R9 "R-5: the registration looks for the clone in the wrong place"
-mutant M25 scripts/check-versions.sh '# BL-320-CV-MIN' '  :' case_V1 "a project below 4.4.0 is not told"
+mutant M25 scripts/check-versions.sh '# BL-320-CV-MIN' '  :' case_V1 "a project below the 4.6.0 floor is not told"
 mutant M26 scripts/check-versions.sh '# BL-320-CV-REG' '  :' case_V2 "a missing registration is never offered"
 mutant M27 scripts/detect-out-of-band-commits.sh '# BL-320-OOB-MISMATCH' ':' case_O1 "a commit that is not the approved change goes unrecorded"
 mutant M28 scripts/detect-out-of-band-commits.sh '# BL-320-OOB-DEDUP' '    false' case_O1 "the mismatch is recorded at every session start"

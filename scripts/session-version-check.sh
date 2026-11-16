@@ -102,7 +102,7 @@ _gr_notice() {
   if printf '%s\n' "$GR_NOTICE" | grep -qE 'a new MAJOR version|cannot tell whether an update is available'; then
     printf '%s\n' "There is no command to offer here. A new MAJOR version needs a Guardrails migration, and a version that cannot be read needs the reason above fixed; both are the Orchestrator's to decide."
   fi
-  if printf '%s\n' "$GR_NOTICE" | grep -qF ", the minimum for this framework's approval questions"; then
+  if printf '%s\n' "$GR_NOTICE" | grep -qF ", the minimum for this framework's fail-closed hook policy"; then   # BL-375-SVC-MIN
     printf '%s\n' "A version below the minimum, with nothing newer in the Guardrails clone: the clone itself needs updating first (every project on this computer uses it), and the next session start then offers this project's update."
   fi
   if printf '%s\n' "$GR_NOTICE" | grep -qF "still write the older approval question"; then

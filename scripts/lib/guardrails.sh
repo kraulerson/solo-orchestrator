@@ -14,9 +14,12 @@
 # (mark-evaluated.sh) and the schema does not matter.
 #
 # WHAT LIVES HERE (one copy, sourced by every Solo script that needs it):
-#   SOIF_GUARDRAILS_MIN            the minimum Guardrails version for this
-#                                  framework's approval questions — the ONE
-#                                  place the number is written
+#   SOIF_GUARDRAILS_MIN            the minimum Guardrails version this
+#                                  framework requires (`## BL-375:` 4.6.0: the
+#                                  fail-closed hook policy and runaway scan)
+#   SOIF_GUARDRAILS_PICK_MIN       the version where answering by option id
+#                                  arrived (4.4.0, approval design B); it never
+#                                  moves — the two constants below say why
 #   soif_gr_route ROOT             pick | legacy | unknown — how a question in
 #                                  ROOT is answered, from its manifest
 #   soif_pa_v2_problems FILE       CDF's rules for a schema-2 question
@@ -36,7 +39,23 @@
 # Shipped to every project (init.sh `# BL-320-SHIP`). bash 3.2 safe; needs jq.
 # shellcheck shell=bash
 
-SOIF_GUARDRAILS_MIN="4.4.0"
+# Two numbers, two jobs — deliberately not one (`## BL-375:`, Karl's ruling B,
+# 2026-11-16). SOIF_GUARDRAILS_MIN is the floor this framework REQUIRES: the
+# session-start row (check-versions.sh _cv_gr_minimum_rows), the adoption note
+# (adopt-guardrails.sh _adopt_guardrails_min_note) and the clone-update warning
+# (soif_guardrails_clone_update, below) name a project or clone below it, and
+# it moves with what the framework needs from a release — 4.6.0 for the
+# fail-closed hook policy (4.5.0) and the runaway scan (4.6.0).
+# SOIF_GUARDRAILS_PICK_MIN is the version where approval design B arrived — the
+# user answers a question by option id and the Guardrails record the pick — and
+# it never moves: soif_gr_route, soif_gr_mixed and pending-approval.sh's
+# messages read it. Measured before the split: raising the one constant to
+# 4.6.0 routed every 4.4.x/4.5.x project to `legacy`, which accepts the agent's
+# own `--resolve --decision` again (pending-approval.sh cmd_resolve) and stops
+# refusing a 4.4/4.5 mixed install — an enforcement regression on every host
+# that had not updated yet.
+SOIF_GUARDRAILS_MIN="4.6.0"   # BL-375-MIN-460
+SOIF_GUARDRAILS_PICK_MIN="4.4.0"   # BL-375-PICK-MIN
 
 # soif_gr_xyz_valid V — MAJOR.MINOR.PATCH, digits only, at most nine per part
 # (inside `[`'s integer range). The same rule as check-versions.sh's G5 row.
@@ -59,9 +78,17 @@ soif_gr_xyz_cmp() {
   echo eq
 }
 
-# soif_gr_below_min V — true when V is a version and is older than the minimum.
+# soif_gr_below_min V — true when V is a version and is older than the required
+# minimum (SOIF_GUARDRAILS_MIN).
 soif_gr_below_min() {
-  soif_gr_xyz_valid "${1:-}" && [ "$(soif_gr_xyz_cmp "$1" "$SOIF_GUARDRAILS_MIN")" = lt ]
+  soif_gr_xyz_valid "${1:-}" && [ "$(soif_gr_xyz_cmp "$1" "$SOIF_GUARDRAILS_MIN")" = lt ]   # BL-375-FLOOR-BELOW
+}
+
+# soif_gr_below_pick_min V — true when V is a version older than the one where
+# answering by option id arrived (SOIF_GUARDRAILS_PICK_MIN; `## BL-375:` the
+# pick floor, not the required floor).
+soif_gr_below_pick_min() {
+  soif_gr_xyz_valid "${1:-}" && [ "$(soif_gr_xyz_cmp "$1" "$SOIF_GUARDRAILS_PICK_MIN")" = lt ]   # BL-375-PICK-BELOW
 }
 
 # soif_gr_installed_version ROOT — ROOT's .claude/manifest.json frameworkVersion.
@@ -70,16 +97,18 @@ soif_gr_installed_version() {
 }
 
 # soif_gr_route ROOT — how a question in ROOT is answered:
-#   pick    Guardrails at or above the minimum: the user replies with the
-#           option id, twice, and the Guardrails record the pick
+#   pick    Guardrails at or above SOIF_GUARDRAILS_PICK_MIN (4.4.0, where
+#           answering by option id arrived — the pick floor, never the required
+#           floor, `## BL-375:`): the user replies with the option id, twice,
+#           and the Guardrails record the pick
 #   legacy  an older version: the user answers in words; the agent clears the
 #           question and records the approval itself
 #   unknown no readable version (no manifest, no Guardrails, a stub)
 soif_gr_route() {
-  local v c
+  local v="" c=""
   v="$(soif_gr_installed_version "${1:-.}")"
   soif_gr_xyz_valid "$v" || { echo unknown; return 0; }
-  c="$(soif_gr_xyz_cmp "$v" "$SOIF_GUARDRAILS_MIN")"
+  c="$(soif_gr_xyz_cmp "$v" "$SOIF_GUARDRAILS_PICK_MIN")"   # BL-375-PICK-ROUTE
   [ "$c" = lt ] && { echo legacy; return 0; }   # BL-320-ROUTE
   echo pick
 }
@@ -106,12 +135,13 @@ soif_gr_writer_schema() {
 }
 
 # soif_gr_mixed ROOT VERSION — true when installing Guardrails VERSION (at or
-# above the minimum) in ROOT would leave a writer they cannot take an answer
-# from: the mixed install `## BL-320:` exists to prevent. Both halves must move
-# together, by the framework sync.
+# above SOIF_GUARDRAILS_PICK_MIN — the pick floor, `## BL-375:`) in ROOT would
+# leave a writer they cannot take an answer from: the mixed install
+# `## BL-320:` exists to prevent. Both halves must move together, by the
+# framework sync.
 soif_gr_mixed() {
   local w=""
-  soif_gr_xyz_valid "${2:-}" && ! soif_gr_below_min "$2" || return 1
+  soif_gr_xyz_valid "${2:-}" && ! soif_gr_below_pick_min "$2" || return 1   # BL-375-PICK-MIXED
   w="$(soif_gr_writer_schema "$1")"
   [ "$w" != none ] && [ "$w" -lt 2 ]   # BL-320-WRITER-NUM
 }
@@ -333,6 +363,6 @@ soif_guardrails_clone_update() {
       print_info "Kept the clone at ${cur:-its current version}."
     fi
   fi
-  soif_gr_below_min "$cur" && print_warn "The Development Guardrails clone is $cur, older than $SOIF_GUARDRAILS_MIN, the minimum for this framework's approval questions. Until it is updated the agent approves its own commits the older way, and every Claude Code session start offers the update."   # BL-320-PULL-MIN
+  soif_gr_below_min "$cur" && print_warn "The Development Guardrails clone is $cur, older than $SOIF_GUARDRAILS_MIN, the minimum for this framework's fail-closed hook policy and runaway scan. Until it is updated a guard that hangs, crashes or cannot start lets the action it guards through, and every Claude Code session start offers the update."   # BL-320-PULL-MIN
   return 0
 }

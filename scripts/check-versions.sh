@@ -865,10 +865,11 @@ _cv_guardrails_row() {
   esac
 }
 # ── `## BL-320:` the minimum Guardrails version, and missing registrations ──
-# SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh, the one place the number is
-# written): below it the user cannot approve a commit by answering the agent's
-# question with an option id — the Guardrails' approval design B arrived in
-# 4.4.0. The row says so whatever the clone holds; when the clone is newer the
+# SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh — the required floor, 4.6.0
+# since `## BL-375:` for the fail-closed hook policy and the runaway scan;
+# answering by option id needs only SOIF_GUARDRAILS_PICK_MIN, 4.4.0, which
+# never moves): below it a guard that hangs, crashes or cannot start lets the
+# action through. The row says so whatever the clone holds; when the clone is newer the
 # update offer above is the remedy, and when it is not, session-version-check.sh
 # tells it as a notice (there is nothing to offer until the clone is updated).
 # Worded "below", never the generic "BELOW MINIMUM", which session-version-check
@@ -899,7 +900,7 @@ _cv_gr_minimum_rows() {
   _inst="$(soif_gr_installed_version .)"
   soif_gr_xyz_valid "$_inst" || return 0
   if soif_gr_below_min "$_inst"; then
-    print_warn "$GUARDRAILS_ROW: ${_inst} is below ${SOIF_GUARDRAILS_MIN}, the minimum for this framework's approval questions: until it is updated, a commit cannot be approved by answering the agent's question with an option id"   # BL-320-CV-MIN
+    print_warn "$GUARDRAILS_ROW: ${_inst} is below ${SOIF_GUARDRAILS_MIN}, the minimum for this framework's fail-closed hook policy and runaway scan: until it is updated, a guard that hangs, crashes or cannot start lets the action it guards through"   # BL-320-CV-MIN
     return 0
   fi
   _avail="$(tr -d '[:space:]' < "$_clone/FRAMEWORK_VERSION" 2>/dev/null || :)"
