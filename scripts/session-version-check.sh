@@ -86,7 +86,7 @@ fi
 _gr_offer() {
   printf '%s\n' "GUARDRAILS UPDATE OFFER. Tell the Orchestrator about it in your FIRST response, before any other work:"
   printf '%s\n' "${GR_STATE:-$GR_TAG an update is available}" | sed 's/^/  /'
-  printf '%s\n' "What the update changes: it copies the Guardrails hooks and rules into .claude/framework/ again and records the new version in .claude/manifest.json. In .claude/settings.json it only adds the Guardrails hook registrations that are missing there, and changes nothing else in that file. It first pulls the shared Guardrails clone (fast-forward only; ~/.claude-dev-framework, or the folder CDF_HOME names), which every project on this machine reads, so it can install a newer version than the one named here."
+  printf '%s\n' "What the update changes: it copies the Guardrails hooks and rules into .claude/framework/ again and records the new version in .claude/manifest.json. In .claude/settings.json it only adds the Guardrails hook registrations that are missing there, refreshes the failure policy (timeout, onFailure) of the Guardrails' own entries, and changes nothing else in that file. It first pulls the shared Guardrails clone (fast-forward only; ~/.claude-dev-framework, or the folder CDF_HOME names), which every project on this machine reads, so it can install a newer version than the one named here."
   printf '%s\n' "Do NOT run the update yourself: it replaces the Guardrails that check your own work, so starting it is the Orchestrator's decision. Ask the Orchestrator whether to update now. If they agree, ask them to type ! and then this exact command at the Claude Code prompt:"   # BL-318-G5-SESSION-ROUTE
   printf '  %s\n' "$GR_CMD"
   printf '%s\n' "Wait for its output: it ends in an [OK] line when the update landed, or a [FAIL] line that names what stopped it."
@@ -102,7 +102,7 @@ _gr_notice() {
   if printf '%s\n' "$GR_NOTICE" | grep -qE 'a new MAJOR version|cannot tell whether an update is available'; then
     printf '%s\n' "There is no command to offer here. A new MAJOR version needs a Guardrails migration, and a version that cannot be read needs the reason above fixed; both are the Orchestrator's to decide."
   fi
-  if printf '%s\n' "$GR_NOTICE" | grep -qF ", the minimum for this framework's approval questions"; then
+  if printf '%s\n' "$GR_NOTICE" | grep -qF ", the minimum for this framework's fail-closed hook policy"; then   # BL-375-SVC-MIN
     printf '%s\n' "A version below the minimum, with nothing newer in the Guardrails clone: the clone itself needs updating first (every project on this computer uses it), and the next session start then offers this project's update."
   fi
   if printf '%s\n' "$GR_NOTICE" | grep -qF "still write the older approval question"; then

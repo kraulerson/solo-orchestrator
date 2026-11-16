@@ -692,6 +692,7 @@ jobs:
             tests/test-lint-runner-label.sh
             tests/test-bl337-adopt-currency-stamp.sh
             tests/test-bl361-adopt-framework-pin.sh
+            tests/test-bl375-cdf-hook-policy.sh
           )
 
           # ── BL-190 shard pins ──────────────────────────────────────────

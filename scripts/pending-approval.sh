@@ -18,7 +18,7 @@
 # least one option approves nothing. An option approves a commit only when
 # --approves names it, and such a question is refused unless a change is
 # staged: stage exactly the change, THEN ask. With the Guardrails at
-# SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh) or later the user answers by
+# SOIF_GUARDRAILS_PICK_MIN (scripts/lib/guardrails.sh, 4.4.0) or later the user answers by
 # replying with the option id, twice; the Guardrails' record-approval.sh shows
 # them the staged change, records the pick in .claude/approvals.jsonl and
 # removes this file. --resolve and --clear only clean up.
@@ -65,6 +65,11 @@ if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ]; then
   # shellcheck source=scripts/lib/guardrails.sh
   . "$SCRIPT_DIR/lib/guardrails.sh"
 fi
+# `## BL-375:` the version where answering by option id arrived (approval
+# design B, 4.4.0), named by every message below. It is the pick floor, not the
+# framework's required floor (SOIF_GUARDRAILS_MIN); the fallback is for a tree
+# without the lib.
+PA_PICK_MIN="${SOIF_GUARDRAILS_PICK_MIN:-4.4.0}"   # BL-375-PICK-PA
 _pa_need_lib() {
   command -v soif_pa_v2_problems >/dev/null 2>&1 && return 0
   print_fail "scripts/lib/guardrails.sh is missing, so a question cannot be checked against the Development Guardrails' rules. Re-sync this project's framework scripts."
@@ -297,7 +302,7 @@ _pa_fp_reask() {
   # BL-277-FP-ROUTE — the close is the user's pick, and only the Guardrails at
   # the minimum or later record one. Below it, or unknown, nothing is asked.
   if [ "$route" != pick ]; then
-    print_fail "--resolve --decision false-positive asks the user, and only the Development Guardrails ${SOIF_GUARDRAILS_MIN:-4.4.0} and later record their answer (this project: ${route}). Nothing was changed."
+    print_fail "--resolve --decision false-positive asks the user, and only the Development Guardrails ${PA_PICK_MIN} and later record their answer (this project: ${route}). Nothing was changed."
     [ "$route" != legacy ] || echo "  To close the proposal on this project, decline it: scripts/pending-approval.sh --resolve --decision decline" >&2
     return 1
   fi
@@ -370,7 +375,7 @@ _pa_fp_reask() {
 # rows whose question the user picked an answer to, reading the pick from
 # .claude/approvals.jsonl — the file only the Guardrails write.
 # --decision accept|decline is the agent's own account of the answer, used
-# only where the Guardrails record no pick (older than SOIF_GUARDRAILS_MIN).
+# only where the Guardrails record no pick (older than SOIF_GUARDRAILS_PICK_MIN).
 cmd_resolve() {
   local project_root decision="" reason="" route
   # Parse optional --decision <accept|decline|false-positive> [--reason TEXT].
@@ -398,7 +403,7 @@ cmd_resolve() {
   # be older than the minimum and record no pick. With 4.4.0 or later, with no
   # readable version, or with scripts/lib/guardrails.sh missing (the route then
   # reads "unknown"), it is refused.
-  [ -z "$decision" ] || [ "$route" = legacy ] || { print_fail "--decision is not used here: it is accepted only where the Development Guardrails are known to be older than ${SOIF_GUARDRAILS_MIN:-4.4.0}, which record no pick (this project: ${route}). With 4.4.0 and later the user's pick is recorded by the Guardrails in .claude/approvals.jsonl, and --resolve reads it from there. Nothing was changed."; return 1; }   # BL-320-RESOLVE-DECISION
+  [ -z "$decision" ] || [ "$route" = legacy ] || { print_fail "--decision is not used here: it is accepted only where the Development Guardrails are known to be older than ${PA_PICK_MIN}, which record no pick (this project: ${route}). With 4.4.0 and later the user's pick is recorded by the Guardrails in .claude/approvals.jsonl, and --resolve reads it from there. Nothing was changed."; return 1; }   # BL-320-RESOLVE-DECISION
 
   # code-escalate-pending-4 (audit v2, S3): validate --decision
   # BEFORE deleting the sentinel. Pre-fix, cmd_resolve removed the
@@ -594,7 +599,7 @@ cmd_validate() {
     print_fail "Schema error: recommendation '$rec' does not match the leading id of any option"
     return 1
   fi
-  [ -z "$project_root" ] || [ "$(_pa_route "$project_root")" != pick ] || { print_fail "Schema error: schema 1 — the Development Guardrails ${SOIF_GUARDRAILS_MIN:-4.4.0} and later cannot take an answer to it. Withdraw it (--clear) and ask again with --offer."; return 1; }   # BL-320-VALIDATE-V1
+  [ -z "$project_root" ] || [ "$(_pa_route "$project_root")" != pick ] || { print_fail "Schema error: schema 1 — the Development Guardrails ${PA_PICK_MIN} and later cannot take an answer to it. Withdraw it (--clear) and ask again with --offer."; return 1; }   # BL-320-VALIDATE-V1
   print_ok "Valid sentinel (schema 1)."
 }
 

@@ -1036,6 +1036,13 @@ run_child_suite "tests/test-bl318-g5-guardrails-refresh.sh" \
 run_child_suite "tests/test-bl320-approval-schema2.sh" \
   "BL-320: schema-2 approval questions, the answer by option id, missing Guardrails hooks registered, init asks before it pulls" \
   "BL-320 approval-schema2 tests FAILED (run tests/test-bl320-approval-schema2.sh for details)"
+# BL-375 (issue #535): the registration rebuilt each Guardrails entry as
+# {type, command}, dropping 4.5.0's fail-closed policy (timeout, onFailure),
+# never refreshed an entry already registered, and discarded the generator's
+# WARNING and ERROR.
+run_child_suite "tests/test-bl375-cdf-hook-policy.sh" \
+  "BL-375: Guardrails entries registered whole with their failure policy, registered entries refreshed in place, the generator's stderr kept" \
+  "BL-375 cdf-hook-policy tests FAILED (run tests/test-bl375-cdf-hook-policy.sh for details)"
 # BL-318 G2: after an adoptee's assessment resume.sh printed the classic prompt,
 # not Phase 0's, because branch 2 required no PRODUCT_MANIFESTO.md; and that
 # prompt filled three fields with CLAUDE.md's Context Health Check paragraph.

@@ -24503,8 +24503,10 @@ human steps by documentation only.
 - **Registration (c2, the part of `## BL-319:` this needs).** `soif_cdf_register_hooks` runs the clone's own
   `generate_settings_json` on the manifest's `activeHooks` and appends, one group per missing event and matcher,
   each entry whose hook file the project has (`# BL-320-REG-FILE`) and whose file no entry of that event already
-  runs (`# BL-320-REG-HAVE`, any spelling, any matcher). Nothing existing is removed, reordered or rewritten
-  (`# BL-320-REG-APPEND`); a symlinked settings file (`# BL-320-REG-LINK`) or one that is not a JSON object of
+  runs (`# BL-320-REG-HAVE`, any spelling, any matcher). Nothing existing is removed or reordered
+  (`# BL-320-REG-APPEND`); since `## BL-375:` each entry is appended as the generator emitted it, and a Guardrails
+  entry already registered has its own `timeout`/`onFailure` refreshed in place (nothing else on it is touched;
+  before BL-375 no existing entry was rewritten); a symlinked settings file (`# BL-320-REG-LINK`) or one that is not a JSON object of
   lists (`# BL-320-REG-JSON`) is refused, writing nothing; the write is a temp file renamed over it; each
   addition is printed. `refresh-guardrails.sh` runs it after its receipt (`# BL-320-RG-REGISTER`) and refuses up
   front without the lib (`# BL-320-RG-LIB`); `upgrade-project.sh` runs it after its refresh, non-fatally
@@ -28529,3 +28531,88 @@ have to render the rules too, and `## BL-277:`'s hook roster is unaffected.
 
 **Direction, if scheduled.** Design doc first: which sections move, the `paths:` globs per platform module, the
 currency rows, the adoption render, and a measurement that the rule loads on the first touch of a matching file.
+
+## BL-375: Guardrails hook registration drops the 4.5.0 failure policy (onFailure/timeout) and discards the generator's warnings
+
+**Logged:** 2026-11-16 (issue #535, filed 2026-11-10)
+**Category:** Defect (Guardrails integration)
+**Severity:** Medium
+**Status:** Open
+
+**What.** Development Guardrails 4.5.0 (CDF PR #50, merged 2026-11-10) makes its blocking hooks fail closed:
+`generate_settings_json` in the clone's `scripts/_shared.sh` emits `"timeout"` (30; `verification-gate` 600) and
+`"onFailure": "block"` on each blocking PreToolUse entry and on `marker-tracker`, so a guard that hangs, crashes or
+cannot start refuses the action (Claude Code 2.1.295 or later; below it the timeouts are written without
+`onFailure` and one WARNING on stderr names the fix; inside a Claude Code session with no readable `claude` it
+prints an ERROR and returns 1 before writing anything). `soif_cdf_register_hooks` (`scripts/lib/guardrails.sh`,
+`## BL-320:` c2) lost all of it: (1) it ran the generator with `2>/dev/null`, so the WARNING and the ERROR went
+nowhere and a refusal surfaced as the generic "could not generate its hook entries"; (2) it extracted
+`{event, matcher, command}` and rebuilt `{type: "command", command}`, so a newly registered entry never carried
+`timeout`/`onFailure`; (3) an entry already present (matched by command name) was never rewritten, so an upgraded
+project kept its 4.4.x entries. Until this, a Solo-registered project ran the 4.5.0 hooks with 4.4.x behaviour: a
+hung or crashed guard allowed the action.
+
+**Measured.** In the 4.5.0 review (issue #535): Solo's call pattern with claude 2.1.294 on PATH gave rc=0 and no
+warning, and "entries carrying timeout or onFailure after Solo rebuild: 0". On this tree (`94dbf54f`),
+the final `tests/test-bl375-cdf-hook-policy.sh` run against an untouched copy of that tree: 3 passed, 39 failed
+(only the guard cases P6, H2 and H4 pass there) — P1/P2 (a generated entry is not registered whole), P3/P9b
+(the WARNING is swallowed), P4 (the refusal carries only the generic message), P5/P9 (a registered entry is
+never refreshed), P7 (check mode lists no refresh), P8 (no receipt for a refresh), P10/P13/P14 (the
+session-start rows), H1/H3 (the floors), and every mutant (no marker to rewrite); on this branch: 42 passed,
+0 failed — 20 cases (P1–P14 with P9b and P11b, H1–H4) and 22 mutants (M1–M14, MM1–MM8) — in 19 s.
+
+**Fix.** `scripts/lib/guardrails.sh`: each generated `.hooks[]` object travels whole and is appended as emitted —
+type, command, timeout, onFailure and any key a later release adds (`# BL-375-ENTRY-WHOLE`); the generator's
+stderr is captured (`# BL-375-GEN-STDERR`), every line shown as `Guardrails generator: …` (`# BL-375-GEN-SHOW`),
+and a non-zero return refuses with the generator's own message, never "none missing" (`# BL-375-GEN-RC`); an
+entry already registered (matched by command name, any spelling, any matcher, as before) whose
+`timeout`/`onFailure` differ from the generated entry's — absent counts as different — has those two fields set
+in place, nothing else on it touched, nothing moved or removed (`# BL-375-POLICY-DIFF`,
+`# BL-375-POLICY-REFRESH`), each printed as `  ~ EVENT[ (MATCHER)]: COMMAND timeout=… onFailure=…` as the file
+spells it, and the receipt re-reads the file for the refreshes too (`# BL-375-REFRESH-RECEIPT`); `check` mode
+lists a would-be refresh as `NAME timeout=… onFailure=…` after the additions (`# BL-375-CHECK-REFRESH`).
+`scripts/check-versions.sh` gives a refresh its own clause in the Guardrails row, never calling a registered entry
+missing (`# BL-375-CV-REFRESH`); `scripts/refresh-guardrails.sh` relays the `~` lines
+(`# BL-375-RG-REFRESH-LINES`) and the generator's lines (`# BL-375-RG-GEN-LINES`); the offer text of
+`scripts/session-version-check.sh`, `docs/user-guide.md` and `docs/adoption.md` no longer say the file is only
+added to. The existing refusals (symlink, non-object, missing manifest, no generator) and the temp-file-plus-rename
+write are kept. Tests: `tests/test-bl375-cdf-hook-policy.sh` (fixture clones whose generator reads knob files
+beside it, never the real clone, so the host's Guardrails version does not matter);
+`tests/test-bl320-approval-schema2.sh` 125/0/0 and `tests/test-bl318-g5-guardrails-refresh.sh` 96/0/0 unchanged.
+
+**Minimum version (Karl's ruling B, 2026-11-16): two constants.** Every generated and adopted project gets 4.6.0
+as the required floor, timed with CDF's rollout — `SOIF_GUARDRAILS_MIN="4.6.0"` in `scripts/lib/guardrails.sh`
+(`# BL-375-MIN-460`), read through `soif_gr_below_min` (`# BL-375-FLOOR-BELOW`) by the session-start row
+(`# BL-320-CV-MIN`), the adoption note (`# BL-320-ADOPT-MIN`), the clone-update warning (`# BL-320-PULL-MIN`) and
+the session-start notice (`# BL-375-SVC-MIN`), all worded for the reason the floor exists — the fail-closed hook
+policy (4.5.0) and the runaway scan (4.6.0) — rather than for approval questions. Measured before the split
+(2026-11-16): raising the one constant alone routed every 4.4.x/4.5.x project to `legacy`, where
+`scripts/pending-approval.sh --resolve --decision` is accepted again (`# BL-320-RESOLVE-DECISION`, the
+fail-closed rule of `## BL-320:` review round 1, R-3), and stopped refusing a 4.4.x/4.5.x mixed install. So the
+pick route has its own floor: `SOIF_GUARDRAILS_PICK_MIN="4.4.0"` (`# BL-375-PICK-MIN`), the version where approval
+design B — the answer by option id — arrived, which never moves; `soif_gr_route` (`# BL-375-PICK-ROUTE`),
+`soif_gr_mixed` (`# BL-375-PICK-MIXED`, through `soif_gr_below_pick_min`, `# BL-375-PICK-BELOW`) and
+`pending-approval.sh`'s messages (`# BL-375-PICK-PA`, one `PA_PICK_MIN` named by all three) read it. A 4.5.0 project is therefore below the floor
+(the row says so, as a notice until the clone holds 4.6.0) and still answers by option id; a 4.3.x project is
+routed `legacy`. The BL-320 cases that pinned 4.4.0 as "at the minimum" now pin the floor (V1–V4, I1, A1 at
+4.6.0) or the pick floor (X1, X2, G1–G3, W9/W10/W13 at 4.4.0), none weaker;
+`tests/test-bl375-cdf-hook-policy.sh` H1–H4 pin the split and its six mutants.
+
+**Review round 3 (2026-11-16, adversarial review of `1865692d`).** The refresh only ADDS or STRENGTHENS a
+policy: a field the generated entry carries is set, a field it lacks keeps the registered value — never `del`
+(`# BL-375-POLICY-DIFF`, `# BL-375-POLICY-REFRESH`). Measured: with the real 4.5.0 clone and no `claude` on PATH
+the generator warns `Claude Code not found on PATH` and emits no `onFailure`; the round-2 refresh wrote
+`onFailure=none` over four fail-closed entries with rc 0 — a loosening no pre-BL-375 code could do. Each `~` line
+now shows before→after (`timeout=5->30 onFailure=block (kept onFailure=block: the generator emitted none)`).
+The session-start row no longer stops at the floor: the registration check runs whatever the version and its
+result is appended to the below-floor row with the refresh offered (`# BL-375-CV-FLOOR-WORK`); a generator that
+refuses at session start is a row — `hook registrations could not be checked: Guardrails generator: ERROR …` —
+never silence (`# BL-375-CV-GEN-ERR`); a refresh is "a stale failure policy (timeout or onFailure)", not
+"without its failure policy"; `docs/builders-guide.md` (shipped to every project) names the two floors.
+
+**Merge condition.** This must not merge until CDF main's `FRAMEWORK_VERSION` reads 4.6.0 and this host's clone has
+pulled it — CDF tags no 4.x minors (`gh api repos/kraulerson/claude-dev-framework/tags`: v4.0.0, v3.0.0, v2.2.0,
+v1.0.0; main reads 4.5.0 on 2026-11-16 via `gh api repos/kraulerson/claude-dev-framework/contents/FRAMEWORK_VERSION`).
+Until then `session-version-check.sh` tells every 4.5.0 host it is below the floor at each session start, with
+nothing to install. Related: `## BL-320:` (the registration this corrects) and `## BL-374:` (the Solo-side runaway
+safeguard, filed on another branch).

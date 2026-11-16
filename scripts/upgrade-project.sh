@@ -205,8 +205,9 @@ _refresh_cdf_assets_solo() {
     # `## BL-320:` (c2) a release that adds a Guardrails hook (4.4.0's
     # record-approval.sh) runs only once .claude/settings.json registers it;
     # the refresh above copies files only. Add the entries the manifest's
-    # activeHooks call for and the file lacks — never removing, reordering or
-    # rewriting one — and name each. Non-fatal here, like the refresh.
+    # activeHooks call for and the file lacks, and (`## BL-375:`) refresh the
+    # failure policy of the Guardrails entries already there — never removing
+    # or reordering one — and name each. Non-fatal here, like the refresh.
     if [ -f "$SCRIPT_DIR/lib/guardrails.sh" ] && [ -d "$_up_cdf" ]; then
       soif_cdf_register_hooks "$PROJECT_ROOT" "$_up_cdf" || print_warn "Guardrails hook registrations not checked (non-fatal — upgrade continues); the reason is above"   # BL-320-UP-REGISTER
     fi

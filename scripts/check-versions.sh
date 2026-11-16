@@ -865,10 +865,11 @@ _cv_guardrails_row() {
   esac
 }
 # ── `## BL-320:` the minimum Guardrails version, and missing registrations ──
-# SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh, the one place the number is
-# written): below it the user cannot approve a commit by answering the agent's
-# question with an option id — the Guardrails' approval design B arrived in
-# 4.4.0. The row says so whatever the clone holds; when the clone is newer the
+# SOIF_GUARDRAILS_MIN (scripts/lib/guardrails.sh — the required floor, 4.6.0
+# since `## BL-375:` for the fail-closed hook policy and the runaway scan;
+# answering by option id needs only SOIF_GUARDRAILS_PICK_MIN, 4.4.0, which
+# never moves): below it a guard that hangs, crashes or cannot start lets the
+# action through. The row says so whatever the clone holds; when the clone is newer the
 # update offer above is the remedy, and when it is not, session-version-check.sh
 # tells it as a notice (there is nothing to offer until the clone is updated).
 # Worded "below", never the generic "BELOW MINIMUM", which session-version-check
@@ -892,25 +893,70 @@ _cv_gr_mixed_row() {   # VERSION — print the mixed-install row and succeed, or
   return 0
 }
 _cv_gr_minimum_rows() {
-  local _clone="${CDF_HOME:-$HOME/.claude-dev-framework}" _inst _avail _missing _n _names _verb
+  local _clone="${CDF_HOME:-$HOME/.claude-dev-framework}" _inst="" _avail="" _missing="" _n=0 _names="" _verb=""
+  local _add="" _ref="" _nr=0 _names_r="" _verb_c="" _what="" _below="" _work="" _err="" _rc=0 _first=""
   command -v soif_gr_below_min >/dev/null 2>&1 || return 0
   [ -d ".claude/framework" ] || return 0
   _inst="$(soif_gr_installed_version .)"
   soif_gr_xyz_valid "$_inst" || return 0
-  if soif_gr_below_min "$_inst"; then
-    print_warn "$GUARDRAILS_ROW: ${_inst} is below ${SOIF_GUARDRAILS_MIN}, the minimum for this framework's approval questions: until it is updated, a commit cannot be approved by answering the agent's question with an option id"   # BL-320-CV-MIN
+  # `## BL-375:` (review round 3) below the required floor the row says so —
+  # and the registration check below still runs: what is unregistered or stale
+  # is appended to the same row and the refresh is offered, whatever the version.
+  soif_gr_below_min "$_inst" && _below="${_inst} is below ${SOIF_GUARDRAILS_MIN}, the minimum for this framework's fail-closed hook policy and runaway scan: until it is updated, a guard that hangs, crashes or cannot start lets the action it guards through"   # BL-320-CV-MIN
+  _avail="$(tr -d '[:space:]' < "$_clone/FRAMEWORK_VERSION" 2>/dev/null || :)"
+  if soif_gr_xyz_valid "$_avail" && [ "$(soif_gr_xyz_cmp "$_inst" "$_avail")" = lt ]; then
+    # the clone is newer: the update offer above is the remedy
+    [ -z "$_below" ] || print_warn "$GUARDRAILS_ROW: ${_below}"
     return 0
   fi
-  _avail="$(tr -d '[:space:]' < "$_clone/FRAMEWORK_VERSION" 2>/dev/null || :)"
-  soif_gr_xyz_valid "$_avail" && [ "$(soif_gr_xyz_cmp "$_inst" "$_avail")" = lt ] && return 0
-  _cv_gr_mixed_row "$_inst" && return 0
-  _missing="$(soif_cdf_register_hooks "$PWD" "$_clone" check 2>/dev/null)" || return 0
-  [ -n "$_missing" ] || return 0
-  _n="$(printf '%s\n' "$_missing" | grep -c .)"
-  _names="$(printf '%s\n' "$_missing" | LC_ALL=C tr -c '0-9A-Za-z._\n-' '?' | paste -sd, - | sed 's/,/, /g')"
+  if _cv_gr_mixed_row "$_inst"; then
+    [ -z "$_below" ] || print_warn "$GUARDRAILS_ROW: ${_below}"
+    return 0
+  fi
+  # `## BL-375:` (review round 3, the issue's ask 2) the generator's stderr is
+  # kept, and a check that could not run is a row of its own — never silence.
+  _err="$(mktemp "${TMPDIR:-/tmp}/soif-cv-gen.XXXXXX" 2>/dev/null)" || _err=/dev/null
+  _missing="$(soif_cdf_register_hooks "$PWD" "$_clone" check 2>"$_err")" || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    _first="$( { grep '^Guardrails generator: ' "$_err" 2>/dev/null; cat "$_err" 2>/dev/null; } | awk 'NR == 1' | LC_ALL=C tr -c '[:print:]\n' '?' | LC_ALL=C cut -c1-240 || :)"
+    [ "$_err" = /dev/null ] || rm -f "$_err"
+    print_warn "$GUARDRAILS_ROW: ${_below:+${_below}; and }hook registrations could not be checked${_first:+: ${_first}}"   # BL-375-CV-GEN-ERR
+    return 0
+  fi
+  [ "$_err" = /dev/null ] || rm -f "$_err"
+  if [ -z "$_missing" ]; then
+    [ -z "$_below" ] || print_warn "$GUARDRAILS_ROW: ${_below}"
+    return 0
+  fi
+  # Check mode lists an addition as its hook name alone and a refresh — a
+  # registered entry whose timeout or onFailure the Guardrails now set
+  # differently — as the name followed by the policy it would get. Each kind
+  # gets its own clause, so a registered entry is never called "missing"; the
+  # one command does both.
+  _add="$(printf '%s\n' "$_missing" | grep -v ' ' || :)"
+  _ref="$(printf '%s\n' "$_missing" | grep ' ' | cut -d' ' -f1 || :)"
+  _n="$(printf '%s\n' "$_add" | grep -c . || :)"
+  _nr="$(printf '%s\n' "$_ref" | grep -c . || :)"
+  _names="$(printf '%s\n' "$_add" | LC_ALL=C tr -c '0-9A-Za-z._\n-' '?' | grep . | paste -sd, - | sed 's/,/, /g' || :)"
+  _names_r="$(printf '%s\n' "$_ref" | LC_ALL=C tr -c '0-9A-Za-z._\n-' '?' | grep . | paste -sd, - | sed 's/,/, /g' || :)"
   _verb="are"; [ "$_n" = 1 ] && _verb="is"
-  print_warn "$GUARDRAILS_ROW: ${_inst}, but ${_n} of its hook registrations ${_verb} missing from .claude/settings.json (${_names})"
-  UPDATES+=("$GUARDRAILS_ROW ${_inst}: register ${_names}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-320-CV-REG
+  _verb_c="carry"; [ "$_nr" = 1 ] && _verb_c="carries"
+  if [ "$_n" -gt 0 ] && [ "$_nr" -gt 0 ]; then
+    _work="${_n} of its hook registrations ${_verb} missing from .claude/settings.json (${_names}), and ${_nr} in it ${_verb_c} a stale failure policy (${_names_r})"
+    _what="register ${_names}; refresh ${_names_r}"
+  elif [ "$_nr" -gt 0 ]; then
+    _work="${_nr} of its hook registrations in .claude/settings.json ${_verb_c} a stale failure policy (timeout or onFailure) (${_names_r})"   # BL-375-CV-REFRESH
+    _what="refresh ${_names_r}"
+  else
+    _work="${_n} of its hook registrations ${_verb} missing from .claude/settings.json (${_names})"
+    _what="register ${_names}"
+  fi
+  if [ -n "$_below" ]; then
+    print_warn "$GUARDRAILS_ROW: ${_below}; and ${_work}"   # BL-375-CV-FLOOR-WORK
+  else
+    print_warn "$GUARDRAILS_ROW: ${_inst}, but ${_work}"
+  fi
+  UPDATES+=("$GUARDRAILS_ROW ${_inst}: ${_what}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-320-CV-REG
 }
 
 _cv_guardrails_row                                                                # BL-318-G5-CALL
