@@ -890,9 +890,12 @@ case_V3() {   # 4.6.0 current (at the floor) and registered: silent
   out="$(sv "$1" "$d")"
   [ -z "$out" ] || { CASE_DETAIL="spoke: $(last3 "$out")"; return 1; }
 }
-case_V4() {   # 4.3.7 and the clone at 4.3.7: a notice naming the 4.6.0 floor, no command
+case_V4() {   # 4.3.7 and the clone at 4.3.7, everything registered: a notice naming the 4.6.0 floor, no command
   local d out
   d="$(newtmp)/p"; vproj "$d" 4.3.7 4.3.7 || { CASE_DETAIL="fixture"; return 1; }
+  # `## BL-375:` (review round 3) a missing registration is named and offered
+  # even below the floor, so register first: this case is the floor alone.
+  reg "$1" "$d" "$d/home/.claude-dev-framework"
   out="$(sv "$1" "$d")"
   has_f "$out" "GUARDRAILS NOTICE" && has_f "$out" "4.3.7 is below 4.6.0" || { CASE_DETAIL="$(last3 "$out")"; return 1; }
   has_f "$out" "$REFRESH_CMD" && { CASE_DETAIL="offers a refresh that installs nothing newer"; return 1; }

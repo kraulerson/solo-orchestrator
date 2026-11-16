@@ -28554,10 +28554,12 @@ hung or crashed guard allowed the action.
 
 **Measured.** In the 4.5.0 review (issue #535): Solo's call pattern with claude 2.1.294 on PATH gave rc=0 and no
 warning, and "entries carrying timeout or onFailure after Solo rebuild: 0". On this tree (`94dbf54f`),
-`tests/test-bl375-cdf-hook-policy.sh` before the fix: 1 passed, 22 failed — P1/P2 (a generated entry is not
-registered whole), P3/P9b (the WARNING is swallowed), P4 (the refusal carries only the generic message),
-P5/P9/P11 (a registered entry is never refreshed), P7 (check mode lists no refresh), P8 (no receipt for a
-refresh), P10 (no session-start row); after it: 23 passed, 0 failed (12 cases, 11 mutants killed), 9s.
+the final `tests/test-bl375-cdf-hook-policy.sh` run against an untouched copy of that tree: 3 passed, 39 failed
+(only the guard cases P6, H2 and H4 pass there) — P1/P2 (a generated entry is not registered whole), P3/P9b
+(the WARNING is swallowed), P4 (the refusal carries only the generic message), P5/P9 (a registered entry is
+never refreshed), P7 (check mode lists no refresh), P8 (no receipt for a refresh), P10/P13/P14 (the
+session-start rows), H1/H3 (the floors), and every mutant (no marker to rewrite); on this branch: 42 passed,
+0 failed — 20 cases (P1–P14 with P9b and P11b, H1–H4) and 22 mutants (M1–M14, MM1–MM8) — in 19 s.
 
 **Fix.** `scripts/lib/guardrails.sh`: each generated `.hooks[]` object travels whole and is appended as emitted —
 type, command, timeout, onFailure and any key a later release adds (`# BL-375-ENTRY-WHOLE`); the generator's
@@ -28596,6 +28598,21 @@ routed `legacy`. The BL-320 cases that pinned 4.4.0 as "at the minimum" now pin 
 4.6.0) or the pick floor (X1, X2, G1–G3, W9/W10/W13 at 4.4.0), none weaker;
 `tests/test-bl375-cdf-hook-policy.sh` H1–H4 pin the split and its six mutants.
 
-**Merge condition.** Once the minimum is 4.6.0, this must not merge before CDF tags v4.6.0: with the host clone at
-4.5.0, `session-version-check.sh` would report every 4.5.0 host as BELOW MINIMUM. Related: `## BL-320:` (the
-registration this corrects) and `## BL-374:` (the Solo-side runaway safeguard, filed on another branch).
+**Review round 3 (2026-11-16, adversarial review of `1865692d`).** The refresh only ADDS or STRENGTHENS a
+policy: a field the generated entry carries is set, a field it lacks keeps the registered value — never `del`
+(`# BL-375-POLICY-DIFF`, `# BL-375-POLICY-REFRESH`). Measured: with the real 4.5.0 clone and no `claude` on PATH
+the generator warns `Claude Code not found on PATH` and emits no `onFailure`; the round-2 refresh wrote
+`onFailure=none` over four fail-closed entries with rc 0 — a loosening no pre-BL-375 code could do. Each `~` line
+now shows before→after (`timeout=5->30 onFailure=block (kept onFailure=block: the generator emitted none)`).
+The session-start row no longer stops at the floor: the registration check runs whatever the version and its
+result is appended to the below-floor row with the refresh offered (`# BL-375-CV-FLOOR-WORK`); a generator that
+refuses at session start is a row — `hook registrations could not be checked: Guardrails generator: ERROR …` —
+never silence (`# BL-375-CV-GEN-ERR`); a refresh is "a stale failure policy (timeout or onFailure)", not
+"without its failure policy"; `docs/builders-guide.md` (shipped to every project) names the two floors.
+
+**Merge condition.** This must not merge until CDF main's `FRAMEWORK_VERSION` reads 4.6.0 and this host's clone has
+pulled it — CDF tags no 4.x minors (`gh api repos/kraulerson/claude-dev-framework/tags`: v4.0.0, v3.0.0, v2.2.0,
+v1.0.0; main reads 4.5.0 on 2026-11-16 via `gh api repos/kraulerson/claude-dev-framework/contents/FRAMEWORK_VERSION`).
+Until then `session-version-check.sh` tells every 4.5.0 host it is below the floor at each session start, with
+nothing to install. Related: `## BL-320:` (the registration this corrects) and `## BL-374:` (the Solo-side runaway
+safeguard, filed on another branch).

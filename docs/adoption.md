@@ -538,9 +538,13 @@ jq -r .frameworkVersion .claude/manifest.json
     and, since `## BL-375:`, also refreshes the failure policy (`timeout`,
     `onFailure` — Guardrails 4.5.0's fail-closed guards) on the Guardrails'
     own entries already registered, changing nothing else in the file; the
-    same row names an entry that lacks the policy. Accept it, or use the
-    override below for each commit until you do. (A project created or
-    adopted with 4.4.0 already in the clone has it.)
+    same row names an entry that lacks the policy, and — for a project still
+    below the 4.6.0 floor — says so too, on the same row (that half clears
+    only when the clone holds 4.6.0 and the project is refreshed from it; a
+    4.4.x project with a 4.4.x clone and nothing left to register gets a
+    notice, not an offer). Accept it, or use the override below for each
+    commit until you do. (A project created or adopted with 4.4.0 already
+    in the clone has it.)
     When the project's own scripts are older than the 4.4.0 question, the
     session start offers no Guardrails-only update at all and names the
     framework sync, which brings both. A project whose scripts are older still

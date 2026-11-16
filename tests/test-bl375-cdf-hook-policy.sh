@@ -36,8 +36,15 @@
 #       indented as the additions are), and (P9b) the generator's WARNING
 #   P10 check-versions.sh: the row names the entries without the policy and
 #       offers the refresh; a missing entry and a refresh each get a clause
-#   P11 absent vs present the other way: a generator without onFailure (an
-#       older Claude Code) removes it from an entry that has it, keeps timeout
+#   P11 a generator without onFailure (an older Claude Code) KEEPS a registered
+#       onFailure=block: the refresh adds or strengthens a policy, never
+#       loosens one (review round 3); P11b the same over a stale timeout —
+#       the timeout is refreshed, the line shows before->after and the kept
+#       field; P12 the reviewer's scenario (WARNING "Claude Code not found on
+#       PATH", no onFailure emitted): nothing loosened
+#   P13 a generator that refuses at session start is a row, never silence
+#   P14 below the floor with work to do: one row with both halves, the
+#       refresh offered
 #   H   the two floors (Karl's ruling B): SOIF_GUARDRAILS_MIN 4.6.0 is what the
 #       framework requires and SOIF_GUARDRAILS_PICK_MIN 4.4.0 is where the
 #       answer by option id arrived — a 4.5.0 project is below the floor and
@@ -144,6 +151,8 @@ generated() { ( . "$1/scripts/_shared.sh" >/dev/null 2>&1; generate_settings_jso
 #            another way (bash .claude/framework/hooks/…); the user's own
 #            pre-commit-gate entry has its own timeout (5), which is theirs
 #   current  the old shape plus the 4.5.0 policy on the three blocking entries
+#   stale    current, but enforce-evaluate carries timeout 5 (a value the
+#            Guardrails now set to 30) beside its onFailure block
 # "norecord" leaves record-approval unregistered (one addition beside refreshes).
 proj() {
   local d="$1" shape="$2" rec="${3:-}" h
@@ -157,7 +166,8 @@ proj() {
           activeHooks: ["session-start", "config-guard", "enforce-evaluate", "verification-gate", "stop-checklist"]}' > "$d/.claude/manifest.json"
   jq -n --arg p "$CMDP" --arg shape "$shape" --arg rec "$rec" '
     ({timeout: 30, onFailure: "block"}) as $pol30 | ({timeout: 600, onFailure: "block"}) as $pol600
-    | (if $shape == "current" then $pol30 else {} end) as $p30 | (if $shape == "current" then $pol600 else {} end) as $p600
+    | (if $shape == "current" or $shape == "stale" then $pol30 else {} end) as $p30 | (if $shape == "current" or $shape == "stale" then $pol600 else {} end) as $p600
+    | (if $shape == "stale" then {timeout: 5, onFailure: "block"} else $p30 end) as $pee
     | {
       permissions: {allow: ["Bash(git status)"], deny: ["Edit(/.claude/settings.json)"]},
       hooks: ({
@@ -167,7 +177,7 @@ proj() {
       } + (if $shape == "fresh" then {} else {
         SessionStart: [{hooks: [{type: "command", command: ($p + "session-start.sh")},
                                 {type: "command", command: "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-version-check.sh"}]}],
-        PreToolUse: [{matcher: "Bash", hooks: [({type: "command", command: ($p + "enforce-evaluate.sh"), note: "keep"} + $p30)]},
+        PreToolUse: [{matcher: "Bash", hooks: [({type: "command", command: ($p + "enforce-evaluate.sh"), note: "keep"} + $pee)]},
                      {matcher: "Bash|Write|Edit|NotebookEdit", hooks: [({type: "command", command: ($p + "config-guard.sh")} + $p30)]},
                      {matcher: "Bash", hooks: [{type: "command", command: "bash \"$CLAUDE_PROJECT_DIR\"/scripts/pre-commit-gate.sh", timeout: 5}]},
                      {matcher: "Bash", hooks: [({type: "command", command: "bash .claude/framework/hooks/verification-gate.sh"} + $p600)]}],
@@ -284,9 +294,9 @@ case_P5() {   # (e) upgrade: 4.4.x-shaped entries gain the policy in place; noth
   same_but "$d/.claude/settings.json" "$before" "$POL" || return 1
   [ "$(count_f "$REG_OUT" "  ~ ")" = 3 ] || { CASE_DETAIL="expected 3 refreshes named: $REG_OUT"; return 1; }
   has_f "$REG_OUT" "  + " && { CASE_DETAIL="an addition named where every entry is registered: $REG_OUT"; return 1; }
-  line_f "$REG_OUT" "  ~ PreToolUse (Bash): ${CMDP}enforce-evaluate.sh timeout=30 onFailure=block" || { CASE_DETAIL="enforce-evaluate's refresh is not named as specified: $REG_OUT"; return 1; }
-  line_f "$REG_OUT" "  ~ PreToolUse (Bash|Write|Edit|NotebookEdit): ${CMDP}config-guard.sh timeout=30 onFailure=block" || { CASE_DETAIL="config-guard's refresh is not named: $REG_OUT"; return 1; }
-  line_f "$REG_OUT" "  ~ PreToolUse (Bash): bash .claude/framework/hooks/verification-gate.sh timeout=600 onFailure=block" || { CASE_DETAIL="the differently spelled entry is not named as the file spells it: $REG_OUT"; return 1; }
+  line_f "$REG_OUT" "  ~ PreToolUse (Bash): ${CMDP}enforce-evaluate.sh timeout=none->30 onFailure=none->block" || { CASE_DETAIL="enforce-evaluate's refresh is not named before->after: $REG_OUT"; return 1; }
+  line_f "$REG_OUT" "  ~ PreToolUse (Bash|Write|Edit|NotebookEdit): ${CMDP}config-guard.sh timeout=none->30 onFailure=none->block" || { CASE_DETAIL="config-guard's refresh is not named: $REG_OUT"; return 1; }
+  line_f "$REG_OUT" "  ~ PreToolUse (Bash): bash .claude/framework/hooks/verification-gate.sh timeout=none->600 onFailure=none->block" || { CASE_DETAIL="the differently spelled entry is not named as the file spells it: $REG_OUT"; return 1; }
   has_f "$REG_OUT" "registrations refreshed in .claude/settings.json" || { CASE_DETAIL="no heading says what happened: $(printf '%s\n' "$REG_OUT" | head -1)"; return 1; }
 }
 case_P6() {   # (f) entries already carrying the policy: byte-identical, nothing refreshed
@@ -357,7 +367,7 @@ case_P9() {   # refresh-guardrails.sh prints each refresh it made
   [ "$RG_RC" -eq 0 ] || { CASE_DETAIL="rc=$RG_RC: $(last3 "$RG_OUT")"; return 1; }
   has_f "$RG_OUT" "[OK] Development Guardrails in this project updated: 4.5.0 -> 4.6.0" || { CASE_DETAIL="no [OK]: $(last3 "$RG_OUT")"; return 1; }
   same_but "$d/.claude/settings.json" "$before" "$POL" || return 1
-  line_f "$RG_OUT" "       ~ PreToolUse (Bash): ${CMDP}enforce-evaluate.sh timeout=30 onFailure=block" || { CASE_DETAIL="the refresh is not shown: $(printf '%s\n' "$RG_OUT" | command grep -F 'settings' | tr '\n' '|' | cut -c1-400)"; return 1; }
+  line_f "$RG_OUT" "       ~ PreToolUse (Bash): ${CMDP}enforce-evaluate.sh timeout=none->30 onFailure=none->block" || { CASE_DETAIL="the refresh is not shown before->after: $(printf '%s\n' "$RG_OUT" | command grep -F '~' | tr '\n' '|' | cut -c1-400)"; return 1; }
   [ "$(count_f "$RG_OUT" "       ~ ")" = 3 ] || { CASE_DETAIL="expected 3 refresh lines: $RG_OUT"; return 1; }
   has_f "$RG_OUT" "settings.json was not changed" && { CASE_DETAIL="claims settings.json was not changed"; return 1; }
   has_f "$RG_OUT" "Guardrails hook registrations refreshed in .claude/settings.json" || { CASE_DETAIL="the heading is not relayed: $RG_OUT"; return 1; }
@@ -370,7 +380,7 @@ case_P9b() {  # refresh-guardrails.sh shows the generator's WARNING, which it wo
   rg "$1" "$d" "$t/home"
   [ "$RG_RC" -eq 0 ] || { CASE_DETAIL="rc=$RG_RC: $(last3 "$RG_OUT")"; return 1; }
   line_f "$RG_OUT" "     Guardrails generator: $WARN_LINE" || { CASE_DETAIL="the WARNING is swallowed: $(printf '%s\n' "$RG_OUT" | tail -8 | tr '\n' '|' | cut -c1-500)"; return 1; }
-  line_f "$RG_OUT" "       ~ PreToolUse (Bash): ${CMDP}enforce-evaluate.sh timeout=30 onFailure=none" || { CASE_DETAIL="the timeout-only refresh is not shown: $RG_OUT"; return 1; }
+  line_f "$RG_OUT" "       ~ PreToolUse (Bash): ${CMDP}enforce-evaluate.sh timeout=none->30 onFailure=none" || { CASE_DETAIL="the timeout-only refresh is not shown: $RG_OUT"; return 1; }
 }
 GR='Development Guardrails in this project'
 STUBBIN="$WORK/stub-bin"; mkdir -p "$STUBBIN"
@@ -386,7 +396,7 @@ case_P10() {  # check-versions.sh names the entries without the policy and offer
   local d out
   d="$(newtmp)/p"; cv_proj "$d" old || { CASE_DETAIL="fixture"; return 1; }
   out="$(cv "$1" "$d")"
-  has_f "$out" "[WARN] $GR: 4.6.0, but 3 of its hook registrations in .claude/settings.json are without its failure policy (" \
+  has_f "$out" "[WARN] $GR: 4.6.0, but 3 of its hook registrations in .claude/settings.json carry a stale failure policy (timeout or onFailure) (" \
     || { CASE_DETAIL="no refresh row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|' | cut -c1-400)"; return 1; }
   has_f "$out" "enforce-evaluate" && has_f "$out" "config-guard" && has_f "$out" "verification-gate" || { CASE_DETAIL="the row does not name the three"; return 1; }
   has_f "$out" "  $GR: bash scripts/refresh-guardrails.sh" || { CASE_DETAIL="the refresh is not offered"; return 1; }
@@ -394,7 +404,7 @@ case_P10() {  # check-versions.sh names the entries without the policy and offer
   # a missing entry beside the refreshes: each gets its own clause
   d="$(newtmp)/p"; cv_proj "$d" old norecord || { CASE_DETAIL="fixture 2"; return 1; }
   out="$(cv "$1" "$d")"
-  has_f "$out" "[WARN] $GR: 4.6.0, but 1 of its hook registrations is missing from .claude/settings.json (record-approval), and 3 in it are without its failure policy (" \
+  has_f "$out" "[WARN] $GR: 4.6.0, but 1 of its hook registrations is missing from .claude/settings.json (record-approval), and 3 in it carry a stale failure policy (" \
     || { CASE_DETAIL="no combined row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|' | cut -c1-400)"; return 1; }
   # current: no row at all
   d="$(newtmp)/p"; cv_proj "$d" current || { CASE_DETAIL="fixture 3"; return 1; }
@@ -402,17 +412,69 @@ case_P10() {  # check-versions.sh names the entries without the policy and offer
   has_f "$out" "[WARN] $GR" && { CASE_DETAIL="a current project gets a row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
   has_f "$out" "$GR: 4.6.0 — up to date" || { CASE_DETAIL="no up-to-date row: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|')"; return 1; }
 }
-case_P11() {  # absent vs present the other way: onFailure removed where the generator no longer emits it
-  local t d c before
+case_P11() {  # a generator without onFailure (an older Claude Code) KEEPS a registered onFailure: nothing to refresh, file byte-identical
+  local t d c s
   t="$(newtmp)"; d="$t/p"; c="$t/clone"
   proj "$d" current && mk_clone "$c" 4.6.0 || { CASE_DETAIL="fixture"; return 1; }
+  knob "$c" policy timeout-only
+  s="$(cksum < "$d/.claude/settings.json")"
+  reg "$1" "$d" "$c"
+  [ "$REG_RC" -eq 0 ] || { CASE_DETAIL="rc=$REG_RC: $(last3 "$REG_OUT")"; return 1; }
+  [ "$(cksum < "$d/.claude/settings.json")" = "$s" ] || { CASE_DETAIL="the file was rewritten: $REG_OUT"; return 1; }
+  jq -e '[.hooks.PreToolUse[0,1,3].hooks[0].onFailure] == ["block", "block", "block"]' "$d/.claude/settings.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="a registered onFailure=block was loosened: $(jq -c '.hooks.PreToolUse' "$d/.claude/settings.json")"; return 1; }
+  has_f "$REG_OUT" "  ~ " && { CASE_DETAIL="a refresh named where the generator carries nothing newer: $REG_OUT"; return 1; }
+  has_f "$REG_OUT" "none to refresh" || { CASE_DETAIL="does not say none to refresh: $REG_OUT"; return 1; }
+}
+case_P11b() { # the same generator over a stale timeout: the timeout is refreshed, onFailure=block is KEPT and the line says so
+  local t d c before
+  t="$(newtmp)"; d="$t/p"; c="$t/clone"
+  proj "$d" stale && mk_clone "$c" 4.6.0 || { CASE_DETAIL="fixture"; return 1; }
   knob "$c" policy timeout-only
   before="$(jq -c . "$d/.claude/settings.json")"
   reg "$1" "$d" "$c"
   [ "$REG_RC" -eq 0 ] || { CASE_DETAIL="rc=$REG_RC: $(last3 "$REG_OUT")"; return 1; }
-  same_but "$d/.claude/settings.json" "$before" 'del(.hooks.PreToolUse[0].hooks[0].onFailure, .hooks.PreToolUse[1].hooks[0].onFailure, .hooks.PreToolUse[3].hooks[0].onFailure)' || return 1
-  line_f "$REG_OUT" "  ~ PreToolUse (Bash): ${CMDP}enforce-evaluate.sh timeout=30 onFailure=none" || { CASE_DETAIL="the removal is not named: $REG_OUT"; return 1; }
-  [ "$(count_f "$REG_OUT" "  ~ ")" = 3 ] || { CASE_DETAIL="expected 3 refreshes named: $REG_OUT"; return 1; }
+  same_but "$d/.claude/settings.json" "$before" '.hooks.PreToolUse[0].hooks[0].timeout = 30' || return 1
+  line_f "$REG_OUT" "  ~ PreToolUse (Bash): ${CMDP}enforce-evaluate.sh timeout=5->30 onFailure=block (kept onFailure=block: the generator emitted none)" \
+    || { CASE_DETAIL="the refresh does not show before->after and the kept field: $REG_OUT"; return 1; }
+  [ "$(count_f "$REG_OUT" "  ~ ")" = 1 ] || { CASE_DETAIL="expected exactly 1 refresh named: $REG_OUT"; return 1; }
+}
+case_P12() {  # the reviewer's scenario: the 4.5.0 generator under an old Claude Code — WARNING, no onFailure — loosens nothing
+  local t d c s
+  t="$(newtmp)"; d="$t/p"; c="$t/clone"
+  proj "$d" current && mk_clone "$c" 4.6.0 || { CASE_DETAIL="fixture"; return 1; }
+  knob "$c" policy timeout-only; knob "$c" stderr 'WARNING: Claude Code not found on PATH; fail-closed hooks need Claude Code 2.1.295 or later. Until then the guard hooks will not fail closed when they time out, crash or cannot start: the action they guard goes ahead. Fix: install Claude Code 2.1.295 or later (https://claude.com/claude-code) so that `claude` is on PATH, then re-run sync.sh in this project.'$'\n'
+  s="$(cksum < "$d/.claude/settings.json")"
+  reg "$1" "$d" "$c"
+  [ "$REG_RC" -eq 0 ] || { CASE_DETAIL="rc=$REG_RC: $(last3 "$REG_OUT")"; return 1; }
+  has_f "$REG_OUT" "Guardrails generator: WARNING: Claude Code not found on PATH" || { CASE_DETAIL="the WARNING is not shown: $(last3 "$REG_OUT")"; return 1; }
+  [ "$(cksum < "$d/.claude/settings.json")" = "$s" ] || { CASE_DETAIL="the file was rewritten under an old Claude Code: $REG_OUT"; return 1; }
+  jq -e '[.hooks.PreToolUse[0,1,3].hooks[0].onFailure] == ["block", "block", "block"]' "$d/.claude/settings.json" >/dev/null 2>&1 \
+    || { CASE_DETAIL="onFailure=block was removed: $(jq -c '.hooks.PreToolUse' "$d/.claude/settings.json")"; return 1; }
+  has_f "$REG_OUT" "onFailure=none" && { CASE_DETAIL="a refresh to onFailure=none was made: $REG_OUT"; return 1; }
+  return 0
+}
+case_P13() {  # a generator that refuses at session start is a row, never silence
+  local d out
+  d="$(newtmp)/p"; cv_proj "$d" current || { CASE_DETAIL="fixture"; return 1; }
+  knob "$d/home/.claude-dev-framework" rc 1; knob "$d/home/.claude-dev-framework" stderr "$ERR_LINE"$'\n'
+  out="$(cv "$1" "$d")"
+  has_f "$out" "[WARN] $GR: hook registrations could not be checked: Guardrails generator: ERROR: claude is not on this shell's PATH" \
+    || { CASE_DETAIL="no row for the refused check: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|' | cut -c1-400)"; return 1; }
+  out="$(sv "$1" "$d")"
+  has_f "$out" "GUARDRAILS NOTICE" && has_f "$out" "hook registrations could not be checked" || { CASE_DETAIL="the session start is silent about a check that did not run: $(last3 "$out")"; return 1; }
+}
+case_P14() {  # below the floor AND work to do: one row with both halves, and the refresh offered
+  local d out
+  d="$(newtmp)/p"; cv_proj "$d" old norecord || { CASE_DETAIL="fixture"; return 1; }
+  jq '.frameworkVersion = "4.5.0"' "$d/.claude/manifest.json" > "$d/m" && mv "$d/m" "$d/.claude/manifest.json"
+  printf '4.5.0\n' > "$d/home/.claude-dev-framework/FRAMEWORK_VERSION"; ( cd "$d/home/.claude-dev-framework" && git add -A && git commit -q -m v450 ) >/dev/null 2>&1
+  out="$(cv "$1" "$d")"
+  has_f "$out" "[WARN] $GR: 4.5.0 $FLOOR_ROW; and 1 of its hook registrations is missing from .claude/settings.json (record-approval), and 3 in it carry a stale failure policy (" \
+    || { CASE_DETAIL="the floor row does not carry the registration check: $(printf '%s' "$out" | command grep -F "$GR" | tr '\n' '|' | cut -c1-500)"; return 1; }
+  has_f "$out" "  $GR: bash scripts/refresh-guardrails.sh" || { CASE_DETAIL="the refresh is not offered below the floor"; return 1; }
+  out="$(sv "$1" "$d")"
+  has_f "$out" "GUARDRAILS UPDATE OFFER" && has_f "$out" "bash scripts/refresh-guardrails.sh" || { CASE_DETAIL="the session start does not offer the refresh: $(last3 "$out")"; return 1; }
 }
 
 # ── H: the two floors (Karl's ruling B, 2026-11-16) ──────────────────────────
@@ -531,7 +593,11 @@ check "P8: the receipt — a refresh that never landed is a [FAIL], not 'refresh
 check "P9: refresh-guardrails.sh prints each refresh and the heading, not 'was not changed'" case_P9
 check "P9b: refresh-guardrails.sh shows the generator's WARNING" case_P9b
 check "P10: check-versions.sh — the row names the entries without the policy, a missing entry gets its own clause, a current project gets none" case_P10
-check "P11: a generator without onFailure removes it from entries that have it and keeps the timeout" case_P11
+check "P11: a generator without onFailure (an older Claude Code) keeps a registered onFailure=block — nothing to refresh, file byte-identical" case_P11
+check "P11b: the same generator over a stale timeout — timeout 5->30 refreshed, onFailure=block kept and said so" case_P11b
+check "P12: the reviewer's scenario — WARNING 'Claude Code not found on PATH' shown, no onFailure emitted, nothing loosened" case_P12
+check "P13: a generator that refuses at session start — a 'could not be checked' row and notice, never silence" case_P13
+check "P14: below the floor with a missing registration and stale policy — one row with both halves, the refresh offered" case_P14
 echo "=== H — the two floors: 4.6.0 required, 4.4.0 for the answer by option id ==="
 check "H1: 4.5.0 — below the floor in the row, the notice and the clone warning; routed pick; the agent's --decision refused, naming 4.4.0" case_H1
 check "H2: 4.6.0 — at the floor: no row, silent session start, routed pick" case_H2
@@ -578,6 +644,10 @@ mutant M8  "$GL" '# BL-375-CHECK-REFRESH' '    :' case_P7 "check mode hides the 
 mutant M9  scripts/check-versions.sh '# BL-375-CV-REFRESH' '    :' case_P10 "the session start never names an entry without the policy"
 mutant M10 scripts/refresh-guardrails.sh '# BL-375-RG-REFRESH-LINES' "  printf '%s\\n' \"\$REG_OUT\" | grep '^  + ' | sed 's/^/     /'" case_P9 "the refresh script hides the refreshes it made"
 mutant M11 scripts/refresh-guardrails.sh '# BL-375-RG-GEN-LINES' ':' case_P9b "the refresh script swallows the generator's WARNING"
+# Review round 3: the refresh that loosened (del restored), the silent refused check, the floor row that stopped early.
+mutant M12 "$GL" '# BL-375-POLICY-REFRESH' "  prog=\"\$prog\"' | reduce \$ref[] as \$r (.; .hooks[\$r.event] |= map(if (.hooks | type) == \"array\" then .hooks |= map(if ((.command // \"\") | tostring | contains(\$r.name)) then (if (\$r.entry | has(\"timeout\")) then .timeout = \$r.entry.timeout else del(.timeout) end | if (\$r.entry | has(\"onFailure\")) then .onFailure = \$r.entry.onFailure else del(.onFailure) end) else . end) else . end))'" case_P11b "a field the generator lacks is deleted: onFailure=block loosened under an old Claude Code"
+mutant M13 scripts/check-versions.sh '# BL-375-CV-GEN-ERR' '    :' case_P13 "a generator that refuses at session start is silence"
+mutant M14 scripts/check-versions.sh '# BL-375-CV-FLOOR-WORK' '    :' case_P14 "the floor row hides what is unregistered or stale"
 # The two floors: each constant's consumer swapped to the other constant.
 mutant MM1 "$GL" '# BL-375-MIN-460' 'SOIF_GUARDRAILS_MIN="4.4.0"' case_H1 "the required floor is still 4.4.0: a 4.5.0 project is not told"
 mutant MM2 "$GL" '# BL-375-FLOOR-BELOW' '  soif_gr_xyz_valid "${1:-}" && [ "$(soif_gr_xyz_cmp "$1" "$SOIF_GUARDRAILS_PICK_MIN")" = lt ]' case_H1 "below-minimum reads the pick floor: a 4.5.0 project is not told"

@@ -238,7 +238,7 @@ soif_cdf_register_hooks() {
   local root="$1" clone="$2" mode="${3:-apply}"
   local st="$root/.claude/settings.json" mf="$root/.claude/manifest.json" shared="$clone/scripts/_shared.sh"
   local gen="" gen_rc=0 gen_err="" errf="" line="" ev="" cmd="" name="" have=0 missing="" refresh="" n=0 nr=0
-  local add="{}" ref="[]" prog="" tmp="" perm="" lost="" rlost=""
+  local add="{}" ref="[]" plan="[]" prog="" tmp="" perm="" lost="" rlost=""
   local -a active=()
   [ ! -L "$st" ] || { _gr_reg_fail ".claude/settings.json is a symlink, so registering would write through it to wherever it points"; return 1; }   # BL-320-REG-LINK
   [ -f "$st" ] || { _gr_reg_fail "there is no .claude/settings.json to register the Guardrails hooks in"; return 1; }
@@ -280,9 +280,11 @@ soif_cdf_register_hooks() {
     jq -e --arg e "$ev" --arg n ".claude/framework/hooks/$name" 'any((.hooks[$e] // [])[]?.hooks[]?; (.command // "") | tostring | contains($n))' "$st" >/dev/null 2>&1 && have=1   # BL-320-REG-HAVE
     if [ "$have" = 1 ]; then
       # `## BL-375:` registered already: refreshed when any entry of that
-      # event running this file has a timeout or onFailure that differs from
-      # the generated entry's (absent is a difference), else left alone.
-      jq -e --arg e "$ev" --arg n ".claude/framework/hooks/$name" --argjson g "$(jq -c .entry <<< "$line")" 'any((.hooks[$e] // [])[]?.hooks[]?; ((.command // "") | tostring | contains($n)) and ((.timeout != $g.timeout) or (.onFailure != $g.onFailure)))' "$st" >/dev/null 2>&1 || continue   # BL-375-POLICY-DIFF
+      # event running this file differs in a timeout or onFailure the
+      # generated entry CARRIES; a field the generated entry lacks is never a
+      # reason (review round 3: under a Claude Code older than 2.1.295 the
+      # generator emits no onFailure, and a registered "block" must stay).
+      jq -e --arg e "$ev" --arg n ".claude/framework/hooks/$name" --argjson g "$(jq -c .entry <<< "$line")" 'any((.hooks[$e] // [])[]?.hooks[]?; ((.command // "") | tostring | contains($n)) and ((($g | has("timeout")) and (.timeout != $g.timeout)) or (($g | has("onFailure")) and (.onFailure != $g.onFailure))))' "$st" >/dev/null 2>&1 || continue   # BL-375-POLICY-DIFF
       case "$refresh" in *"$line"*) continue ;; esac
       refresh="$refresh$line"$'\n'
       nr=$((nr + 1))
@@ -296,9 +298,24 @@ soif_cdf_register_hooks() {
     [ "$mode" = check ] || echo "Guardrails hook registrations: none missing from .claude/settings.json, none to refresh"
     return 0
   fi
+  # `## BL-375:` the refresh plan, read from the file BEFORE the write: every
+  # registered entry a refresh touches, as the file spells it, with its timeout
+  # and onFailure before (bt, bo) and after (at, ao) — a field the generated
+  # entry lacks keeps the registered value and is listed under "kept". Check
+  # mode and the report after the write print from it.
+  [ "$nr" -eq 0 ] || plan="$(printf '%s' "$refresh" | jq -sc --slurpfile s "$st" 'def fv: if . == null then "none" else tostring end;
+      [ .[] as $e | ($e.entry.command | split("/") | last) as $n
+        | ($s[0].hooks[$e.event] // [])[]? | (.matcher // "") as $m | .hooks[]?
+        | select((.command // "") | tostring | contains(".claude/framework/hooks/" + $n))
+        | {event: $e.event, matcher: $m, command: .command, name: ($n | sub("\\.sh$"; "")), bt: .timeout, bo: .onFailure,
+           at: (if ($e.entry | has("timeout")) then $e.entry.timeout else .timeout end),
+           ao: (if ($e.entry | has("onFailure")) then $e.entry.onFailure else .onFailure end),
+           kept: [ (if (($e.entry | has("timeout")) | not) and (.timeout != null) then "timeout=" + (.timeout | fv) else empty end),
+                   (if (($e.entry | has("onFailure")) | not) and (.onFailure != null) then "onFailure=" + (.onFailure | fv) else empty end) ]} ]')" \
+    || { _gr_reg_fail "could not read the entries to refresh"; return 1; }
   if [ "$mode" = check ]; then
     [ "$n" -eq 0 ] || printf '%s' "$missing" | jq -r '.entry.command | split("/") | last | sub("\\.sh$"; "")'
-    [ "$nr" -eq 0 ] || printf '%s' "$refresh" | jq -r '"\(.entry.command | split("/") | last | sub("\\.sh$"; "")) timeout=\(.entry.timeout // "none") onFailure=\(.entry.onFailure // "none")"'   # BL-375-CHECK-REFRESH
+    [ "$nr" -eq 0 ] || jq -r 'def fv: if . == null then "none" else tostring end; [.[] | "\(.name) timeout=\(.at | fv) onFailure=\(.ao | fv)"] | unique[]' <<< "$plan"   # BL-375-CHECK-REFRESH
     return 0
   fi
   [ "$n" -eq 0 ] || add="$(printf '%s' "$missing" | jq -s 'group_by(.event) | map({key: .[0].event,
@@ -308,9 +325,11 @@ soif_cdf_register_hooks() {
   prog='.hooks = (reduce ($add | to_entries[]) as $e ((.hooks // {}); .[$e.key] = ((.[$e.key] // []) + $e.value)))'   # BL-320-REG-APPEND
   # `## BL-375:` then, on every entry of the event that runs the refreshed
   # hook's file (any spelling, any matcher): its timeout and onFailure become
-  # the generated entry's, a field the generated entry lacks is removed, and
-  # nothing else on the entry, in its group or in its event is touched.
-  prog="$prog"' | reduce $ref[] as $r (.; .hooks[$r.event] |= map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | contains($r.name)) then (if ($r.entry | has("timeout")) then .timeout = $r.entry.timeout else del(.timeout) end | if ($r.entry | has("onFailure")) then .onFailure = $r.entry.onFailure else del(.onFailure) end) else . end) else . end))'   # BL-375-POLICY-REFRESH
+  # the generated entry's where the generated entry carries them; a field it
+  # lacks is KEPT — the refresh adds or strengthens a policy, never loosens one
+  # (review round 3) — and nothing else on the entry, in its group or in its
+  # event is touched.
+  prog="$prog"' | reduce $ref[] as $r (.; .hooks[$r.event] |= map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | contains($r.name)) then (if ($r.entry | has("timeout")) then .timeout = $r.entry.timeout else . end | if ($r.entry | has("onFailure")) then .onFailure = $r.entry.onFailure else . end) else . end) else . end))'   # BL-375-POLICY-REFRESH
   tmp="$(mktemp "$st.XXXXXX")" || { _gr_reg_fail "could not create a temporary file beside .claude/settings.json"; return 1; }
   perm="$(stat -c '%a' "$st" 2>/dev/null || stat -f '%Lp' "$st" 2>/dev/null || echo 644)"
   if jq --argjson add "$add" --argjson ref "$ref" "$prog" "$st" > "$tmp" 2>/dev/null && chmod "$perm" "$tmp" && mv -f "$tmp" "$st"; then
@@ -319,14 +338,15 @@ soif_cdf_register_hooks() {
     lost="$(printf '%s' "$missing" | jq -r --slurpfile s "$st" 'select(. as $e | ($s[0].hooks[$e.event] // []) | any(.[]?.hooks[]?; .command == $e.entry.command) | not) | .entry.command' 2>/dev/null)" \
       || lost="(.claude/settings.json could not be read back)"
     # `## BL-375:` and every refreshed entry now carries the generated policy.
-    rlost="$(printf '%s' "$refresh" | jq -r --slurpfile s "$st" 'select(. as $e | ($s[0].hooks[$e.event] // []) | any(.[]?.hooks[]?; ((.command // "") | tostring | contains(".claude/framework/hooks/" + ($e.entry.command | split("/") | last))) and ((.timeout != $e.entry.timeout) or (.onFailure != $e.entry.onFailure)))) | .entry.command' 2>/dev/null)" || rlost="(.claude/settings.json could not be read back)"   # BL-375-REFRESH-RECEIPT
+    rlost="$(printf '%s' "$refresh" | jq -r --slurpfile s "$st" 'select(. as $e | ($s[0].hooks[$e.event] // []) | any(.[]?.hooks[]?; ((.command // "") | tostring | contains(".claude/framework/hooks/" + ($e.entry.command | split("/") | last))) and ((($e.entry | has("timeout")) and (.timeout != $e.entry.timeout)) or (($e.entry | has("onFailure")) and (.onFailure != $e.entry.onFailure))))) | .entry.command' 2>/dev/null)" || rlost="(.claude/settings.json could not be read back)"   # BL-375-REFRESH-RECEIPT
     [ -z "$rlost" ] || lost="${lost:+$lost }$rlost"
     [ -z "$lost" ] || { [ ! -f "$tmp" ] || rm -f "$tmp"; _gr_reg_fail "the registrations did not land in .claude/settings.json: $(printf '%s' "$lost" | tr '\n' ' ')"; return 1; }   # BL-320-REG-RECEIPT
     if [ "$n" -gt 0 ] && [ "$nr" -gt 0 ]; then echo "Guardrails hook registrations added to and refreshed in .claude/settings.json (nothing else in it changed):"
     elif [ "$n" -gt 0 ]; then echo "Guardrails hook registrations added to .claude/settings.json (nothing else in it changed):"
     else echo "Guardrails hook registrations refreshed in .claude/settings.json (nothing else in it changed):"; fi
     [ "$n" -eq 0 ] || printf '%s' "$missing" | jq -r '"  + \(.event)\(if .matcher != "" then " (" + .matcher + ")" else "" end): \(.entry.command)"'
-    [ "$nr" -eq 0 ] || printf '%s' "$refresh" | jq -r --slurpfile s "$st" '. as $e | ($s[0].hooks[$e.event] // [])[]? | (.matcher // "") as $m | .hooks[]? | select((.command // "") | tostring | contains(".claude/framework/hooks/" + ($e.entry.command | split("/") | last))) | "  ~ \($e.event)\(if $m != "" then " (" + $m + ")" else "" end): \(.command) timeout=\(.timeout // "none") onFailure=\(.onFailure // "none")"'
+    [ "$nr" -eq 0 ] || jq -r 'def fv: if . == null then "none" else tostring end; def ch(b; a): if b == a then (a | fv) else (b | fv) + "->" + (a | fv) end;
+        .[] | "  ~ \(.event)\(if .matcher != "" then " (" + .matcher + ")" else "" end): \(.command) timeout=\(ch(.bt; .at)) onFailure=\(ch(.bo; .ao))\(if (.kept | length) > 0 then " (kept " + (.kept | join(", ")) + ": the generator emitted none)" else "" end)"' <<< "$plan"
     return 0
   fi
   rm -f "$tmp"
