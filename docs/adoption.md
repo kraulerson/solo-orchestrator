@@ -534,9 +534,13 @@ jq -r .frameworkVersion .claude/manifest.json
     grep -c record-approval .claude/settings.json
     ```
 
-    The session start then offers the refresh, which adds only what is
-    missing; accept it, or use the override below for each commit until you
-    do. (A project created or adopted with 4.4.0 already in the clone has it.)
+    The session start then offers the refresh, which adds what is missing
+    and, since `## BL-375:`, also refreshes the failure policy (`timeout`,
+    `onFailure` — Guardrails 4.5.0's fail-closed guards) on the Guardrails'
+    own entries already registered, changing nothing else in the file; the
+    same row names an entry that lacks the policy. Accept it, or use the
+    override below for each commit until you do. (A project created or
+    adopted with 4.4.0 already in the clone has it.)
     When the project's own scripts are older than the 4.4.0 question, the
     session start offers no Guardrails-only update at all and names the
     framework sync, which brings both. A project whose scripts are older still

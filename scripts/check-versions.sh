@@ -892,7 +892,8 @@ _cv_gr_mixed_row() {   # VERSION — print the mixed-install row and succeed, or
   return 0
 }
 _cv_gr_minimum_rows() {
-  local _clone="${CDF_HOME:-$HOME/.claude-dev-framework}" _inst _avail _missing _n _names _verb
+  local _clone="${CDF_HOME:-$HOME/.claude-dev-framework}" _inst="" _avail="" _missing="" _n=0 _names="" _verb=""
+  local _add="" _ref="" _nr=0 _names_r="" _verb_r="" _what=""
   command -v soif_gr_below_min >/dev/null 2>&1 || return 0
   [ -d ".claude/framework" ] || return 0
   _inst="$(soif_gr_installed_version .)"
@@ -906,11 +907,30 @@ _cv_gr_minimum_rows() {
   _cv_gr_mixed_row "$_inst" && return 0
   _missing="$(soif_cdf_register_hooks "$PWD" "$_clone" check 2>/dev/null)" || return 0
   [ -n "$_missing" ] || return 0
-  _n="$(printf '%s\n' "$_missing" | grep -c .)"
-  _names="$(printf '%s\n' "$_missing" | LC_ALL=C tr -c '0-9A-Za-z._\n-' '?' | paste -sd, - | sed 's/,/, /g')"
+  # `## BL-375:` check mode lists an addition as its hook name alone and a
+  # refresh — a registered entry without the Guardrails' failure policy
+  # (timeout, onFailure; 4.5.0) — as the name followed by the policy it would
+  # get. Each kind gets its own clause, so a registered entry is never called
+  # "missing"; the one command does both.
+  _add="$(printf '%s\n' "$_missing" | grep -v ' ' || :)"
+  _ref="$(printf '%s\n' "$_missing" | grep ' ' | cut -d' ' -f1 || :)"
+  _n="$(printf '%s\n' "$_add" | grep -c . || :)"
+  _nr="$(printf '%s\n' "$_ref" | grep -c . || :)"
+  _names="$(printf '%s\n' "$_add" | LC_ALL=C tr -c '0-9A-Za-z._\n-' '?' | grep . | paste -sd, - | sed 's/,/, /g' || :)"
+  _names_r="$(printf '%s\n' "$_ref" | LC_ALL=C tr -c '0-9A-Za-z._\n-' '?' | grep . | paste -sd, - | sed 's/,/, /g' || :)"
   _verb="are"; [ "$_n" = 1 ] && _verb="is"
-  print_warn "$GUARDRAILS_ROW: ${_inst}, but ${_n} of its hook registrations ${_verb} missing from .claude/settings.json (${_names})"
-  UPDATES+=("$GUARDRAILS_ROW ${_inst}: register ${_names}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-320-CV-REG
+  _verb_r="are"; [ "$_nr" = 1 ] && _verb_r="is"
+  if [ "$_n" -gt 0 ] && [ "$_nr" -gt 0 ]; then
+    print_warn "$GUARDRAILS_ROW: ${_inst}, but ${_n} of its hook registrations ${_verb} missing from .claude/settings.json (${_names}), and ${_nr} in it ${_verb_r} without its failure policy (${_names_r})"
+    _what="register ${_names}; refresh ${_names_r}"
+  elif [ "$_nr" -gt 0 ]; then
+    print_warn "$GUARDRAILS_ROW: ${_inst}, but ${_nr} of its hook registrations in .claude/settings.json ${_verb_r} without its failure policy (${_names_r})"   # BL-375-CV-REFRESH
+    _what="refresh ${_names_r}"
+  else
+    print_warn "$GUARDRAILS_ROW: ${_inst}, but ${_n} of its hook registrations ${_verb} missing from .claude/settings.json (${_names})"
+    _what="register ${_names}"
+  fi
+  UPDATES+=("$GUARDRAILS_ROW ${_inst}: ${_what}"); UPDATE_CMDS+=("$GUARDRAILS_REFRESH_CMD"); UPDATE_NAMES+=("$GUARDRAILS_ROW")   # BL-320-CV-REG
 }
 
 _cv_guardrails_row                                                                # BL-318-G5-CALL

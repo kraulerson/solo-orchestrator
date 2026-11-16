@@ -38,11 +38,14 @@
 # .claude/manifest.json. Then (`## BL-320:`, Karl's c2, 2026-10-06) it adds to
 # .claude/settings.json the Guardrails hook registrations the manifest's
 # activeHooks call for and the file lacks — CDF's own entries, from the clone's
-# generator — and names each one; it removes, reorders and rewrites nothing
-# there (scripts/lib/guardrails.sh soif_cdf_register_hooks). Without that a
-# release's new hook — 4.4.0's record-approval.sh, which reads the user's
-# answer to an approval question — is copied but never runs. The rest of
-# settings refreshing stays `## BL-319:`.
+# generator, whole — and (`## BL-375:`) refreshes the failure policy (timeout,
+# onFailure; Guardrails 4.5.0) of the Guardrails entries already there, naming
+# each addition and each refresh; it removes and reorders nothing there, and
+# touches nothing else on an entry (scripts/lib/guardrails.sh
+# soif_cdf_register_hooks). Without that a release's new hook — 4.4.0's
+# record-approval.sh, which reads the user's answer to an approval question —
+# is copied but never runs, and 4.5.0's fail-closed guards run as 4.4.x's. The
+# rest of settings refreshing stays `## BL-319:`.
 #
 # WHAT IT REFUSES, before writing anything in the project (review round 1; the
 # MAJOR check runs after the clone's pull, so the shared clone may have moved): a symlink on the
@@ -78,8 +81,9 @@ project on this machine reads the same clone, and the pull can bring a newer
 version than the one you were offered. Then it copies the Guardrails hooks and
 rules into .claude/framework/ and records the new version in
 .claude/manifest.json. In .claude/settings.json it only adds the Guardrails
-hook registrations that are missing there, and names each one; it removes and
-rewrites nothing in that file.
+hook registrations that are missing there and refreshes the failure policy
+(timeout, onFailure) of the Guardrails' own entries, naming each; it removes
+nothing in that file and changes nothing else in it.
 
 It refuses a new MAJOR version (that is a migration), an uncommitted change
 in the clone's hooks or rules, and a symlink in .claude/framework/. When it
@@ -181,19 +185,24 @@ AFTER="$(jq -r '.frameworkVersion // empty' "$PROJECT_ROOT/.claude/manifest.json
 { [ -n "$WANT" ] && [ "$AFTER" = "$WANT" ]; } || _rg_fail ".claude/manifest.json records frameworkVersion '${AFTER}', not the clone's '${WANT}'." "The files were copied but the version was not recorded (is jq installed?)."   # BL-318-G5-RECEIPT-VERSION
 
 # ── `## BL-320:` register what the new version adds ──────────────────────────
+# `## BL-375:` and refresh the failure policy (timeout, onFailure; Guardrails
+# 4.5.0) of the Guardrails entries already registered. The lib keeps the
+# generator's own stderr as "Guardrails generator: …" lines; they are relayed
+# below, so its WARNING (policy not written) or ERROR reaches the user.
 REG_RC=0
 REG_OUT=""
 REG_OUT="$(soif_cdf_register_hooks "$PROJECT_ROOT" "$CLONE" 2>&1)" || REG_RC=$?   # BL-320-RG-REGISTER
-[ "$REG_RC" -eq 0 ] || _rg_fail "the Guardrails hooks and rules were updated to ${AFTER}, but their hook registrations in .claude/settings.json were not checked:" "$REG_OUT" "Fix that, then run this again: it adds only what is missing."
+[ "$REG_RC" -eq 0 ] || _rg_fail "the Guardrails hooks and rules were updated to ${AFTER}, but their hook registrations in .claude/settings.json were not checked:" "$REG_OUT" "Fix that, then run this again: it adds only what is missing and refreshes only the Guardrails' own timeout and onFailure."
 
 echo "[OK] $ROW updated: ${BEFORE} -> ${AFTER}"   # BL-318-G5-REFRESH-OK
 echo "     Changed: the Guardrails hooks and rules in .claude/framework/ (its hooks/, rules/ and gates/ folders), and the version in .claude/manifest.json."
-if printf '%s\n' "$REG_OUT" | grep -q '^  + '; then
-  echo "     $(printf '%s\n' "$REG_OUT" | head -1)"
-  printf '%s\n' "$REG_OUT" | grep '^  + ' | sed 's/^/     /'
+printf '%s\n' "$REG_OUT" | grep '^Guardrails generator: ' | sed 's/^/     /'   # BL-375-RG-GEN-LINES
+if printf '%s\n' "$REG_OUT" | grep -qE '^  [+~] '; then
+  echo "     $(printf '%s\n' "$REG_OUT" | grep '^Guardrails hook registrations ' | head -1)"
+  printf '%s\n' "$REG_OUT" | grep -E '^  [+~] ' | sed 's/^/     /'   # BL-375-RG-REFRESH-LINES
   echo "     Claude Code reloads .claude/settings.json on its own; no restart is needed."
 else
-  echo "     .claude/settings.json was not changed: every Guardrails hook registration was already there."
+  echo "     .claude/settings.json was not changed: every Guardrails hook registration was already there, with its failure policy."
 fi
 echo "     The new hooks apply from the next tool call: Claude Code runs each hook from its file every time."
 echo "     Commit .claude/framework/, .claude/manifest.json (and .claude/settings.json, if it changed) when you are ready."

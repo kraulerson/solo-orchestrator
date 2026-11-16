@@ -24,8 +24,10 @@
 #   soif_cdf_register_hooks ROOT CLONE [check]
 #                                  the Guardrails hook entries ROOT's manifest
 #                                  activates but .claude/settings.json lacks
-#                                  (Karl's c2, 2026-10-06): added, never
-#                                  removed, reordered or rewritten
+#                                  (Karl's c2, 2026-10-06): added whole, never
+#                                  removed or reordered; a Guardrails entry
+#                                  already there has its own timeout and
+#                                  onFailure refreshed (`## BL-375:`)
 #   soif_guardrails_clone_update CLONE NONINTERACTIVE
 #                                  init.sh's ask-first update of the shared
 #                                  clone (needs helpers-core.sh's print_* and
@@ -179,21 +181,34 @@ _gr_reg_fail() { echo "[FAIL] $1. Nothing was registered." >&2; }
 # run on the manifest's activeHooks, never a hand-kept copy. An entry is added
 # when its hook file is in ROOT/.claude/framework/hooks/ and no entry of the
 # same event already runs that file (any spelling of the command, any matcher).
-# Each addition is APPENDED to its event's list as its own group; no existing
-# entry — the Guardrails', Solo's or the user's — is removed, reordered or
-# rewritten. CDF's own merge cannot be reused: it replaces the whole `hooks`
-# key, which drops Solo's hooks and the user's. Removing entries for hooks a
-# release dropped, and the deny rules, stay `## BL-319:`'s.
+# Each addition is APPENDED to its event's list as its own group, as the
+# generator emitted it — type, command and (`## BL-375:`, Guardrails 4.5.0)
+# the failure policy, timeout and onFailure, with any key a later release
+# adds. No existing entry — the Guardrails', Solo's or the user's — is removed
+# or reordered; a Guardrails entry already registered has its own timeout and
+# onFailure REFRESHED in place when they differ from the generated entry's
+# (absent counts as different), and nothing else on it is touched. CDF's own
+# merge cannot be reused: it replaces the whole `hooks` key, which drops
+# Solo's hooks and the user's. Removing entries for hooks a release dropped,
+# and the deny rules, stay `## BL-319:`'s.
 #
-# Prints each addition as "  + EVENT[ (MATCHER)]: COMMAND", or that none is
-# missing; `check` prints the hook names that would be added and writes
-# nothing. Refuses loudly, writing nothing, on a symlinked settings.json, one
-# that is not a JSON object of lists, a missing manifest, or a clone with no
-# generator. Atomic: a temp file beside settings.json, renamed over it.
+# The generator's stderr is kept (`## BL-375:`): each line is shown as
+# "Guardrails generator: …" — 4.5.0's WARNING that the policy was not written,
+# its ERROR of a refusal — and a non-zero return refuses with that message.
+#
+# Prints each addition as "  + EVENT[ (MATCHER)]: COMMAND" and each refresh as
+# "  ~ EVENT[ (MATCHER)]: COMMAND timeout=… onFailure=…" (the entry as the
+# file spells it), or that none is missing; `check` prints the hook names that
+# would be added, then "NAME timeout=… onFailure=…" for each that would be
+# refreshed, and writes nothing. Refuses loudly, writing nothing, on a
+# symlinked settings.json, one that is not a JSON object of lists, a missing
+# manifest, a clone with no generator, or a generator that returned non-zero.
+# Atomic: a temp file beside settings.json, renamed over it.
 soif_cdf_register_hooks() {
   local root="$1" clone="$2" mode="${3:-apply}"
   local st="$root/.claude/settings.json" mf="$root/.claude/manifest.json" shared="$clone/scripts/_shared.sh"
-  local gen entry ev m cmd name missing="" add prog tmp perm lost="" n=0
+  local gen="" gen_rc=0 gen_err="" errf="" line="" ev="" cmd="" name="" have=0 missing="" refresh="" n=0 nr=0
+  local add="{}" ref="[]" prog="" tmp="" perm="" lost="" rlost=""
   local -a active=()
   [ ! -L "$st" ] || { _gr_reg_fail ".claude/settings.json is a symlink, so registering would write through it to wherever it points"; return 1; }   # BL-320-REG-LINK
   [ -f "$st" ] || { _gr_reg_fail "there is no .claude/settings.json to register the Guardrails hooks in"; return 1; }
@@ -207,43 +222,81 @@ soif_cdf_register_hooks() {
     return 0
   fi
   [ -f "$shared" ] || { _gr_reg_fail "the Guardrails clone at $clone has no scripts/_shared.sh, so its hook entries cannot be read"; return 1; }
+  # `## BL-375:` the generator's stderr is kept — 4.5.0's WARNING that the
+  # policy was not written, its ERROR of a refusal — and shown with its
+  # origin; its return code decides, so a refusal never reads as nothing to
+  # register.
+  errf="$(mktemp "${TMPDIR:-/tmp}/soif-gr-gen.XXXXXX")" || { _gr_reg_fail "could not create a temporary file for the Guardrails generator's messages"; return 1; }
   gen="$( ( . "$shared" >/dev/null 2>&1; command -v generate_settings_json >/dev/null 2>&1 || exit 3
-            generate_settings_json "${active[@]}" ) 2>/dev/null )" \
-    && jq -e '(.hooks | type) == "object"' <<< "$gen" >/dev/null 2>&1 \
-    || { _gr_reg_fail "the Guardrails clone at $clone could not generate its hook entries (scripts/_shared.sh generate_settings_json)"; return 1; }
-  while IFS= read -r entry; do
-    [ -n "$entry" ] || continue
-    ev="$(jq -r .event <<< "$entry")"; m="$(jq -r .matcher <<< "$entry")"; cmd="$(jq -r .command <<< "$entry")"
+            generate_settings_json "${active[@]}" ) 2>"$errf" )" || gen_rc=$?   # BL-375-GEN-STDERR
+  gen_err="$(LC_ALL=C tr -d '\000' < "$errf" 2>/dev/null || :)"; rm -f "$errf"
+  [ -z "$gen_err" ] || printf '%s\n' "$gen_err" | sed 's/^/Guardrails generator: /' >&2   # BL-375-GEN-SHOW
+  if [ "$gen_rc" -ne 0 ]; then   # BL-375-GEN-RC
+    [ "$gen_rc" -ne 3 ] || { _gr_reg_fail "the Guardrails clone at $clone has no generate_settings_json in scripts/_shared.sh, so its hook entries cannot be read"; return 1; }
+    gen_err="$(printf '%s' "$gen_err" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+    _gr_reg_fail "the Guardrails clone at $clone refused to generate its hook entries (scripts/_shared.sh generate_settings_json returned $gen_rc)${gen_err:+: ${gen_err%.}}"; return 1
+  fi
+  jq -e '(.hooks | type) == "object"' <<< "$gen" >/dev/null 2>&1 \
+    || { _gr_reg_fail "the Guardrails clone at $clone could not generate its hook entries (scripts/_shared.sh generate_settings_json printed no hooks object)"; return 1; }
+  # Each generated entry travels whole ({event, matcher, entry}); the entry is
+  # what the generator emitted, never rebuilt (the ENTRY-WHOLE line below).
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    ev="$(jq -r .event <<< "$line")"; cmd="$(jq -r '.entry.command // "" | tostring' <<< "$line")"
     case "$cmd" in *.claude/framework/hooks/*.sh) ;; *) continue ;; esac
     name="${cmd##*/}"
     [ -f "$root/.claude/framework/hooks/$name" ] || continue   # BL-320-REG-FILE
-    jq -e --arg e "$ev" --arg n ".claude/framework/hooks/$name" 'any((.hooks[$e] // [])[]?.hooks[]?; (.command // "") | tostring | contains($n))' "$st" >/dev/null 2>&1 && continue   # BL-320-REG-HAVE
-    case "$missing" in *"$entry"*) continue ;; esac
-    missing="$missing$entry"$'\n'
+    have=0
+    jq -e --arg e "$ev" --arg n ".claude/framework/hooks/$name" 'any((.hooks[$e] // [])[]?.hooks[]?; (.command // "") | tostring | contains($n))' "$st" >/dev/null 2>&1 && have=1   # BL-320-REG-HAVE
+    if [ "$have" = 1 ]; then
+      # `## BL-375:` registered already: refreshed when any entry of that
+      # event running this file has a timeout or onFailure that differs from
+      # the generated entry's (absent is a difference), else left alone.
+      jq -e --arg e "$ev" --arg n ".claude/framework/hooks/$name" --argjson g "$(jq -c .entry <<< "$line")" 'any((.hooks[$e] // [])[]?.hooks[]?; ((.command // "") | tostring | contains($n)) and ((.timeout != $g.timeout) or (.onFailure != $g.onFailure)))' "$st" >/dev/null 2>&1 || continue   # BL-375-POLICY-DIFF
+      case "$refresh" in *"$line"*) continue ;; esac
+      refresh="$refresh$line"$'\n'
+      nr=$((nr + 1))
+      continue
+    fi
+    case "$missing" in *"$line"*) continue ;; esac
+    missing="$missing$line"$'\n'
     n=$((n + 1))
-  done < <(jq -c '.hooks | to_entries[] | .key as $e | .value[]? | (.matcher // "") as $m | .hooks[]? | {event: $e, matcher: $m, command: .command}' <<< "$gen")
-  if [ "$n" -eq 0 ]; then
-    [ "$mode" = check ] || echo "Guardrails hook registrations: none missing from .claude/settings.json"
+  done < <(jq -c '.hooks | to_entries[] | .key as $e | .value[]? | (.matcher // "") as $m | .hooks[]? | select(type == "object") | {event: $e, matcher: $m, entry: .}' <<< "$gen")   # BL-375-ENTRY-WHOLE
+  if [ "$n" -eq 0 ] && [ "$nr" -eq 0 ]; then
+    [ "$mode" = check ] || echo "Guardrails hook registrations: none missing from .claude/settings.json, none to refresh"
     return 0
   fi
   if [ "$mode" = check ]; then
-    printf '%s' "$missing" | jq -r '.command | split("/") | last | sub("\\.sh$"; "")'
+    [ "$n" -eq 0 ] || printf '%s' "$missing" | jq -r '.entry.command | split("/") | last | sub("\\.sh$"; "")'
+    [ "$nr" -eq 0 ] || printf '%s' "$refresh" | jq -r '"\(.entry.command | split("/") | last | sub("\\.sh$"; "")) timeout=\(.entry.timeout // "none") onFailure=\(.entry.onFailure // "none")"'   # BL-375-CHECK-REFRESH
     return 0
   fi
-  add="$(printf '%s' "$missing" | jq -s 'group_by(.event) | map({key: .[0].event,
-           value: (group_by(.matcher) | map((if .[0].matcher != "" then {matcher: .[0].matcher} else {} end) + {hooks: map({type: "command", command: .command})}))})
+  [ "$n" -eq 0 ] || add="$(printf '%s' "$missing" | jq -s 'group_by(.event) | map({key: .[0].event,
+           value: (group_by(.matcher) | map((if .[0].matcher != "" then {matcher: .[0].matcher} else {} end) + {hooks: map(.entry)}))})
          | from_entries')" || { _gr_reg_fail "could not build the entries to add"; return 1; }
+  [ "$nr" -eq 0 ] || ref="$(printf '%s' "$refresh" | jq -sc 'map({event: .event, name: (".claude/framework/hooks/" + (.entry.command | split("/") | last)), entry: .entry})')" || { _gr_reg_fail "could not build the entries to refresh"; return 1; }
   prog='.hooks = (reduce ($add | to_entries[]) as $e ((.hooks // {}); .[$e.key] = ((.[$e.key] // []) + $e.value)))'   # BL-320-REG-APPEND
+  # `## BL-375:` then, on every entry of the event that runs the refreshed
+  # hook's file (any spelling, any matcher): its timeout and onFailure become
+  # the generated entry's, a field the generated entry lacks is removed, and
+  # nothing else on the entry, in its group or in its event is touched.
+  prog="$prog"' | reduce $ref[] as $r (.; .hooks[$r.event] |= map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | contains($r.name)) then (if ($r.entry | has("timeout")) then .timeout = $r.entry.timeout else del(.timeout) end | if ($r.entry | has("onFailure")) then .onFailure = $r.entry.onFailure else del(.onFailure) end) else . end) else . end))'   # BL-375-POLICY-REFRESH
   tmp="$(mktemp "$st.XXXXXX")" || { _gr_reg_fail "could not create a temporary file beside .claude/settings.json"; return 1; }
   perm="$(stat -c '%a' "$st" 2>/dev/null || stat -f '%Lp' "$st" 2>/dev/null || echo 644)"
-  if jq --argjson add "$add" "$prog" "$st" > "$tmp" 2>/dev/null && chmod "$perm" "$tmp" && mv -f "$tmp" "$st"; then
+  if jq --argjson add "$add" --argjson ref "$ref" "$prog" "$st" > "$tmp" 2>/dev/null && chmod "$perm" "$tmp" && mv -f "$tmp" "$st"; then
     # The receipt (review round 1, R-7a): re-read the file and find every
     # entry in it, rather than reporting the list this function computed.
-    lost="$(printf '%s' "$missing" | jq -r --slurpfile s "$st" 'select(. as $e | ($s[0].hooks[$e.event] // []) | any(.[]?.hooks[]?; .command == $e.command) | not) | .command' 2>/dev/null)" \
+    lost="$(printf '%s' "$missing" | jq -r --slurpfile s "$st" 'select(. as $e | ($s[0].hooks[$e.event] // []) | any(.[]?.hooks[]?; .command == $e.entry.command) | not) | .entry.command' 2>/dev/null)" \
       || lost="(.claude/settings.json could not be read back)"
+    # `## BL-375:` and every refreshed entry now carries the generated policy.
+    rlost="$(printf '%s' "$refresh" | jq -r --slurpfile s "$st" 'select(. as $e | ($s[0].hooks[$e.event] // []) | any(.[]?.hooks[]?; ((.command // "") | tostring | contains(".claude/framework/hooks/" + ($e.entry.command | split("/") | last))) and ((.timeout != $e.entry.timeout) or (.onFailure != $e.entry.onFailure)))) | .entry.command' 2>/dev/null)" || rlost="(.claude/settings.json could not be read back)"   # BL-375-REFRESH-RECEIPT
+    [ -z "$rlost" ] || lost="${lost:+$lost }$rlost"
     [ -z "$lost" ] || { [ ! -f "$tmp" ] || rm -f "$tmp"; _gr_reg_fail "the registrations did not land in .claude/settings.json: $(printf '%s' "$lost" | tr '\n' ' ')"; return 1; }   # BL-320-REG-RECEIPT
-    echo "Guardrails hook registrations added to .claude/settings.json (nothing else in it changed):"
-    printf '%s' "$missing" | jq -r '"  + \(.event)\(if .matcher != "" then " (" + .matcher + ")" else "" end): \(.command)"'
+    if [ "$n" -gt 0 ] && [ "$nr" -gt 0 ]; then echo "Guardrails hook registrations added to and refreshed in .claude/settings.json (nothing else in it changed):"
+    elif [ "$n" -gt 0 ]; then echo "Guardrails hook registrations added to .claude/settings.json (nothing else in it changed):"
+    else echo "Guardrails hook registrations refreshed in .claude/settings.json (nothing else in it changed):"; fi
+    [ "$n" -eq 0 ] || printf '%s' "$missing" | jq -r '"  + \(.event)\(if .matcher != "" then " (" + .matcher + ")" else "" end): \(.entry.command)"'
+    [ "$nr" -eq 0 ] || printf '%s' "$refresh" | jq -r --slurpfile s "$st" '. as $e | ($s[0].hooks[$e.event] // [])[]? | (.matcher // "") as $m | .hooks[]? | select((.command // "") | tostring | contains(".claude/framework/hooks/" + ($e.entry.command | split("/") | last))) | "  ~ \($e.event)\(if $m != "" then " (" + $m + ")" else "" end): \(.command) timeout=\(.timeout // "none") onFailure=\(.onFailure // "none")"'
     return 0
   fi
   rm -f "$tmp"
