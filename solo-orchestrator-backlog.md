@@ -28516,7 +28516,7 @@ operator asks for that scale — the rule Karl runs his own sessions by. The sec
 the UAT step's "dispatch parallel test agents" line in the same template, the Builder's Guide UAT line
 plus the guide's other dispatch lines (security-audit dispatch, documentation dispatch, bug fixing by component, UAT
 re-dispatch, Phase 3 dispatch, the final testing session, the review-compose comment) and README's UAT line
-(`docs/builders-guide.md` is shipped downstream) now say so. Shipped in the 2026-11-24 rulings PR (`## BL-376:` names it).
+(`docs/builders-guide.md` is shipped downstream) now say so. Shipped in PR #538 (docs only).
 
 **Fix.** The section dispatches with Claude Code's `Agent` tool, states that each subagent gets one focused task
 stated in full, and keeps Superpowers' `dispatching-parallel-agents` checklist as what shapes the dispatch —
@@ -28582,7 +28582,7 @@ runs-on-in-exempt check — in `tests/test-lint-runner-label.sh`, which derives 
 the unit lane through `tests/test-lint-runner-label.sh` R1 and `tests/test-run-lints.sh` → `scripts/run-lints.sh`, so
 the new failure arm is live once merged.
 
-**Shipped with this entry (same PR, docs only):** the 2026-11-24 rulings — `## BL-228:` widened to platforms,
+**Shipped with this entry (PR #538, docs only):** the 2026-11-24 rulings — `## BL-228:` widened to platforms,
 `## BL-369:`'s Qdrant registration question answered (leave as is), `## BL-372:`'s follow-up (one agent per audit area,
 sequential by default) in `templates/generated/claude-md.tmpl` and `docs/builders-guide.md`. The lint change itself is
 a separate PR.
