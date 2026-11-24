@@ -10317,8 +10317,8 @@ its Phase 3 validation scope, and today the framework infers none of it.
 4. **Multiple platforms, in the same design (widened 2026-11-24, Karl).** `init.sh`
    asks `prompt_choice "Platform type:"` once and stores one value, exactly as it
    does for the language, so a product that is a desktop client plus a web backend
-   plus a mobile app must claim to be one platform — the C++/Python/Rust example
-   above is also a multi-platform product. Platform, language and architecture are
+   plus a mobile app must claim to be one platform — and the C++/Python/Rust example
+   above, a client beside a server, carries a platform axis too. Platform, language and architecture are
    one data-model question: a component carries its language AND its platform, and
    the per-platform intake questions (`scripts/intake-wizard.sh` § 6.4 frontend
    framework / UI framework / hosting), the platform-module guidance
@@ -28444,7 +28444,7 @@ and off by default. `initialUserMessage` works only under `-p`, so `session-inta
   (`resolve_and_install_tools`) and behind no prompt in any mode on the running-container path (`create_project`),
   which also runs after a declined plan; adoption offers it. So a project born on a Docker host carries
   the requirement without having chosen Qdrant, and "Qdrant unreachable, Write/Edit blocked" is reachable there. The
-  decline rests on `## BL-233:`'s ruling. Whether init.sh should ask before registering was put to Karl on 2026-11-16
+  decline rests on `## BL-233:`'s ruling. Whether init.sh should ask before registering was first put to Karl on 2026-11-10
   and ruled 2026-11-24: leave it — init.sh keeps registering Qdrant without a question when Docker or a container is
   available, and a registered server that cannot be reached keeps blocking Write/Edit (the alternatives, a yes/no at init
   or warn-instead-of-block, were declined). Auto memory is a per-project file with no accumulation check; it does not replace `## BL-233:`
@@ -28513,8 +28513,10 @@ project should name "5 parallel audit agents" at all was a separate ruling, made
 
 **Follow-up (Karl, 2026-11-24).** One agent per audit area, run one after another by default; parallel only when the
 operator asks for that scale — the rule Karl runs his own sessions by. The section's intro and its four phase bullets,
-the UAT step's "dispatch parallel test agents" line in the same template, and the matching Builder's Guide UAT line
-(`docs/builders-guide.md`, shipped downstream) now say so. Shipped in the 2026-11-24 rulings PR (`## BL-376:` names it).
+the UAT step's "dispatch parallel test agents" line in the same template, the Builder's Guide UAT line
+plus the guide's other dispatch lines (security-audit dispatch, documentation dispatch, bug fixing by component, UAT
+re-dispatch, Phase 3 dispatch, the final testing session, the review-compose comment) and README's UAT line
+(`docs/builders-guide.md` is shipped downstream) now say so. Shipped in the 2026-11-24 rulings PR (`## BL-376:` names it).
 
 **Fix.** The section dispatches with Claude Code's `Agent` tool, states that each subagent gets one focused task
 stated in full, and keeps Superpowers' `dispatching-parallel-agents` checklist as what shapes the dispatch —
@@ -28548,7 +28550,7 @@ have to render the rules too, and `## BL-277:`'s hook roster is unaffected.
 **Direction, if scheduled.** Design doc first: which sections move, the `paths:` globs per platform module, the
 currency rows, the adoption render, and a measurement that the rule loads on the first touch of a matching file.
 
-## BL-376: `lint-runner-label.sh` reads two named workflow files — a third workflow file is neither checked nor refused
+## BL-376: `lint-runner-label.sh` reads two named workflow files — a third workflow file is neither checked nor failed by name
 
 **Logged:** 2026-11-24 (Karl's ruling on `## BL-358:` residual R-358-15, option (c))
 **Category:** Gap (CI lint scope)
@@ -28558,21 +28560,27 @@ gap opens the day a third file lands
 
 **What.** `scripts/lint-runner-label.sh` (`## BL-358:`) fails any job whose `runs-on` does not name the pinned image,
 but with no arguments it reads only `.github/workflows/tests.yml` and `.github/workflows/lint.yml` (`set -- …` after the
-option parse). A workflow file added beside them — a release workflow, a reusable workflow called with
-`jobs.<id>.uses` (which has no `runs-on` of its own) — is never read, and the lint prints OK. Three options were put to
-Karl: (a) scan every file under `.github/workflows/` (false failures on a reusable-only workflow, and any future
-non-Ubuntu job needs an exception); (b) keep the two (a silent gap); (c) keep the two AND refuse any workflow file that
-is neither checked nor listed as exempt, with a reason per exemption. Karl chose (c) on 2026-11-24.
+option parse). A workflow file added beside them — a release workflow, a reusable workflow (`on: workflow_call`, whose
+jobs carry their own `runs-on`), or a caller-only workflow whose every job is `jobs.<id>.uses` (GitHub takes no `runs-on`
+on a job that calls a reusable workflow, so that file has none) — is never read, and the lint prints OK. Three options
+were put to Karl: (a) scan every file under `.github/workflows/` (a caller-only workflow has no `runs-on` and would fail
+the `# BL-358-LABEL-FLOOR` arm for nothing; any future non-Ubuntu job needs an exception); (b) keep the two (a silent
+gap); (c) keep the two AND fail any workflow file that is neither checked nor listed as exempt, with a reason per
+exemption. Karl chose (c) on 2026-11-24.
 
 **Direction.** In the no-argument run: enumerate `.github/workflows/*.yml` and `*.yaml`; every file is either in the
-checked set (the two today — a new Ubuntu job file is added there) or in an EXEMPT list carried in the lint with a
-one-line reason per entry (a reusable workflow with no `runs-on`, a matrix on another OS); any other file is a `[FAIL]`
-naming the file and the two lists, exit 1. An exempt file that turns out to contain a `runs-on` line is also a `[FAIL]`
-(the exemption no longer describes it). The explicit-arguments form is unchanged. Tests: a third checked-set file that
-passes and one that fails; an exempt file with a reason; an exempt file that grew a `runs-on`; an unknown file → FAIL
-naming it; the `.yaml` spelling; mutation proofs for the enumerate, the exempt-list match and the runs-on-in-exempt
-check — in `tests/test-lint-runner-label.sh`, which derives the label from `# BL-358-LABEL-VALUE` (keep that). CI:
-`lint.yml`'s `runner-label-lint` job runs the no-argument form, so the new refusal is live on every PR once merged.
+checked set (the two today — a new workflow with Ubuntu jobs, a reusable workflow included, is added there) or in an
+EXEMPT list carried in the lint with a one-line reason per entry (the only shape that needs one: a caller-only workflow
+with no `runs-on` of its own); any other file is a `[FAIL]` naming the file and the two lists, exit 1. An exempt file
+that turns out to contain a `runs-on` line is also a `[FAIL]` (the exemption no longer describes it). A job on another
+OS is out of scope for (c): the lint's label is single-valued (`# BL-358-LABEL-VALUE`), so such a job would need a lint
+change of its own, not an exemption. The explicit-arguments form is unchanged. Tests: a third checked-set file that
+passes and one that fails; an exempt caller-only file with a reason; an exempt file that grew a `runs-on`; an unknown
+file → FAIL naming it; the `.yaml` spelling; mutation proofs for the enumerate, the exempt-list match and the
+runs-on-in-exempt check — in `tests/test-lint-runner-label.sh`, which derives the label from `# BL-358-LABEL-VALUE`
+(keep that). CI: there is no `lint.yml` job for this lint (its header says so); the no-argument form runs on every PR in
+the unit lane through `tests/test-lint-runner-label.sh` R1 and `tests/test-run-lints.sh` → `scripts/run-lints.sh`, so
+the new failure arm is live once merged.
 
 **Shipped with this entry (same PR, docs only):** the 2026-11-24 rulings — `## BL-228:` widened to platforms,
 `## BL-369:`'s Qdrant registration question answered (leave as is), `## BL-372:`'s follow-up (one agent per audit area,

@@ -536,7 +536,7 @@ Upgrades add requirements (governance, tooling, validation) — they never remov
 The Build Loop includes a configurable test-fix-verify cycle:
 
 1. **Build N features** (interval configurable — default: every 2 features)
-2. **UAT testing session** — parallel AI agents (automated, exploratory, cross-platform) test alongside the human developer
+2. **UAT testing session** — AI test agents (automated, exploratory, cross-platform) test alongside the human developer
 3. **Bug triage** — severity classification (SEV-1 through SEV-4), disposition assignment (Fix Now / Defer / Won't Fix / Post-MVP)
 4. **Remediation** — agent fixes bugs test-first, re-tests until gate passes
 5. **Proceed** — only when all tests pass and all Fix Now bugs are resolved

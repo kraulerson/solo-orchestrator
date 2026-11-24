@@ -1349,7 +1349,7 @@ After verifying tests fail: `scripts/process-checklist.sh --complete-step build_
    > severity bound off on purpose — an audit should see more than the gate blocks on,
    > never less.
 
-**Dispatch:** one subagent per audit area, run one after another by default; they have no cross-dependencies, so run them in parallel only when the Orchestrator asks for that scale:
+**Dispatch:** one subagent per audit area, run one after another by default; they have no cross-dependencies, so they may run in parallel — but only when the Orchestrator asks for that scale:
 1. **SAST agent:** Runs the SAST command above (the gate's config set + `p/security-audit`)
 2. **Threat model agent:** Reviews implementation against Phase 1.3 Threat Model
 3. **Data isolation agent:** Tests whether one user/context can access another's data
@@ -1600,7 +1600,7 @@ When `current_phase >= 3` in `.claude/phase-state.json`:
 
 ---
 
-**Phase 3 Parallel Execution:** Steps 3.1 through 3.5 are independent validation tasks with no cross-dependencies. For maximum efficiency, dispatch all as parallel subagents:
+**Phase 3 Dispatch:** Steps 3.1 through 3.5 are independent validation tasks with no cross-dependencies. Dispatch one subagent per step, one after another by default; in parallel only when the Orchestrator asks for that scale:
 
 | Agent | Step | Task |
 |---|---|---|
@@ -1783,7 +1783,7 @@ These artifacts serve as the audit evidence for Phase 3 completion. They are ref
 - Track: core feature usage, error rates, performance metrics
 
 **Final UAT session:**
-- Run a final testing session using the same Step 2.7 process (parallel agents + human testers)
+- Run a final testing session using the same Step 2.7 process (test agents + human testers)
 - All configured testers participate (not just the Orchestrator)
 - For Full UAT level (Sponsored POC / Production): formal acceptance sign-off recorded in `APPROVAL_LOG.md` — product sponsor or designated tester confirms core flow works as specified in the Phase 0 Manifesto
 - Document confusion points, UX friction, and any remaining issues
@@ -1880,7 +1880,7 @@ Artifacts marked "No" in the Gate-Checked column are included in the snapshot fo
 >
 > ```bash
 > run-reviews.sh <module> --compose-only        # writes docs/eval-results/prompts/*.md, starts nothing
-> # run each prompt on the surface you already have — one subagent per reviewer, in parallel —
+> # run each prompt on the surface you already have — one subagent per reviewer, one after another unless the Orchestrator asks for parallel —
 > # and save each output at the artifact filename its prompt demands
 > run-reviews.sh <module> --assemble-manifest   # builds the manifest from the artifacts on disk
 > bash scripts/lint-review-manifest.sh docs/eval-results/review-manifest.json
