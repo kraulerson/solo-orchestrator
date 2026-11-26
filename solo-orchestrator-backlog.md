@@ -28556,7 +28556,7 @@ currency rows, the adoption render, and a measurement that the rule loads on the
 **Category:** Gap (CI lint scope)
 **Severity:** Low — `.github/workflows/` holds exactly `tests.yml` and `lint.yml` today, so nothing is unchecked yet; the
 gap opens the day a third file lands
-**Status:** Open
+**Status:** Closed — shipped 2026-11-26 (PR #539, commits `f1f7b29c`, `d1c1b882`).
 
 **What.** `scripts/lint-runner-label.sh` (`## BL-358:`) fails any job whose `runs-on` does not name the pinned image,
 but with no arguments it reads only `.github/workflows/tests.yml` and `.github/workflows/lint.yml` (`set -- …` after the
@@ -28586,3 +28586,28 @@ the new failure arm is live once merged.
 `## BL-369:`'s Qdrant registration question answered (leave as is), `## BL-372:`'s follow-up (one agent per audit area,
 sequential by default) in `templates/generated/claude-md.tmpl` and `docs/builders-guide.md`. The lint change itself is
 a separate PR.
+
+**Shipped (PR #539).** The no-argument run of `scripts/lint-runner-label.sh` now enumerates `.github/workflows/*.yml`
+and `*.yaml` (`# BL-376-ENUMERATE`, bash 3.2 nullglob guard `# BL-376-NULLGLOB`) and holds every file against two
+heredocs inside the lint: `CHECKED` (`# BL-376-CHECKED-BEGIN`; tests.yml and lint.yml, read exactly as before) and
+`EXEMPT` (`# BL-376-EXEMPT-BEGIN`; `<basename>  <reason>` per line, empty today). A file in neither list fails by name
+with both lists named (`# BL-376-UNKNOWN`); an `EXEMPT` file that holds a runs-on line fails with its fault lines printed
+and both ways out named (`# BL-376-EXEMPT-RUNS-ON`); an `EXEMPT` entry with no reason fails (`# BL-376-EXEMPT-REASON`);
+scope failures exit 1 after the BL-358 label arm's exit (`# BL-376-EXIT`), so the BL-358 how-to tail prints only when a runs-on
+line failed. The explicit-arguments form is unchanged; the OK line gains `; N workflow(s) exempt` in the no-argument
+form only. The awk body is byte-identical and all 16 `# BL-358-LABEL-*` markers survive. Suite: S0–S13 on scratch
+trees and mutants M18–M30 in `tests/test-lint-runner-label.sh`, label still derived from `# BL-358-LABEL-VALUE`;
+58/38 red against the parent's lint, 96/0 green. CLAUDE.md's sentence saying the lint reads only two files was
+corrected. Adversarial review (pr-adversary, fresh clone): minor_concerns; its three fixable findings — the `EXEMPT`
+message advised a move to `CHECKED` that a string or inline-comment mention would also fail, path assertions matched as
+substrings so a mutant printing absolute paths survived, and the `-e` file test and the reason's trailing-whitespace
+trim were unpinned — are `d1c1b882` (`# BL-376-SHOW`, `# BL-376-REASON-TRIM`, S12, S13, M28–M30).
+
+**Residuals (fixture-only today; `EXEMPT` is empty).** An `EXEMPT`-listed directory passes (awk over a directory reads
+no lines); a dangling symlink is skipped by the `-e` guard; dotfiles and uppercase extensions (`.hidden.yml`,
+`FOO.YML`) are not enumerated (bash globbing is case-sensitive even on APFS; GitHub's treatment unverified); a file in
+both lists lets `CHECKED` win silently; any non-empty token is a reason (`call.yml #` is "reasoned"); a stale `EXEMPT`
+entry whose file is gone is unreported, while a stale `CHECKED` entry is rc 2 (the asymmetry is the safe direction); a
+file name with whitespace cannot be listed, though the file itself is still enumerated and failed by name; a `#` line
+inside `CHECKED` is read as a file name (rc 2) and inside `EXEMPT` is inert. None of these lets a file go unread in the
+no-argument run on this repository.
