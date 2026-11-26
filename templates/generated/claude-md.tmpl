@@ -140,12 +140,12 @@ If a framework hook blocks an action:
 - Use git worktrees for feature isolation when available.
 
 ### Multi-Agent Parallelism
-Dispatch subagents for independent tasks with Claude Code's own `Agent` tool; it needs no plugin:
-- **Phase 2.4 Security Audit:** 5 parallel audit agents (SAST, threat model, data isolation, input validation, logging)
-- **Phase 2.5 Documentation:** Parallel generation of CHANGELOG, interface docs, and ADRs
-- **Phase 2.9 Bug Remediation:** Parallel fix agents per affected component
-- **Phase 3 Validation:** All 6 test types (integration, security, chaos, accessibility, performance, contract) run simultaneously
-Each subagent gets one focused task, stated in full in its prompt, with no shared state; consolidate results before proceeding. Superpowers' `dispatching-parallel-agents` checklist shapes the dispatch; the dispatch itself is the `Agent` tool.
+Dispatch subagents for independent tasks with Claude Code's own `Agent` tool; it needs no plugin. One agent per task, run one after another by default; run them in parallel only when the Orchestrator asks for that scale:
+- **Phase 2.4 Security Audit:** one audit agent per area (SAST, threat model, data isolation, input validation, logging)
+- **Phase 2.5 Documentation:** one agent each for the CHANGELOG, the interface docs, and the ADRs
+- **Phase 2.9 Bug Remediation:** one fix agent per affected component
+- **Phase 3 Validation:** one agent per test type (integration, security, chaos, accessibility, performance, contract)
+Each subagent gets one focused task, stated in full in its prompt, with no shared state; consolidate results before proceeding. Superpowers' `dispatching-parallel-agents` checklist shapes a dispatch the Orchestrator has asked to run in parallel; the dispatch itself is the `Agent` tool.
 
 ### When to Ask the Orchestrator
 - Architecture decisions not covered by the Project Bible
@@ -203,7 +203,7 @@ At specific phases, adopt specialized personas for higher-quality output. Each p
 - **Process:** After every __TEST_INTERVAL__ features, stop construction and run a UAT session:
   1. Check the gate: `scripts/test-gate.sh --check-batch`
   1a. Start the UAT checklist: `scripts/process-checklist.sh --start-uat N` (where N is the session number)
-  2. If blocked: dispatch parallel test agents (automated suite, exploratory, cross-platform)
+  2. If blocked: dispatch the test agents (automated suite, exploratory, cross-platform), one after another unless the Orchestrator asks for parallel
   3. Generate test template for human tester(s) and wait for results
   3a. **Quality gate:** run `scripts/lint-uat-scenarios.sh <populated-file>` on the generated template. Must exit 0 before dispatch. If exit 1: read violations, revise scenarios, re-run. If exit 2: investigate file/JSON integrity. See `docs/reference/uat-authoring-guide.md § 6` for details.
   4. Verify submission completeness — list incomplete scenarios, ask to continue or finish

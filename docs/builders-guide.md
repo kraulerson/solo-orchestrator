@@ -1349,7 +1349,7 @@ After verifying tests fail: `scripts/process-checklist.sh --complete-step build_
    > severity bound off on purpose — an audit should see more than the gate blocks on,
    > never less.
 
-**Parallel execution (if Superpowers available):** Dispatch these as parallel subagents — they have no cross-dependencies:
+**Dispatch:** one subagent per audit area, run one after another by default; they have no cross-dependencies, so they may run in parallel — but only when the Orchestrator asks for that scale:
 1. **SAST agent:** Runs the SAST command above (the gate's config set + `p/security-audit`)
 2. **Threat model agent:** Reviews implementation against Phase 1.3 Threat Model
 3. **Data isolation agent:** Tests whether one user/context can access another's data
@@ -1398,7 +1398,7 @@ When a CI security check blocks the build, follow this escalation:
 
 Direct the agent to produce:
 
-**Parallel execution:** CHANGELOG, interface documentation, and ADRs are independent text-generation tasks. Dispatch as parallel subagents from the same codebase snapshot, then merge results into the Bible update.
+**Dispatch:** CHANGELOG, interface documentation, and ADRs are independent text-generation tasks. Dispatch one subagent each from the same codebase snapshot — one after another by default, in parallel only when the Orchestrator asks — then merge results into the Bible update.
 
 - **CHANGELOG.md:** Use [Keep a Changelog](https://keepachangelog.com/) format with 8 categories ordered by impact: Security, Data Model, Added, Changed, Fixed, Removed, Infrastructure, Documentation. See `templates/generated/changelog.tmpl` for category definitions.
 - **FEATURES.md:** Add a new section for each completed feature using the template structure: summary, key interfaces, related ADRs, test coverage, known limitations. See `templates/generated/features.tmpl`.
@@ -1431,7 +1431,7 @@ scripts/test-gate.sh --check-batch
 
 If the gate blocks (testing interval reached), execute a UAT session:
 
-1. **Agent dispatches parallel test subagents** (with Claude Code's own `Agent` tool, following Superpowers' `dispatching-parallel-agents` checklist):
+1. **Agent dispatches the test subagents** (with Claude Code's own `Agent` tool, one after another unless the Orchestrator asks for parallel; Superpowers' `dispatching-parallel-agents` checklist shapes a parallel run):
    - **Automated Suite agent:** Runs full test suite (unit + integration + E2E). Reports failures with stack traces.
    - **Exploratory agent persona — Malicious User:** This agent adopts the mindset of a user deliberately trying to damage the system or steal data. Start fresh with no knowledge of the implementation. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. Reads the Threat Model (Phase 1.3) and User Journey (Phase 0). Attack systematically: submit 10MB inputs in text fields, drop the network mid-save, use Unicode that breaks rendering, click buttons in rapid succession, open multiple tabs with the same session, disable JavaScript and resubmit forms, paste SQL injection payloads in every input, try to access other users' data by guessing URLs. Document every scenario where the app does not gracefully handle abuse.
    - **Cross-Platform agent** (if applicable): Runs core flows on each target platform.
@@ -1474,9 +1474,9 @@ scripts/test-gate.sh --record-feature "feature-name"
 
 1. Agent fixes all "Fix Now" bugs using Build Loop discipline (write failing test for the bug → implement fix → verify test passes).
 
-**Parallel bug fixing:** When multiple bugs affect different components, dispatch parallel fix agents — one per component. Each agent: writes failing test → implements fix → verifies test passes. After all agents complete, merge fixes and run the full test suite to check for regressions. If bugs affect the same component, fix sequentially to avoid conflicts.
+**Bug fixing by component:** When multiple bugs affect different components, dispatch one fix agent per component — one after another by default; in parallel only when the Orchestrator asks for that scale. Each agent: writes failing test → implements fix → verifies test passes. After all agents complete, merge fixes and run the full test suite to check for regressions. If bugs affect the same component, fix sequentially to avoid conflicts.
 
-2. Agent re-dispatches parallel test agents. Orchestrator re-tests their specific reported bugs.
+2. Agent re-dispatches the test agents (same dispatch rule). Orchestrator re-tests their specific reported bugs.
 3. Gate check:
 ```bash
 scripts/test-gate.sh --check-batch
@@ -1600,7 +1600,7 @@ When `current_phase >= 3` in `.claude/phase-state.json`:
 
 ---
 
-**Phase 3 Parallel Execution:** Steps 3.1 through 3.5 are independent validation tasks with no cross-dependencies. For maximum efficiency, dispatch all as parallel subagents:
+**Phase 3 Dispatch:** Steps 3.1 through 3.5 are independent validation tasks with no cross-dependencies. Dispatch one subagent per step, one after another by default; in parallel only when the Orchestrator asks for that scale:
 
 | Agent | Step | Task |
 |---|---|---|
@@ -1783,7 +1783,7 @@ These artifacts serve as the audit evidence for Phase 3 completion. They are ref
 - Track: core feature usage, error rates, performance metrics
 
 **Final UAT session:**
-- Run a final testing session using the same Step 2.7 process (parallel agents + human testers)
+- Run a final testing session using the same Step 2.7 process (test agents + human testers)
 - All configured testers participate (not just the Orchestrator)
 - For Full UAT level (Sponsored POC / Production): formal acceptance sign-off recorded in `APPROVAL_LOG.md` — product sponsor or designated tester confirms core flow works as specified in the Phase 0 Manifesto
 - Document confusion points, UX friction, and any remaining issues
@@ -1880,7 +1880,7 @@ Artifacts marked "No" in the Gate-Checked column are included in the snapshot fo
 >
 > ```bash
 > run-reviews.sh <module> --compose-only        # writes docs/eval-results/prompts/*.md, starts nothing
-> # run each prompt on the surface you already have — one subagent per reviewer, in parallel —
+> # run each prompt on the surface you already have — one subagent per reviewer, one after another unless the Orchestrator asks for parallel —
 > # and save each output at the artifact filename its prompt demands
 > run-reviews.sh <module> --assemble-manifest   # builds the manifest from the artifacts on disk
 > bash scripts/lint-review-manifest.sh docs/eval-results/review-manifest.json
