@@ -21194,6 +21194,13 @@ about whether every pre-host-field project must run the backfill before it can c
 entry adopts the existing `host.sh` behaviour rather than inventing one, and raises the choice in the
 PR description.
 
+**Dogfood run 4 (2026-11-26).** The pre-run survey of run 4 (`Reports/2026-11-26-dogfood-run4-ios/`,
+untracked) read the same two `release_src` sites. At `bd6ed452`, `command grep -n 'pipelines/release'
+scripts/reconfigure-project.sh` prints two lines, the `language` arm's and the `platform` arm's, both
+still building `templates/pipelines/release/${…}.yml` with no host segment while the templates live
+under `templates/pipelines/release/<host>/`. Read from source, not executed; no new evidence, and the
+residual stands. Recorded here rather than as a new entry (`## BL-390:` names it).
+
 **Related:** `## BL-229:` (the same defect class, the resolver this fix asks, and the note that named
 this file), `## BL-084:` (`# BL-084-TIER-KEY`, the sync-sibling trap this avoids re-creating),
 `## BL-231:` (the absent-vs-unreadable family — here, absent-and-unreported).
@@ -28611,3 +28618,582 @@ entry whose file is gone is unreported, while a stale `CHECKED` entry is rc 2 (t
 file name with whitespace cannot be listed, though the file itself is still enumerated and failed by name; a `#` line
 inside `CHECKED` is read as a file name (rc 2) and inside `EXEMPT` is inert. None of these lets a file go unread in the
 no-argument run on this repository.
+
+## BL-377: the test-file classifier has no Swift pattern, so the test-first check blocks a test-first Swift change
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Defect (enforcement — a false block) — language coverage of `_bl072_is_test_file`
+**Severity:** High, fix-first (Karl, 2026-11-26) — on an organizational or sponsored-POC project a correct change
+cannot be committed without an operator exception recorded for a change that did nothing wrong; it is why run 4's
+pass line (one test-first iOS change committed through the installed checks, pushed, CI recorded) was not met
+**Status:** Open
+
+**What.** `_bl072_is_test_file` in `scripts/lib/tdd-classify.sh` recognises a test by tree (`tests/`, `test/`,
+`__tests__/`, `spec/`) or by basename for Go, TypeScript/JavaScript, Python, Kotlin, Java, Groovy, Scala, Ruby, Rust
+and shell. It has no Swift pattern (`command grep -c -i swift scripts/lib/tdd-classify.sh` prints `0` at `bd6ed452`),
+and Xcode's convention puts tests in a target folder named `<Target>Tests/` or `<Target>UITests/`, which is none of
+the four trees. Three surfaces read that one list, and all three were wrong on the adoptee — a private consumer
+mobile app: Kotlin Multiplatform shared code, a Swift/Xcode iOS app with 584 XCTest cases, an Android app, Firebase
+functions in TypeScript (the run: `main` at `94dbf54f` with Guardrails 4.5.0, adopted on the organizational tier,
+standard track, TL;DR mode on; stages 0 PASS, 1 PARTIAL, 2 PASS, 3 PASS with caveats, 4 FAIL on this entry):
+
+1. **The commit-message check (`## BL-072:`).** A `fix:` commit staged `Foo.swift`, `FooTests.swift` (new, written
+   first, shown red then green) and the Xcode project file. `tdd_emit_fail_term` in `scripts/pre-commit-gate.sh`
+   classified all three as implementation and printed `[FAIL] BL-072 TDD ordering: 'fix:' commit ships implementation
+   without a matching test` / `[FAIL]   Tier is NON-bypassable (sponsored POC / production) — test-first ordering is
+   ENFORCED.`, and the commit was blocked. The ledger row (`tdd_ledger_row_ext`) reads
+   `"would_block":true,"deployment":"organizational","blocked":true` and lists the test file among `files`. Karl had
+   already approved the commit through the two-reply approval (`## BL-320:`).
+2. **Scout's `testsBaseline`.** It reported 164 test files where 253 are tracked; the 91 Swift test files were counted
+   as source with no test that names them. Scout carries its own copy of the predicate, `_scout_is_test_file` in
+   `scripts/lib/scout/scout-testsbaseline.sh` ("extracted verbatim"; the report says `tdd-classify parity (extracted,
+   not sourced)`), so it needs the same change.
+3. **Adoption's test-debt baseline.** `adopt_test_debt_write` sources `tdd-classify.sh` and wrote
+   `.claude/test-debt.json` with 276 untested source files, 91 of them test files. "A file in it that you change has
+   to leave it" then applies to test files.
+
+The only way past (1) is `SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON=…`, which records an operator exception for a change
+that did nothing wrong, and which an agent holding a commit approval cannot use at all (`## BL-388:`).
+
+**Fix.**
+- Add the basenames `*Tests.swift`, `*Test.swift` and `*Spec.swift`, and treat a path with a component ending in
+  `Tests` or `UITests` (`*Tests/*`, `*UITests/*`) as a test tree. Consider `Tests/` capitalised too: SwiftPM uses
+  `Tests/<Target>Tests/`, and the tree match is case-sensitive today.
+- While there: the Kotlin Multiplatform source sets `commonTest/`, `androidUnitTest/`, `androidInstrumentedTest/` and
+  `iosTest/` match today only when the file happens to end in `Test.kt`, `Tests.kt` or `Spec.kt`.
+- Make Scout's copy unable to drift: source the function, or add a parity test that feeds one fixture list through
+  both predicates.
+- Decide what an adopted project does about a baseline written with the old list: `test-debt.json` on existing
+  adoptees holds test files. A re-baseline command, or a step in the upgrade path.
+
+**Evidence.** In the untracked folder `Reports/2026-11-26-dogfood-run4-ios/` (Karl holds it; nothing in it is to be
+committed): `evidence/tdd-warn-ledger.jsonl` (the two rows), `evidence/staged-ios-change.patch`,
+`evidence/scout-2-report.md` ("What the tests do today"); the full run under `~/dogfood-2026-11/`. What the same run
+confirmed works, so a fix must not break it: the commit-time test arm ran the hand-written `.claude/test-command`
+inside the hook (584, then 590 XCTest cases), and the two-reply approval showed the question, the staged diffstat and
+the hooks that would run.
+
+**Done when.** A fixture commit of `Sources/Foo.swift` + `AppTests/FooTests.swift` under a non-bypassable tier passes
+the BL-072 check with no attestation; the same fixture with the test file removed still blocks; Scout and the
+classifier agree on a mixed fixture tree; a mutation proof per new pattern.
+
+## BL-378: a commit-time block is printed after the project's whole test log, so the agent never sees why the commit was blocked
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Defect (usability of a block)
+**Severity:** High — the agent misdiagnoses the block and loops; in run 4 it cost two blocked commits and a wrong
+question to the operator
+**Status:** Open
+
+**What.** The emitted pre-commit hook's `# BL-125-COMMIT-TESTS` arm runs the project's test command with its output
+going straight to the terminal (`sh -c "$soif_test_cmd" </dev/null`, inside `# BL-125-TEST-EXEC-BEGIN` in
+`scripts/lib/hook-templates.sh`). On the adoptee (`## BL-377:` describes the run) `xcodebuild test` printed more than
+19,464 characters (the truncated middle alone). The lines that mattered came after it: the arm's own receipt
+`[OK] project tests: '…' PASSED — commit may proceed.` and, from the commit-msg hook that runs next
+(`soif_emit_tdd_commitmsg_block` → `pre-commit-gate.sh --terminal-mode --tdd-only`), the
+`[FAIL] BL-072 TDD ordering: …` lines of `## BL-377:`. Claude Code's tool result kept the head and the tail of the
+output and replaced the middle with `... [19464 characters truncated] ...`; both verdict lines were in the dropped
+part. The agent saw exit code 1 after a
+test run and concluded that the pre-commit test step had blocked the commit twice for a reason it could not see,
+re-ran the tests by hand (pass), retried, was blocked again, and recorded a question recommending the operator run the
+commit himself.
+
+**Direction.**
+- Send the test command's output to a log file under `.claude/cache/` (already ignored: `# BL-337-ADOPT-IGNORE-CACHE`
+  in adoption, `generate_gitignore` in `init.sh`) and print only the command, its exit code, its last few lines and
+  the log's path.
+- End every hook run that blocks with a short block that repeats each `[FAIL]` / `[BLOCKED]` line and its one-line
+  remedy, so the reason is always in the last screenful.
+- The commit-msg hook should name itself in its first printed line ("commit-msg check"), so "which check blocked" is
+  answerable from the tail alone.
+
+**Evidence.** The transcript excerpt and the ledger rows are described in finding 35 of the run record, in the
+untracked `Reports/2026-11-26-dogfood-run4-ios/` (Karl holds it).
+
+**Done when.** With a test command that prints 50,000 characters and a BL-072 block, the last 30 lines of the hooks'
+output contain the block, its reason and its remedy.
+
+## BL-379: no test command is detected for Gradle or Xcode projects, and one the operator types at the interview is not used — with a message that says the scan found none
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Gap (stack coverage) + Defect (adoption interview message)
+**Severity:** High — the project adopts "successfully" with `PROJECT TESTS NOT ENFORCED` on every source commit
+**Status:** Open
+
+**What.** Two separate things.
+
+1. **Detection.** Scout's `_scout_test_command` (`scripts/lib/scout/scout-stack.sh`) knows `package.json`
+   `scripts.test`, a `Makefile` `test:` target, pytest, `cargo test`, `go test ./...` and rspec; the emitted hook's
+   own resolver (`# BL-125-TEST-EXEC-BEGIN` … `# BL-125-TEST-EXEC-END` in `scripts/lib/hook-templates.sh`) knows that
+   list without the Makefile target and rspec (the text between those two markers names neither), with pytest through
+   uv, poetry, pdm or pipenv. Each tests the repository root only. A repository whose root holds `build.gradle.kts`
+   and `gradlew`, with an `*.xcodeproj` one level down and a `package.json` one level down in another folder, gets
+   `Scout could not find a test command`, so `--run-tests` runs nothing and the README's "tells you before adopting
+   whether the project's own suite passes today" is unavailable.
+2. **The interview.** At "Testing & Bug Tracking — Keep '(none detected)'?" the operator chose *change it* and typed
+   a working command. Later in the same run `adopt_write_test_command` printed `The test command your commits run` /
+   `Not written: the scan found no test command, so there was none to confirm.` — the `# BL-318-TESTCMD-ASKED` arm,
+   which fires on a null Scout offer whatever the operator typed. The typed command went to `PROJECT_INTAKE.md` and
+   `.claude/intake-progress.json` only. Writing only a KEPT offer is a recorded decision (`## BL-318:` G1, review
+   round 1's R-1, in the function's header comment): a changed answer at that question is often prose (`pytest; bugs
+   in GitHub Issues` was measured to let a failing commit land), and `.claude/test-command` is run by `sh -c` on
+   every source commit. The decision stands; the message is wrong — it gives "the scan found none" as the reason
+   when the operator supplied one, and the `# BL-318-TESTCMD-KEPT` arm's honest note ("Not used as a command: you
+   changed this answer …", with the one `echo … > .claude/test-command` line) is never reached when the scan offered
+   nothing.
+
+**Direction.**
+- Message first: when the scan offered nothing and the operator typed an answer, say so, and print the one line that
+  writes a command (what `# BL-318-TESTCMD-KEPT` already prints). Then decide whether one more question — "Run this
+  before every commit that touches source?" — may write `.claude/test-command` on yes; that re-opens R-1 and needs
+  the same measurement it had.
+- Detection: offer `./gradlew test` when `gradlew` is present (and say plainly that it may need machine-local
+  configuration); look for `package.json` one and two levels down and report each as a candidate with its folder;
+  for an `*.xcodeproj` / `*.xcworkspace`, list the shared schemes and print the
+  `xcodebuild test -scheme … -destination …` shape to fill in, since a destination cannot be guessed. The hook's
+  resolver and Scout's must move together (`## BL-125:`).
+- A project with several suites needs to be told that `.claude/test-command` is one line and can be a script of its
+  own.
+
+**Evidence.** `evidence/scout-2-report.md` and `evidence/adopt-run3.log` (search "The test command your commits run")
+in the untracked `Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** A fixture with `gradlew` at the root gets an offered command; a typed command at the interview, with
+no Scout offer, produces a note that names the typed command and the line that installs it (or, if the question is
+added, `.claude/test-command` holding it after one confirmation).
+
+## BL-380: Scout reads only the repository root, so a multi-module repository is described as one small Gradle project
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Gap (stack coverage) — the scanning half of `## BL-228:`'s multi-platform data model
+**Severity:** Medium — every downstream decision adoption makes from the report (CI template, test debt, project
+name, the phase ladder) starts from a one-module picture
+**Status:** Open
+
+**What.** On the adoptee (`## BL-377:` describes the run) Scout reported:
+- `Package managers in use: gradle` and `Build / manifest files: build.gradle.kts`. Not seen: npm in the functions
+  folder one level down (a `package.json` and a lockfile), Swift Package Manager (declared inside the `.xcodeproj`;
+  there is no `Package.swift`), and the Xcode project itself — `_scout_pkg_managers` and `_scout_build_files`
+  (`scripts/lib/scout/scout-stack.sh`) test a fixed list of file names with `[ -e "$root/$f" ]` / `[ -f "$root/$f" ]`,
+  and an `.xcodeproj` is a directory with a project-specific name.
+- `project scaffolded: fail — no dependency lockfile found in the project root` (the `project_scaffolded` probe in
+  `scripts/lib/scout/scout-reality.sh`, root-only by its own message), with a lockfile one level down. `## BL-348:`
+  fixed the `--verify-init` twin of this probe and deliberately left Scout's alone as a decision for Karl (its "Left
+  alone, each a decision for Karl" paragraph: every other Scout detection — package managers, test command, build
+  files — is root-scoped, so deepening one probe would make the report disagree with itself, and the ruling was made
+  for `--verify-init`). This entry is that decision's home: deepen them together.
+- `Project Identity: <folder name> — no manifest declared one` (`scripts/lib/scout/scout-prefill.sh`), though
+  `settings.gradle.kts` carries `rootProject.name` (`command grep -rn rootProject scripts/lib/scout/` is empty).
+- Ladder step 2, `no architecture or design document found`, having looked for a fixed list — `PROJECT_BIBLE.md`,
+  `ARCHITECTURE.md`, `DESIGN.md`, `docs/architecture*`, `docs/design*`, `docs/adr*`, `docs/rfcs`
+  (`scripts/lib/scout/scout-phasemap.sh`). The project keeps `ARCHITECTURE.md` with ADRs, its product rules and its
+  process playbook in a second documentation folder under another name. The suggested starting point came out as 1.
+- Ladder step 3, `a test corpus exists at tests/` — `_scout_test_corpus` takes the first of `tests test spec
+  __tests__ src/test src/tests test_suite` that has entries; here `tests/` holds two helper scripts and the four real
+  suites are elsewhere.
+
+**Direction.** Look one or two levels down for manifests and lockfiles and report each with its folder; read
+`rootProject.name`; treat `*.xcodeproj` / `*.xcworkspace` as build files; search for the named design documents at
+any depth, or in any top-level folder whose name contains `doc`; report the folders the classifier actually matched
+as the test corpus. Each of these is evidence, not a verdict, which is Scout's own rule. This is the scanning half of
+the multi-platform work the 2026-11-24 ruling added to `## BL-228:`: a component carries its language and its
+platform, and Scout is where components would first be seen.
+
+**Evidence.** `evidence/scout-2-report.md` in the untracked `Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** A fixture with root Gradle, a nested `package.json` + lockfile and an `.xcodeproj` lists all three;
+`rootProject.name` is offered as the project name.
+
+## BL-381: the CI file adoption installs covers one language, hard-codes its toolchain, and cannot build a project that needs local configuration
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Gap (stack coverage) — the CI half of `## BL-228:`; a defect in what adoption installs today
+**Severity:** Medium — CI is red from the first push and runs none of the project's tests, and the file does not say
+which parts of the stack it leaves out
+**Status:** Open
+
+**What.** `adopt_write_ci` (`# BL-242-CI-STAGE`) picks the template by Scout's dominant language
+(`.stack.languages[0]`) through `_adopt_ci_template_name` — here `templates/pipelines/ci/github/kotlin.yml`,
+installed as `.github/workflows/solo-gates.yml` because Kotlin has the most files. Measured on its first run (a push
+to `main`): conclusion `failure`, both jobs.
+- `test` → `Build`: `./gradlew build` under JDK 21 (`java-version: '21'` in the template; the project pins 17) failed
+  at configuration because the Android module needs a signing-properties file that is rightly not in git. The Test and
+  Lint steps never ran. `./gradlew detekt` is in the template (its own comment says "Requires detekt Gradle plugin");
+  the project does not use detekt.
+- `sast` → Semgrep: 11 findings across 825 files, exit 1 — all pre-existing.
+- There is no Swift job (it would need a macOS runner) and no job for the nested TypeScript functions, so none of the
+  584 iOS tests or the jest suites run anywhere in CI. The file's header says `platforms=web,desktop,mobile`.
+
+Adoption's closing text does warn: "It may fail on code that predates adoption; that is a finding, not a breakage —
+your own workflows are unchanged." It does not say which parts of the stack the file leaves out.
+
+**Direction.**
+- Until a multi-language CI lane exists (`## BL-228:` calls it the hard part): print, and write into the file's
+  header, a coverage statement from Scout's own numbers — "Covers: Kotlin (Gradle). Not covered: Swift (155 files),
+  TypeScript (126 files)".
+- Read the JDK version from the project (Gradle toolchain, `jvmTarget`, `.java-version`) instead of fixing 21.
+- Do not include a lint step for a tool the project does not have.
+- First-run SAST: separate "present before adoption" from "new" (a baseline file, as the test-debt ledger does for
+  tests), so the first red run is readable.
+- Document how a project feeds build-time configuration to the framework's CI (repository secrets, as the adoptee's
+  own release workflow does).
+
+**Evidence.** `evidence/ci-run.json`, `evidence/ci-run.failed.log` in the untracked
+`Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** The installed file states what it does not cover, and a Gradle project pinned to JDK 17 gets 17.
+
+**Related:** `## BL-285:` (every CI template hardcodes `npm` — the same class as the hard-coded `java-version` and
+`detekt` here), `## BL-228:` (the multi-language lane).
+
+## BL-382: CLAUDE.md import carry-over reports any `@word` in prose as an import with "no such file in this project"
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Defect (a false positive in a report) — the carry logic is `## BL-322:` S5
+**Severity:** Medium — the operator is told his file had broken imports and to "add back any you need by hand"
+**Status:** Open
+
+**What.** The adoptee's `CLAUDE.md` had no imports. One line of prose named three SwiftUI property wrappers —
+`@Published`, `@StateObject` and, in parentheses, `@Observable`. Adoption printed:
+
+```
+These imports in it were NOT carried; add back any you need by hand:
+  @Published — no such file in this project
+  @StateObject — no such file in this project
+  @Observable) — no such file in this project
+```
+
+`_adopt_claude_md_import_tokens` (`scripts/lib/adopt/adopt-docs.sh`) takes every `@token` Claude Code could read as
+an import — that is the point of `## BL-322:` S5, carry on doubt: a strict rule in a dry run raised misses from 9 to
+24 of 66 — and `_adopt_claude_md_carry` (`# BL-322-CARRY`) then classifies a token that names no file as `missing`
+(`# BL-322-CARRY-MISSING`), which the report prints under the certain heading (`# BL-322-CARRY-SKIP-SAY`). The hedged
+heading — "These @ mentions in it were NOT carried, and its Markdown does not show for certain that they are imports
+at all" (`# BL-322-CARRY-SKIP-UNSURE-SAY`) — exists, but `unsure` is set only for emphasis and link-text ambiguity
+(`# BL-322-CARRY-UNSURE-OUT`) and for the whole of a cut path (`# BL-322-CARRY-WHOLE-UNSURE`), never for the shape of
+the token. Swift property wrappers, Python and TypeScript decorators, Java annotations and
+`@mentions` at a word start will all do this. The third token kept its closing parenthesis, because a token runs to
+whitespace.
+
+**Fix.** Keep carry-on-doubt exactly as it is: a token that names an existing file is carried whatever it looks like,
+and nothing here may regress the 9→24 measurement. Change only what is REPORTED for a token that names no file:
+report "no such file" only for a path-shaped token (one that contains `/`, starts with `~` or `.`, or ends in a
+document extension); put the rest under the hedged heading, or say nothing for them, as `# BL-322-CARRY-WHOLE-MISSING`
+already does for a cut path's whole; strip trailing punctuation before the file test, so `@Observable)` is tested as
+`@Observable`.
+
+**Evidence.** `evidence/adopt-run3.log` (search "NOT carried") in the untracked `Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** A fixture `CLAUDE.md` containing `@Published`, `@dataclass`, `name@example.com` and one real
+`@docs/rules.md` carries the one import and reports nothing certain for the other three, and the S5 dry-run fixture
+still carries every import it carries today.
+
+## BL-383: the project name the operator confirms is used in one file; everything else gets the folder name
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Defect (adoption interview — an answer recorded and not used)
+**Severity:** Medium — the rendered CLAUDE.md, the adoption commit, the Qdrant collection and the run's own banner all
+carry a name the operator changed
+**Status:** Open
+
+**What.** `adopt_main` sets `ADOPT_PROJECT_NAME="${root##*/}"` — the directory basename — before the interview, and
+every later use reads it: the banner `Adopting <name>`, the rendered `CLAUDE.md`'s title and `Project:` line
+(`adopt_write_framework_docs`, `name="${ADOPT_PROJECT_NAME:-this project}"`), the Adoption Record
+(`SOIF_ADOPT_LOG_NAME`), the manifest, the Qdrant collection (`# BL-242-SESSION-MCP`) and the adoption commit's
+subject `chore: adopt <name> into the Solo Orchestrator framework`. At the project-name question the operator
+replaced the folder name with the product's name; `adopt_record_answer` recorded it as kind `scan-derived` with the
+note "changed by you; the scan had offered '<folder>'", so `PROJECT_INTAKE.md` reads
+`project_name (scan-derived): <product name>` — the typed value, labelled as scan-derived — and that file is the
+only place the typed name appears. The comment above `adopt_render_intake_progress` lists `project_name` among the
+keys adoption "knows" ("the directory"); it is also one the interview can change.
+
+**Direction.** Resolve the name once, after the interview, and render every use from it; label a typed answer as
+typed (the provenance header is the point of the reconstructed intake). If some uses must stay the folder name — a
+collection name wants a slug — derive the slug from the confirmed name and say so. `adopt_finish_main`
+(`# BL-242-FINISH`) re-derives the same basename to reproduce the commit subject, so the resolved name has to be
+recorded where `--finish` can read it.
+
+**Evidence.** `evidence/adopt-run3.log` and finding 20 of the run record, in the untracked
+`Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** After changing the name at the interview, a `grep -r` for the folder name over the files adoption
+rendered finds nothing it rendered, and `--finish` reproduces the same commit subject.
+
+## BL-384: the rendered CLAUDE.md says `undecided` for what adoption recorded elsewhere, cites paths that do not exist in the project, and leaves sibling rule files unreferenced
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Gap / Defect (framework documents) — touches `## BL-366:`
+**Severity:** Medium — between adoption and the assessment the agent has no pointer to the project's platform rules
+**Status:** Open
+
+**What.**
+- `Platform: undecided` and `Primary Language: undecided`, in the same adoption that installed the Guardrails with
+  `profile: mobile-app` and recorded `discovery.buildTools: kotlin`. The render (`adopt_write_framework_docs`,
+  `_adopt_doc_value "$ip" .platform undecided …`) reads `.claude/intake-progress.json`, where
+  `adopt_render_intake_progress` writes `platform` and `language` EMPTY on purpose — "a guessed platform would be a
+  fact nobody gave" — while Scout's dominant language is already what picks the CI template (`## BL-381:`) and the
+  session layer's settings (`_adopt_session_language`).
+- It cites `docs/platform-modules/` (not installed in an adopted project),
+  `templates/uat/templates/test-session-template.html` and `templates/generated/incident-response.tmpl` —
+  `templates/generated/claude-md.tmpl` names them. `## BL-366:` is the entry for the `templates/generated/*.tmpl`
+  skeletons adoption never installs; the UAT path is wrong in every tree — the file is
+  `templates/uat/test-session-template.html` in this repository, with no `templates/` folder between — so a
+  generated project is pointed at a file that does not exist either.
+- It says CI checks `CHANGELOG.md` freshness (the template's "CI also checks" line); the adoptee's changelog has
+  another name, and the opening screen had already said `Changelog: no CHANGELOG.md with released versions in it`
+  (`adopt_evidence_changelog`).
+- The adoptee keeps its platform rules in sibling files beside `CLAUDE.md` (`CLAUDE-<platform>.md`), named in the old
+  file in prose, not as `@` imports. Scout's collision table does not mention them, adoption leaves them untouched,
+  and the new `CLAUDE.md` does not mention them. All the iOS build, versioning and release rules were referenced by
+  nothing until the assessment folded some in by hand.
+
+**Direction.** Two of these have a recorded design behind them, so they are decisions before they are edits: whether
+`Platform` / `Primary Language` may be rendered from what adoption has (the Guardrails profile, Scout's dominant
+language) marked "to be confirmed in the assessment", against the "a fact nobody gave" rule; and whether
+`## BL-366:` installs the cited files or the template stops citing them in an adopted project. Without a decision:
+have Scout list every `CLAUDE*.md` and every Markdown file the old `CLAUDE.md` names in prose, and have the rendered
+file carry a "Files your old CLAUDE.md pointed at" section until the assessment replaces it — the same shape as the
+carried-imports section (`_adopt_carry_section`).
+
+**Evidence.** Findings 11 and 24 of the run record, in the untracked `Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** No path cited in a freshly rendered adopted `CLAUDE.md` is missing from the project; sibling
+`CLAUDE-*.md` files are named in it; the platform and language lines either carry a value with its provenance or say
+why they do not.
+
+## BL-385: adoption declares a project-level Qdrant server on a new collection named after the folder, shadowing the operator's own collection without a word
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Defect (session layer) — the collection-name choice, not the registration (Karl, 2026-11-24:
+registration stays automatic, `## BL-369:`)
+**Severity:** Medium — every session started in the project silently stops reading and writing the operator's
+existing memory collection
+**Status:** Open
+
+**What.** The operator had a Qdrant MCP server registered at user scope, pointing at his one collection.
+`adopt_write_session_layer` (`# BL-242-SESSION-STAGE`) found it registered (`_adopt_session_qdrant` →
+`is_qdrant_mcp_entry_present`: a `qdrant` entry in the user's `settings.json` or `.claude.json`) and answering, then
+wrote `.claude/settings.local.json` with a project-level server under the same key and `--collection-name <folder
+name>` (`# BL-242-SESSION-MCP`, `${ADOPT_PROJECT_NAME:-project}`), and set `qdrant_required: true` in the manifest.
+Its output says so in one line — `Qdrant is available: wrote .claude/settings.local.json (collection <name>)` — and
+asks nothing. The project-level entry wins, so every session started there uses a new, empty collection in the
+operator's real database; an operator with a one-collection rule now has two sources of truth and no warning.
+`init.sh` writes the same shape (`"--collection-name", "$PROJECT_NAME"` in `create_project`), so a generated project
+behaves the same way on a machine with a user-scope server.
+
+**What stays.** Karl ruled on 2026-11-24 (`## BL-369:`) that init.sh keeps registering Qdrant without a question when
+Docker or a container is available, and `## BL-233:` needs the declaration adoption writes
+(`.claude/settings.local.json`, machine-local) and the requirement it records in the manifest. Neither is in question
+here.
+
+**Direction.** When a Qdrant server is already registered at user scope, ask which collection the project should use:
+the one the user-scope server names (the default), or a new project collection — and say in the question what each
+choice does to memory already stored. The same question, or the same default, in `init.sh`. With no user-scope
+server, today's behaviour is right.
+
+**Evidence.** `evidence/adopt-run3.log` (search "Qdrant is available") in the untracked
+`Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** Adoption on a machine with a user-scope Qdrant server writes a project-level server only on the
+operator's choice, and the default keeps the operator's collection.
+
+## BL-386: after a mid-session adoption the MCP session check blocks every edit, including files outside the project — and another session's calls then satisfy it
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Defect (session layer) — sibling of `## BL-356:` (the ledger's directory) and `## BL-236:` (inherited
+flags)
+**Severity:** Medium-High — the adopting session cannot write its own notes or handoff anywhere; and the check can be
+satisfied without the session doing what it checks, which is a fail-open
+**Status:** Open
+
+**What.** Two halves, both measured in run 4.
+
+1. The session that ran adoption tried to edit its findings file, which lives outside the project.
+   `scripts/session-mcp-gate.sh` blocked it: `MCP SESSION GATE — CANNOT VERIFY: the tracking ledger
+   .claude/tool-usage.json is ABSENT … 'cannot tell', which is NOT 'satisfied'` (`# BL-233-FAILCLOSED-NOFILE`). Every
+   Edit and Write was blocked wherever the file was: the hook reads the ledger relative to its working directory and
+   never reads the tool input's path, so it has no notion of "inside the project". `adopt_mcp_restart_note`
+   (`# BL-311-ACT2-RESTART`) says a session already open "cannot save a file here"; in fact it cannot save a file
+   anywhere, and when the operator reads that line the moment to write a handoff has passed.
+2. A second session was then started in the project; its SessionStart wrote the ledger and it made its own Qdrant and
+   Context7 calls. The first session's very next Edit passed, with no new call of its own. The ledger is one file per
+   project directory; the check reads flags, not the session that set them.
+
+**Direction.**
+- Scope the check to paths inside the project (`$CLAUDE_PROJECT_DIR`, which `## BL-356:` already proposes as the
+  ledger's home): an edit to a path outside it is not this check's business.
+- Key the ledger by session — it already carries a `session_id` (`## BL-356:` item 2 shows a seeded ledger with
+  `session_id: null`), and every hook event's stdin input carries `session_id` and `cwd` as common fields (Claude
+  Code hooks documentation, read 2026-11-26) — and have the check read only its own session's record.
+- Adoption's last screen: before it writes its first file, tell the operator "if a Claude Code session is open here,
+  have it save its notes now; after this it cannot write", and replace "cannot save a file here" with what happens.
+
+**Evidence.** Finding 27 of the run record (exact block text), in the untracked `Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** A hook-level test: session A (no MCP calls) is blocked after session B (with calls) has written the
+ledger; an Edit to a path outside the project is not blocked by this check.
+
+**Related:** `## BL-278:` (the pending-approval sentinel read from the session's directory — the same class as the
+cwd-relative ledger), `## BL-356:`, `## BL-236:`.
+
+## BL-387: the assessment's finisher accepts answers nobody was asked for — nothing in the record distinguishes an operator's answer from an agent's inference
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Gap (assessment integrity)
+**Severity:** Medium — a phase gate later reads estimates as the operator's statements: the ZDR arm of the Phase 1→2
+gate reads the data classification the finisher persisted
+**Status:** Open
+
+**What.** The assessment prompt (`adopt_write_assessment_prompt`, `# BL-242-ASSESSMENT-PROMPT`) says "Then, WITH ME —
+ask, do not infer" for the five requirement axes, the in-production flag and the operations answers. The session that
+ran it had a standing instruction in its auto-memory to work unattended, asked nothing, and inferred every answer
+from the repository — its own inferred answers for users, availability and scalability, a data classification,
+zero-data-retention "not attested", `inProduction: true` — marking them unconfirmed in its prose only.
+`adopt-project.sh --act4` (`adopt_act4_finish`, `# BL-242-ACT4-FINISH`) validated the record —
+`_adopt_act4_record_errors` checks the axes' presence, types and taxonomy — printed `The assessment record and the
+verdict are complete`, and `_adopt_act4_classification` wrote the data classification "where the phase gate reads it"
+(`# BL-242-ACT4-CLASSIFICATION`). The record's `interview.*` keys carry values only: no field says who answered, and
+the finisher has no arm for "inferred".
+
+**Direction.** Add a per-axis `answeredBy` (`operator` / `inferred`) and `confirmed` field to the assessment record;
+have the prompt require them; have the finisher list every inferred or unconfirmed axis in its closing output; have
+the phase gate that reads an axis block while that axis is unconfirmed. This is cheap, and it also covers an agent
+that simply does not ask. The record's schema is validated in one place (`_adopt_act4_record_errors`), so the new
+fields get their check there; `ADOPT_ACT4_ANSWER_KEYS` is the allowlist the intake answers pass through and is
+unaffected.
+
+**Evidence.** Finding 29 and the "Stage 3 — assessment notes" section of the run record, in the untracked
+`Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** A record with an `inferred` axis is accepted by the finisher with a visible warning, and the first
+phase gate that reads that axis blocks until it is confirmed.
+
+## BL-388: there is no supported way for an owner to delegate the human-only steps, and two shipped rules cannot both be followed — the attested test-first exception and the lone-commit rule
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Design gap (unattended operation) + a rule conflict
+**Severity:** Medium — decide and document, even if the decision is "not supported"; the rule conflict stands on its
+own
+**Status:** Open
+
+**What.** Karl, who owns both the framework and the adoptee, told the adopting agent to run adoption to first change
+without him. Where that led:
+- Adoption's questions are human-only by design (`docs/adoption.md` § 2 treats "answers piped into the adoption
+  questions only you should answer" as the thing to prevent). The agent answered them in a terminal session. Nothing
+  records that an agent answered.
+- The commit approval ("You cannot create the approval yourself") was given by the supervising agent typing the
+  option id into a headless session's user turn. The Guardrails accepted it and the commit landed. Claude Code's
+  auto-mode classifier refused the agent's second attempt with `[Undermining Oversight]`; the framework itself never
+  noticed.
+- **A conflict between two shipped rules.** The Guardrails require an approved commit to be a lone `git commit` —
+  Solo prints the rule itself at `# BL-322-S4-OFFER-COMMIT`: "nothing before it, not even cd <folder> &&; nothing
+  after it; no -a, no paths". The test-first exception is `SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON='…' git commit …`
+  (`scripts/pre-commit-gate.sh`, the `ATTESTED and RECORDED` arm) — an environment prefix, which is something before
+  it. An agent holding an approval cannot use the exception. Read from the two texts; not executed.
+
+**Direction.** Decide which of these the framework wants, and say so in `docs/adoption.md`:
+- "Adoption to first change needs a person at these N points" — list them (the two questions, credential
+  dispositions, the trust line, the assessment's answers, each approval), so nobody plans an unattended run; or
+- a recorded delegation: an owner-written file naming what the agent may answer, with every delegated answer stamped
+  as delegated in the Adoption Record and the approvals log.
+- Either way, give the attested test-first exception a form that works inside the approval flow — an option on the
+  recorded question (`## BL-320:`'s schema-2 question), or a file the hook reads — instead of an environment prefix.
+  `## BL-321:` (deferred) is the entry for relaxing the lone-commit shape on Solo's side; this is the other way round,
+  fitting the exception to the shape.
+
+**Evidence.** Findings 31, 33 and 36 of the run record, in the untracked `Reports/2026-11-26-dogfood-run4-ios/`.
+
+**Done when.** `docs/adoption.md` states the supported answer; the attestation can be given without breaking the
+lone-commit rule.
+
+## BL-389: `docs/adoption.md` and adoption's closing text say things about the first session, the trust dialog and the options that are not so
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Docs
+**Severity:** Low-Medium
+**Status:** Open
+
+**What.** Each bullet was checked against `docs/adoption.md`, `README.md` and the driver at `bd6ed452`; the run's
+own observations are marked as such.
+- "The checks … only take effect in a session started AFTER adoption — a session that was already open cannot save a
+  file here" (`adopt_mcp_restart_note`, `# BL-311-ACT2-RESTART`). In the run, the Guardrails' PreToolUse hooks fired
+  in the already-open session on its next Bash call. What that session lacks is the session-start record, not the
+  hooks — which `docs/adoption.md` § 6 already says ("has no record of its own start … blocks every file edit in
+  it") and the function's own header comment says too ("the new hooks fire in it, but its SessionStart ran before
+  they existed"); only the printed text does not, so the script is the one thing to correct, to match the doc.
+  `## BL-386:` is what "cannot save a file here" understates.
+- In the run, a fresh non-interactive session in the adopted project printed `Ignoring 13 permissions.allow entries
+  from .claude/settings.json: this workspace has not been trusted.` The framework's composed permission rules are not
+  in force until someone accepts Claude Code's trust dialog interactively. Neither adoption's output nor § 6
+  "Afterwards" mentions it (`command grep -c -i -E 'trust dialog|has not been trusted' docs/adoption.md` prints `0`).
+- § 2's auto-mode trust line says its effect is "Not measured yet". One data point from the run, not conclusive
+  either way: in a session whose user settings already trusted the same GitHub remote under a different local path,
+  `scout.sh` and `adopt-project.sh --help` ran from the fresh clone without refusal and without the line.
+- The README shows two Scout invocations 16 lines apart — `scout.sh --root /path/to/their-app --markdown` under
+  "Scout — look before you leap", then `scout.sh --out /tmp/scout --run-tests` under "Adoption — the second way
+  in" — and no sentence says that the first is for reading and only the second writes the file `--scan-report`
+  consumes.
+- Adoption's opening screen — `Adopting <folder name>` (`adopt_main`), two lines about stopping safely, then `What
+  the scan noticed` (`adopt_present_evidence`) — never names the Scout report it is reading, when the scan was made or
+  at which commit; `adopt_obtain_report` prints only its refusals. Karl stopped at the first question to ask which
+  script he was running.
+- The `--help` block quoted in `docs/adoption.md` names `--root`, `--scan-report`, `--re-add`, `--version` and
+  `--help` only: it omits `--dispositions` and `--finish` (both listed by `usage()` in `scripts/adopt-project.sh`)
+  and `--act4`. `--act4` is parsed (`ADOPT_ACT4=1`) and the doc's assessment step shows it, but `usage()` does not
+  list it: `adopt-project.sh --help`, run from a scratch directory at `bd6ed452` (inside the framework tree the guard
+  refuses it), mentions `dispositions` twice, `finish` once and `act4` not at all. Scout accepts `--json`
+  (`MODE="json"`) but its usage text names only `--markdown`; JSON is the default, so the flag is harmless and
+  undocumented.
+
+**Direction.** Correct each statement; add one opening line to adoption ("This is adoption. It is reading the Scout
+report at <path>, made <time>, of commit <sha>."); say in § 6 that the first session must be interactive so the trust
+dialog can be accepted; refresh the quoted `--help` block from `usage()` and add `--act4` to `usage()`.
+
+**Evidence.** Findings 23 and 28 and unclear steps U1, U10 and U13 of the run record, in the untracked
+`Reports/2026-11-26-dogfood-run4-ios/`; every doc and code read above is reproducible at `bd6ed452`.
+
+**Done when.** Each bullet is either corrected or shown wrong.
+
+## BL-390: small things from dogfood run 4
+
+**Logged:** 2026-11-26 (dogfood run 4, first mobile adoptee; framework at 94dbf54f with Guardrails 4.5.0)
+**Category:** Mixed — each bullet is small; a bullet that grows gets its own entry
+**Severity:** Low
+**Status:** Open
+
+**What.** Four small things from the run, each with its own pointer, and one that already had a home.
+
+- **The credential stop lists `rule  file:line` without the commit.** `_adopt_secrets_print_findings` prints
+  `ruleId`, `file` and `startLine` and nothing else, by design ("the same three facts the archive scan's projection
+  prints"). All of the run's credential-pattern findings were historical (count and locations stay in the private
+  evidence), so the line points at a version that is not checked out; the commit is only inside each fingerprint
+  (`commit:file:rule:line`). Print it beside the line and say that `git show <commit>:<file>` is how to look. The
+  stop itself, the bound dispositions file and the `--dispositions` re-run all worked as documented.
+- **The tree is never clean after the framework's own flows.** Left untracked and un-ignored after ordinary use:
+  `.claude/approvals.jsonl` (`## BL-357:`, Open), `.claude/pending-approval.json` while a question is open (Solo's own
+  sentinel, written by `pending-approval.sh --offer`; named by no rule in `templates/generated/gitignore-base.tmpl` or
+  `_adopt_session_ignore_rules`), and `.claude/tdd-warn-ledger.jsonl` (Solo does not ignore it — `## BL-322:` S1,
+  Karl, 2026-10-07). The tracked `.claude/bypass-audit.json` was modified by a blocked commit — by design:
+  `## BL-171:` writes the block's row there through `soif_ledger_blocked`. Three of the four have a ruling; the
+  sentinel does not.
+- **`kill -INT` on the adoption driver waiting at its first question did not end it; `kill -TERM` did.** Signalled
+  from outside the terminal, once. `adopt_main` traps `INT` and `TERM` to the same cleanup
+  (`trap 'rm -rf "$ADOPT_WORK"' EXIT INT TERM`), so the difference is not in the trap. Worth one check that Ctrl-C at
+  a question exits cleanly.
+- **A recorded question can change between the two replies.** A commit was approved, blocked (`## BL-377:`), and the
+  agent recorded a new question reusing the id `A1` for a different action. A reply by id through any channel that
+  does not show the question now answers something else. Showing the question on the first reply (`## BL-320:`)
+  covers the interactive route only. The Guardrails' half is filed in their repository; Solo's half is whether
+  `pending-approval.sh --offer` should refuse to reuse an id while an approval for it is still in flight.
+- **`reconfigure-project.sh --field platform` and `templates/pipelines/release/<platform>.yml`** — the release-arm
+  residual of `## BL-287:`; recorded there as a dated paragraph, not repeated here.
+
+**Evidence.** Findings 16, 17 and 32 and unclear step U24 of the run record, in the untracked
+`Reports/2026-11-26-dogfood-run4-ios/`.
+
+What the run confirmed works, so a fix must not break it: Scout's ignore-rule prediction (exact rule, line and count,
+and the honest "anchoring it would not help"); the organizational credential stop (fired after two questions, wrote
+nothing, printed a dispositions file bound to the scan; the re-run with `--dispositions` continued cleanly); the
+collision archive (both replaced files archived with working restore lines, nothing of the project's lost, the commit
+holding only adoption's files); the Guardrails installer's `mobile-app` profile pick; `resume.sh`'s assessment prompt
+before the assessment and the Phase 0 prompt ("THIS PROJECT WAS ADOPTED, NOT SCAFFOLDED") after it, as
+`docs/adoption.md` § 6 says.
