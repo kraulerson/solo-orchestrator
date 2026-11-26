@@ -469,8 +469,10 @@ here.
   pull request, and nothing else has to change for either to pass. Prose that
   names the image goes stale, not red: `git grep -n` the old label. It has no
   `lint.yml` job; `tests/test-run-lints.sh` and its own suite run it in the
-  unit lane, so a red one turns `unit` red. It reads only those two files: a
-  new workflow file is not checked (`## BL-358:`, R-358-15).
+  unit lane, so a red one turns `unit` red. With no arguments it also holds
+  every other `.github/workflows/*.yml` and `*.yaml` against its `CHECKED` and
+  `EXEMPT` lists: a file in neither, an `EXEMPT` file that holds a `runs-on`
+  line, or an `EXEMPT` entry with no reason fails by name (`## BL-376:`).
 
 ## LINT GOTCHAS
 
