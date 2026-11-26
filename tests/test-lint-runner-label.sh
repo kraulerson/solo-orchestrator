@@ -18,9 +18,9 @@
 #   B  moving to a new image, rehearsed on copies: RUNNER_LABEL and the
 #      runs-on lines change together, and the lines alone fail
 #   M  one mutant per marked line of the lint (two on the marker check, two
-#      on the enumerate), each on a copy, each found by its end-of-line
-#      marker and asserted to have landed; each must turn its killer case's
-#      verdict around
+#      on the enumerate, two on the nullglob guard), each on a copy, each
+#      found by its end-of-line marker and asserted to have landed; each must
+#      turn its killer case's verdict around
 #
 # The label is never written here. It is read from the lint's RUNNER_LABEL
 # line (`# BL-358-LABEL-VALUE`), and every fixture, pattern and expected
@@ -393,7 +393,7 @@ if planted S2 "$CHECKED_MK" 'release.yml'; then
   ln="$(_line_eq "$S2/.github/workflows/release.yml" "    $BAD_LINE")"
   run_in_tree "$PLANTED" "$S2"
   if [ "$RC" -eq 1 ] && [ "$(_fails "$OUT")" = "1" ] \
-    && printf '%s\n' "$OUT" | _gq -F ".github/workflows/release.yml:$ln (job bad1): runs on \`ubuntu-latest\`, not \`$LABEL\`"; then
+    && printf '%s\n' "$OUT" | _gq -F "[FAIL] lint-runner-label: .github/workflows/release.yml:$ln (job bad1): runs on \`ubuntu-latest\`, not \`$LABEL\`"; then
     pass "S2 — a third CHECKED workflow's ubuntu-latest fails by file, line and job, that line alone"
   else
     fail_ "S2" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
@@ -412,7 +412,8 @@ if planted S3 "$EXEMPT_MK" "call-tests.yml  $CALLER_REASON"; then
   fi
 fi
 
-if planted S4 "$EXEMPT_MK" "call-tests.yml  $CALLER_REASON"; then
+# S4's entry ends in spaces, as an editor may leave it: the reason prints trimmed.
+if planted S4 "$EXEMPT_MK" "call-tests.yml  $CALLER_REASON   "; then
   S4="$(newtmp)"; S4_LINT="$PLANTED"; mk_tree "$S4"; mk_caller "$S4/.github/workflows/call-tests.yml"
   printf '  build:\n    %s\n    steps:\n      - run: echo build\n' "$OK_LINE" >> "$S4/.github/workflows/call-tests.yml"
   run_in_tree "$PLANTED" "$S4"
@@ -427,9 +428,9 @@ fi
 S5="$(newtmp)"; mk_tree "$S5"; mk_wf "$S5/.github/workflows/release.yml"
 run_in_tree "$LINT" "$S5"
 if [ "$RC" -eq 1 ] && [ "$(_fails "$OUT")" = "1" ] \
-  && printf '%s\n' "$OUT" | _gq -F '.github/workflows/release.yml is in neither list of scripts/lint-runner-label.sh: add it to CHECKED when its jobs carry runs-on lines, or to EXEMPT with a reason' \
+  && printf '%s\n' "$OUT" | _gq -F '[FAIL] lint-runner-label: .github/workflows/release.yml is in neither list of scripts/lint-runner-label.sh: add it to CHECKED when its jobs carry runs-on lines, or to EXEMPT with a reason' \
   && ! printf '%s\n' "$OUT" | _gq -F 'Each runs-on line reads'; then
-  pass "S5 — a third .yml in neither list fails by name, naming both lists, with no label how-to after it"
+  pass "S5 — a third .yml in neither list fails by its repository path, naming both lists, with no label how-to after it"
 else
   fail_ "S5" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
 fi
@@ -443,12 +444,13 @@ else
   fail_ "S6" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
 fi
 
-if planted S7 "$EXEMPT_MK" 'call-tests.yml'; then
+# S7's bare entry ends in spaces too: spaces are not a reason.
+if planted S7 "$EXEMPT_MK" 'call-tests.yml     '; then
   S7="$(newtmp)"; S7_LINT="$PLANTED"; mk_tree "$S7"; mk_caller "$S7/.github/workflows/call-tests.yml"
   run_in_tree "$PLANTED" "$S7"
   if [ "$RC" -eq 1 ] && [ "$(_fails "$OUT")" = "1" ] \
     && printf '%s\n' "$OUT" | _gq -F '.github/workflows/call-tests.yml is EXEMPT with no reason'; then
-    pass "S7 — an EXEMPT entry with no reason fails by name"
+    pass "S7 — an EXEMPT entry with no reason, trailing spaces included, fails by name"
   else
     fail_ "S7" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
   fi
@@ -485,6 +487,34 @@ if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | _gq -F 'A file in neither list fail
   pass "S11 — --help describes the two lists and what a file in neither does"
 else
   fail_ "S11" "rc=$RC out=$(printf '%s' "$OUT" | head -2 | tr '\n' ' ')"
+fi
+
+# S12 — the runs-on text of an EXEMPT file may be no runs-on key at all: here a
+# comment after a `uses:` key. Moved to CHECKED, that line would fail the
+# shape rule, so the message carries the file's own fault lines and both
+# ways out.
+S12_USES='    uses: ./.github/workflows/lint.yml   # its runs-on lines are checked there'
+if planted S12 "$EXEMPT_MK" "call-tests.yml  $CALLER_REASON"; then
+  S12="$(newtmp)"; mk_tree "$S12"; mk_caller "$S12/.github/workflows/call-tests.yml"
+  printf '  lint2:\n%s\n' "$S12_USES" >> "$S12/.github/workflows/call-tests.yml"
+  ln="$(_line_eq "$S12/.github/workflows/call-tests.yml" "$S12_USES")"
+  run_in_tree "$PLANTED" "$S12"
+  if [ "$RC" -eq 1 ] && [ "$(_fails "$OUT")" = "2" ] \
+    && printf '%s\n' "$OUT" | _gq -F ".github/workflows/call-tests.yml holds 1 runs-on line(s) but is EXEMPT ($CALLER_REASON): the exemption no longer describes it, so move the file to CHECKED, or drop the word from the file" \
+    && printf '%s\n' "$OUT" | _gq -F "[FAIL] lint-runner-label: .github/workflows/call-tests.yml:$ln (job lint2): mentions runs-on but is not a \`runs-on:\` line"; then
+    pass "S12 — an EXEMPT workflow whose runs-on is a comment after a key fails with that line named under the message, and both ways out"
+  else
+    fail_ "S12" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-400)"
+  fi
+fi
+
+S13="$(newtmp)"; mk_tree "$S13"; touch "$S13/.github/workflows/empty.yml"
+run_in_tree "$LINT" "$S13"
+if [ "$RC" -eq 1 ] && [ "$(_fails "$OUT")" = "1" ] \
+  && printf '%s\n' "$OUT" | _gq -F '[FAIL] lint-runner-label: .github/workflows/empty.yml is in neither list'; then
+  pass "S13 — an empty .yml in neither list is a workflow file too: failed by name"
+else
+  fail_ "S13" "rc=$RC out=$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
 fi
 
 echo "=== B — moving to a new image, rehearsed on copies ==="
@@ -538,7 +568,7 @@ for m in VALUE HELP OPTION JOB COMMENT-SKIP SCOPE SHAPE SPLIT NAME MARKER FLOOR 
   [ "$n" = "1" ] && pass "M0 — '# BL-358-LABEL-$m' ends exactly one line of the lint" \
     || fail_ "M0" "'# BL-358-LABEL-$m' ends $n lines (need exactly 1)"
 done
-for m in CHECKED-BEGIN EXEMPT-BEGIN ENUMERATE NULLGLOB CHECKED-MATCH EXEMPT-MATCH EXEMPT-OK EXEMPT-RUNS-ON EXEMPT-REASON UNKNOWN EXIT; do
+for m in CHECKED-BEGIN EXEMPT-BEGIN ENUMERATE NULLGLOB SHOW CHECKED-MATCH EXEMPT-MATCH REASON-TRIM EXEMPT-OK EXEMPT-RUNS-ON EXEMPT-REASON UNKNOWN EXIT; do
   n="$(grep -c "# BL-376-$m\$" "$LINT")"
   [ "$n" = "1" ] && pass "M0 — '# BL-376-$m' ends exactly one line of the lint" \
     || fail_ "M0" "'# BL-376-$m' ends $n lines (need exactly 1)"
@@ -742,6 +772,32 @@ if mutant M27 '# BL-376-EXEMPT-OK' '    if false; then   # BL-376-EXEMPT-OK' "$S
     && ! printf '%s\n' "$OUT" | _gq -F 'workflow(s) exempt' \
     && pass "M27 — with a reasoned entry never accepted, S3's caller-only workflow is misreported as an entry with no reason and nothing is exempt (S3 kills it)" \
     || fail_ "M27" "rc=$RC out=$(printf '%s' "$OUT" | head -1)"
+fi
+
+if mutant M28 '# BL-376-SHOW' '    show="$wf"   # BL-376-SHOW'; then
+  run_in_tree "$MUT" "$S5"
+  [ "$RC" -eq 1 ] && printf '%s\n' "$OUT" | _gq -F "[FAIL] lint-runner-label: $S5/.github/workflows/release.yml is in neither list" \
+    && ! printf '%s\n' "$OUT" | _gq -F '[FAIL] lint-runner-label: .github/workflows/release.yml is in neither list' \
+    && pass "M28 — with the repository root not stripped, S5's stray file is named by its absolute path, not its repository path (S5 kills it)" \
+    || fail_ "M28" "rc=$RC out=$(printf '%s' "$OUT" | head -1)"
+fi
+
+if mutant M29 '# BL-376-NULLGLOB' '    [ -s "$wf" ] || continue   # BL-376-NULLGLOB'; then
+  run_in_tree "$MUT" "$S13"
+  [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | _gq -F 'OK: 2 runs-on line(s) in 2 workflow(s)' \
+    && pass "M29 — with empty files skipped as if unmatched, S13's empty .yml passes unnamed (S13 kills it)" \
+    || fail_ "M29" "rc=$RC out=$(printf '%s' "$OUT" | head -1)"
+fi
+
+# M30 is judged on S4, whose message prints the reason: a bare entry's trailing
+# spaces are consumed by the first sed expression with or without the strip,
+# so S7 cannot tell the two apart (measured).
+if mutant M30 '# BL-376-REASON-TRIM' '    reason="$(printf '"'"'%s\n'"'"' "$entry" | sed '"'"'s/^[^[:space:]]*[[:space:]]*//'"'"')"   # BL-376-REASON-TRIM' "$S4_LINT"; then
+  run_in_tree "$MUT" "$S4"
+  [ "$RC" -eq 1 ] && printf '%s\n' "$OUT" | _gq -F "but is EXEMPT ($CALLER_REASON   ): the exemption" \
+    && ! printf '%s\n' "$OUT" | _gq -F "but is EXEMPT ($CALLER_REASON): the exemption" \
+    && pass "M30 — with the trailing strip gone, S4's reason prints with its trailing spaces (S4 kills it)" \
+    || fail_ "M30" "rc=$RC out=$(printf '%s' "$OUT" | head -1)"
 fi
 
 echo ""

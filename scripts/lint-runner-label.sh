@@ -141,14 +141,16 @@ EOF
     # bash 3.2 has no nullglob: a pattern that matches nothing is its own text.
     [ -e "$wf" ] || continue   # BL-376-NULLGLOB
     base="${wf##*/}"
-    show="${wf#"$REPO_ROOT"/}"
+    show="${wf#"$REPO_ROOT"/}"   # BL-376-SHOW
     checked_set | awk -v b="$base" '$1 == b { hit = 1 } END { exit !hit }' && continue   # BL-376-CHECKED-MATCH
     entry="$(exempt_list | awk -v b="$base" '$1 == b && !hit { hit = 1; print }')"   # BL-376-EXEMPT-MATCH
-    reason="$(printf '%s\n' "$entry" | sed 's/^[^[:space:]]*[[:space:]]*//; s/[[:space:]]*$//')"
+    reason="$(printf '%s\n' "$entry" | sed 's/^[^[:space:]]*[[:space:]]*//; s/[[:space:]]*$//')"   # BL-376-REASON-TRIM
     if [ -n "$reason" ]; then   # BL-376-EXEMPT-OK
       scan "$wf" "$show"
       if [ "$n" -ne 0 ]; then   # BL-376-EXEMPT-RUNS-ON
-        echo "[FAIL] lint-runner-label: $show holds $n runs-on line(s) but is EXEMPT ($reason): the exemption no longer describes it, so move the file to CHECKED" >&2
+        echo "[FAIL] lint-runner-label: $show holds $n runs-on line(s) but is EXEMPT ($reason): the exemption no longer describes it, so move the file to CHECKED, or drop the word from the file" >&2
+        # Its fault lines, if any: a line that is no runs-on key would fail the shape rule once CHECKED.
+        [ -z "$bad" ] || printf '%s\n' "$bad" >&2
         scope_failed=1
       else
         exempt=$((exempt + 1))
